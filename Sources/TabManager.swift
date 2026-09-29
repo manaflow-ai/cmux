@@ -500,7 +500,8 @@ class TabManager: ObservableObject {
     private var workspaceHandoffRetirementGate = WorkspaceHandoffRetirementGate()
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
-    private var currentWindowTabBarLeadingInset: CGFloat?
+    var currentWindowTabBarLeadingInset: CGFloat?
+    var currentWindowTabBarTrailingInset: CGFloat?
     private var closeConfirmationInFlight = false
     let closeTabWarningDefaults: UserDefaults
     let tabDragTransferRegistry: TabDragTransferRegistry
@@ -1232,33 +1233,6 @@ class TabManager: ObservableObject {
             return nil
         }
         return store
-    }
-
-    func applyCreationChromeInheritance(
-        to newWorkspace: Workspace,
-        from sourceWorkspace: Workspace?
-    ) {
-        // Sidebar-toggle relayout updates the live Bonsplit leading inset so minimal-mode
-        // workspaces reserve traffic-light space. New workspaces need that same inset
-        // copied immediately because creation itself does not trigger the resync path.
-        let inheritedLeadingInset = currentWindowTabBarLeadingInset
-            ?? sourceWorkspace?.bonsplitController.configuration.appearance.tabBarLeadingInset
-        guard let inheritedLeadingInset else { return }
-        applyTabBarLeadingInset(inheritedLeadingInset, to: newWorkspace)
-    }
-
-    func syncWorkspaceTabBarLeadingInset(_ inset: CGFloat) {
-        let normalizedInset = max(0, inset)
-        currentWindowTabBarLeadingInset = normalizedInset
-        for tab in tabs {
-            applyTabBarLeadingInset(normalizedInset, to: tab)
-        }
-    }
-
-    private func applyTabBarLeadingInset(_ inset: CGFloat, to workspace: Workspace) {
-        if workspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
-            workspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
-        }
     }
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.

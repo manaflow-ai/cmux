@@ -52,6 +52,7 @@ const sectionOrder = [
   "markdown",
   "fileEditor",
   "fileExplorer",
+  "rightSidebar",
   "shortcuts",
 ] as const;
 
@@ -116,6 +117,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // "fileExplorer": {
   //   // ${t("exampleFileExplorerDoubleClickAction")}
   //   "doubleClickAction": "preview"
+  // },
+
+  // "rightSidebar": {
+  //   // ${t("exampleRightSidebarToggleButton")}
+  //   "toggleButton": "titlebar"
   // },
 
   // "automation": {

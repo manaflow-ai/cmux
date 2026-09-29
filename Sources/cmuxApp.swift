@@ -668,7 +668,7 @@ struct cmuxApp: App {
                         appDelegate.openDebugStressWorkspacesWithLoadedSurfaces(nil)
                     }
                 )
-
+                RightSidebarToggleButtonDebugMenu()
                 Divider()
                 Menu("Debug Windows") {
                     Button("Background Debug…") {

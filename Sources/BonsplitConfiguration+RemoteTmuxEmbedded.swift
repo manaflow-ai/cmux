@@ -18,6 +18,7 @@ extension BonsplitConfiguration {
         configuration.appearance.minimumPaneWidth = 1
         configuration.appearance.minimumPaneHeight = 1
         configuration.appearance.tabBarLeadingInset = 0
+        configuration.appearance.tabBarTrailingInset = 0
         configuration.appearance.enableAnimations = false
         configuration.appearance.splitButtons = configuration.appearance.splitButtons.filter {
             switch $0.action {

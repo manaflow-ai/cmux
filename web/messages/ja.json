@@ -2457,7 +2457,10 @@
       "metaTitle": "設定",
       "schemaDescriptions": {
         "root": "cmux の設定。グローバルな cmux.json では、アプリ設定、ショートカット、アクション、カスタムコマンド、通知フック、ワークスペースのレイアウトを設定できます。プロジェクトローカルの .cmux/cmux.json または cmux.json では、アクション、コマンド、通知フック、UI アクションの割り当て、Agent Chat の上書き、Vault エージェント、ワークスペースグループの上書き、ワークスペースの起動とボタンを設定できます。",
-        "rightSidebar": "cmux.json に保持される、従来の右サイドバー設定および拡張機能が所有する右サイドバー設定。",
+        "rightSidebar": {
+          "description": "右サイドバーのクローム設定。このオブジェクトには、従来の右サイドバー設定と拡張機能が所有する設定も保持されます。",
+          "toggleButton": "右サイドバーの表示/非表示ボタンを常に置く場所です。`titlebar` はウインドウ右上の角に置き、サイドバーの表示中も非表示中も同じ位置に保ちます。`paneTabBar` は右上のペインのタブバーの末尾に置きます。`sidebarFooter` は左サイドバーのフッターに置きます。`hidden` はボタンを削除します。モードバーのボタンと「右サイドバーを切り替え」ショートカットは引き続き使えます。"
+        },
         "packs": {
           "description": "この設定より先に読み込むローカルの cmux パックファイルまたはディレクトリ。ディレクトリ内の cmux.pack.json を読み込みます。パス文字列、または path フィールドを持つオブジェクトを指定します。",
           "path": "ローカルファイルまたはディレクトリのパス。絶対パス以外は、この設定ファイルからの相対パスです。"
@@ -2597,6 +2600,7 @@
       "exampleMarkdownMaxWidth": "読み取りカラム最大幅の既定値（CSS ピクセル単位）です。",
       "exampleFileEditorWordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。",
       "exampleFileExplorerDoubleClickAction": "ファイルをダブルクリックしたときの動作: preview（既定）、defaultEditor（macOS の既定アプリ）、preferredEditor（app.preferredEditor コマンド）。",
+      "exampleRightSidebarToggleButton": "右サイドバーの表示/非表示ボタン: titlebar（既定）、paneTabBar、sidebarFooter、または hidden。",
       "shortcutsWhenIntro": "アクションごとの任意のコンテキスト述語（VS Code スタイルの when 句）で、cmux のアクション ID をキーにします。バインディングは、その句が成立するときだけ発火し、同じキーストロークの他のバインディングともそのときだけ競合します。句を省略すると、アクションの組み込みコンテキストが維持されます。句で使える語彙:",
       "shortcutsWhenBooleanKeys": "boolean キー。未知または存在しないキーは false として扱われ、リテラル true / false も使えます。",
       "shortcutsWhenTypedKeys": "比較用の型付きキー。右サイドバーのアクティブモード（文字列）と、ペイン数・ワークスペース数（整数）です。",

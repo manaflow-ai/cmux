@@ -1338,7 +1338,10 @@
       "metaTitle": "Konfiguracja",
       "schemaDescriptions": {
         "root": "Konfiguracja cmux. Globalny plik cmux.json obsługuje ustawienia aplikacji, skróty, akcje, niestandardowe polecenia, hooki powiadomień i układy obszarów roboczych. Plik .cmux/cmux.json lub cmux.json lokalny dla projektu obsługuje akcje, polecenia, hooki powiadomień, powiązania akcji interfejsu, nadpisania Agent Chat, agentów vault, nadpisania grup obszarów roboczych oraz konfigurację uruchamiania i przycisków obszaru roboczego.",
-        "rightSidebar": "Starsza oraz należąca do rozszerzeń konfiguracja prawego paska bocznego zachowywana w cmux.json.",
+        "rightSidebar": {
+          "description": "Ustawienia elementów prawego paska bocznego. Obiekt przechowuje też starszą konfigurację prawego paska bocznego i konfigurację rozszerzeń.",
+          "toggleButton": "Miejsce stałego przycisku pokazywania i ukrywania prawego paska bocznego. `titlebar` umieszcza go w prawym górnym rogu okna, w tym samym miejscu przy pokazanym i ukrytym pasku. `paneTabBar` umieszcza go na końcu paska kart prawego górnego panelu. `sidebarFooter` umieszcza go w stopce lewego paska bocznego. `hidden` usuwa przycisk; przycisk na pasku trybów i skrót przełączania nadal działają."
+        },
         "packs": {
           "description": "Lokalne pliki lub katalogi pakietów cmux wczytywane przed tą konfiguracją. Katalogi wskazują na cmux.pack.json. Użyj ciągu ścieżki lub obiektu z polem path.",
           "path": "Lokalna ścieżka pliku lub katalogu, względna wobec tego pliku konfiguracyjnego, jeśli nie jest bezwzględna."
@@ -1427,6 +1430,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileExplorerDoubleClickAction": "Dwukrotne kliknięcie pliku: preview (domyślne), defaultEditor (domyślna aplikacja macOS) albo preferredEditor (polecenie app.preferredEditor).",
+      "exampleRightSidebarToggleButton": "Przycisk prawego paska bocznego: titlebar (domyślnie), paneTabBar, sidebarFooter lub hidden.",
       "shortcutsWhenIntro": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule when w stylu VS Code), indeksowane identyfikatorem akcji cmux. Przypisanie uruchamia się — i koliduje z innym przypisaniem tego samego skrótu — tylko wtedy, gdy jego klauzula jest spełniona. Pomiń klauzulę, aby zachować wbudowany kontekst akcji. Słownictwo klauzul:",
       "shortcutsWhenBooleanKeys": "klucze logiczne. Nieznany lub nieobecny klucz jest traktowany jako false; akceptowane są też literały true i false.",
       "shortcutsWhenTypedKeys": "klucze typowane do porównań: aktywny tryb prawego paska bocznego (łańcuch) oraz liczby paneli i obszarów roboczych (liczby całkowite).",

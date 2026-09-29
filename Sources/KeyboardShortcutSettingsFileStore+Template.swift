@@ -266,6 +266,11 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "rightSidebar": [
+                    "toggleButton": SettingCatalog().rightSidebar.toggleButton.defaultValue.rawValue,
+                ],
+            ],
+            [
                 "diffViewer": [
                     "defaultLayout": "unified",
                 ],

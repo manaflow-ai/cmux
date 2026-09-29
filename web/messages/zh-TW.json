@@ -1337,7 +1337,10 @@
       "metaTitle": "設定",
       "schemaDescriptions": {
         "root": "cmux 設定。全域 cmux.json 支援應用程式設定、快捷鍵、動作、自訂命令、通知 hook 與工作區版面配置。專案本機的 .cmux/cmux.json 或 cmux.json 支援動作、命令、通知 hook、UI 動作綁定、Agent Chat 覆寫、vault 代理、工作區群組覆寫，以及工作區啟動與按鈕設定。",
-        "rightSidebar": "保留在 cmux.json 中的舊版及擴充功能所擁有的右側邊欄設定。",
+        "rightSidebar": {
+          "description": "右側邊欄介面設定。此物件也會保留舊版與擴充功能擁有的右側邊欄設定。",
+          "toggleButton": "右側邊欄顯示/隱藏按鈕的常駐位置。`titlebar` 將其放在視窗右上角，無論側邊欄顯示或隱藏都維持同一位置。`paneTabBar` 將其放在右上方窗格標籤列的末端。`sidebarFooter` 將其放在左側邊欄底部。`hidden` 移除此按鈕；模式列按鈕與切換右側邊欄快速鍵仍可使用。"
+        },
         "packs": {
           "description": "在此設定之前載入的本機 cmux 套件檔案或目錄。目錄會解析為 cmux.pack.json。請使用路徑字串或含有 path 欄位的物件。",
           "path": "本機檔案或目錄路徑。非絕對路徑會相對於此設定檔案。"
@@ -1426,6 +1429,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileExplorerDoubleClickAction": "按兩下檔案：preview（預設）、defaultEditor（macOS 預設 App）或 preferredEditor（app.preferredEditor 命令）。",
+      "exampleRightSidebarToggleButton": "右側邊欄顯示/隱藏按鈕：titlebar（預設）、paneTabBar、sidebarFooter 或 hidden。",
       "shortcutsWhenIntro": "每個動作可選的內容述詞（VS Code 風格的 when 子句），依 cmux 動作 id 建立索引。只有在其子句成立時，綁定才會觸發，也只會在這種情況下與同一按鍵上的其他綁定衝突。省略子句即保留動作的內建內容。子句可用的詞彙：",
       "shortcutsWhenBooleanKeys": "布林鍵。未知或不存在的鍵視為 false；也接受常值 true 和 false。",
       "shortcutsWhenTypedKeys": "用於比較的型別化鍵：右側邊欄的目前模式（字串），以及窗格與工作區數量（整數）。",
