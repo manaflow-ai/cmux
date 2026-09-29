@@ -56,7 +56,7 @@ identity from the environment, ever starts a zellij server. A serialized
 session would outlive its server, and a cmux terminal's `zellij attach` would
 then resurrect it into a new server that inherits that terminal's
 credentials. If zellij ever does list an owned session as exited, `status`
-reports `exited` and `start` refuses the name until you `close` it.
+reports `exited`, and `start` and `attach` refuse it until you `close` it.
 
 ## Identity and safety
 

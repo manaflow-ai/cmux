@@ -5,7 +5,9 @@ import Foundation
 enum LocalZellijSessionState: String {
     /// Running in the private socket directory.
     case live
-    /// Stopped, but zellij can resurrect it on attach.
+    /// Listed as stopped. cmux never attaches to it: a client's `zellij
+    /// attach` would resurrect it into a server started with that client's
+    /// environment.
     case exited
     /// zellij has no session by this name.
     case stale
@@ -18,7 +20,7 @@ struct LocalZellijRuntime {
     let runner: LocalTmuxProcessRunner
 
     /// Sessions zellij would attach to by name: live ones in the private
-    /// socket directory and exited ones it can resurrect.
+    /// socket directory and exited ones it lists from its cache.
     func sessions() throws -> [LocalZellijSessionListParser.Session] {
         let result = try runner.run(arguments: builder.listSessionsArguments())
         guard let sessions = LocalZellijSessionListParser().sessions(result) else {
@@ -84,8 +86,12 @@ extension CMUXCLI {
             }
         case .attach:
             let record = try requireLocalZellijRecord(invocation, runtime: runtime)
-            // An exited session is attachable: zellij resurrects it.
-            guard try runtime.state(of: record) != .stale else {
+            switch try runtime.state(of: record) {
+            case .live:
+                break
+            case .exited:
+                throw localZellijExitedError(record.name)
+            case .stale:
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(localized: "cli.localZellij.error.sessionNotRunning", defaultValue: "local-zellij session is no longer running: %@"),
                     record.name
@@ -212,8 +218,8 @@ extension CMUXCLI {
         case .live:
             return record
         case .exited:
-            // The server stopped after creating the session; it can still be
-            // resurrected, so ownership stays.
+            // The server stopped after creating the session. Ownership stays
+            // so `close` can remove what zellij still lists.
             throw localZellijExitedError(name)
         case .stale:
             if existingRecord == nil {
@@ -258,7 +264,7 @@ extension CMUXCLI {
 
     private func localZellijExitedError(_ name: String) -> CLIError {
         CLIError(message: String.localizedStringWithFormat(
-            String(localized: "cli.localZellij.error.sessionExited", defaultValue: "local-zellij session %@ has exited; attach to resurrect it or close it first"),
+            String(localized: "cli.localZellij.error.sessionExited", defaultValue: "local-zellij session %@ has exited; close it first"),
             name
         ))
     }

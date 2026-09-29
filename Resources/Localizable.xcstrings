@@ -84842,55 +84842,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij session %@ has exited; attach to resurrect it or close it first"
+            "value": "local-zellij session %@ has exited; close it first"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انتهت جلسة local-zellij %@؛ أرفقها لإحيائها أو أغلقها أولًا"
+            "value": "انتهت جلسة local-zellij %@؛ أغلقها أولًا"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij-Sitzung %@ wurde beendet; hänge sie an, um sie wiederherzustellen, oder schließe sie zuerst"
+            "value": "local-zellij-Sitzung %@ wurde beendet; schließe sie zuerst"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "la sesión de local-zellij %@ finalizó; conéctate a ella para restaurarla o ciérrala primero"
+            "value": "la sesión de local-zellij %@ finalizó; ciérrala primero"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "la session local-zellij %@ est terminée ; attachez-la pour la ressusciter ou fermez-la d'abord"
+            "value": "la session local-zellij %@ est terminée ; fermez-la d'abord"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij セッション %@ は終了しています。アタッチして復元するか、先に閉じてください"
+            "value": "local-zellij セッション %@ は終了しています。先に閉じてください"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij 세션 %@이(가) 종료되었습니다. 연결하여 복원하거나 먼저 닫으세요"
+            "value": "local-zellij 세션 %@이(가) 종료되었습니다. 먼저 닫으세요"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij 会话 %@ 已退出；请附加以恢复它，或先将其关闭"
+            "value": "local-zellij 会话 %@ 已退出；请先将其关闭"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "local-zellij 工作階段 %@ 已結束；請附加以復原，或先將其關閉"
+            "value": "local-zellij 工作階段 %@ 已結束；請先將其關閉"
           }
         }
       }

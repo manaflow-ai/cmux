@@ -191,7 +191,7 @@ extension CMUXCLI {
         }
     }
 
-    /// `live`, `exited` (zellij can resurrect it), or `stale` (gone).
+    /// `live`, `exited` (listed but stopped; never attached), or `stale` (gone).
     private func localZellijDisplayState(_ state: LocalZellijSessionState?) -> String {
         switch state {
         case .live:
