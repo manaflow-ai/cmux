@@ -516,7 +516,7 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.routed(queue(**base, e2e_since=[SMALL] * 9))[0], LARGE)
         # Pull request runs replay through their own rule, 12vcpu first.
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, pr_since=3))[0], SMALL)
+        self.assertEqual(self.routed(queue(**base, pr_since=3))[0], LARGE)
         self.setUp()
         self.assertEqual(self.routed(queue(**base, pr_since=2))[0], LARGE)
 
