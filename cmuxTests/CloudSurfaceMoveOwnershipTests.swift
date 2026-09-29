@@ -23,7 +23,8 @@ struct CloudSurfaceMoveOwnershipTests {
         let dock = workspace.requiredDockSplitForTesting
         let pane = try #require(dock.bonsplitController.allPaneIds.first)
         let panel = try #require(dock.focusedPanelId)
-        let tab = try #require(dock.surfaceIdFromPanelId(panel))
+        let tab = try #require(
+            dock.surfaceIdToPanelId.first(where: { $0.value == panel })?.key)
         let processID = Int32(ProcessInfo.processInfo.processIdentifier)
         let transfer = PaneDragTransfer(tabId: tab.uuid, sourcePaneId: pane.id, sourceProcessId: processID)
         #expect(dock.surfaceDropRejection(transfer, source: .surface) == nil)
