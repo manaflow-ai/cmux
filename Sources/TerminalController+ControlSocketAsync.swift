@@ -137,6 +137,12 @@ extension TerminalController {
                         action: action
                     )
                 }
+                // REPL evaluations run for up to two minutes; they await
+                // the REPL thread and main-actor driver without holding a
+                // socket worker thread.
+                if Self.isBrowserReplMethod(authorizedRequest.method) {
+                    return await self.v2BrowserReplResponse(request: authorizedRequest)
+                }
                 if authorizedRequest.method == "surface.sync_codex_native_title" {
                     return try await self.v2MainAsync {
                         self.v2Result(

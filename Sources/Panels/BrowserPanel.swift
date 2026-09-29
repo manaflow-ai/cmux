@@ -1973,6 +1973,14 @@ final class BrowserPanel: Panel, ObservableObject {
       window.__cmuxHooksInstalled = true;
 
       window.__cmuxConsoleLog = window.__cmuxConsoleLog || [];
+      // A cmux browser REPL session attached to this tab registers this
+      // handler; without one, nothing is posted.
+      const __postRepl = (body) => {
+        try {
+          const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cmuxReplConsole;
+          if (handler) handler.postMessage(body);
+        } catch (_) {}
+      };
       const __pushConsole = (level, args) => {
         try {
           const text = Array.from(args || []).map((x) => {
@@ -1980,6 +1988,7 @@ final class BrowserPanel: Panel, ObservableObject {
             try { return JSON.stringify(x); } catch (_) { return String(x); }
           }).join(' ');
           window.__cmuxConsoleLog.push({ level, text, timestamp_ms: Date.now() });
+          __postRepl({ kind: 'console', type: level === 'warn' ? 'warning' : level, text });
           if (window.__cmuxConsoleLog.length > 512) {
             window.__cmuxConsoleLog.splice(0, window.__cmuxConsoleLog.length - 512);
           }
@@ -2003,6 +2012,8 @@ final class BrowserPanel: Panel, ObservableObject {
           const line = Number((ev && ev.lineno) || 0);
           const col = Number((ev && ev.colno) || 0);
           window.__cmuxErrorLog.push({ message, source, line, column: col, timestamp_ms: Date.now() });
+          const stack = String((ev && ev.error && ev.error.stack) || '');
+          __postRepl({ kind: 'pageerror', message: String((ev && ev.error && ev.error.message) || message).replace(/^Uncaught /, ''), stack });
           if (window.__cmuxErrorLog.length > 512) {
             window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
           }
@@ -2013,6 +2024,7 @@ final class BrowserPanel: Panel, ObservableObject {
           const reason = ev && ev.reason;
           const message = typeof reason === 'string' ? reason : (reason && reason.message ? String(reason.message) : String(reason));
           window.__cmuxErrorLog.push({ message, source: 'unhandledrejection', line: 0, column: 0, timestamp_ms: Date.now() });
+          __postRepl({ kind: 'pageerror', message, stack: String((reason && reason.stack) || '') });
           if (window.__cmuxErrorLog.length > 512) {
             window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
           }
@@ -3278,6 +3290,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
         mobileBrowserWebViewDidBind()
+        BrowserReplTabAttachments.shared.attachment(for: id)?.instrumentCurrentWebView()
     }
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
         let handler = BrowserSSLTrustBypassMessageHandler(
@@ -3820,6 +3833,10 @@ final class BrowserPanel: Panel, ObservableObject {
         // Downloads save to a temp file synchronously (no UI during WebKit
         // callbacks), then auto-save to Downloads unless the prompt setting is enabled.
         let dlDelegate = BrowserDownloadDelegate()
+        let panelID = id
+        dlDelegate.replAttachment = {
+            BrowserReplTabAttachments.shared.attachment(for: panelID)
+        }
         dlDelegate.savePanelParentWindow = { [weak self] in
             self.flatMap { browserInteractiveModalHostWindow(for: $0.webView) }
         }
@@ -5076,6 +5093,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        BrowserReplTabAttachments.shared.panelDidClose(id)
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
@@ -7246,6 +7264,22 @@ extension BrowserPanel {
         lease.installOperationTask(operationTask)
     }
 
+    /// Runs a REPL input or capture operation with the web view in a window.
+    /// A hidden pane borrows the same offscreen render host screenshots use,
+    /// and the pane is restored when the operation finishes.
+    func withBrowserReplRenderHost<T>(
+        _ operation: @escaping @MainActor () async throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            withVisualAutomationRenderLease(
+                reason: "browser.repl",
+                timingBudget: BrowserScreenshotTimingBudget(),
+                operation: { _, _ in try await operation() },
+                completion: { continuation.resume(with: $0) }
+            )
+        }
+    }
+
     @discardableResult
     func ensureVisualAutomationRestoreHostIfNeeded(reason: String) -> Bool {
         guard shouldUseOffscreenRenderHostForVisualAutomation else { return false }
@@ -8370,6 +8404,9 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     var onDownloadCancelled: ((String, Bool, String) -> Void)?
     var onDownloadFailed: ((Error, Bool, String?) -> Void)?
     var savePanelParentWindow: (() -> NSWindow?)?
+    /// The REPL session attached to the owning tab, if any. Its downloads stay
+    /// in the temporary directory and are reported to the session.
+    var replAttachment: (@MainActor () -> BrowserReplTabAttachment?)?
 
     static let tempDir: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
@@ -8506,6 +8543,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
         notifyOnMain { [weak self] in
             self?.onDownloadStarted?(safeFilename, downloadID)
+            self?.replAttachment?()?.downloadDidStart(id: downloadID, url: response.url, suggestedFilename: safeFilename)
         }
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=<redacted>")
@@ -8529,6 +8567,14 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
                 filenameResolver.imageType(forDownloadedFileAt: info.tempURL)
             }.value
             let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
+
+            if let attachment = self.replAttachment?(), attachment.keepsDownloadsInTemporaryDirectory {
+                // `download.path()` reads the file where WebKit wrote it; the
+                // session, not a save panel, decides where it goes next.
+                self.onDownloadSaved?(suggestedFilename, info.tempURL, true, info.downloadID)
+                attachment.downloadDidFinish(id: info.downloadID, path: info.tempURL.path, error: nil)
+                return
+            }
 
             if filenameResolver.shouldAskWhereToSaveDownloads() {
                 self.presentSavePanel(
@@ -8574,6 +8620,9 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         }
         notifyOnMain { [weak self] in
             self?.onDownloadFailed?(error, true, downloadID)
+            if let downloadID {
+                self?.replAttachment?()?.downloadDidFinish(id: downloadID, path: nil, error: error.localizedDescription)
+            }
         }
         #if DEBUG
         cmuxDebugLog("download.failed error=\(error.localizedDescription)")
@@ -8594,6 +8643,23 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
+
+    /// WebKit's beforeunload confirmation (`WKUIDelegatePrivate`). Without a
+    /// REPL session the page may always leave, WebKit's behavior when the
+    /// delegate does not implement this.
+    @objc(_webView:runBeforeUnloadConfirmPanelWithMessage:initiatedByFrame:completionHandler:)
+    func _webView(
+        _ webView: WKWebView,
+        runBeforeUnloadConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
+           attachment.handleDialog(type: "beforeunload", message: message, defaultValue: nil, respond: { accept, _ in completionHandler(accept) }) {
+            return
+        }
+        completionHandler(true)
+    }
 
     init(
         externalNavigationHandler: BrowserExternalNavigationHandler
@@ -8660,6 +8726,12 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             "windowFeatures={\(windowFeaturesSummary)}"
         )
 #endif
+        // A REPL session driving this tab sees page-opened windows as new
+        // background tabs it can attach to (Playwright's "popup" event).
+        if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
+           attachment.handlePopup(request: navigationAction.request) {
+            return nil
+        }
         if let url = navigationAction.request.url {
             if navigationAction.navigationType == .linkActivated,
                navigationAction.targetFrame?.isMainFrame != false,
@@ -8812,6 +8884,14 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping ([URL]?) -> Void
     ) {
+        if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
+           attachment.handleOpenPanel(
+               allowsMultiple: parameters.allowsMultipleSelection,
+               frame: frame,
+               respond: completionHandler
+           ) {
+            return
+        }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories
@@ -8884,6 +8964,10 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping () -> Void
     ) {
+        if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
+           attachment.handleDialog(type: "alert", message: message, defaultValue: nil, respond: { _, _ in completionHandler() }) {
+            return
+        }
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = javaScriptDialogTitle(for: webView)
@@ -8920,6 +9004,10 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping (Bool) -> Void
     ) {
+        if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
+           attachment.handleDialog(type: "confirm", message: message, defaultValue: nil, respond: { accept, _ in completionHandler(accept) }) {
+            return
+        }
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = javaScriptDialogTitle(for: webView)
@@ -8968,6 +9056,15 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping (String?) -> Void
     ) {
+        if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
+           attachment.handleDialog(
+               type: "prompt",
+               message: prompt,
+               defaultValue: defaultText,
+               respond: { accept, text in completionHandler(accept ? (text ?? defaultText ?? "") : nil) }
+           ) {
+            return
+        }
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = javaScriptDialogTitle(for: webView)
