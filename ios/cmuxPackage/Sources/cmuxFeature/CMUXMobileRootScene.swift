@@ -563,6 +563,12 @@ public struct CMUXMobileRootScene: View {
             )
         )
         Task { await store.startSSHComputers() }
+        if let opener = runtime.daemonLaneOpener {
+            store.configureDaemonLane(MobileDaemonLaneConfiguration(
+                isEnabled: MobileDaemonLaneFlag.current().isEnabled,
+                open: opener
+            ))
+        }
         #if os(iOS)
         // Install the cached (or baked) Mac minimum-version list before the
         // store is handed to any view, so the first stored-Mac reconnect can

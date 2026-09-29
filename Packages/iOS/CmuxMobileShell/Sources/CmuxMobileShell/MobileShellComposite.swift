@@ -192,6 +192,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // does not fire for the in-init assignment, so this only observes
             // real transitions. The throttle's `outageOpen` is the per-outage gate.
             guard oldValue != connectionState else { return }
+            syncDaemonLaneComputer()
             // Units sent on the previous connection are resent on the next
             // one with their identity; the Mac drops any it already wrote.
             exactlyOnceInputPathsChanged()
@@ -543,6 +544,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var supportedHostCapabilities: Set<String> = [] {
         didSet {
             guard oldValue != supportedHostCapabilities else { return }
+            syncDaemonLaneComputer()
             recordAppEvent(
                 .capabilitySnapshotReceived,
                 correlationID: foregroundMacDeviceID,
@@ -1448,6 +1450,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// SSH computers (hosts, keys, live sessions). Local to this device and
     /// independent of the cmux account. See `MobileShellComposite+SSHComputers.swift`.
     public let sshComputers: MobileSSHComputers
+    /// Opens a paired cmux-next Mac's daemon lane, and whether the phone may
+    /// (``MobileDaemonLaneFlag``). Set once by the composition root; see
+    /// `MobileShellComposite+DaemonLane.swift`.
+    @ObservationIgnored var daemonLane: MobileDaemonLaneConfiguration?
+    /// The lane computer standing for the foreground Mac, if one is live.
+    @ObservationIgnored var daemonLaneComputer: (id: UUID, macDeviceID: String)?
+    /// DEBUG dogfood: text to type into the lane computer's first terminal
+    /// once it attaches (`CMUX_DAEMON_LANE_DOGFOOD_TYPE`).
+    @ObservationIgnored var daemonLaneDogfoodInput: (surfaceID: String?, text: String)?
     /// The "On iPhone" browser network per paired Mac, keyed by Mac device
     /// id. See `MobileShellComposite+MacBrowserTunnel.swift`.
     @ObservationIgnored var macBrowserNetworks: [String: MobileMacBrowserNetwork] = [:]

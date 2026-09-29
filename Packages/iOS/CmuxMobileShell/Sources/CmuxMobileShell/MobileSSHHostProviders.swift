@@ -49,6 +49,9 @@ final class MobileSSHHostProviders {
     private let cmuxTUIProbe: CmuxTUIProbe?
     /// One provider per cmux-tui session, created on first use.
     private var cmuxTUI: [String: MobileSSHCmuxTUIProvider] = [:]
+    /// A computer reached over a non-SSH carrier (a paired cmux-next Mac's
+    /// irx daemon lane): its one cmux-tui session is the only kind served.
+    private var laneProvider: MobileSSHCmuxTUIProvider?
     var onTopologyChange: (@MainActor () -> Void)? {
         didSet {
             (tmux as? any MobileSSHTopologyReporting)?.onTopologyChange = onTopologyChange
@@ -89,6 +92,40 @@ final class MobileSSHHostProviders {
         )
     }
 
+    /// A computer whose only kind is one cmux-tui session on another carrier
+    /// (a paired cmux-next Mac's daemon, over an irx `daemon` lane). There is
+    /// no shell to probe, so tmux and plain shells are unavailable and
+    /// nothing is ever installed. Connects once so the session's name (the
+    /// id prefix of every row) is known before anything is listed.
+    static func daemonLane(
+        connect: @escaping @MainActor () async throws -> CmuxTUIControl,
+        isCarrierOpen: @escaping @MainActor () -> Bool
+    ) async throws -> MobileSSHHostProviders {
+        let provider = MobileSSHCmuxTUIProvider(
+            session: MobileSSHCmuxTUIProvider.sessionName,
+            idleCloseSeconds: nil,
+            connect: connect,
+            isCarrierOpen: isCarrierOpen
+        )
+        try await provider.connect()
+        let registry = MobileSSHHostProviders(
+            connection: nil,
+            idleCloseSeconds: nil,
+            tmux: nil,
+            plain: MobileSSHPlainProvider(connection: nil),
+            cmuxTUIBinary: nil,
+            cmuxTUIProbe: nil
+        )
+        registry.laneProvider = provider
+        registry.cmuxTUI[provider.session] = provider
+        return registry
+    }
+
+    /// Closes the lane session's control connection (the carrier goes with it).
+    func closeLane() async {
+        await laneProvider?.close()
+    }
+
     /// Test seam: a host whose tmux is `tmux` and that has no cmux-tui.
     static func testing(tmux: any MobileSSHWorkspaceProvider, plain: (any MobileSSHWorkspaceProvider)? = nil) -> MobileSSHHostProviders {
         MobileSSHHostProviders(
@@ -104,7 +141,12 @@ final class MobileSSHHostProviders {
     // MARK: Availability
 
     var availability: [MobileSSHKindAvailability] {
-        MobileSSHWorkspaceKind.allCases.map { kind in
+        if laneProvider != nil {
+            return MobileSSHWorkspaceKind.allCases.map { kind in
+                MobileSSHKindAvailability(kind: kind, unavailableReason: kind == .cmuxTUI ? nil : L10nSSH().laneKindUnavailable)
+            }
+        }
+        return MobileSSHWorkspaceKind.allCases.map { kind in
             switch kind {
             case .cmuxTUI:
                 if cmuxTUIBinary != nil { return MobileSSHKindAvailability(kind: kind) }
@@ -128,6 +170,13 @@ final class MobileSSHHostProviders {
     /// A cmux-tui session whose owner does not answer is skipped; transport
     /// failures (the connection is gone) propagate.
     func listWorkspaces() async throws -> [MobileSSHWorkspace] {
+        if let laneProvider {
+            // The carrier is the computer: a failed listing is a failed
+            // connection, never a session to skip.
+            return try await laneProvider.listWorkspaces().map {
+                Self.rekey($0, kind: .cmuxTUI, session: laneProvider.session)
+            }
+        }
         var result: [MobileSSHWorkspace] = []
         for provider in try await liveCmuxTUIProviders() {
             guard let workspaces = try? await provider.listWorkspaces() else {
@@ -249,6 +298,7 @@ final class MobileSSHHostProviders {
             guard let tmux else { throw MobileSSHRuntimeError.tmuxMissing }
             return tmux
         case .shell:
+            if laneProvider != nil { throw MobileSSHRuntimeError.laneKindUnavailable }
             return plain
         case .cmuxTUI(let session, _):
             return try await cmuxTUIProvider(session: session)
@@ -259,6 +309,7 @@ final class MobileSSHHostProviders {
     /// (started if needed), or a live socket found on the server.
     func cmuxTUIProvider(session: String) async throws -> MobileSSHCmuxTUIProvider {
         if let provider = cmuxTUI[session] { return provider }
+        if laneProvider != nil { throw MobileSSHRuntimeError.cmuxTUISessionGone }
         guard let connection, let binary = cmuxTUIBinary else { throw MobileSSHRuntimeError.cmuxTUIMissing }
         var socket: CmuxTUISessionSocket?
         if session != MobileSSHCmuxTUIProvider.sessionName {
@@ -279,11 +330,15 @@ final class MobileSSHHostProviders {
     ) async throws -> MobileSSHWorkspace {
         switch kind {
         case .shell:
+            if laneProvider != nil { throw MobileSSHRuntimeError.laneKindUnavailable }
             return Self.rekey(try await plain.createWorkspace(), kind: .shell, session: nil)
         case .tmux:
             guard let tmux else { throw MobileSSHRuntimeError.tmuxMissing }
             return Self.rekey(try await tmux.createWorkspace(), kind: .tmux, session: nil)
         case .cmuxTUI:
+            if let laneProvider {
+                return Self.rekey(try await laneProvider.createWorkspace(), kind: .cmuxTUI, session: laneProvider.session)
+            }
             try await installCmuxTUIIfNeeded(installing: installing)
             let provider = try await cmuxTUIProvider(session: MobileSSHCmuxTUIProvider.sessionName)
             return Self.rekey(try await provider.createWorkspace(), kind: .cmuxTUI, session: provider.session)

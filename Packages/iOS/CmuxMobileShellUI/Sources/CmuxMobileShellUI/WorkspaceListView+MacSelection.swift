@@ -35,7 +35,7 @@ extension WorkspaceListView {
     /// SSH computers' ids, so they are selectable before listing a workspace.
     var sshComputerMachineIDs: Set<String> {
         guard let store else { return [] }
-        return Set(store.sshComputers.hosts.map { store.sshComputerDeviceID(hostID: $0.id) })
+        return store.sshComputers.locallyServedComputerIDs
     }
 
     var activeFilter: MobileWorkspaceListFilter {
@@ -95,9 +95,7 @@ extension WorkspaceListView {
         // After the build-scope mapping: the dev tag suffix identifies which
         // cmux Mac build a row belongs to, and an SSH host is not a cmux build.
         if let store {
-            for host in store.sshComputers.hosts {
-                names[store.sshComputerDeviceID(hostID: host.id)] = host.name
-            }
+            names.merge(store.sshComputers.locallyServedComputerNames) { _, local in local }
         }
         return names
     }

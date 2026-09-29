@@ -95,7 +95,7 @@ public final class MobileSSHComputers {
     /// SSH computer picks this one, as a paired Mac's active flag does.
     public private(set) var lastUsedHostID: UUID?
     public private(set) var keys: [SSHKeyRecord] = []
-    public private(set) var statusByHost: [UUID: MobileSSHHostStatus] = [:]
+    public internal(set) var statusByHost: [UUID: MobileSSHHostStatus] = [:]
     /// Terminals whose remote session ended (shell exited, pane or
     /// session killed) and have not attached again since.
     public private(set) var endedSurfaces: Set<String> = []
@@ -103,15 +103,21 @@ public final class MobileSSHComputers {
     public private(set) var prompts: [MobileSSHPrompt] = []
     /// Which workspace kinds each connected host can create (PRD D31).
     /// Absent until the host is probed.
-    public private(set) var kindAvailabilityByHost: [UUID: [MobileSSHKindAvailability]] = [:]
+    public internal(set) var kindAvailabilityByHost: [UUID: [MobileSSHKindAvailability]] = [:]
     /// Hosts uploading cmux-tui for their first cmux-tui workspace (D10).
     public private(set) var installingCmuxTUIHosts: Set<UUID> = []
 
     @ObservationIgnored weak var sink: (any MobileSSHComputersSink)?
     @ObservationIgnored private var connections: [UUID: SSHConnection] = [:]
     @ObservationIgnored private var connectTasks: [UUID: Task<SSHConnection, any Error>] = [:]
-    @ObservationIgnored private var providers: [UUID: MobileSSHHostProviders] = [:]
-    @ObservationIgnored private var workspacesByHost: [UUID: [MobileSSHWorkspace]] = [:]
+    @ObservationIgnored var providers: [UUID: MobileSSHHostProviders] = [:]
+    /// Computers reached over a non-SSH carrier (paired cmux-next Macs'
+    /// daemon lanes, ``registerLaneComputer(id:name:openCarrier:)``). Never
+    /// persisted and never in ``hosts``.
+    public internal(set) var laneComputers: [UUID: MobileSSHLaneComputer] = [:]
+    /// Lane registries being created, so concurrent callers share one lane.
+    @ObservationIgnored var laneConnectTasks: [UUID: Task<MobileSSHHostProviders, any Error>] = [:]
+    @ObservationIgnored var workspacesByHost: [UUID: [MobileSSHWorkspace]] = [:]
     /// Bumped per listing started, so only the newest listing publishes.
     @ObservationIgnored private var refreshGenerations: [UUID: UInt64] = [:]
     @ObservationIgnored private var attachments: [String: any MobileSSHAttachedTerminal] = [:]
@@ -397,7 +403,7 @@ public final class MobileSSHComputers {
     }
 
     private func connectAndList(hostID: UUID) async {
-        guard hosts.contains(where: { $0.id == hostID }) else { return }
+        guard displayName(hostID: hostID) != nil else { return }
         do {
             _ = try await provider(for: hostID)
             await refreshWorkspaces(hostID: hostID)
@@ -425,7 +431,7 @@ public final class MobileSSHComputers {
             // that `connection(for:)` never revisits while its connection is
             // cached, so the title, rows, and empty state stop reading failed.
             statusByHost[hostID] = .connected
-            if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
+            publish(hostID: hostID)
         } catch {
             guard refreshGenerations[hostID] == generation else { return }
             fail(hostID: hostID, error)
@@ -501,7 +507,7 @@ public final class MobileSSHComputers {
             await refreshWorkspaces(hostID: hostID)
             if !(workspacesByHost[hostID] ?? []).contains(where: { $0.id == workspace.id }) {
                 workspacesByHost[hostID, default: []].append(workspace)
-                if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
+                publish(hostID: hostID)
             }
             return MobileSSHIdentifier(host: hostID, local: workspace.id).rawValue
         } catch {
@@ -532,7 +538,7 @@ public final class MobileSSHComputers {
 
     /// Tears down the host's connection, attachments, and forwards, and
     /// returns it to idle. Leaves automatic-connect eligibility to callers.
-    private func closeConnection(hostID: UUID) async {
+    func closeConnection(hostID: UUID) async {
         autoConnectTasks.removeValue(forKey: hostID)?.cancel()
         for surfaceID in attachments.keys where MobileSSHIdentifier(surfaceID).hostID == hostID {
             await detach(surfaceID: surfaceID)
@@ -540,7 +546,7 @@ public final class MobileSSHComputers {
         for panelID in browserSessions.keys where MobileSSHIdentifier(panelID).hostID == hostID {
             await stopBrowser(panelID: panelID)
         }
-        providers[hostID] = nil
+        if let registry = providers.removeValue(forKey: hostID) { await registry.closeLane() }
         connectTasks[hostID]?.cancel()
         connectTasks[hostID] = nil
         stopAllPortForwards(hostID: hostID)
@@ -803,6 +809,7 @@ public final class MobileSSHComputers {
     /// use of a connection. No questions: every kind is served at once.
     func provider(for hostID: UUID) async throws -> MobileSSHHostProviders {
         if let provider = providers[hostID] { return provider }
+        if laneComputers[hostID] != nil { return try await laneProvider(for: hostID) }
         let connection = try await connection(for: hostID)
         guard let host = hosts.first(where: { $0.id == hostID }) else { throw SSHConnectionError.closed }
         let registry = await MobileSSHHostProviders.make(connection: connection, host: host)
@@ -892,7 +899,7 @@ public final class MobileSSHComputers {
         // Browser pumps see the transport close and report `.ended` themselves.
         stopAllPortForwards(hostID: hostID)
         statusByHost[hostID] = .idle
-        if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
+        publish(hostID: hostID)
     }
 
     /// Announces and records that a surface's remote session ended, once. A
@@ -962,7 +969,7 @@ public final class MobileSSHComputers {
         }
     }
 
-    private func fail(hostID: UUID, _ error: any Error) {
+    func fail(hostID: UUID, _ error: any Error) {
         if error is CancellationError {
             // A declined question: stay manual rather than asking again.
             autoConnectSuppressed.insert(hostID)
@@ -970,7 +977,7 @@ public final class MobileSSHComputers {
         } else {
             statusByHost[hostID] = .failed(Self.describe(error))
         }
-        if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
+        publish(hostID: hostID)
     }
 
     /// A failure sentence rendered into a terminal: on its own line, in red.
@@ -994,6 +1001,7 @@ public final class MobileSSHComputers {
         case MobileSSHRuntimeError.tmuxMissing: L10nSSH().tmuxMissing
         case MobileSSHRuntimeError.cmuxTUIMissing: L10nSSH().cmuxTUIMissing
         case MobileSSHRuntimeError.cmuxTUISessionGone: L10nSSH().cmuxTUISessionGone
+        case MobileSSHRuntimeError.laneKindUnavailable: L10nSSH().laneKindUnavailable
         case MobileSSHCmuxTUIInstaller.InstallError.unsupportedPlatform(let os, let arch): L10nSSH().cmuxTUIUnsupported(os: os, arch: arch)
         case let network as NWError: describe(network)
         case let posix as POSIXError: describe(posix.code)
@@ -1020,43 +1028,53 @@ public final class MobileSSHComputers {
     }
 
     private func publish(host: SSHHostRecord) {
-        let computerID = MobileSSHIdentifier(computerOf: host.id).rawValue
-        let rows = (workspacesByHost[host.id] ?? []).map { workspace in
+        publish(id: host.id, name: host.name)
+    }
+
+    /// Republishes a saved host's or a lane computer's rows.
+    func publish(hostID: UUID) {
+        guard let name = displayName(hostID: hostID) else { return }
+        publish(id: hostID, name: name)
+    }
+
+    private func publish(id hostID: UUID, name hostName: String) {
+        let computerID = MobileSSHIdentifier(computerOf: hostID).rawValue
+        let rows = (workspacesByHost[hostID] ?? []).map { workspace in
             MobileWorkspacePreview(
-                id: MobileWorkspacePreview.ID(rawValue: MobileSSHIdentifier(host: host.id, local: workspace.id).rawValue),
+                id: MobileWorkspacePreview.ID(rawValue: MobileSSHIdentifier(host: hostID, local: workspace.id).rawValue),
                 macDeviceID: computerID,
-                macDisplayName: host.name,
+                macDisplayName: hostName,
                 name: workspace.name,
                 // Where a Mac row shows its latest activity, an SSH row
                 // names its kind (PRD D31).
                 previewText: L10nSSH().kindLabel(workspace.kind, cmuxTUISession: workspace.cmuxTUISession),
                 terminals: workspace.terminals.map {
                     MobileTerminalPreview(
-                        id: MobileTerminalPreview.ID(rawValue: MobileSSHIdentifier(host: host.id, local: $0.id).rawValue),
+                        id: MobileTerminalPreview.ID(rawValue: MobileSSHIdentifier(host: hostID, local: $0.id).rawValue),
                         name: $0.name
                     )
                 },
                 surfaces: workspace.browsers.map {
                     MobileSurfacePreview(
-                        id: MobileSurfacePreview.ID(rawValue: MobileSSHIdentifier(host: host.id, local: $0.id).rawValue),
+                        id: MobileSurfacePreview.ID(rawValue: MobileSSHIdentifier(host: hostID, local: $0.id).rawValue),
                         kind: .browser,
                         title: Self.browserTitle($0)
                     )
                 }
             )
         }
-        let status: MobileMacConnectionStatus = switch statusByHost[host.id] ?? .idle {
+        let status: MobileMacConnectionStatus = switch statusByHost[hostID] ?? .idle {
         case .connected: .connected
         case .connecting: .reconnecting
         case .failed: .unavailable
         case .idle: rows.isEmpty ? .unavailable : .connected
         }
-        publishBrowserPanels(host: host)
+        publishBrowserPanels(hostID: hostID)
         sink?.sshPublishWorkspaceState(
             MacWorkspaceState(
                 macDeviceID: computerID,
                 instanceTag: nil,
-                displayName: host.name,
+                displayName: hostName,
                 workspaces: rows,
                 groups: [],
                 workspaceGroupsAreAuthoritative: true,
@@ -1105,9 +1123,9 @@ extension MobileSSHComputers {
         )
     }
 
-    private func publishBrowserPanels(host: SSHHostRecord) {
-        for workspace in workspacesByHost[host.id] ?? [] {
-            let workspaceID = MobileSSHIdentifier(host: host.id, local: workspace.id).rawValue
+    private func publishBrowserPanels(hostID: UUID) {
+        for workspace in workspacesByHost[hostID] ?? [] {
+            let workspaceID = MobileSSHIdentifier(host: hostID, local: workspace.id).rawValue
             let panels = browserPanels(inWorkspace: workspaceID)
             // Metadata-only churn must not bump the store's discovery revision.
             let identity = panels.map(\.panelID)
@@ -1222,6 +1240,8 @@ enum MobileSSHRuntimeError: Error {
     case cmuxTUISessionGone
     /// The browser tab is gone or the host's mode cannot stream browsers.
     case browserUnavailable
+    /// tmux and plain shells on a computer reached over a daemon lane.
+    case laneKindUnavailable
 }
 
 /// Pins host keys on first use (after asking) and stops on a changed key.
