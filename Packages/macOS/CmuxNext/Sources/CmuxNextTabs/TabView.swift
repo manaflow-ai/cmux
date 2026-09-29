@@ -30,7 +30,7 @@ final class TabView: NSView {
     /// Close button frame in this view's coordinates, or nil when hidden.
     private(set) var closeButtonRect: CGRect?
 
-    private static let titleFont = NSFont.systemFont(ofSize: 12, weight: .regular)
+    private let titleFont = Typography.body
     private var measuredTitle: (String, CGFloat)?
 
     init(item: TabItem) {
@@ -68,27 +68,24 @@ final class TabView: NSView {
     private func buildLayers() {
         guard let root = layer else { return }
         root.masksToBounds = false
-        backgroundLayer.cornerRadius = Metrics.itemCornerRadius
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
         spinnerLayer.fillColor = nil
-        spinnerLayer.lineWidth = 1.6
+        spinnerLayer.lineWidth = Metrics.space1 * 0.75
         spinnerLayer.lineCap = .round
         spinnerLayer.strokeStart = 0
         spinnerLayer.strokeEnd = 0.72
-        badgeLayer.cornerRadius = 3
-        titleLayer.font = Self.titleFont
-        titleLayer.fontSize = Self.titleFont.pointSize
+        titleLayer.font = titleFont
+        titleLayer.fontSize = titleFont.pointSize
         titleLayer.isWrapped = false
         titleLayer.truncationMode = .none
         titleLayer.alignmentMode = .left
         titleMask.startPoint = CGPoint(x: 0, y: 0.5)
         titleMask.endPoint = CGPoint(x: 1, y: 0.5)
         titleMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
-        closeBackgroundLayer.cornerRadius = 4
         closeBackgroundLayer.cornerCurve = .continuous
         closeGlyphLayer.fillColor = nil
-        closeGlyphLayer.lineWidth = 1.3
+        closeGlyphLayer.lineWidth = Metrics.space1 * 0.65
         closeGlyphLayer.lineCap = .round
         separatorLayer.opacity = 0
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, spinnerLayer, badgeLayer, titleLayer, closeBackgroundLayer, closeGlyphLayer] {
@@ -137,8 +134,8 @@ final class TabView: NSView {
 
     private func updateLift() {
         backgroundLayer.shadowColor = NSColor.black.cgColor
-        backgroundLayer.shadowRadius = 6
-        backgroundLayer.shadowOffset = CGSize(width: 0, height: 2)
+        backgroundLayer.shadowRadius = Metrics.space3
+        backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         backgroundLayer.shadowOpacity = isLifted ? 0.22 : 0
         layer?.zPosition = isLifted ? 10 : 0
         updateColors(animated: true)
@@ -219,7 +216,7 @@ final class TabView: NSView {
             return TabSymbolCache.shared.image(
                 named: name,
                 tint: tint,
-                pointSize: 12,
+                pointSize: Metrics.smallIconSize,
                 size: metrics.iconSize,
                 scale: window?.backingScaleFactor ?? 2
             )
@@ -231,6 +228,12 @@ final class TabView: NSView {
     override func layout() {
         super.layout()
         layoutLayers()
+    }
+
+    /// Rounds to the device pixel grid so icons, glyphs, and hairlines stay crisp.
+    private func pixel(_ value: CGFloat) -> CGFloat {
+        let scale = window?.backingScaleFactor ?? 2
+        return (value * scale).rounded() / scale
     }
 
     func layoutLayers() {
@@ -248,8 +251,15 @@ final class TabView: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
+        let hairline = 1 / (window?.backingScaleFactor ?? 2)
         backgroundLayer.frame = bounds.insetBy(dx: m.tabBackgroundInset, dy: 0)
-        separatorLayer.frame = CGRect(x: bounds.width - 0.5, y: (bounds.height - 16) / 2, width: 1, height: 16)
+        backgroundLayer.cornerRadius = m.cornerRadius
+        separatorLayer.frame = CGRect(
+            x: pixel(bounds.width) - hairline,
+            y: pixel((bounds.height - m.separatorHeight) / 2),
+            width: hairline,
+            height: m.separatorHeight
+        )
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize
@@ -260,30 +270,38 @@ final class TabView: NSView {
             let x = visibility.showsIcon || !visibility.centersContent
                 ? bounds.width - m.contentTrailingInset - side
                 : (bounds.width - side) / 2
-            closeRect = CGRect(x: x, y: midY - side / 2, width: side, height: side)
+            closeRect = CGRect(x: pixel(x), y: pixel(midY - side / 2), width: side, height: side)
         }
         if visibility.centersContent, visibility.showsIcon {
             iconX = visibility.showsClose
                 ? max(m.contentLeadingInset / 2, (bounds.width - m.closeButtonSize - m.contentTrailingInset - iconSide) / 2)
                 : (bounds.width - iconSide) / 2
         }
-        let iconFrame = CGRect(x: iconX, y: midY - iconSide / 2, width: iconSide, height: iconSide)
+        let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
         let showsIconArt = visibility.showsIcon && !item.isBusy
         iconLayer.frame = iconFrame
         iconLayer.opacity = showsIconArt ? 1 : 0
         spinnerLayer.opacity = (visibility.showsIcon && item.isBusy) ? 1 : 0
-        let spinnerRect = iconFrame.insetBy(dx: 2, dy: 2)
+        let spinnerRect = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
         spinnerLayer.bounds = CGRect(origin: .zero, size: spinnerRect.size)
         spinnerLayer.position = CGPoint(x: spinnerRect.midX, y: spinnerRect.midY)
         spinnerLayer.path = CGPath(ellipseIn: spinnerLayer.bounds, transform: nil)
 
-        let badgeSide: CGFloat = 6
-        badgeLayer.frame = CGRect(x: iconFrame.maxX - badgeSide + 2, y: iconFrame.minY - 2, width: badgeSide, height: badgeSide)
+        let badge = m.badgeSize
+        badgeLayer.frame = CGRect(
+            x: pixel(iconFrame.maxX - badge + Metrics.space1),
+            y: pixel(iconFrame.minY - Metrics.space1),
+            width: badge,
+            height: badge
+        )
+        badgeLayer.cornerRadius = badge / 2
         badgeLayer.opacity = (visibility.showsIcon && badgeColor != nil) ? 1 : 0
 
         if let closeRect {
             closeBackgroundLayer.frame = closeRect
-            let glyph = closeRect.insetBy(dx: 5.5, dy: 5.5)
+            closeBackgroundLayer.cornerRadius = max(0, m.cornerRadius - Metrics.space1)
+            let inset = (closeRect.width - m.closeGlyphSize) / 2
+            let glyph = closeRect.insetBy(dx: inset, dy: inset)
             let path = CGMutablePath()
             path.move(to: CGPoint(x: glyph.minX, y: glyph.minY))
             path.addLine(to: CGPoint(x: glyph.maxX, y: glyph.maxY))
@@ -303,8 +321,8 @@ final class TabView: NSView {
             let titleX = iconFrame.maxX + m.iconTitleSpacing
             let titleEnd = (closeRect.map { $0.minX - m.titleCloseSpacing }) ?? (bounds.width - m.contentTrailingInset)
             let width = max(0, titleEnd - titleX)
-            let lineHeight = ceil(Self.titleFont.ascender - Self.titleFont.descender + Self.titleFont.leading)
-            titleLayer.frame = CGRect(x: titleX, y: (midY - lineHeight / 2).rounded(), width: width, height: lineHeight)
+            let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
+            titleLayer.frame = CGRect(x: titleX, y: pixel(midY - lineHeight / 2), width: width, height: lineHeight)
             titleLayer.opacity = 1
             let textWidth = titleWidth()
             if textWidth > width, width > 0 {
@@ -325,7 +343,7 @@ final class TabView: NSView {
     private func titleWidth() -> CGFloat {
         let title = displayTitle
         if let measuredTitle, measuredTitle.0 == title { return measuredTitle.1 }
-        let width = ceil((title as NSString).size(withAttributes: [.font: Self.titleFont]).width)
+        let width = ceil((title as NSString).size(withAttributes: [.font: titleFont]).width)
         measuredTitle = (title, width)
         return width
     }

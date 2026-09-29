@@ -105,9 +105,13 @@ final class TabHoverCardController {
 
 /// Borderless, non-activating child window hosting the glass card.
 final class TabHoverCardPanel: NSPanel {
-    static let cardWidth: CGFloat = 260
-    static let thumbnailSize = CGSize(width: 236, height: 148)
-    private static let padding: CGFloat = 12
+    private static var padding: CGFloat { Metrics.space5 }
+    static var thumbnailSize: CGSize {
+        // 16:10, as wide as a full tab.
+        CGSize(width: Metrics.tabMaxWidth, height: (Metrics.tabMaxWidth * 10 / 16).rounded())
+    }
+
+    static var cardWidth: CGFloat { thumbnailSize.width + 2 * padding }
 
     private let glass: NSGlassEffectView
     private let titleLabel = NSTextField(wrappingLabelWithString: "")
@@ -117,7 +121,7 @@ final class TabHoverCardPanel: NSPanel {
 
     init() {
         let content = NSView()
-        glass = Glass.makePanel(content: content, cornerRadius: 14)
+        glass = Glass.makePanel(content: content, cornerRadius: Metrics.panelCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isOpaque = false
@@ -130,16 +134,16 @@ final class TabHoverCardPanel: NSPanel {
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         contentView = glass
 
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.font = Typography.bodyEmphasized
         titleLabel.textColor = Palette.textPrimary
         titleLabel.maximumNumberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
-        subtitleLabel.font = .systemFont(ofSize: 11)
+        subtitleLabel.font = Typography.caption
         subtitleLabel.textColor = Palette.textSecondary
         subtitleLabel.lineBreakMode = .byTruncatingMiddle
         thumbnail.wantsLayer = true
-        thumbnail.layer?.cornerRadius = 8
+        thumbnail.layer?.cornerRadius = Metrics.itemCornerRadius
         thumbnail.layer?.cornerCurve = .continuous
         thumbnail.layer?.masksToBounds = true
         thumbnail.layer?.contentsGravity = .resizeAspectFill
@@ -155,10 +159,10 @@ final class TabHoverCardPanel: NSPanel {
             titleLabel.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
             titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             titleLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space1),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            thumbnail.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 10),
+            thumbnail.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: Metrics.space4),
             thumbnail.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             thumbnail.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             thumbnail.heightAnchor.constraint(equalToConstant: Self.thumbnailSize.height),
@@ -198,11 +202,12 @@ final class TabHoverCardPanel: NSPanel {
         }
         glass.layoutSubtreeIfNeeded()
         let size = glass.fittingSize
-        var origin = CGPoint(x: anchor.minX, y: anchor.minY - 6 - size.height)
+        var origin = CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
         if let screen = parent.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
-            origin.x = min(max(origin.x, visible.minX + 4), visible.maxX - size.width - 4)
-            origin.y = max(origin.y, visible.minY + 4)
+            let margin = Metrics.space2
+            origin.x = min(max(origin.x, visible.minX + margin), visible.maxX - size.width - margin)
+            origin.y = max(origin.y, visible.minY + margin)
         }
         let frame = CGRect(origin: origin, size: size)
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion

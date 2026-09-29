@@ -17,8 +17,8 @@ public final class TabStripView: NSView {
         case glass
     }
 
-    /// Height the strip is designed for.
-    public static let preferredHeight: CGFloat = 36
+    /// Height the strip is designed for (density token).
+    public static var preferredHeight: CGFloat { Metrics.tabStripHeight }
 
     public let model: TabStripModel
 
@@ -143,7 +143,9 @@ public final class TabStripView: NSView {
         case .none:
             addSubview(contentView)
         case .glass:
-            let glass = Glass.makePanel(content: contentView, cornerRadius: Metrics.itemCornerRadius + 4)
+            // Concentric corners: the strip radius is the tab radius plus the inset around tabs.
+            let standard = TabStripMetrics.standard
+            let glass = Glass.makePanel(content: contentView, cornerRadius: standard.cornerRadius + standard.stripVerticalPadding)
             glass.translatesAutoresizingMaskIntoConstraints = true
             addSubview(glass)
             glassView = glass
@@ -260,6 +262,12 @@ public final class TabStripView: NSView {
     }
 
     private var viewportWidth: CGFloat { tabsClip.bounds.width }
+
+    /// Tabs are vertically centered in whatever height the strip gets.
+    private var tabTop: CGFloat {
+        let scale = window?.backingScaleFactor ?? 2
+        return (max(0, (bounds.height - metrics.tabHeight) / 2) * scale).rounded() / scale
+    }
 
     // MARK: - Model sync
 
@@ -454,13 +462,17 @@ public final class TabStripView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let tabHeight = max(0, bounds.height - 2 * metrics.stripVerticalPadding)
+        let tabHeight = min(metrics.tabHeight, bounds.height)
+        let tabY = tabTop
         let offset = scroll.value
+        let scale = window?.backingScaleFactor ?? 2
+        func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
         var trailing: CGFloat = 0
         for (id, view) in tabViews {
             guard let m = motion[id] else { continue }
             let width = max(0, m.width.value)
-            let frame = CGRect(x: m.x.value - offset, y: metrics.stripVerticalPadding, width: width, height: tabHeight)
+            let minX = pixel(m.x.value - offset)
+            let frame = CGRect(x: minX, y: tabY, width: pixel(m.x.value - offset + width) - minX, height: tabHeight)
             if view.frame != frame {
                 let resized = view.frame.size != frame.size
                 view.frame = frame
@@ -471,7 +483,7 @@ public final class TabStripView: NSView {
         }
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
-        newTabButton.frame = CGRect(x: buttonX, y: metrics.stripVerticalPadding, width: buttonWidth, height: tabHeight)
+        newTabButton.frame = CGRect(x: pixel(buttonX), y: tabY, width: buttonWidth, height: tabHeight)
         updateFadeMask()
     }
 
@@ -548,8 +560,8 @@ public final class TabStripView: NSView {
         for item in displayed {
             guard let view = tabViews[item.id] else { continue }
             let frame = view.frame
-            if local.x >= frame.minX, local.x < frame.maxX, local.y >= frame.minY - metrics.stripVerticalPadding,
-               local.y <= frame.maxY + metrics.stripVerticalPadding {
+            // The full strip height is the hit area, not just the tab body.
+            if local.x >= frame.minX, local.x < frame.maxX, local.y >= 0, local.y <= tabsClip.bounds.height {
                 return item.id
             }
         }
@@ -661,7 +673,7 @@ public final class TabStripView: NSView {
             updateDrag(at: point, event: event)
             return
         }
-        if let press, hypot(point.x - press.start.x, point.y - press.start.y) > 3 {
+        if let press, hypot(point.x - press.start.x, point.y - press.start.y) > Metrics.space2 {
             beginDrag(press)
             updateDrag(at: point, event: event)
         }
@@ -880,7 +892,7 @@ public final class TabStripView: NSView {
         view.effectiveAppearance.performAsCurrentDrawingAppearance {
             context.setFillColor(Palette.windowBackground.cgColor)
         }
-        let radius = Metrics.itemCornerRadius
+        let radius = metrics.cornerRadius
         context.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: metrics.tabBackgroundInset, dy: 0), cornerWidth: radius, cornerHeight: radius, transform: nil))
         context.fillPath()
         layer.render(in: context)
@@ -904,7 +916,8 @@ public final class TabStripView: NSView {
     /// handed off (if any), which is the final index for a move command.
     /// `ghostFrame` is the screen frame of the inline slot, for the session's
     /// ghost to collapse into.
-    public func dropTarget(atScreenPoint screenPoint: CGPoint, verticalSlop: CGFloat = 10) -> TabStripDropTarget? {
+    public func dropTarget(atScreenPoint screenPoint: CGPoint, verticalSlop: CGFloat? = nil) -> TabStripDropTarget? {
+        let verticalSlop = verticalSlop ?? Metrics.space4
         guard let window, !isHiddenOrHasHiddenAncestor else { return nil }
         let point = convert(window.convertPoint(fromScreen: screenPoint), from: nil)
         guard point.x >= 0, point.x <= bounds.width, point.y >= -verticalSlop, point.y <= bounds.height + verticalSlop else {
@@ -918,9 +931,9 @@ public final class TabStripView: NSView {
         let offset = TabScrollMath.clamp(scroll.target, contentWidth: layout.contentWidth, viewportWidth: viewportWidth)
         let local = CGRect(
             x: slot.x - offset,
-            y: metrics.stripVerticalPadding,
+            y: tabTop,
             width: slot.width,
-            height: max(0, bounds.height - 2 * metrics.stripVerticalPadding)
+            height: min(metrics.tabHeight, bounds.height)
         )
         let frameInWindow = tabsClip.convert(local, to: nil)
         return TabStripDropTarget(stripID: model.stripID, index: index, ghostFrame: window.convertToScreen(frameInWindow))

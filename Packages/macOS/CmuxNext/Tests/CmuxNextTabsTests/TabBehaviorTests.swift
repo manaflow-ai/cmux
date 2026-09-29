@@ -6,7 +6,7 @@ import Testing
 @Suite("Tab chrome visibility")
 struct VisibilityTests {
     private func resolve(_ width: CGFloat, pinned: Bool = false, selected: Bool = false, hovered: Bool = false, style: TabStripStyle = .chrome) -> TabChromeVisibility {
-        TabChromeVisibility.resolve(width: width, isPinned: pinned, isSelected: selected, isHovered: hovered, style: style)
+        TabChromeVisibility.resolve(width: width, isPinned: pinned, isSelected: selected, isHovered: hovered, style: style, metrics: m)
     }
 
     @Test func wideTabsShowEverything() {
@@ -33,8 +33,14 @@ struct VisibilityTests {
         #expect(v.centersContent)
     }
 
+    @Test func tokenDerivedMinActiveWidthFitsIconAndClose() {
+        let tokens = TabStripMetrics.standard
+        let v = TabChromeVisibility.resolve(width: tokens.minActiveTabWidth, isPinned: false, isSelected: true, isHovered: false, style: .chrome, metrics: tokens)
+        #expect(v.showsIcon && v.showsClose)
+    }
+
     @Test func minActiveWidthFitsIconAndClose() {
-        let v = resolve(TabStripMetrics.standard.minActiveTabWidth, selected: true)
+        let v = resolve(m.minActiveTabWidth, selected: true)
         #expect(v.showsIcon && v.showsClose)
     }
 
@@ -133,11 +139,10 @@ struct HoverCardPolicyTests {
     let policy = HoverCardPolicy()
 
     @Test func narrowTabsShowSooner() {
-        let m = TabStripMetrics.standard
-        #expect(policy.showDelay(tabWidth: m.minInactiveTabWidth) == .milliseconds(300))
-        #expect(policy.showDelay(tabWidth: m.maxTabWidth) == .milliseconds(800))
-        #expect(policy.showDelay(tabWidth: 20) == .milliseconds(300))
-        let middle = policy.showDelay(tabWidth: (m.minInactiveTabWidth + m.maxTabWidth) / 2)
+        #expect(policy.showDelay(tabWidth: m.minInactiveTabWidth, metrics: m) == .milliseconds(300))
+        #expect(policy.showDelay(tabWidth: m.maxTabWidth, metrics: m) == .milliseconds(800))
+        #expect(policy.showDelay(tabWidth: 20, metrics: m) == .milliseconds(300))
+        let middle = policy.showDelay(tabWidth: (m.minInactiveTabWidth + m.maxTabWidth) / 2, metrics: m)
         #expect(middle == .milliseconds(550))
     }
 
@@ -147,8 +152,8 @@ struct HoverCardPolicyTests {
 
     @Test func recentlyHiddenCardReshowsImmediately() {
         #expect(policy.delay(tabWidth: 240, cardIsVisible: false, sinceLastHidden: .milliseconds(200)) == .zero)
-        #expect(policy.delay(tabWidth: 240, cardIsVisible: false, sinceLastHidden: .seconds(2)) == .milliseconds(800))
-        #expect(policy.delay(tabWidth: 240, cardIsVisible: false, sinceLastHidden: nil) == .milliseconds(800))
+        #expect(policy.delay(tabWidth: 240, cardIsVisible: false, sinceLastHidden: .seconds(2), metrics: m) == .milliseconds(800))
+        #expect(policy.delay(tabWidth: 240, cardIsVisible: false, sinceLastHidden: nil, metrics: m) == .milliseconds(800))
     }
 }
 

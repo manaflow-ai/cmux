@@ -6,12 +6,30 @@ private func items(_ count: Int, pinned: Int = 0, selected: Int? = nil) -> [TabL
     (0..<count).map { TabLayoutItem(id: TabID("t\($0)"), isPinned: $0 < pinned, isSelected: $0 == selected) }
 }
 
-private let m = TabStripMetrics.standard
+/// Fixed numbers so the layout math is tested independently of design tokens.
+let m: TabStripMetrics = {
+    var m = TabStripMetrics()
+    m.maxTabWidth = 240
+    m.minInactiveTabWidth = 40
+    m.minActiveTabWidth = 56
+    m.pinnedTabWidth = 40
+    m.compactTabWidth = 160
+    m.pinnedGroupGap = 6
+    m.inactiveCloseMinWidth = 100
+    m.hoverCloseMinWidth = 36
+    m.titleMinWidth = 60
+    m.contentLeadingInset = 10
+    m.contentTrailingInset = 6
+    m.iconSize = 16
+    m.closeButtonSize = 18
+    m.titleCloseSpacing = 4
+    return m
+}()
 
 @Suite("Width distribution")
 struct WidthDistributionTests {
     @Test func fewTabsGetMaxWidth() {
-        let result = TabLayoutEngine.layout(items: items(3), availableWidth: 1200, style: .chrome)
+        let result = TabLayoutEngine.layout(items: items(3), availableWidth: 1200, style: .chrome, metrics: m)
         #expect(result.slots.map(\.width) == [240, 240, 240])
         #expect(result.slots.map(\.x) == [0, 240, 480])
         #expect(result.contentWidth == 720)
@@ -19,19 +37,19 @@ struct WidthDistributionTests {
     }
 
     @Test func tabsShrinkEvenlyToFill() {
-        let result = TabLayoutEngine.layout(items: items(8), availableWidth: 1000, style: .chrome)
+        let result = TabLayoutEngine.layout(items: items(8), availableWidth: 1000, style: .chrome, metrics: m)
         #expect(result.slots.allSatisfy { $0.width == 125 })
         #expect(result.contentWidth == 1000)
     }
 
     @Test func leftoverPointsGoToLeadingTabs() {
-        let result = TabLayoutEngine.layout(items: items(3), availableWidth: 302, style: .chrome)
+        let result = TabLayoutEngine.layout(items: items(3), availableWidth: 302, style: .chrome, metrics: m)
         #expect(result.slots.map(\.width) == [101, 101, 100])
         #expect(result.contentWidth == 302)
     }
 
     @Test func slotsAreContiguous() {
-        let result = TabLayoutEngine.layout(items: items(13), availableWidth: 917, style: .chrome)
+        let result = TabLayoutEngine.layout(items: items(13), availableWidth: 917, style: .chrome, metrics: m)
         for (a, b) in zip(result.slots, result.slots.dropFirst()) {
             #expect(a.maxX == b.x)
         }
@@ -39,7 +57,7 @@ struct WidthDistributionTests {
 
     @Test func selectedTabKeepsMinimumWhenOthersShrinkBelowIt() {
         // 20 tabs in 900pt: ideal 45 < minActive 56.
-        let result = TabLayoutEngine.layout(items: items(20, selected: 5), availableWidth: 900, style: .chrome)
+        let result = TabLayoutEngine.layout(items: items(20, selected: 5), availableWidth: 900, style: .chrome, metrics: m)
         #expect(result.slots[5].width == m.minActiveTabWidth)
         let others = result.slots.enumerated().filter { $0.offset != 5 }.map(\.element.width)
         #expect(others.allSatisfy { $0 >= m.minInactiveTabWidth && $0 < m.minActiveTabWidth })
@@ -48,7 +66,7 @@ struct WidthDistributionTests {
     }
 
     @Test func pinnedTabsAreFixedWidthWithGroupGap() {
-        let result = TabLayoutEngine.layout(items: items(5, pinned: 2), availableWidth: 2000, style: .chrome)
+        let result = TabLayoutEngine.layout(items: items(5, pinned: 2), availableWidth: 2000, style: .chrome, metrics: m)
         #expect(result.slots[0].width == m.pinnedTabWidth)
         #expect(result.slots[1].width == m.pinnedTabWidth)
         #expect(result.slots[2].x == 2 * m.pinnedTabWidth + m.pinnedGroupGap)
@@ -57,26 +75,26 @@ struct WidthDistributionTests {
 
     @Test func pinnedWidthIsTakenBeforeDistributing() {
         let available: CGFloat = 1000
-        let result = TabLayoutEngine.layout(items: items(10, pinned: 2), availableWidth: available, style: .chrome)
+        let result = TabLayoutEngine.layout(items: items(10, pinned: 2), availableWidth: available, style: .chrome, metrics: m)
         let unpinnedTotal = available - 2 * m.pinnedTabWidth - m.pinnedGroupGap
         #expect(result.slots[2...].map(\.width).reduce(0, +) == unpinnedTotal.rounded(.down))
         #expect(result.contentWidth <= available)
     }
 
     @Test func onlyPinnedTabsHaveNoGap() {
-        let result = TabLayoutEngine.layout(items: items(3, pinned: 3), availableWidth: 500, style: .chrome)
+        let result = TabLayoutEngine.layout(items: items(3, pinned: 3), availableWidth: 500, style: .chrome, metrics: m)
         #expect(result.contentWidth == 3 * m.pinnedTabWidth)
         #expect(result.standardWidth == 0)
     }
 
     @Test func compactStyleUsesFixedWidth() {
-        let result = TabLayoutEngine.layout(items: items(4, pinned: 1), availableWidth: 2000, style: .compact)
+        let result = TabLayoutEngine.layout(items: items(4, pinned: 1), availableWidth: 2000, style: .compact, metrics: m)
         #expect(result.slots[0].width == m.pinnedTabWidth)
         #expect(result.slots[1...].allSatisfy { $0.width == m.compactTabWidth })
     }
 
     @Test func emptyStrip() {
-        let result = TabLayoutEngine.layout(items: [], availableWidth: 500, style: .chrome)
+        let result = TabLayoutEngine.layout(items: [], availableWidth: 500, style: .chrome, metrics: m)
         #expect(result.slots.isEmpty)
         #expect(result.contentWidth == 0)
     }
@@ -96,7 +114,7 @@ struct WidthDistributionTests {
 @Suite("Overflow")
 struct OverflowTests {
     @Test func tabsStopAtMinimumAndOverflow() {
-        let result = TabLayoutEngine.layout(items: items(40, selected: 0), availableWidth: 800, style: .chrome)
+        let result = TabLayoutEngine.layout(items: items(40, selected: 0), availableWidth: 800, style: .chrome, metrics: m)
         #expect(result.slots[0].width == m.minActiveTabWidth)
         #expect(result.slots[1...].allSatisfy { $0.width == m.minInactiveTabWidth })
         #expect(result.isOverflowing)
@@ -104,7 +122,7 @@ struct OverflowTests {
     }
 
     @Test func compactOverflowsWithoutShrinking() {
-        let result = TabLayoutEngine.layout(items: items(10), availableWidth: 600, style: .compact)
+        let result = TabLayoutEngine.layout(items: items(10), availableWidth: 600, style: .compact, metrics: m)
         #expect(result.isOverflowing)
         #expect(result.contentWidth == 10 * m.compactTabWidth)
     }
@@ -153,6 +171,7 @@ struct ClosingModeTests {
             items: ids.map { TabLayoutItem(id: $0, isSelected: $0 == selected) },
             availableWidth: available,
             style: .chrome,
+            metrics: m,
             closingModeWidth: closing
         )
     }
@@ -208,9 +227,9 @@ struct ClosingModeTests {
 
     @Test func closingOnlyPinnedTabRemovesGroupGap() {
         let items = [TabLayoutItem(id: "p", isPinned: true)] + (0..<5).map { TabLayoutItem(id: TabID("t\($0)")) }
-        let before = TabLayoutEngine.layout(items: items, availableWidth: 600, style: .chrome)
+        let before = TabLayoutEngine.layout(items: items, availableWidth: 600, style: .chrome, metrics: m)
         let closing = TabLayoutEngine.closingModeWidth(afterClosing: "p", in: before, current: nil)
-        let after = TabLayoutEngine.layout(items: Array(items.dropFirst()), availableWidth: 600, style: .chrome, closingModeWidth: closing)
+        let after = TabLayoutEngine.layout(items: Array(items.dropFirst()), availableWidth: 600, style: .chrome, metrics: m, closingModeWidth: closing)
         #expect(zip(before.slots.dropFirst(), after.slots).allSatisfy { $0.width == $1.width })
         #expect(after.slots.first?.x == 0)
     }

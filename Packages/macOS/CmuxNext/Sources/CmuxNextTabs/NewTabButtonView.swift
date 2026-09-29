@@ -19,7 +19,7 @@ final class NewTabButtonView: NSView {
         fillLayer.cornerCurve = .continuous
         fillLayer.actions = ["bounds": NSNull(), "position": NSNull()]
         glyphLayer.fillColor = nil
-        glyphLayer.lineWidth = 1.4
+        glyphLayer.lineWidth = Metrics.space1 * 0.7
         glyphLayer.lineCap = .round
         glyphLayer.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull()]
         layer?.addSublayer(fillLayer)
@@ -42,16 +42,18 @@ final class NewTabButtonView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let side = min(bounds.width, bounds.height, 26)
+        let side = min(bounds.width, bounds.height)
         let square = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         fillLayer.frame = square
         glyphLayer.frame = bounds
-        let arm: CGFloat = 5
+        let arm = Metrics.space2 + Metrics.space1 / 2
+        let scale = window?.backingScaleFactor ?? 2
+        let center = CGPoint(x: (square.midX * scale).rounded() / scale, y: (square.midY * scale).rounded() / scale)
         let path = CGMutablePath()
-        path.move(to: CGPoint(x: square.midX - arm, y: square.midY))
-        path.addLine(to: CGPoint(x: square.midX + arm, y: square.midY))
-        path.move(to: CGPoint(x: square.midX, y: square.midY - arm))
-        path.addLine(to: CGPoint(x: square.midX, y: square.midY + arm))
+        path.move(to: CGPoint(x: center.x - arm, y: center.y))
+        path.addLine(to: CGPoint(x: center.x + arm, y: center.y))
+        path.move(to: CGPoint(x: center.x, y: center.y - arm))
+        path.addLine(to: CGPoint(x: center.x, y: center.y + arm))
         glyphLayer.path = path
         CATransaction.commit()
     }
