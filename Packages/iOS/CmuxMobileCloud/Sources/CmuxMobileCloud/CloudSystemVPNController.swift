@@ -28,6 +28,9 @@ public final class CloudSystemVPNController {
     private let operationTimeout: Duration
     private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
+    // The durable store is the source of truth; this cache is only the
+    // bounded working set used while an account transition is in flight.
+    private let maxInMemoryPendingRevocations = 32
     private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
     private let pendingRevocationStore: any CloudSystemVPNPendingRevocationStoring
     private var scope: String?
@@ -554,11 +557,41 @@ public final class CloudSystemVPNController {
             credentials: CloudAPITokenSource.TokenPair?
         )
     ) {
-        guard !pendingBrowserTunnelRevocations.contains(where: {
+        if let index = pendingBrowserTunnelRevocations.firstIndex(where: {
+            $0.scope == tunnel.scope
+                && $0.deviceFingerprint == tunnel.deviceFingerprint
+        }) {
+            let existing = pendingBrowserTunnelRevocations[index]
+            pendingBrowserTunnelRevocations[index] = (
+                scope: existing.scope,
+                deviceFingerprint: existing.deviceFingerprint,
+                credentials: existing.credentials ?? tunnel.credentials
+            )
+            return
+        }
+        pendingBrowserTunnelRevocations.append(tunnel)
+        let overflow = pendingBrowserTunnelRevocations.count - maxInMemoryPendingRevocations
+        if overflow > 0 {
+            pendingBrowserTunnelRevocations.removeFirst(overflow)
+        }
+    }
+
+    private func clearPendingBrowserTunnelRevocationCredentials(
+        _ tunnel: (
+            scope: String,
+            deviceFingerprint: String,
+            credentials: CloudAPITokenSource.TokenPair?
+        )
+    ) {
+        guard let index = pendingBrowserTunnelRevocations.firstIndex(where: {
             $0.scope == tunnel.scope
                 && $0.deviceFingerprint == tunnel.deviceFingerprint
         }) else { return }
-        pendingBrowserTunnelRevocations.append(tunnel)
+        pendingBrowserTunnelRevocations[index] = (
+            scope: tunnel.scope,
+            deviceFingerprint: tunnel.deviceFingerprint,
+            credentials: nil
+        )
     }
 
     private func removePendingBrowserTunnelRevocation(
@@ -671,6 +704,7 @@ public final class CloudSystemVPNController {
                 }
             }
             if let lastError {
+                clearPendingBrowserTunnelRevocationCredentials(tunnel)
                 await persistPendingBrowserTunnelRevocation(tunnel)
                 throw lastError
             }
@@ -704,6 +738,15 @@ public final class CloudSystemVPNController {
                 continue
             }
         }
+        clearPendingBrowserTunnelRevocationCredentials(tunnel)
+        if browserTunnel?.scope == tunnel.scope,
+           browserTunnel?.deviceFingerprint == tunnel.deviceFingerprint {
+            browserTunnel = (
+                scope: tunnel.scope,
+                deviceFingerprint: tunnel.deviceFingerprint,
+                credentials: nil
+            )
+        }
         await persistPendingBrowserTunnelRevocation(tunnel)
     }
 
@@ -729,6 +772,9 @@ public final class CloudSystemVPNController {
             revoked = true
         } catch {
             revoked = false
+        }
+        if !revoked {
+            clearPendingBrowserTunnelRevocationCredentials(tunnel)
         }
         if revoked {
             removePendingBrowserTunnelRevocation(tunnel)

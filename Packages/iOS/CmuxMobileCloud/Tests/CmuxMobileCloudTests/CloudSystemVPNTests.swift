@@ -786,8 +786,8 @@ import Testing
         #expect(!policy.permitsOnlyPrivateRoutes(inQuickConfig: config))
     }
 
-    @Test func persistedRevocationsCompactOldScopes() async {
-        let suiteName = "cmux.cloud-system-vpn.pending-revocation-compaction"
+    @Test func persistedRevocationsKeepEveryUnrevokedPeer() async {
+        let suiteName = "cmux.cloud-system-vpn.pending-revocation-retention"
         let key = "pending-revocations-test"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
         defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
@@ -797,12 +797,15 @@ import Testing
         )
 
         for index in 0..<80 {
-            await store.save(["fingerprint-\(index)"], scope: "scope-\(index)")
+            await store.save(
+                ["fingerprint-\(index)", "second-\(index)"],
+                scope: "scope-\(index)"
+            )
         }
 
         let persisted = UserDefaults(suiteName: suiteName)?.dictionary(forKey: key) as? [String: [String]]
-        #expect(persisted?.count == 64)
-        #expect(await store.load(scope: "scope-79") == ["fingerprint-79"])
-        #expect(await store.load(scope: "scope-0").isEmpty)
+        #expect(persisted?.count == 80)
+        #expect(await store.load(scope: "scope-79") == ["fingerprint-79", "second-79"])
+        #expect(await store.load(scope: "scope-0") == ["fingerprint-0", "second-0"])
     }
 }
