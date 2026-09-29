@@ -50,6 +50,8 @@ var claudeRelayHookEvents = []struct {
 	{"SessionStart", "", "session-start"},
 	{"UserPromptSubmit", "", "prompt-submit"},
 	{"Stop", "", "stop"},
+	// Claude Code fires StopFailure instead of Stop when a turn dies on an API error.
+	{"StopFailure", "", "stop"},
 	{"Notification", "", "notification"},
 	{"SessionEnd", "", "session-end"},
 	{"PreToolUse", "AskUserQuestion|ExitPlanMode", "pre-tool-use"},

@@ -69,6 +69,12 @@ export type AuditedDocsPageKey =
   | "gettingStarted"
   | "remoteTmux"
   | "managedPolicies"
+  | "cloudOverview"
+  | "cloudMachines"
+  | "cloudWorkspaces"
+  | "cloudNetworking"
+  | "cloudCli"
+  | "cloudTroubleshooting"
   | "cloudSecurity";
 
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
