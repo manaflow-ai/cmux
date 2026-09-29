@@ -11,9 +11,11 @@ import {
   DIR_KEY,
   DIRECTORY_TTL_SECONDS,
   HINT_CONFIRM_DELAY_MS,
+  MAX_CONTROL_SOCKET_AGE_MS,
   REV_KEY,
   SNAPSHOT_RETRY_DELAY_MS,
   directoryPayloadFromDiscovery,
+  resolveControlSocketDeadline,
   type CtlAttachment,
   type CtlSocket,
   type CtlUpstreamInit,
@@ -26,6 +28,8 @@ const ENDPOINT_A = "a".repeat(64);
 const ENDPOINT_B = "b".repeat(64);
 const RELAY_1 = "https://usw1.relay.example/";
 const RELAY_2 = "https://use4.relay.example/";
+/** A relay in the managed catalog: the only kind a socket announcement may carry. */
+const MANAGED_RELAY = "https://euw4.relay.cmux.dev/";
 
 function discoveryResponse(
   revision: number,
@@ -207,16 +211,6 @@ class Harness {
       expiresAt: this.now + 15 * 60_000,
       bearer: `token-${sessionId}`,
       ...(namespace ? { namespace } : {}),
-    });
-    return socket;
-  }
-
-  async connectLongLived(sessionId: string): Promise<FakeSocket> {
-    const socket = new FakeSocket();
-    this.socketList.push(socket);
-    await this.core.handleConnect(socket, {
-      sessionId,
-      bearer: `token-${sessionId}`,
     });
     return socket;
   }
@@ -409,20 +403,33 @@ describe("hello fact streaming", () => {
     expect(socket.types()).toEqual(["pong"]);
   });
 
-  it("keeps a production-style control socket alive without a subscription deadline", async () => {
+  it("stops serving a socket once its verified deadline passes", async () => {
     const harness = new Harness();
     harness.serveDiscovery(() => discoveryResponse(42));
-    const socket = await harness.connectLongLived("s1");
-    await harness.hello(socket, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
-    socket.clearFrames();
+    const stale = await harness.connect("stale");
+    await harness.hello(stale, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+    harness.now += 16 * 60_000; // past the 15-minute deadline
+    const fresh = await harness.connect("fresh");
+    await harness.hello(fresh, { endpointId: ENDPOINT_B, haveRev: 42, wantPasses: false });
+    stale.clearFrames();
+    fresh.clearFrames();
 
-    // A long-lived control attachment has no expiry sweep even after the
-    // short-lived deadlines used by the legacy test adapter would have passed.
-    harness.now += 2 * 60 * 60 * 1_000;
-    await harness.core.handleAlarm();
+    // A fresh device announces its hint: the expired socket must not hear it.
+    await harness.send(fresh, {
+      v: 1,
+      type: "publish_hint",
+      payload: { endpointId: ENDPOINT_B, homeRelayUrl: MANAGED_RELAY },
+    });
+    expect(stale.frames).toHaveLength(0);
 
-    expect(socket.closes).toEqual([]);
-    expect(socket.types()).toContain("ping");
+    // Any frame from the expired socket closes it instead of being served.
+    await harness.send(stale, {
+      v: 1,
+      type: "publish_hint",
+      payload: { endpointId: ENDPOINT_A, homeRelayUrl: MANAGED_RELAY },
+    });
+    expect(stale.closes).toHaveLength(1);
+    expect(fresh.frames).toHaveLength(0);
   });
 
   it("ignores a duplicate hello (reconnect is the resync path)", async () => {
@@ -645,7 +652,7 @@ describe("publish_hint announcements", () => {
     await harness.send(mac, {
       v: 1,
       type: "publish_hint",
-      payload: { endpointId: ENDPOINT_A, homeRelayUrl: RELAY_2 },
+      payload: { endpointId: ENDPOINT_A, homeRelayUrl: MANAGED_RELAY },
     });
 
     // The announcer hears nothing back; the peer gets the hint immediately.
@@ -654,7 +661,7 @@ describe("publish_hint announcements", () => {
     const update = phone.frame("hint_update") as { rev: number; payload: Record<string, unknown> };
     expect(update.rev).toBe(42);
     expect(update.payload.endpointId).toBe(ENDPOINT_A);
-    expect(update.payload.homeRelayUrl).toBe(RELAY_2);
+    expect(update.payload.homeRelayUrl).toBe(MANAGED_RELAY);
     expect(typeof update.payload.updatedAt).toBe("string");
     // A socket that never helloed has no snapshot baseline and is skipped.
     expect(preHello.frames).toHaveLength(0);
@@ -677,6 +684,84 @@ describe("publish_hint announcements", () => {
       payload: { endpointId: ENDPOINT_A, homeRelayUrl: "not-a-url" },
     });
     expect(mac.frame("error")?.payload).toMatchObject({ code: "invalid_hint", retryable: false });
+  });
+
+  async function macAndPhone(harness: Harness): Promise<[FakeSocket, FakeSocket]> {
+    harness.serveDiscovery(() => discoveryResponse(42));
+    const mac = await harness.connect("mac");
+    await harness.hello(mac, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+    const phone = await harness.connect("phone");
+    await harness.hello(phone, { endpointId: ENDPOINT_B, haveRev: 42, wantPasses: false });
+    mac.clearFrames();
+    phone.clearFrames();
+    harness.alarms = [];
+    return [mac, phone];
+  }
+
+  it("refuses an announcement for an endpoint the socket did not hello as", async () => {
+    const harness = new Harness();
+    const [mac, phone] = await macAndPhone(harness);
+
+    // The phone claims the Mac's endpoint moved to another relay.
+    await harness.send(phone, {
+      v: 1,
+      type: "publish_hint",
+      payload: { endpointId: ENDPOINT_A, homeRelayUrl: MANAGED_RELAY },
+    });
+
+    expect(mac.frames).toHaveLength(0);
+    expect(phone.frame("error")?.payload).toMatchObject({
+      code: "hint_endpoint_mismatch",
+      retryable: false,
+    });
+    expect(harness.alarms).toHaveLength(0);
+  });
+
+  it("refuses an announcement from a socket that has not sent hello", async () => {
+    const harness = new Harness();
+    const [mac] = await macAndPhone(harness);
+    const quiet = await harness.connect("quiet");
+    harness.alarms = [];
+
+    await harness.send(quiet, {
+      v: 1,
+      type: "publish_hint",
+      payload: { endpointId: ENDPOINT_B, homeRelayUrl: MANAGED_RELAY },
+    });
+
+    expect(mac.frames).toHaveLength(0);
+    expect(harness.alarms).toHaveLength(0);
+  });
+
+  it("refuses to announce a relay outside the managed catalog", async () => {
+    const harness = new Harness();
+    const [mac, phone] = await macAndPhone(harness);
+
+    await harness.send(mac, {
+      v: 1,
+      type: "publish_hint",
+      payload: { endpointId: ENDPOINT_A, homeRelayUrl: "https://relay.attacker.example/" },
+    });
+
+    expect(phone.frames).toHaveLength(0);
+    expect(mac.frame("error")?.payload).toMatchObject({ code: "invalid_hint", retryable: false });
+    expect(harness.alarms).toHaveLength(0);
+  });
+});
+
+describe("control socket deadline", () => {
+  it("caps the verified token deadline at the maximum socket age", () => {
+    expect(resolveControlSocketDeadline(String(T0 + 5 * 60_000), T0)).toBe(T0 + 5 * 60_000);
+    expect(resolveControlSocketDeadline(String(T0 + 24 * 60 * 60_000), T0))
+      .toBe(T0 + MAX_CONTROL_SOCKET_AGE_MS);
+  });
+
+  it("rejects a missing, garbled, or already-past deadline", () => {
+    expect(resolveControlSocketDeadline(null, T0)).toBeNull();
+    expect(resolveControlSocketDeadline("", T0)).toBeNull();
+    expect(resolveControlSocketDeadline("soon", T0)).toBeNull();
+    expect(resolveControlSocketDeadline(String(T0), T0)).toBeNull();
+    expect(resolveControlSocketDeadline(String(T0 - 1), T0)).toBeNull();
   });
 });
 
