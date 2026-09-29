@@ -42,6 +42,11 @@ public final class MainThreadWatchdog: Sendable {
     private let beatSequence = Atomic<UInt64>(0)
     /// Main-thread CPU time at the last heartbeat (CLOCK_THREAD_CPUTIME_ID).
     private let beatCPUNanos = Atomic<UInt64>(0)
+    /// Main-thread work gaps longer than one 60 Hz frame (16.7 ms) but not
+    /// necessarily stalls: they drop frames. Counted, not sampled.
+    private let longFrames = Atomic<UInt64>(0)
+    private let longFrameMaxNanos = Atomic<UInt64>(0)
+    static let frameNanos: UInt64 = 16_666_667
     private let mainAsleep = Atomic<Bool>(true)
     private let watchdogParked = Atomic<Bool>(false)
     private let running = Atomic<Bool>(false)
@@ -60,6 +65,16 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     public var isRunning: Bool { running.load(ordering: .relaxed) }
+
+    /// Main-thread work gaps over 16.7 ms since the last reset, and the longest.
+    public var longFrameStats: (count: Int, max: Duration) {
+        (Int(longFrames.load(ordering: .relaxed)), .nanoseconds(Int64(longFrameMaxNanos.load(ordering: .relaxed))))
+    }
+
+    public func resetLongFrames() {
+        longFrames.store(0, ordering: .relaxed)
+        longFrameMaxNanos.store(0, ordering: .relaxed)
+    }
 
     /// Starts watching the main run loop. Call once, on the main actor.
     @MainActor
@@ -98,6 +113,16 @@ public final class MainThreadWatchdog: Sendable {
         let previous = beatNanos.load(ordering: .acquiring)
         let wasAsleep = mainAsleep.load(ordering: .acquiring)
         let beat = beatSequence.load(ordering: .acquiring)
+        if !wasAsleep, now > previous, now - previous >= Self.frameNanos {
+            longFrames.add(1, ordering: .relaxed)
+            var current = longFrameMaxNanos.load(ordering: .relaxed)
+            while now - previous > current {
+                let (exchanged, original) = longFrameMaxNanos.compareExchange(
+                    expected: current, desired: now - previous, ordering: .relaxed)
+                if exchanged { break }
+                current = original
+            }
+        }
         if !wasAsleep, now > previous, now - previous >= thresholdNanos {
             let previousCPU = beatCPUNanos.load(ordering: .acquiring)
             recordStall(start: previous, nanos: now - previous, cpuNanos: cpu > previousCPU ? cpu - previousCPU : 0, beat: beat)

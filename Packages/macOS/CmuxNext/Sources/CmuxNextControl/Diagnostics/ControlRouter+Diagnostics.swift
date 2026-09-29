@@ -14,13 +14,19 @@ extension ControlRouter {
                 let limit = call.params["limit"]?.intValue ?? watchdog.log.capacity
                 let summary = watchdog.log.summary
                 let records = watchdog.log.records(after: after).suffix(max(0, limit))
-                if call.params["clear"]?.boolValue == true { watchdog.log.clear() }
+                let longFrames = watchdog.longFrameStats
+                if call.params["clear"]?.boolValue == true {
+                    watchdog.log.clear()
+                    watchdog.resetLongFrames()
+                }
                 return [
                     "installed": .bool(watchdog.isRunning),
                     "threshold_ms": .number(watchdog.configuration.threshold.fractionalMilliseconds),
                     "count": JSONValue(summary.count),
                     "max_ms": .number(summary.maxDuration.fractionalMilliseconds),
                     "total_ms": .number(summary.totalDuration.fractionalMilliseconds),
+                    "long_frames": JSONValue(longFrames.count),
+                    "long_frame_max_ms": .number(longFrames.max.fractionalMilliseconds),
                     "records": .array(records.map(\.json)),
                 ]
             },

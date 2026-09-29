@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
 
 DEADLINE_S = 2.0
 CLIENT_TIMEOUT_S = DEADLINE_S + 3.0
@@ -149,6 +150,7 @@ class Storm:
         self.left_pane = left_pane
         self.lock = threading.Lock()
         self.samples = []  # (category, method, latency_s, outcome)
+        self.error_examples = {}  # "method code" -> first error message
         self.remaining = args.requests
         self.created = 0
 
@@ -167,7 +169,7 @@ class Storm:
         rng = random.Random(self.args.seed * 1000 + index)
         client = Client(self.profile.socket_path)
         daemon = None
-        candidates = self.closable(self.profile.topology(client))
+        candidates = self.closable(self.profile.topology(client), index)
         try:
             while self.take():
                 roll = rng.random()
@@ -216,8 +218,12 @@ class Storm:
                     response = call()
                     error = response.get("error")
                     outcome = "ok" if ok(response) else (error.get("code", "error") if isinstance(error, dict) else "daemon_error")
+                    if outcome != "ok":
+                        message = error.get("message") if isinstance(error, dict) else str(error)
+                        with self.lock:
+                            self.error_examples.setdefault(f"{method} {outcome}", message)
                     if method == "snapshot.get" and ok(response):
-                        candidates = self.closable(response["result"]["topology"])
+                        candidates = self.closable(response["result"]["topology"], index)
                 except (socket.timeout, TimeoutError):
                     outcome = "client_timeout"
                 except (ConnectionError, OSError) as error:
@@ -230,9 +236,13 @@ class Storm:
             if daemon:
                 daemon.close()
 
-    def closable(self, topology):
+    def closable(self, topology, worker):
+        """Storm tabs this worker owns (tabs are partitioned across workers,
+        so two clients never race to close the same tab)."""
         tabs = []
         for tab_id in self.profile.tabs_in(topology, self.left_pane):
+            if zlib.crc32(tab_id.encode()) % self.args.clients != worker:
+                continue
             if tab_id in self.keep_tabs or tab_id == self.stream_tab:
                 continue
             tab = self.profile.tab(topology, tab_id)
@@ -408,11 +418,12 @@ def main():
         "bench": "cli-storm", "label": args.label, "sha": args.sha, "tag": args.tag, "app": identity.get("app"),
         "pid": pid, "clients": args.clients, "requests": args.requests, "stream_bytes": args.stream_bytes,
         "storm_seconds": storm_seconds, "measured_seconds": measured_seconds, "prewarm_tabs": args.prewarm_tabs, "throughput_rps": args.requests / storm_seconds if storm_seconds else 0,
-        "latency": report, "frames": frames, "hangs": hangs, "hangs_after_cleanup": after_hangs, "queue": queue,
+        "latency": report, "error_examples": storm.error_examples, "frames": frames, "hangs": hangs, "hangs_after_cleanup": after_hangs, "queue": queue,
         "rss_kb": {"baseline": baseline_rss, "peak": peak_rss, "after": after_rss}, "leftover_tabs": leftover,
         "load_average": {"start": load_start, "end": os.getloadavg()},
         "criteria": {"stalls_over_50ms": hangs.get("count", 0),
-                     "stalls_busy_main": len(busy), "stalls_blocked_or_descheduled": len(records) - len(busy), "p99_frame_ms": frames.get("p99_ms"),
+                     "stalls_busy_main": len(busy), "stalls_blocked_or_descheduled": len(records) - len(busy),
+                     "main_long_frames_over_16_7ms": hangs.get("long_frames"), "main_long_frame_max_ms": hangs.get("long_frame_max_ms"), "p99_frame_ms": frames.get("p99_ms"),
                      "max_request_ms": max_wait_ms, "unanswered": lost,
                      "rss_after_vs_baseline": (after_rss / baseline_rss) if baseline_rss else None},
         "failures": failures, "passed": not failures,
