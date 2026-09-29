@@ -127,13 +127,72 @@ struct IntegrationTests {
 
             // Tab drag: move the tab into a new workspace (fallback path on
             // daemons without tab-to-new-workspace).
-            _ = try await connection.tabToNewWorkspace(surface, transaction: .generate())
+            _ = try await connection.moveTabToNewWorkspace(surface, transaction: .generate())
             try await waitUntil("tab left the old workspace") {
                 await MainActor.run {
                     let old = store.workspace(key: workspace.key)
                     return old?.screens.allSatisfy { $0.panes.allSatisfy { $0.tabs.isEmpty } } ?? true
                 }
             }
+        } catch {
+            try? await connection.shutdownDaemon()
+            await connection.close()
+            throw error
+        }
+        try await connection.shutdownDaemon()
+        await connection.close()
+    }
+
+    /// A Finder launch hands the app launchd's minimal PATH. The launcher
+    /// captures the login-shell env and starts the daemon with it, so shells
+    /// in daemon terminals see the user's PATH.
+    @Test func finderLaunchedDaemonGivesTerminalsTheLoginPath() async throws {
+        let binary = try #require(RealBinary.url)
+        let root = URL(fileURLWithPath: "/tmp/cnd-it-\(UUID().uuidString.prefix(8).lowercased())")
+        let session = "cnd-it-\(UUID().uuidString.prefix(8).lowercased())"
+        defer { try? FileManager.default.removeItem(at: root) }
+        let process = ProcessInfo.processInfo.environment
+        var finder: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        for key in ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR"] { finder[key] = process[key] }
+        let login = try #require(await LoginEnvironment.capture(base: finder, timeout: .seconds(15)))
+        let loginPath = try #require(login["PATH"])
+        try #require(loginPath != finder["PATH"], "login PATH equals launchd PATH; nothing to verify on this machine")
+        let environment = LoginEnvironment.daemonEnvironment(login: login, base: finder, overrides: [:])
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+            environment: { environment })
+        let ensured = try await launcher.ensure()
+        let connection = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        do {
+            let identity = try await connection.start()
+            let workspace = try await connection.createWorkspace(name: "path")
+            let terminal = try await connection.createTerminal(in: workspace.key, cwd: root.path, size: CellSize(cols: 200, rows: 24))
+            let attachment = try await TerminalAttachment.attach(
+                endpoint: ensured.endpoint,
+                target: .init(surface: try #require(terminal.surface), generation: identity.generation),
+                size: CellSize(cols: 200, rows: 24), claimGeometry: true)
+            let watchdog = Task {
+                try await Task.sleep(for: .seconds(20))
+                await attachment.detach()
+            }
+            await attachment.write(Data("printf 'P%s=[%s]\\n' X \"$PATH\"\r".utf8))
+            var output = ""
+            var seen: String?
+            for await event in attachment.events {
+                guard case .output(let data, _) = event else { continue }
+                output += String(decoding: data, as: UTF8.self)
+                if let start = output.range(of: "PX=["), let end = output[start.upperBound...].range(of: "]") {
+                    seen = String(output[start.upperBound..<end.lowerBound])
+                    break
+                }
+            }
+            watchdog.cancel()
+            await attachment.detach()
+            // The daemon may add its own shims; every login entry must be there.
+            let entries = Set((seen ?? "").split(separator: ":").map(String.init))
+            let missing = loginPath.split(separator: ":").map(String.init).filter { !entries.contains($0) }
+            #expect(seen != nil)
+            #expect(missing.isEmpty, "missing from terminal PATH: \(missing)")
         } catch {
             try? await connection.shutdownDaemon()
             await connection.close()

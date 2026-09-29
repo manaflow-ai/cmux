@@ -1,6 +1,5 @@
 import Foundation
 public import Observation
-import os
 
 @Observable @MainActor
 public final class WorkspaceModel: Identifiable {
@@ -14,6 +13,8 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var color: String?
     public internal(set) var icon: String?
     public internal(set) var title: String?
+    /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
+    public internal(set) var daemonUnreadCount: Int?
 
     /// Custom title when set, else the name.
     public var displayName: String {
@@ -21,37 +22,44 @@ public final class WorkspaceModel: Identifiable {
         return name
     }
 
-    init(_ snapshot: WorkspaceSnapshot) {
-        id = Self.identity(snapshot)
-        key = snapshot.key
-        handle = snapshot.id
-        name = snapshot.name
-        screens = snapshot.screens.map(ScreenModel.init)
-        group = snapshot.group
-        color = snapshot.color
-        icon = snapshot.icon
-        title = snapshot.title
-    }
-
-    static func identity(_ snapshot: WorkspaceSnapshot) -> String {
-        snapshot.key?.rawValue ?? "handle:\(snapshot.id.rawValue)"
-    }
-
-    func update(_ snapshot: WorkspaceSnapshot) {
-        key = snapshot.key
-        handle = snapshot.id
-        name = snapshot.name
-        group = snapshot.group
-        color = snapshot.color
-        icon = snapshot.icon
-        title = snapshot.title
-        screens = reconcile(screens, with: snapshot.screens, id: ScreenModel.identity, make: ScreenModel.init) { $0.update($1) }
-    }
-
-    /// Unread tabs in this workspace.
+    /// Tabs with an unread marker: the daemon rollup when served, else counted.
     public var unreadCount: Int {
-        screens.reduce(0) { total, screen in
+        daemonUnreadCount ?? screens.reduce(0) { total, screen in
             total + screen.panes.reduce(0) { $0 + $1.tabs.filter(\.hasUnread).count }
         }
     }
+
+    init(_ s: WorkspaceSnapshot) {
+        id = Self.identity(s)
+        key = s.key
+        handle = s.id
+        name = s.name
+        screens = s.screens.map(ScreenModel.init)
+        group = s.group
+        color = s.color
+        icon = s.icon
+        title = s.title
+        daemonUnreadCount = s.unreadCount
+    }
+
+    static func identity(_ s: WorkspaceSnapshot) -> String {
+        s.key?.rawValue ?? "handle:\(s.id.rawValue)"
+    }
+
+    func update(_ s: WorkspaceSnapshot) {
+        if key != s.key { key = s.key }
+        if handle != s.id { handle = s.id }
+        if name != s.name { name = s.name }
+        if group != s.group { group = s.group }
+        if color != s.color { color = s.color }
+        if icon != s.icon { icon = s.icon }
+        if title != s.title { title = s.title }
+        if daemonUnreadCount != s.unreadCount { daemonUnreadCount = s.unreadCount }
+        if let reordered = reconcile(screens, with: s.screens, id: ScreenModel.identity, make: ScreenModel.init, update: { $0.update($1) }) {
+            screens = reordered
+        }
+    }
+
+    func setName(_ value: String) { if name != value { name = value } }
+    func setGroup(_ value: WorkspaceGroupID?) { if group != value { group = value } }
 }

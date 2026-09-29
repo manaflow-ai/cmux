@@ -9,6 +9,8 @@ public struct PaneSnapshot: Sendable, Hashable, Decodable {
     public var activeTab: Int
     public var focusedAt: UInt64
     public var tabs: [TabSnapshot]
+    /// Chrome-style groups in this strip. TODO(feat-cmux-next-daemon): `tab_groups`.
+    public var tabGroups: [TabGroupSnapshot]
     /// Serialized only when the tree references a pane missing from state.
     public var dead: Bool
 
@@ -20,6 +22,7 @@ public struct PaneSnapshot: Sendable, Hashable, Decodable {
         activeTab: Int = 0,
         focusedAt: UInt64 = 0,
         tabs: [TabSnapshot] = [],
+        tabGroups: [TabGroupSnapshot] = [],
         dead: Bool = false
     ) {
         self.id = id
@@ -29,6 +32,7 @@ public struct PaneSnapshot: Sendable, Hashable, Decodable {
         self.activeTab = activeTab
         self.focusedAt = focusedAt
         self.tabs = tabs
+        self.tabGroups = tabGroups
         self.dead = dead
     }
 
@@ -38,6 +42,7 @@ public struct PaneSnapshot: Sendable, Hashable, Decodable {
         case shortID = "short_id"
         case activeTab = "active_tab"
         case focusedAt = "focused_at"
+        case tabGroups = "tab_groups"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -49,6 +54,7 @@ public struct PaneSnapshot: Sendable, Hashable, Decodable {
         activeTab = try c.decodeIfPresent(Int.self, forKey: .activeTab) ?? 0
         focusedAt = try c.decodeIfPresent(UInt64.self, forKey: .focusedAt) ?? 0
         tabs = try c.decodeIfPresent([TabSnapshot].self, forKey: .tabs) ?? []
+        tabGroups = try c.decodeIfPresent([TabGroupSnapshot].self, forKey: .tabGroups) ?? []
         dead = try c.decodeIfPresent(Bool.self, forKey: .dead) ?? false
     }
 }

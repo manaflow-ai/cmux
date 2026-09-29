@@ -197,9 +197,14 @@ extension DaemonConnection {
         try await request(NotifyRequest(title: title, body: body, level: level, surface: surface)).notification
     }
 
-    /// TODO(feat-cmux-next-daemon): requires the proposed `notification-ack`.
-    public func acknowledgeNotification(_ notification: NotificationID? = nil, surface: SurfaceID? = nil) async throws {
-        _ = try await request(AckNotificationRequest(notification: notification, surface: surface))
+    /// Clears a tab's unread marker without selecting it (`notification-ack-v1`).
+    @discardableResult
+    public func acknowledgeNotifications(of surface: SurfaceID) async throws -> AckTabNotificationsRequest.Response {
+        try await requestNew(AckTabNotificationsRequest(surface: surface))
+    }
+
+    public func notificationLedger(limit: Int? = nil) async throws -> [ListNotificationsRequest.Entry] {
+        try await requestNew(ListNotificationsRequest(limit: limit)).notifications
     }
 
     public func shutdownDaemon() async throws {

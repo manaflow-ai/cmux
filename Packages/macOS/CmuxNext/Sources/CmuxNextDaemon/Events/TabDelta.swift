@@ -22,7 +22,7 @@ public struct TabDelta: Sendable, Hashable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case workspace, screen, pane, surface, index, entity
-        case clientTransactionID = "client_transaction_id"
+        case clientTransactionID = "transaction"
     }
 }
 

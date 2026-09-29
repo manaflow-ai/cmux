@@ -84,14 +84,19 @@ import Testing
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
         try await connection.start()
         var iterator = connection.events.makeAsyncIterator()
-        guard case .connected(let identity, let changed)? = try await iterator.next() else {
+        guard let first = try await iterator.next(), case .connected(let identity, let changed) = first.event else {
             Issue.record("first event is not .connected")
             return
         }
         #expect(identity.generation == "GEN")
         #expect(changed == false)
-        _ = try await connection.listWorkspaces()
-        #expect(try await iterator.next() == .titleChanged(surface: 3, title: "vim"))
+        let (_, barrier) = try await connection.snapshot()
+        let title = try #require(try await iterator.next())
+        #expect(title.event == .titleChanged(surface: 3, title: "vim"))
+        // The title event was on the wire before the snapshot result, so the
+        // snapshot's barrier covers it.
+        #expect(title.sequence > first.sequence)
+        #expect(title.sequence <= barrier)
         await connection.close()
     }
 
@@ -114,7 +119,7 @@ import Testing
         }
         try await connection.start()
         var iterator = connection.events.makeAsyncIterator()
-        guard case .connected? = try await iterator.next() else {
+        guard case .connected? = try await iterator.next()?.event else {
             Issue.record("missing first connect")
             return
         }
@@ -123,11 +128,11 @@ import Testing
         try await Task.sleep(for: .milliseconds(50))
         server.disconnectClient()
         await #expect(throws: DaemonError.self) { try await pending.value }
-        guard case .disconnected? = try await iterator.next() else {
+        guard case .disconnected? = try await iterator.next()?.event else {
             Issue.record("missing disconnect")
             return
         }
-        guard case .connected(let identity, let changed)? = try await iterator.next() else {
+        guard case .connected(let identity, let changed)? = try await iterator.next()?.event else {
             Issue.record("missing reconnect")
             return
         }
@@ -153,13 +158,13 @@ import Testing
             let cmd = request["cmd"]?.stringValue ?? ""
             seen.withLock { $0.append(cmd) }
             switch cmd {
-            case "tab-to-new-workspace":
-                return [#"{"ok":false,"error":"bad request: unknown variant `tab-to-new-workspace`, expected one of `identify`"}"#]
+            case "move-tab-to-new-workspace":
+                return [#"{"ok":false,"error":"bad request: unknown variant `move-tab-to-new-workspace`, expected one of `identify`"}"#]
             case "move-tab-to-workspace":
                 #expect(request["workspace"] == nil)
                 return [#"{"id":\#(id),"ok":true,"data":{}}"#]
-            case "tab-to-new-split":
-                return [#"{"ok":false,"error":"bad request: unknown variant `tab-to-new-split`"}"#]
+            case "move-tab-to-split":
+                return [#"{"ok":false,"error":"bad request: unknown variant `move-tab-to-split`"}"#]
             default:
                 return []
             }
@@ -167,11 +172,11 @@ import Testing
         defer { server.stop() }
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
         try await connection.start()
-        _ = try await connection.tabToNewWorkspace(3, transaction: "tx")
-        await #expect(throws: DaemonError.missingCapabilities(["tab-to-new-split"])) {
-            try await connection.tabToNewSplit(3, pane: 4, edge: .right)
+        _ = try await connection.moveTabToNewWorkspace(3, transaction: "tx")
+        await #expect(throws: DaemonError.missingCapabilities(["move-tab-to-split"])) {
+            try await connection.moveTabToSplit(3, pane: 4, edge: .right)
         }
-        #expect(seen.withLock { $0 }.suffix(3) == ["tab-to-new-workspace", "move-tab-to-workspace", "tab-to-new-split"])
+        #expect(seen.withLock { $0 }.suffix(3) == ["move-tab-to-new-workspace", "move-tab-to-workspace", "move-tab-to-split"])
         await connection.close()
     }
 }

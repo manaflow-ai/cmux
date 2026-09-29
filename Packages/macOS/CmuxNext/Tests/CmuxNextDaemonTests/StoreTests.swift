@@ -154,14 +154,14 @@ import Testing
         store.onTransactionConfirmed = { confirmed.append($0) }
         let entity = TabSnapshot(surface: 60, tabResourceID: "tab_moved")
         let delta = TabDelta(workspace: 1, screen: 5, pane: 7, surface: 60, index: 0, entity: entity, clientTransactionID: "tx-1")
-        store.apply(.tabAdded(delta))
+        store.apply(.tabChanged(delta))
         store.apply(.layoutChanged(screen: 5, transaction: "tx-1"))
         store.apply(.treeChanged(transaction: "tx-2"))
         #expect(store.confirmedTransactions == ["tx-1", "tx-2"])
         #expect(confirmed == ["tx-1", "tx-2"])
 
-        let line = Data(#"{"event":"layout-changed","screen":5,"client_transaction_id":"tx-3"}"#.utf8)
-        #expect(DaemonEvent.decode(name: "layout-changed", line: line).clientTransactionID == "tx-3")
+        let line = Data(#"{"event":"tab-changed","workspace":1,"screen":5,"pane":7,"surface":6,"index":0,"entity":{"surface":6},"transaction":"tx-3"}"#.utf8)
+        #expect(DaemonEvent.decode(name: "tab-changed", line: line).clientTransactionID == "tx-3")
     }
 
     @Test func metadataDeltasUpdateWorkspaceAndTab() throws {

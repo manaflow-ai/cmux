@@ -74,13 +74,13 @@ private enum EventPayload {
         var clientTransactionID: ClientTransactionID?
         enum CodingKeys: String, CodingKey {
             case screen
-            case clientTransactionID = "client_transaction_id"
+            case clientTransactionID = "transaction"
         }
     }
 
     struct TransactionField: Decodable {
         var clientTransactionID: ClientTransactionID?
-        enum CodingKeys: String, CodingKey { case clientTransactionID = "client_transaction_id" }
+        enum CodingKeys: String, CodingKey { case clientTransactionID = "transaction" }
     }
 
     struct SurfaceField: Decodable { var surface: SurfaceID }

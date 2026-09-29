@@ -33,7 +33,11 @@ public enum DaemonCapabilities {
     public static let workspaceMetadata = "workspace-metadata-v1"
     public static let tabMetadata = "tab-metadata-v1"
     public static let frontendBrowserTabs = "frontend-browser-tabs-v1"
-    public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs]
+    public static let tabDrag = "tab-drag-v1"
+    public static let notificationAck = "notification-ack-v1"
+    /// TODO(feat-cmux-next-daemon): proposed name for Chrome-style tab groups.
+    public static let tabGroups = "tab-groups-v1"
+    public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag, notificationAck, tabGroups]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + [

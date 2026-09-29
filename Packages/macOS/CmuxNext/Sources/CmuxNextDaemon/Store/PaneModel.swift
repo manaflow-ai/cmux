@@ -1,6 +1,5 @@
 import Foundation
 public import Observation
-import os
 
 @Observable @MainActor
 public final class PaneModel: Identifiable {
@@ -11,46 +10,65 @@ public final class PaneModel: Identifiable {
     public internal(set) var defaultTabIndex: Int
     public internal(set) var focusedAt: UInt64
     public internal(set) var tabs: [TabModel]
+    public internal(set) var tabGroups: [TabGroupModel]
+    /// Group spans over `tabs`, recomputed only when tabs or groups change.
+    public private(set) var groupSpans: [TabGroupSpan] = []
 
-    init(_ snapshot: PaneSnapshot) {
-        id = Self.identity(snapshot)
-        handle = snapshot.id
-        defaultTabIndex = snapshot.activeTab
-        focusedAt = snapshot.focusedAt
-        tabs = snapshot.tabs.map(TabModel.init)
-        name = snapshot.name
+    init(_ s: PaneSnapshot) {
+        id = Self.identity(s)
+        handle = s.id
+        name = s.name
+        defaultTabIndex = s.activeTab
+        focusedAt = s.focusedAt
+        tabs = s.tabs.map(TabModel.init)
+        tabGroups = s.tabGroups.map(TabGroupModel.init)
+        recomputeSpans()
     }
 
-    static func identity(_ snapshot: PaneSnapshot) -> String {
-        snapshot.resourceID?.rawValue ?? "pane:\(snapshot.id.rawValue)"
+    static func identity(_ s: PaneSnapshot) -> String {
+        s.resourceID?.rawValue ?? "pane:\(s.id.rawValue)"
     }
 
-    func update(_ snapshot: PaneSnapshot) {
-        handle = snapshot.id
-        name = snapshot.name
-        defaultTabIndex = snapshot.activeTab
-        focusedAt = snapshot.focusedAt
-        tabs = reconcile(tabs, with: snapshot.tabs, id: TabModel.identity, make: TabModel.init) { $0.update($1) }
-    }
-}
-
-/// Reuses existing models by identity, creates new ones, drops removed ones,
-/// and adopts the snapshot order.
-@MainActor
-func reconcile<Model: AnyObject, Snapshot>(
-    _ existing: [Model],
-    with snapshots: [Snapshot],
-    id: (Snapshot) -> String,
-    make: (Snapshot) -> Model,
-    update: (Model, Snapshot) -> Void
-) -> [Model] where Model: Identifiable, Model.ID == String {
-    var byID: [String: Model] = [:]
-    for model in existing { byID[model.id] = model }
-    return snapshots.map { snapshot in
-        if let model = byID.removeValue(forKey: id(snapshot)) {
-            update(model, snapshot)
-            return model
+    func update(_ s: PaneSnapshot) {
+        if handle != s.id { handle = s.id }
+        if name != s.name { name = s.name }
+        if defaultTabIndex != s.activeTab { defaultTabIndex = s.activeTab }
+        if focusedAt != s.focusedAt { focusedAt = s.focusedAt }
+        if let groups = reconcile(tabGroups, with: s.tabGroups, id: \.id, make: TabGroupModel.init, update: { $0.update($1) }) {
+            tabGroups = groups
         }
-        return make(snapshot)
+        if let reordered = reconcile(tabs, with: s.tabs, id: TabModel.identity, make: TabModel.init, update: { $0.update($1) }) {
+            tabs = reordered
+        }
+        recomputeSpans()
+    }
+
+    func insertTab(_ tab: TabModel, at index: Int) {
+        tabs.insert(tab, at: min(max(index, 0), tabs.count))
+        recomputeSpans()
+    }
+
+    @discardableResult
+    func removeTab(surface: SurfaceID) -> TabModel? {
+        guard let index = tabs.firstIndex(where: { $0.surface == surface }) else { return nil }
+        let tab = tabs.remove(at: index)
+        recomputeSpans()
+        return tab
+    }
+
+    func recomputeSpans() {
+        var spans: [TabGroupSpan] = []
+        var start = 0
+        while start < tabs.count {
+            guard let group = tabs[start].tabGroup else {
+                start += 1
+                continue
+            }
+            var end = start + 1
+            while end < tabs.count, tabs[end].tabGroup == group { end += 1 }
+            spans.append(TabGroupSpan(group: group, range: start..<end))
+            start = end
+        }
+        if spans != groupSpans { groupSpans = spans }
     }
 }

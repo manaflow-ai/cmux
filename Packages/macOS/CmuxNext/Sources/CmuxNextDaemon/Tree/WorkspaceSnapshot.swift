@@ -18,6 +18,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     public var icon: String?
     /// Custom sidebar title that overrides `name` for display (`workspace-metadata-v1`).
     public var title: String?
+    /// Tabs with an unread marker (`notification-ack-v1`); nil on older daemons.
+    public var unreadCount: Int?
 
     /// What a sidebar shows.
     public var displayName: String {
@@ -36,7 +38,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         group: WorkspaceGroupID? = nil,
         color: String? = nil,
         icon: String? = nil,
-        title: String? = nil
+        title: String? = nil,
+        unreadCount: Int? = nil
     ) {
         self.id = id
         self.key = key
@@ -49,12 +52,14 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         self.color = color
         self.icon = icon
         self.title = title
+        self.unreadCount = unreadCount
     }
 
     enum CodingKeys: String, CodingKey {
         case id, key, name, active, screens, group, color, icon, title
         case resourceID = "resource_id"
         case shortID = "short_id"
+        case unreadCount = "unread_count"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -70,5 +75,6 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         color = try c.decodeIfPresent(String.self, forKey: .color)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         title = try c.decodeIfPresent(String.self, forKey: .title)
+        unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount)
     }
 }

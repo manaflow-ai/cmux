@@ -9,208 +9,95 @@ public enum DaemonConnectionState: Sendable, Equatable {
     case failed(String)
 }
 
+/// The app's read-only mirror of the daemon tree (plans/cmux-next/architecture.md
+/// sections 1-2). Records are fine-grained @Observable classes with stable
+/// identity, patched in place from deltas; views observe the smallest record
+/// they render. Events arrive decoded off the main actor and are applied in
+/// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore {
-    public private(set) var workspaces: [WorkspaceModel] = []
-    public private(set) var groups: [WorkspaceGroupSnapshot] = []
-    public private(set) var connectionState: DaemonConnectionState = .connecting
-    public private(set) var generation: DaemonGeneration?
-    public private(set) var registryID: String?
-    public private(set) var workspaceRevision: UInt64 = 0
+    public internal(set) var workspaces: [WorkspaceModel] = []
+    public internal(set) var groups: [WorkspaceGroupModel] = []
+    public internal(set) var savedTabGroups: [SavedTabGroupModel] = []
+    /// Sidebar flattening, recomputed only when order, membership, or groups change.
+    public internal(set) var sidebarSections: [SidebarSection] = []
+    public internal(set) var connectionState: DaemonConnectionState = .connecting
+    public internal(set) var generation: DaemonGeneration?
+    public internal(set) var registryID: String?
+    public internal(set) var workspaceRevision: UInt64 = 0
     /// Recent notifications, newest last (bounded).
-    public private(set) var notifications: [DaemonNotification] = []
+    public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.
-    public private(set) var isLoaded = false
-    /// Client transaction ids the daemon echoed, newest last (bounded). The
-    /// App reconciles optimistic tab-drag state against these.
-    public private(set) var confirmedTransactions: [ClientTransactionID] = []
+    public internal(set) var isLoaded = false
+    /// Client transaction ids the daemon echoed, newest last (bounded).
+    public internal(set) var confirmedTransactions: [ClientTransactionID] = []
     /// Called once per echoed transaction id, on the main actor.
     @ObservationIgnored public var onTransactionConfirmed: ((ClientTransactionID) -> Void)?
     @ObservationIgnored public var transactionLimit = 64
-
-    @ObservationIgnored private var tabsBySurface: [SurfaceID: TabModel] = [:]
-    @ObservationIgnored private var panesByHandle: [PaneID: PaneModel] = [:]
-    @ObservationIgnored private var screensByHandle: [ScreenID: ScreenModel] = [:]
-    @ObservationIgnored private var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
-    @ObservationIgnored private var agentsBySurface: [SurfaceID: AgentStatus] = [:]
-    @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
     @ObservationIgnored public var notificationLimit = 200
+
+    @ObservationIgnored var tabsBySurface: [SurfaceID: TabModel] = [:]
+    @ObservationIgnored var panesByHandle: [PaneID: PaneModel] = [:]
+    @ObservationIgnored var screensByHandle: [ScreenID: ScreenModel] = [:]
+    @ObservationIgnored var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
+    @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
+    @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
+    @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
+    /// Optimistic patches in application order, dropped on echo or rejection.
+    @ObservationIgnored var pendingPatches: [PendingPatch] = []
+    /// Events at or below this sequence are superseded by the last snapshot.
+    @ObservationIgnored var snapshotBarrier: UInt64 = 0
+    /// Set while `run(connection:scheduler:)` drives the store.
+    @ObservationIgnored var driver: StoreDriver?
+    @ObservationIgnored var isResyncing = false
+    @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
 
     public init() {}
 
-    // MARK: Lookup
+    // MARK: Lookup (O(1))
 
-    public func workspace(key: WorkspaceKey) -> WorkspaceModel? { workspaces.first { $0.key == key } }
+    public func workspace(key: WorkspaceKey) -> WorkspaceModel? { workspacesByKey[key] }
     public func workspace(handle: WorkspaceHandle) -> WorkspaceModel? { workspacesByHandle[handle] }
     public func screen(_ handle: ScreenID) -> ScreenModel? { screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
+    public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { tabGroupsByID[id] }
+    public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
 
-    // MARK: Applying state
-
-    /// What the caller must do after `apply(_:)`.
-    public enum Followup: Equatable, Sendable {
-        case none
-        /// Refetch `list-workspaces` and apply it.
-        case resync
+    /// The pane currently holding `surface`.
+    public func pane(containing surface: SurfaceID) -> PaneModel? {
+        panesByHandle.values.first { pane in pane.tabs.contains { $0.surface == surface } }
     }
 
-    /// Replaces the tree, reusing models by durable identity.
+    // MARK: Snapshot
+
+    /// Replaces the tree, reusing records by durable identity, then reapplies
+    /// optimistic patches still waiting for their echo.
     public func apply(snapshot tree: DaemonTree) {
-        generation = tree.generation ?? generation
-        registryID = tree.registryID ?? registryID
-        workspaceRevision = tree.workspaceRevision
-        groups = tree.groups
-        workspaces = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: WorkspaceModel.init) { $0.update($1) }
-        isLoaded = true
-        rebuildIndexes()
-    }
-
-    /// Applies one event in place. Returns `.resync` when the event cannot be
-    /// applied exactly (revision gap, generation change, coarse invalidation).
-    @discardableResult
-    public func apply(_ event: DaemonEvent) -> Followup {
-        let followup = applyState(event)
-        if let transaction = event.clientTransactionID, !confirmedTransactions.contains(transaction) {
-            confirmedTransactions.append(transaction)
-            if confirmedTransactions.count > transactionLimit {
-                confirmedTransactions.removeFirst(confirmedTransactions.count - transactionLimit)
-            }
-            onTransactionConfirmed?(transaction)
+        if let value = tree.generation, generation != value { generation = value }
+        if let value = tree.registryID, registryID != value { registryID = value }
+        if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
+        if let reordered = reconcile(groups, with: tree.groups, id: \.id, make: WorkspaceGroupModel.init, update: { $0.update($1) }) {
+            groups = reordered
         }
-        return followup
-    }
-
-    private func applyState(_ event: DaemonEvent) -> Followup {
-        switch event {
-        case .connected(let identity, _):
-            connectionState = .connected(identity)
-            return .resync
-        case .disconnected(let reason):
-            connectionState = .disconnected(reason)
-            return .none
-
-        case .workspaceAdded(let delta):
-            return applyWorkspaceDelta(delta) { store, delta in
-                if let existing = store.workspaces.first(where: { $0.id == WorkspaceModel.identity(delta.entity) }) {
-                    existing.update(delta.entity)
-                } else {
-                    let index = min(max(delta.index ?? store.workspaces.count, 0), store.workspaces.count)
-                    store.workspaces.insert(WorkspaceModel(delta.entity), at: index)
-                }
-            }
-        case .workspaceClosed(let delta):
-            return applyWorkspaceDelta(delta) { store, delta in
-                store.workspaces.removeAll { $0.id == WorkspaceModel.identity(delta.entity) }
-            }
-        case .workspaceRenamed(let delta), .workspaceChanged(let delta):
-            return applyWorkspaceDelta(delta) { store, delta in
-                store.workspaces.first { $0.id == WorkspaceModel.identity(delta.entity) }?.update(delta.entity)
-            }
-        case .workspaceMoved(let delta):
-            return applyWorkspaceDelta(delta) { store, delta in
-                let id = WorkspaceModel.identity(delta.entity)
-                guard let from = store.workspaces.firstIndex(where: { $0.id == id }) else { return }
-                let model = store.workspaces.remove(at: from)
-                model.update(delta.entity)
-                let index = min(max(delta.index ?? store.workspaces.count, 0), store.workspaces.count)
-                store.workspaces.insert(model, at: index)
-            }
-
-        case .screenAdded(let delta):
-            guard let workspace = workspacesByHandle[delta.workspace] else { return .resync }
-            if let existing = workspace.screens.first(where: { $0.id == ScreenModel.identity(delta.entity) }) {
-                existing.update(delta.entity)
-            } else {
-                let index = min(max(delta.index ?? workspace.screens.count, 0), workspace.screens.count)
-                workspace.screens.insert(ScreenModel(delta.entity), at: index)
-            }
-            rebuildIndexes()
-            return .none
-        case .screenClosed(let delta):
-            guard let workspace = workspacesByHandle[delta.workspace] else { return .none }
-            workspace.screens.removeAll { $0.handle == delta.screen }
-            rebuildIndexes()
-            return .none
-        case .screenRenamed(let delta):
-            guard let screen = screensByHandle[delta.screen] else { return .resync }
-            screen.update(delta.entity)
-            rebuildIndexes()
-            return .none
-
-        case .paneAdded(let delta):
-            guard let screen = screensByHandle[delta.screen] else { return .resync }
-            if let existing = screen.panes.first(where: { $0.id == PaneModel.identity(delta.entity) }) {
-                existing.update(delta.entity)
-            } else {
-                let index = min(max(delta.index ?? screen.panes.count, 0), screen.panes.count)
-                screen.panes.insert(PaneModel(delta.entity), at: index)
-            }
-            rebuildIndexes()
-            // The layout that places the pane arrives as `layout-changed`.
-            return .none
-        case .paneClosed(let delta):
-            screensByHandle[delta.screen]?.panes.removeAll { $0.handle == delta.pane }
-            rebuildIndexes()
-            return .none
-
-        case .tabAdded(let delta):
-            guard let pane = panesByHandle[delta.pane] else { return .resync }
-            if let existing = pane.tabs.first(where: { $0.id == TabModel.identity(delta.entity) }) {
-                existing.update(delta.entity)
-            } else {
-                let index = min(max(delta.index ?? pane.tabs.count, 0), pane.tabs.count)
-                let tab = TabModel(delta.entity)
-                tab.agent = agentsBySurface[delta.surface]
-                pane.tabs.insert(tab, at: index)
-            }
-            rebuildIndexes()
-            return .none
-        case .tabClosed(let delta):
-            panesByHandle[delta.pane]?.tabs.removeAll { $0.surface == delta.surface }
-            rebuildIndexes()
-            return .none
-        case .tabRenamed(let delta), .tabChanged(let delta):
-            guard let tab = tabsBySurface[delta.surface] else { return .resync }
-            tab.update(delta.entity)
-            return .none
-
-        case .treeChanged, .layoutChanged, .overflow:
-            return .resync
-
-        case .titleChanged(let surface, let title):
-            tabsBySurface[surface]?.title = title
-            return .none
-        case .surfaceResized(let surface, let size):
-            tabsBySurface[surface]?.size = size
-            return .none
-        case .surfaceExited(let surface):
-            tabsBySurface[surface]?.dead = true
-            return .none
-        case .notification(let notification):
-            notifications.append(notification)
-            if notifications.count > notificationLimit { notifications.removeFirst(notifications.count - notificationLimit) }
-            // The daemon retains a marker only for an inactive target and
-            // follows with `tree-changed`, which settles the exact state.
-            return .none
-        case .agentChanged(let status):
-            agentsBySurface[status.surface] = status
-            tabsBySurface[status.surface]?.agent = status
-            return .none
-
-        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:
-            return .none
-        case .daemonShutdown:
-            connectionState = .disconnected("daemon shut down")
-            return .none
+        if let reordered = reconcile(savedTabGroups, with: tree.savedTabGroups, id: \.id, make: SavedTabGroupModel.init,
+                                     update: { $0.update($1) }) {
+            savedTabGroups = reordered
         }
+        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: WorkspaceModel.init,
+                                     update: { $0.update($1) }) {
+            workspaces = reordered
+        }
+        if !isLoaded { isLoaded = true }
+        structureChanged()
+        reapplyPendingPatches()
     }
 
     /// Seeds agent state (`list-agents`), e.g. after connect.
     public func apply(agents: [AgentStatus]) {
         agentsBySurface = Dictionary(agents.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
-        for (surface, tab) in tabsBySurface { tab.agent = agentsBySurface[surface] }
+        for (surface, tab) in tabsBySurface { tab.setAgent(agentsBySurface[surface]) }
     }
 
     /// Marks the connection permanently failed (incompatible daemon).
@@ -218,31 +105,27 @@ public final class DaemonStore {
         connectionState = .failed(message)
     }
 
-    private func applyWorkspaceDelta(_ delta: WorkspaceDelta, _ body: (DaemonStore, WorkspaceDelta) -> Void) -> Followup {
-        if let generation = delta.generation, let current = self.generation, generation != current { return .resync }
-        if let registry = delta.registryID, let current = registryID, registry != current { return .resync }
-        if delta.workspaceRevision <= workspaceRevision { return .none }
-        guard delta.workspaceRevision == workspaceRevision + 1 else { return .resync }
-        body(self, delta)
-        workspaceRevision = delta.workspaceRevision
-        rebuildIndexes()
-        return .none
-    }
+    // MARK: Derived state
 
-    private func rebuildIndexes() {
+    /// Rebuilds lookup indexes and the sidebar flattening after a structural change.
+    func structureChanged() {
         var tabs: [SurfaceID: TabModel] = [:]
         var panes: [PaneID: PaneModel] = [:]
         var screens: [ScreenID: ScreenModel] = [:]
         var byHandle: [WorkspaceHandle: WorkspaceModel] = [:]
+        var byKey: [WorkspaceKey: WorkspaceModel] = [:]
+        var tabGroups: [TabGroupID: TabGroupModel] = [:]
         for workspace in workspaces {
             byHandle[workspace.handle] = workspace
+            if let key = workspace.key { byKey[key] = workspace }
             for screen in workspace.screens {
                 screens[screen.handle] = screen
                 for pane in screen.panes {
                     panes[pane.handle] = pane
+                    for group in pane.tabGroups { tabGroups[group.id] = group }
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
-                        if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.agent = agent }
+                        if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
                     }
                 }
             }
@@ -251,42 +134,21 @@ public final class DaemonStore {
         panesByHandle = panes
         screensByHandle = screens
         workspacesByHandle = byHandle
+        workspacesByKey = byKey
+        tabGroupsByID = tabGroups
+        recomputeSidebar()
     }
 
-    // MARK: Driving from a connection
-
-    /// Consumes `connection.events` until the connection closes: resyncs on
-    /// connect and whenever an event cannot be applied exactly. Events that
-    /// arrive during a resync wait in the stream and apply after it; stale
-    /// workspace deltas are dropped by the revision gate and other deltas
-    /// are idempotent.
-    public func run(connection: DaemonConnection) async {
-        do {
-            for try await event in connection.events {
-                if apply(event) == .resync {
-                    await resync(connection: connection, seedAgents: isConnectEvent(event))
-                }
-            }
-        } catch {
-            markFailed(String(describing: error))
+    func recomputeSidebar() {
+        let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
+        var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
+        for group in groups.sorted(by: { $0.index < $1.index }) {
+            sections.append(SidebarSection(group: group, workspaces: workspaces.filter { $0.group == group.id }))
         }
-    }
-
-    private func isConnectEvent(_ event: DaemonEvent) -> Bool {
-        if case .connected = event { return true }
-        return false
-    }
-
-    private func resync(connection: DaemonConnection, seedAgents: Bool) async {
-        do {
-            let tree = try await connection.request(ListWorkspacesRequest())
-            apply(snapshot: tree)
-            if seedAgents {
-                let agents = try await connection.request(ListAgentsRequest())
-                apply(agents: agents.agents)
-            }
-        } catch {
-            logger.error("resync failed: \(String(describing: error), privacy: .public)")
+        let unchanged = sections.count == sidebarSections.count && zip(sections, sidebarSections).allSatisfy { new, old in
+            new.group === old.group && new.workspaces.count == old.workspaces.count
+                && zip(new.workspaces, old.workspaces).allSatisfy { $0 === $1 }
         }
+        if !unchanged { sidebarSections = sections }
     }
 }

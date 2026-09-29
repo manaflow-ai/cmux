@@ -1,6 +1,5 @@
 import Foundation
 public import Observation
-import os
 
 @Observable @MainActor
 public final class ScreenModel: Identifiable {
@@ -15,31 +14,33 @@ public final class ScreenModel: Identifiable {
     public internal(set) var defaultPane: PaneID?
     public internal(set) var panes: [PaneModel]
 
-    init(_ snapshot: ScreenSnapshot) {
-        id = Self.identity(snapshot)
-        handle = snapshot.id
-        layout = snapshot.layout
-        columns = snapshot.columns
-        viewportBaseWidth = snapshot.viewportBaseWidth ?? 1
-        panes = snapshot.panes.map(PaneModel.init)
-        name = snapshot.name
-        zoomedPane = snapshot.zoomedPane
-        defaultPane = snapshot.activePane
+    init(_ s: ScreenSnapshot) {
+        id = Self.identity(s)
+        handle = s.id
+        name = s.name
+        layout = s.layout
+        columns = s.columns
+        viewportBaseWidth = s.viewportBaseWidth ?? 1
+        zoomedPane = s.zoomedPane
+        defaultPane = s.activePane
+        panes = s.panes.map(PaneModel.init)
     }
 
-    static func identity(_ snapshot: ScreenSnapshot) -> String {
-        snapshot.resourceID?.rawValue ?? "screen:\(snapshot.id.rawValue)"
+    static func identity(_ s: ScreenSnapshot) -> String {
+        s.resourceID?.rawValue ?? "screen:\(s.id.rawValue)"
     }
 
-    func update(_ snapshot: ScreenSnapshot) {
-        handle = snapshot.id
-        name = snapshot.name
-        if layout != snapshot.layout { layout = snapshot.layout }
-        if columns != snapshot.columns { columns = snapshot.columns }
-        viewportBaseWidth = snapshot.viewportBaseWidth ?? 1
-        zoomedPane = snapshot.zoomedPane
-        defaultPane = snapshot.activePane
-        panes = reconcile(panes, with: snapshot.panes, id: PaneModel.identity, make: PaneModel.init) { $0.update($1) }
+    func update(_ s: ScreenSnapshot) {
+        if handle != s.id { handle = s.id }
+        if name != s.name { name = s.name }
+        if layout != s.layout { layout = s.layout }
+        if columns != s.columns { columns = s.columns }
+        if viewportBaseWidth != (s.viewportBaseWidth ?? 1) { viewportBaseWidth = s.viewportBaseWidth ?? 1 }
+        if zoomedPane != s.zoomedPane { zoomedPane = s.zoomedPane }
+        if defaultPane != s.activePane { defaultPane = s.activePane }
+        if let reordered = reconcile(panes, with: s.panes, id: PaneModel.identity, make: PaneModel.init, update: { $0.update($1) }) {
+            panes = reordered
+        }
     }
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }

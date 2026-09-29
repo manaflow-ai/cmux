@@ -10,6 +10,11 @@ import os
 /// synthetic `.connected` event, so a consumer that fetches `list-workspaces`
 /// on `.connected` sees every later delta and misses none.
 ///
+/// Events are decoded on the socket's reader thread (never the main actor)
+/// and stamped with a monotonic `sequence`; `snapshot()` returns the
+/// sequence barrier its tree supersedes, so a store can drop older events
+/// exactly.
+///
 /// On EOF it emits `.disconnected`, fails pending requests, and reconnects
 /// through `endpointProvider` (which re-runs `server ensure`, restarting a
 /// crashed daemon) with capped backoff on the injected clock.
@@ -47,8 +52,8 @@ public actor DaemonConnection {
         case closed
     }
 
-    public nonisolated let events: AsyncThrowingStream<DaemonEvent, any Error>
-    private nonisolated let continuation: AsyncThrowingStream<DaemonEvent, any Error>.Continuation
+    public nonisolated let events: AsyncThrowingStream<DaemonEventEnvelope, any Error>
+    private nonisolated let continuation: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Continuation
 
     private let configuration: Configuration
     private let endpointProvider: EndpointProvider
@@ -70,7 +75,7 @@ public actor DaemonConnection {
         self.configuration = configuration
         self.clock = clock
         self.endpointProvider = endpointProvider
-        (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEvent.self, bufferingPolicy: .unbounded)
+        (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
     }
 
     /// Connects to a fixed socket (tests, dev tools).
@@ -109,11 +114,21 @@ public actor DaemonConnection {
         return try await Self.perform(request, on: transport)
     }
 
+    /// `list-workspaces` plus the sequence of the last event it supersedes.
+    public func snapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
+        guard case .ready(let transport, let serial) = phase else { throw DaemonError.notConnected }
+        let response = try await transport.request(cmd: ListWorkspacesRequest.command) { id in
+            try WireCoding.encodeRequest(ListWorkspacesRequest(), id: id)
+        }
+        let tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
+        return (tree, DaemonEventEnvelope.sequence(serial: serial, index: response.eventBarrier))
+    }
+
     static func perform<R: DaemonRequest>(_ request: R, on transport: LineTransport) async throws -> R.Response {
-        let line = try await transport.request(cmd: R.command) { id in
+        let response = try await transport.request(cmd: R.command) { id in
             try WireCoding.encodeRequest(request, id: id)
         }
-        return try WireCoding.decodeResponse(R.Response.self, from: line)
+        return try WireCoding.decodeResponse(R.Response.self, from: response.line)
     }
 
     // MARK: - Connect / reconnect
@@ -128,9 +143,11 @@ public actor DaemonConnection {
             let gate = EventGate()
             let continuation = continuation
             transport.start(
-                onEvent: { name, line in
-                    let event = DaemonEvent.decode(name: name, line: line)
-                    gate.deliver(event) { continuation.yield($0) }
+                onEvent: { name, line, index in
+                    let envelope = DaemonEventEnvelope(
+                        sequence: DaemonEventEnvelope.sequence(serial: serial, index: index),
+                        event: DaemonEvent.decode(name: name, line: line))
+                    gate.deliver(envelope) { continuation.yield($0) }
                 },
                 onClose: { [weak self] reason in
                     Task { await self?.transportClosed(serial: serial, reason: reason) }
@@ -147,7 +164,9 @@ public actor DaemonConnection {
             self.identity = identity
             self.endpoint = endpoint
             phase = .ready(transport, serial: serial)
-            gate.open(first: .connected(identity, generationChanged: generationChanged)) { continuation.yield($0) }
+            let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
+                                                event: .connected(identity, generationChanged: generationChanged))
+            gate.open(first: connected) { continuation.yield($0) }
             logger.info("connected to cmux-tui \(identity.session, privacy: .public) pid \(identity.pid) gen \(identity.generation.rawValue, privacy: .public)")
             return identity
         } catch {
@@ -195,7 +214,8 @@ public actor DaemonConnection {
         case .lost(let text): text
         }
         logger.info("cmux-tui connection lost: \(detail, privacy: .public)")
-        continuation.yield(.disconnected(reason: detail))
+        continuation.yield(DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: DaemonEventEnvelope.lastIndex),
+                                               event: .disconnected(reason: detail)))
         scheduleReconnect()
     }
 

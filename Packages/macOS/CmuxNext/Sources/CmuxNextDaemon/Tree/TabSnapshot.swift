@@ -32,6 +32,8 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var browserEngine: String?
     public var faviconURL: String?
     public var browserProfileID: String?
+    /// Chrome-style group membership. TODO(feat-cmux-next-daemon): `tab_group`.
+    public var tabGroup: TabGroupID?
 
     public init(
         surface: SurfaceID,
@@ -110,6 +112,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         case browserEngine = "browser_engine"
         case faviconURL = "favicon_url"
         case browserProfileID = "browser_profile_id"
+        case tabGroup = "tab_group"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -140,5 +143,6 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         browserEngine = try c.decodeIfPresent(String.self, forKey: .browserEngine)
         faviconURL = try c.decodeIfPresent(String.self, forKey: .faviconURL)
         browserProfileID = try c.decodeIfPresent(String.self, forKey: .browserProfileID)
+        tabGroup = try c.decodeIfPresent(TabGroupID.self, forKey: .tabGroup)
     }
 }

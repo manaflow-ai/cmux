@@ -1,10 +1,11 @@
 public import Foundation
-import Synchronization
 import os
 
 /// One attached terminal view on its own connection (v12 has no stream
 /// cancel, and heavy output must not delay tree mutations on the control
-/// connection).
+/// connection). Output flows through a bounded `TerminalEventQueue`; after
+/// the attach handshake every command here is fire-and-forget, so a consumer
+/// that stops draining can never deadlock against a blocked reader.
 public actor TerminalAttachment: TerminalByteChannel {
     public struct Target: Sendable, Hashable {
         public var surface: SurfaceID
@@ -29,7 +30,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     public nonisolated let events: AsyncStream<TerminalChannelEvent>
     public nonisolated let surface: SurfaceID
     private nonisolated let transport: LineTransport
-    private nonisolated let continuation: AsyncStream<TerminalChannelEvent>.Continuation
+    private nonisolated let queue: TerminalEventQueue
     private nonisolated let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
     private var lease: String?
     private var lastReported: CellSize?
@@ -58,32 +59,32 @@ public actor TerminalAttachment: TerminalByteChannel {
     private init(transport: LineTransport, surface: SurfaceID) {
         self.transport = transport
         self.surface = surface
-        (events, continuation) = AsyncStream.makeStream(of: TerminalChannelEvent.self, bufferingPolicy: .unbounded)
+        let queue = TerminalEventQueue()
+        self.queue = queue
+        events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
+    /// Output bytes waiting for the consumer (diagnostics, tests).
+    public nonisolated var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
+
     private func open(target: Target, size: CellSize, claimGeometry: Bool, clientName: String) async throws {
-        let continuation = continuation
+        let queue = queue
         let surface = target.surface
-        let finished = Mutex(false)
         transport.start(
-            onEvent: { name, line in
+            onEvent: { name, line, _ in
                 guard let event = Self.decodeAttachEvent(name: name, line: line, surface: surface) else { return }
-                if case .closed = event { finished.withLock { $0 = true } }
-                continuation.yield(event)
-                if case .closed = event { continuation.finish() }
+                if case .closed = event {
+                    queue.finish(event)
+                } else {
+                    queue.push(event)
+                }
             },
             onClose: { reason in
-                let alreadyFinished = finished.withLock { value -> Bool in
-                    defer { value = true }
-                    return value
-                }
-                guard !alreadyFinished else { return }
                 switch reason {
-                case .closedByClient: continuation.yield(.closed(.detachedByClient))
-                case .daemonShutdown: continuation.yield(.closed(.connectionLost("daemon shut down")))
-                case .lost(let detail): continuation.yield(.closed(.connectionLost(detail)))
+                case .closedByClient: queue.finish(.closed(.detachedByClient))
+                case .daemonShutdown: queue.finish(.closed(.connectionLost("daemon shut down")))
+                case .lost(let detail): queue.finish(.closed(.connectionLost(detail)))
                 }
-                continuation.finish()
             }
         )
         let identity = try await DaemonConnection.perform(IdentifyRequest(), on: transport)
@@ -102,7 +103,12 @@ public actor TerminalAttachment: TerminalByteChannel {
         let response = try await DaemonConnection.perform(request, on: transport)
         lease = response.lease
         lastReported = size
-        if claimGeometry { try await self.claimGeometry() }
+        if claimGeometry {
+            _ = try await DaemonConnection.perform(
+                SetClientSizingRequest(surface: surface, enabled: true, exclusive: true), on: transport)
+            ownsGeometry = true
+        }
+        queue.arm()
     }
 
     // MARK: TerminalByteChannel
@@ -132,48 +138,50 @@ public actor TerminalAttachment: TerminalByteChannel {
         let size = CellSize(cols: max(1, cols), rows: max(1, rows))
         guard size != lastReported else { return }
         lastReported = size
-        do {
-            if let lease {
-                _ = try await DaemonConnection.perform(
-                    ResizeAttachedViewRequest(surface: surface, lease: lease, cols: size.cols, rows: size.rows), on: transport)
-            } else {
-                _ = try await DaemonConnection.perform(
-                    ResizeSurfaceRequest(surface: surface, cols: size.cols, rows: size.rows), on: transport)
-            }
-        } catch {
-            logger.error("resize failed: \(String(describing: error), privacy: .public)")
+        if let lease {
+            fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: size.cols, rows: size.rows))
+        } else {
+            fireAndForget(ResizeSurfaceRequest(surface: surface, cols: size.cols, rows: size.rows))
         }
     }
 
     // MARK: Geometry and lifetime
 
     /// Makes this view the geometry owner: only the owner resizes the PTY.
-    public func claimGeometry() async throws {
-        _ = try await DaemonConnection.perform(
-            SetClientSizingRequest(surface: surface, enabled: true, exclusive: true), on: transport)
+    public func claimGeometry() {
+        fireAndForget(SetClientSizingRequest(surface: surface, enabled: true, exclusive: true))
         ownsGeometry = true
         if let lastReported, let lease {
-            _ = try await DaemonConnection.perform(
-                ResizeAttachedViewRequest(surface: surface, lease: lease, cols: lastReported.cols, rows: lastReported.rows),
-                on: transport)
+            fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: lastReported.cols, rows: lastReported.rows))
         }
     }
 
     /// Keeps the stream for cached rendering but stops contributing a size
     /// (the view became hidden).
-    public func releaseGeometry() async throws {
+    public func releaseGeometry() {
         ownsGeometry = false
         lastReported = nil
         guard let lease else { return }
-        _ = try await DaemonConnection.perform(ReleaseAttachedViewSizeRequest(surface: surface, lease: lease), on: transport)
+        fireAndForget(ReleaseAttachedViewSizeRequest(surface: surface, lease: lease))
     }
 
     /// Detaches and closes the connection. The terminal keeps running.
-    public func detach() async {
-        if let lease {
-            _ = try? await DaemonConnection.perform(DetachAttachedViewRequest(surface: surface, lease: lease), on: transport)
-        }
+    public func detach() {
+        if let lease { fireAndForget(DetachAttachedViewRequest(surface: surface, lease: lease)) }
         transport.close()
+    }
+
+    private func fireAndForget<R: DaemonRequest>(_ request: R) {
+        let logger = logger
+        do {
+            try transport.sendNoReply(cmd: R.command, onError: { error in
+                logger.error("\(R.command, privacy: .public) failed: \(error.description, privacy: .public)")
+            }) { id in
+                try WireCoding.encodeRequest(request, id: id)
+            }
+        } catch {
+            logger.debug("\(R.command, privacy: .public) dropped after close")
+        }
     }
 
     // MARK: Decoding

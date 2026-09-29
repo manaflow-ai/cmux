@@ -81,22 +81,45 @@ import Testing
         #expect(undo["confirm_close"] == .bool(true))
     }
 
-    @Test func tabDragCommandsCarryClientTransactionID() throws {
-        let split = try object(TabToNewSplitRequest(surface: 3, pane: 4, edge: .left, clientTransactionID: "tx"))
-        #expect(split["cmd"] == .string("tab-to-new-split"))
+    @Test func tabDragCommandsCarryTransaction() throws {
+        let split = try object(MoveTabToSplitRequest(surface: 3, pane: 4, edge: .left, transaction: "tx"))
+        #expect(split["cmd"] == .string("move-tab-to-split"))
         #expect(split["edge"] == .string("left"))
-        #expect(split["client_transaction_id"] == .string("tx"))
-        let column = try object(TabToNewColumnRequest(surface: 3, screen: 5, afterColumn: 9, width: 0.5, clientTransactionID: "tx"))
+        #expect(split["transaction"] == .string("tx"))
+        let column = try object(MoveTabToColumnRequest(surface: 3, target: .screen(5), afterColumn: 9, width: 0.5, transaction: "tx"))
+        #expect(column["cmd"] == .string("move-tab-to-column"))
         #expect(column["after_column"] == .number(9))
         #expect(column["screen"] == .number(5))
-        let workspace = try object(TabToNewWorkspaceRequest(surface: 3, group: "g", index: 2))
+        #expect(column["pane"] == nil)
+        let byPane = try object(MoveTabToColumnRequest(surface: 3, target: .pane(7)))
+        #expect(byPane["pane"] == .number(7))
+        let workspace = try object(MoveTabToNewWorkspaceRequest(surface: 3, group: "g", index: 2))
+        #expect(workspace["cmd"] == .string("move-tab-to-new-workspace"))
         #expect(workspace["group"] == .string("g"))
-        #expect(workspace["client_transaction_id"] == nil)
-        let move = try object(MoveTabRequest(surface: 3, pane: 7, index: 0, clientTransactionID: "tx"))
-        #expect(move["cmd"] == .string("move-tab"))
-        #expect(move["client_transaction_id"] == .string("tx"))
+        #expect(workspace["transaction"] == nil)
+        let move = try object(MoveTabRequest(surface: 3, pane: 7, index: 0, transaction: "tx"))
+        #expect(move["transaction"] == .string("tx"))
         let toWorkspace = try object(MoveTabToWorkspaceRequest(surface: 3, workspace: nil))
         #expect(toWorkspace["workspace"] == nil)
+    }
+
+    @Test func tabGroupAndSavedGroupCommands() throws {
+        let create = try object(CreateTabGroupRequest(pane: 4, tabs: [3, 6], name: "API", color: "green", transaction: "t1"))
+        #expect(create["cmd"] == .string("create-tab-group"))
+        #expect(create["tabs"] == .array([.number(3), .number(6)]))
+        let update = try object(UpdateTabGroupRequest(group: "tg1", color: .clear, collapsed: true))
+        #expect(update["color"] == .null)
+        #expect(update["collapsed"] == .bool(true))
+        let toColumn = try object(MoveTabGroupToColumnRequest(group: "tg1", target: .pane(4), transaction: "t2"))
+        #expect(toColumn["cmd"] == .string("move-tab-group-to-column"))
+        #expect(toColumn["pane"] == .number(4))
+        let toWorkspace = try object(MoveTabGroupToNewWorkspaceRequest(group: "tg1", workspaceGroup: "agents"))
+        #expect(toWorkspace["workspace_group"] == .string("agents"))
+        #expect(try object(UngroupTabGroupRequest(group: "tg1"))["cmd"] == .string("ungroup-tab-group"))
+        #expect(try object(CloseTabGroupRequest(group: "tg1"))["cmd"] == .string("close-tab-group"))
+        let open = try object(OpenSavedTabGroupRequest(saved: "s1", pane: 4))
+        #expect(open["saved"] == .string("s1"))
+        #expect(try object(AckTabNotificationsRequest(surface: 3))["cmd"] == .string("ack-tab-notifications"))
     }
 
     @Test func windowStateDocumentRoundTripsThroughJSONValue() throws {

@@ -22,6 +22,8 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
     public var workspaces: [WorkspaceSnapshot]
     /// Ordered sidebar groups (`workspace-groups-v1`).
     public var groups: [WorkspaceGroupSnapshot]
+    /// Session-wide saved tab groups. TODO(feat-cmux-next-daemon): `saved_tab_groups`.
+    public var savedTabGroups: [SavedTabGroupSnapshot]
 
     public init(
         generation: DaemonGeneration? = nil,
@@ -30,7 +32,8 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
         paneRevision: UInt64? = nil,
         terminalRevision: UInt64? = nil,
         workspaces: [WorkspaceSnapshot] = [],
-        groups: [WorkspaceGroupSnapshot] = []
+        groups: [WorkspaceGroupSnapshot] = [],
+        savedTabGroups: [SavedTabGroupSnapshot] = []
     ) {
         self.generation = generation
         self.registryID = registryID
@@ -39,6 +42,7 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
         self.terminalRevision = terminalRevision
         self.workspaces = workspaces
         self.groups = groups
+        self.savedTabGroups = savedTabGroups
     }
 
     enum CodingKeys: String, CodingKey {
@@ -49,6 +53,7 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
         case terminalRevision = "terminal_revision"
         case workspaces
         case groups
+        case savedTabGroups = "saved_tab_groups"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -60,6 +65,7 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
         terminalRevision = try c.decodeIfPresent(UInt64.self, forKey: .terminalRevision)
         workspaces = try c.decodeIfPresent([WorkspaceSnapshot].self, forKey: .workspaces) ?? []
         groups = try c.decodeIfPresent([WorkspaceGroupSnapshot].self, forKey: .groups) ?? []
+        savedTabGroups = try c.decodeIfPresent([SavedTabGroupSnapshot].self, forKey: .savedTabGroups) ?? []
     }
 }
 

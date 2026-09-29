@@ -14,7 +14,7 @@ public struct WorkspaceDelta: Sendable, Hashable, Decodable {
     public var generation: DaemonGeneration?
     public var origin: String?
     public var mutationID: String?
-    /// TODO(feat-cmux-next-daemon): echo of the command's client transaction id.
+    /// Echo of the tab-drag command's client `transaction` (`tab-drag-v1`).
     public var clientTransactionID: ClientTransactionID?
 
     public init(workspace: WorkspaceHandle, index: Int?, entity: WorkspaceSnapshot, workspaceRevision: UInt64,
@@ -36,7 +36,7 @@ public struct WorkspaceDelta: Sendable, Hashable, Decodable {
         case workspaceRevision = "workspace_revision"
         case registryID = "registry_id"
         case mutationID = "mutation_id"
-        case clientTransactionID = "client_transaction_id"
+        case clientTransactionID = "transaction"
     }
 }
 
@@ -49,7 +49,7 @@ public struct ScreenDelta: Sendable, Hashable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case workspace, screen, index, entity
-        case clientTransactionID = "client_transaction_id"
+        case clientTransactionID = "transaction"
     }
 }
 
@@ -63,6 +63,6 @@ public struct PaneDelta: Sendable, Hashable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case workspace, screen, pane, index, entity
-        case clientTransactionID = "client_transaction_id"
+        case clientTransactionID = "transaction"
     }
 }

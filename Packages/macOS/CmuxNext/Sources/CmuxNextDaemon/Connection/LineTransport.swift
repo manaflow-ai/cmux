@@ -21,14 +21,15 @@ public enum TransportCloseReason: Sendable, Equatable {
 /// The server drops slow readers (4,096-event mailbox, 2 s write deadline),
 /// so the reader never blocks on the main actor.
 final class LineTransport: Sendable {
-    typealias EventHandler = @Sendable (_ name: String, _ line: Data) -> Void
+    /// `index` counts events on this transport from 1, in wire order.
+    typealias EventHandler = @Sendable (_ name: String, _ line: Data, _ index: UInt64) -> Void
     typealias CloseHandler = @Sendable (TransportCloseReason) -> Void
 
     /// Inbound limit: the server may send up to 32 MiB (VT replay).
     static let maxLineBytes = 64 << 20
 
     private enum Waiter {
-        case continuation(cmd: String, CheckedContinuation<Data, any Error>)
+        case continuation(cmd: String, CheckedContinuation<Response, any Error>)
         case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
 
         var cmd: String {
@@ -45,6 +46,16 @@ final class LineTransport: Sendable {
         var order: [UInt64] = []
         var closed: TransportCloseReason?
         var sawShutdown = false
+        /// Events routed so far; responses capture it as their barrier.
+        var eventCount: UInt64 = 0
+    }
+
+    /// An `ok:true` response line plus the number of events routed before it
+    /// on this transport. Every event with index <= `eventBarrier` was
+    /// emitted before the command's result, so a snapshot supersedes it.
+    struct Response: Sendable {
+        var line: Data
+        var eventBarrier: UInt64
     }
 
     /// Guards the descriptor: writes and close are serialized so a write never
@@ -114,7 +125,7 @@ final class LineTransport: Sendable {
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
     /// without the trailing newline.
-    func request(cmd: String, _ body: (UInt64) throws -> Data) async throws -> Data {
+    func request(cmd: String, _ body: (UInt64) throws -> Data) async throws -> Response {
         try await withCheckedThrowingContinuation { continuation in
             submit(.continuation(cmd: cmd, continuation), body)
         }
@@ -275,8 +286,12 @@ final class LineTransport: Sendable {
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
         if let name = envelope.event {
-            if name == "daemon-shutdown" { state.withLock { $0.sawShutdown = true } }
-            onEvent(name, line)
+            let index = state.withLock { state -> UInt64 in
+                if name == "daemon-shutdown" { state.sawShutdown = true }
+                state.eventCount += 1
+                return state.eventCount
+            }
+            onEvent(name, line, index)
             return
         }
         guard envelope.ok != nil || envelope.id != nil else { return }
@@ -284,11 +299,13 @@ final class LineTransport: Sendable {
             let id = envelope.id ?? state.order.first
             guard let id, let waiter = state.pending.removeValue(forKey: id) else { return nil }
             state.order.removeAll { $0 == id }
-            return (id, waiter)
+            return (state.eventCount, waiter)
         }
-        guard let (_, waiter) = waiter else { return }
+        guard let (barrier, waiter) = waiter else { return }
         if envelope.ok == true {
-            if case .continuation(_, let continuation) = waiter { continuation.resume(returning: line) }
+            if case .continuation(_, let continuation) = waiter {
+                continuation.resume(returning: Response(line: line, eventBarrier: barrier))
+            }
             return
         }
         let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode)

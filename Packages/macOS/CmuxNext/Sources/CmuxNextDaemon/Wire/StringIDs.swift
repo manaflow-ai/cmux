@@ -11,8 +11,15 @@ public struct DaemonStringID<Kind: DaemonStringIDKind>: RawRepresentable, Hashab
     public init(rawValue: String) { self.rawValue = rawValue }
     public init(stringLiteral value: String) { self.init(rawValue: value) }
 
+    /// Accepts a JSON number too, so an unexpected numeric id never fails
+    /// the enclosing event.
     public init(from decoder: any Decoder) throws {
-        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+        let container = try decoder.singleValueContainer()
+        if let number = try? container.decode(UInt64.self) {
+            self.init(rawValue: String(number))
+        } else {
+            self.init(rawValue: try container.decode(String.self))
+        }
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -31,6 +38,8 @@ public enum StringIDKind {
     public enum Generation: DaemonStringIDKind {}
     public enum WorkspaceGroup: DaemonStringIDKind {}
     public enum ClientTransaction: DaemonStringIDKind {}
+    public enum TabGroup: DaemonStringIDKind {}
+    public enum SavedTabGroup: DaemonStringIDKind {}
 }
 
 /// Durable workspace identity: lowercase canonical UUID.
@@ -47,8 +56,13 @@ public typealias DaemonGeneration = DaemonStringID<StringIDKind.Generation>
 /// Sidebar group id (`workspace-groups-v1`): 1-64 of `[A-Za-z0-9_.:-]`;
 /// the daemon generates `grp_<32 hex>` when the caller omits it.
 public typealias WorkspaceGroupID = DaemonStringID<StringIDKind.WorkspaceGroup>
-/// Client-chosen id echoed as `client_transaction_id` on resulting deltas.
+/// Client-chosen tab-drag `transaction`, echoed in the moved tab's `tab-changed`.
 public typealias ClientTransactionID = DaemonStringID<StringIDKind.ClientTransaction>
+
+/// Chrome-style tab group id inside a pane. TODO(feat-cmux-next-daemon): proposed.
+public typealias TabGroupID = DaemonStringID<StringIDKind.TabGroup>
+/// Session-wide saved tab group. TODO(feat-cmux-next-daemon): proposed.
+public typealias SavedTabGroupID = DaemonStringID<StringIDKind.SavedTabGroup>
 
 extension DaemonStringID where Kind == StringIDKind.WorkspaceKey {
     /// A fresh key in the daemon's canonical form.
