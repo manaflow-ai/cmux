@@ -162,7 +162,12 @@ final class CloudSystemVPNOperationGate {
     }
 
     private func finish(state: State, turn: Turn) {
-        guard !state.finished else { return }
+        if state.finished {
+            if state.cancellationRequested {
+                quarantined = false
+            }
+            return
+        }
         state.finished = true
         state.abandonmentTask?.cancel()
         if state.cancellationRequested {

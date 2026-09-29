@@ -588,22 +588,16 @@ public final class CloudSystemVPNController {
         )
         rememberPendingBrowserTunnelRevocation(tunnel)
         let service = self.service
+        let timeout = self.timeout
         let fingerprint = enrollment.deviceFingerprint
         let revoked = await Task.detached(priority: .utility) {
             do {
-                if let credentials {
-                    try await service.revokeTunnel(
-                        deviceFingerprint: fingerprint,
-                        tunnelPurpose: .browser,
-                        accessToken: credentials.accessToken,
-                        refreshToken: credentials.refreshToken
-                    )
-                } else {
-                    try await service.revokeTunnel(
-                        deviceFingerprint: fingerprint,
-                        tunnelPurpose: .browser
-                    )
-                }
+                try await Self.boundedRevokeBrowserTunnel(
+                    service: service,
+                    timeout: timeout,
+                    deviceFingerprint: fingerprint,
+                    credentials: credentials
+                )
                 return true
             } catch {
                 return false
@@ -629,8 +623,20 @@ public final class CloudSystemVPNController {
         deviceFingerprint: String,
         credentials: CloudAPITokenSource.TokenPair?
     ) async throws {
-        let service = self.service
-        let timeout = self.timeout
+        try await Self.boundedRevokeBrowserTunnel(
+            service: service,
+            timeout: timeout,
+            deviceFingerprint: deviceFingerprint,
+            credentials: credentials
+        )
+    }
+
+    private static func boundedRevokeBrowserTunnel(
+        service: any CloudVMServing,
+        timeout: CloudSystemVPNTaskTimeout,
+        deviceFingerprint: String,
+        credentials: CloudAPITokenSource.TokenPair?
+    ) async throws {
         let request = Task.detached(priority: .utility) {
             try await Self.revokeBrowserTunnel(
                 service: service,
