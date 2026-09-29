@@ -77,9 +77,12 @@ final class FeedSidebarUITests: XCTestCase {
         )
 
         // The Dock now renders the Feed terminal directly in its Bonsplit tree
-        // (no per-control "Focus Control" button). Focus the Dock's first control
-        // via the Dock shortcut (Ctrl-5) so keyboard input reaches the Feed TUI.
-        app.typeKey("5", modifierFlags: [.control])
+        // (no per-control "Focus Control" button). Click the mounted Dock
+        // container so keyboard input reaches the Feed TUI without assuming a
+        // positional shortcut number that users may customize.
+        let dockPanel = app.descendants(matching: .any)["DockPanel"].firstMatch
+        XCTAssertTrue(dockPanel.waitForExistence(timeout: 8), "Expected the Dock container before focusing Feed")
+        dockPanel.click()
         XCTAssertTrue(
             waitForFeedTUIReady(timeout: 90),
             "Feed TUI was not ready. marker=\(loadFeedTUIReadyMarker()) result=\(loadFeedResult())"
