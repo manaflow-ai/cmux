@@ -4195,11 +4195,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
                 initialInput: initialTerminalInput,
-                isRemoteTerminal: initialTerminalIsRemote,
                 initialEnvironmentOverrides: Self.startupEnvironment(
                     workspaceEnvironment: sanitizedWorkspaceEnvironment,
                     overlaying: initialTerminalEnvironment
                 ),
+                isRemoteTerminal: initialTerminalIsRemote,
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .immediate,
                     willRunStartupInput:
