@@ -27,6 +27,11 @@ final class AppServices {
         previews = TabPreviewSource(cache: cache)
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
+        cache.onBrowserReady = { [weak self] key in
+            for controller in self?.windows.controllers ?? [] {
+                for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
+            }
+        }
     }
 
     // MARK: Lookup

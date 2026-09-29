@@ -17,6 +17,10 @@ final class TabContentCache {
     private var retention = SurfaceRetention<String>(capacity: 8)
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
+    let cef = CEFEngine()
+    private var pendingBrowsers: Set<String> = []
+    /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
+    var onBrowserReady: ((String) -> Void)?
     weak var sessionDelegate: (any TerminalSessionDelegate)?
 
     init(daemon: DaemonService) {
@@ -57,6 +61,22 @@ final class TabContentCache {
     }
 
     func existingBrowser(_ key: String) -> BrowserEntry? { browsers[key] }
+
+    /// The page for a daemon browser tab on the engine its record names.
+    /// CEF starts lazily and creates tabs asynchronously: nil until ready.
+    /// Falls back to WebKit when the CEF runtime is not bundled.
+    func browser(for key: String, url: URL?, engine: String?) -> BrowserEntry? {
+        guard engine == "cef", cef.availability == .available else { return browser(for: key, url: url) }
+        if let entry = browsers[key] { return entry }
+        guard pendingBrowsers.insert(key).inserted else { return nil }
+        Task {
+            defer { pendingBrowsers.remove(key) }
+            guard let tab = try? await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url)) else { return }
+            browsers[key] = BrowserEntry(tab: tab)
+            onBrowserReady?(key)
+        }
+        return nil
+    }
 
     // MARK: Visibility and lifetime
 

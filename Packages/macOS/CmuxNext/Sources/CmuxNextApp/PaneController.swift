@@ -146,7 +146,7 @@ final class PaneController {
         case .pty:
             return .terminal(services.cache.terminal(for: tab))
         case .browser where tab.isFrontendOwned:
-            return .browser(services.cache.browser(for: key, url: tab.url.flatMap(URL.init(string:))))
+            return services.cache.browser(for: key, url: tab.url.flatMap(URL.init(string:)), engine: tab.browserEngine).map(TabContent.browser)
         default:
             return nil
         }

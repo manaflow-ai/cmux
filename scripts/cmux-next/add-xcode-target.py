@@ -51,7 +51,8 @@ PKG_REF = oid(19)
 PRODUCT_DEP = oid(20)
 BF_ASSETS = oid(21)
 PHASE_BUNDLE_TUI = oid(22)
-PHASE_BUNDLE_GHOSTTY = oid(23)
+PHASE_EMBED_CEF = oid(23)
+PHASE_BUNDLE_GHOSTTY = oid(24)
 
 # Existing objects reused by reference.
 LEGACY_DEBUG = "A5001082"
@@ -100,16 +101,16 @@ def derive_config(block: str, legacy_id: str, new_id: str) -> str:
     return block
 
 
-def add_script_phase(text: str, phase_id: str, name: str, script: str) -> str:
-    """Add one always-run script phase to the cmux-next target.
+def add_bundle_tui_phase(text: str) -> str:
+    """Add the "Bundle cmux-tui" script phase (scripts/cmux-next/bundle-cmux-tui.sh).
 
     Idempotent on its own, so it also upgrades projects that already have
     the target from an earlier run of this script.
     """
-    if phase_id in text:
+    if PHASE_BUNDLE_TUI in text:
         return text
     text = insert_before(text, "/* End PBXShellScriptBuildPhase section */", (
-        f"\t\t{phase_id} /* {name} */ = {{\n"
+        f"\t\t{PHASE_BUNDLE_TUI} /* Bundle cmux-tui */ = {{\n"
         "\t\t\tisa = PBXShellScriptBuildPhase;\n"
         "\t\t\talwaysOutOfDate = 1;\n"
         "\t\t\tbuildActionMask = 2147483647;\n"
@@ -119,42 +120,101 @@ def add_script_phase(text: str, phase_id: str, name: str, script: str) -> str:
         "\t\t\t);\n"
         "\t\t\tinputPaths = (\n"
         "\t\t\t);\n"
-        f"\t\t\tname = \"{name}\";\n"
+        "\t\t\tname = \"Bundle cmux-tui\";\n"
         "\t\t\toutputFileListPaths = (\n"
         "\t\t\t);\n"
         "\t\t\toutputPaths = (\n"
         "\t\t\t);\n"
         "\t\t\trunOnlyForDeploymentPostprocessing = 0;\n"
         "\t\t\tshellPath = /bin/sh;\n"
-        f"\t\t\tshellScript = \"exec \\\"${{SRCROOT}}/{script}\\\"\\n\";\n"
+        "\t\t\tshellScript = \"exec \\\"${SRCROOT}/scripts/cmux-next/bundle-cmux-tui.sh\\\"\\n\";\n"
         "\t\t};\n"
     ))
     return append_to_list(
         text,
         f"\t\t{TARGET} /* cmux-next */ = {{\n",
         "buildPhases",
-        f"\t\t\t\t{phase_id} /* {name} */,\n",
+        f"\t\t\t\t{PHASE_BUNDLE_TUI} /* Bundle cmux-tui */,\n",
     )
 
 
-def add_bundle_phases(text: str) -> str:
-    """The "Bundle cmux-tui" and "Bundle Ghostty resources" phases."""
-    text = add_script_phase(text, PHASE_BUNDLE_TUI, "Bundle cmux-tui", "scripts/cmux-next/bundle-cmux-tui.sh")
-    return add_script_phase(text, PHASE_BUNDLE_GHOSTTY, "Bundle Ghostty resources",
-                            "scripts/cmux-next/bundle-ghostty-resources.sh")
+def add_embed_cef_phase(text: str) -> str:
+    """Add the "Embed CEF" script phase (scripts/cmux-next/embed-cef.sh).
+
+    Idempotent. The phase embeds the Chromium framework, the CEF shim, and
+    the helper apps only when the pinned artifact is available.
+    """
+    if PHASE_EMBED_CEF in text:
+        return text
+    text = insert_before(text, "/* End PBXShellScriptBuildPhase section */", (
+        f"\t\t{PHASE_EMBED_CEF} /* Embed CEF */ = {{\n"
+        "\t\t\tisa = PBXShellScriptBuildPhase;\n"
+        "\t\t\talwaysOutOfDate = 1;\n"
+        "\t\t\tbuildActionMask = 2147483647;\n"
+        "\t\t\tfiles = (\n"
+        "\t\t\t);\n"
+        "\t\t\tinputFileListPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\tinputPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\tname = \"Embed CEF\";\n"
+        "\t\t\toutputFileListPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\toutputPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\trunOnlyForDeploymentPostprocessing = 0;\n"
+        "\t\t\tshellPath = /bin/sh;\n"
+        "\t\t\tshellScript = \"exec \\\"${SRCROOT}/scripts/cmux-next/embed-cef.sh\\\"\\n\";\n"
+        "\t\t};\n"
+    ))
+    return append_to_list(
+        text,
+        f"\t\t{TARGET} /* cmux-next */ = {{\n",
+        "buildPhases",
+        f"\t\t\t\t{PHASE_EMBED_CEF} /* Embed CEF */,\n",
+    )
+
+
+def add_bundle_ghostty_phase(text: str) -> str:
+    """Add the "Bundle Ghostty resources" phase (scripts/cmux-next/bundle-ghostty-resources.sh):
+    themes, terminfo, and shell integration. Idempotent."""
+    if PHASE_BUNDLE_GHOSTTY in text:
+        return text
+    text = insert_before(text, "/* End PBXShellScriptBuildPhase section */", (
+        f"\t\t{PHASE_BUNDLE_GHOSTTY} /* Bundle Ghostty resources */ = {{\n"
+        "\t\t\tisa = PBXShellScriptBuildPhase;\n"
+        "\t\t\talwaysOutOfDate = 1;\n"
+        "\t\t\tbuildActionMask = 2147483647;\n"
+        "\t\t\tfiles = (\n\t\t\t);\n"
+        "\t\t\tinputFileListPaths = (\n\t\t\t);\n"
+        "\t\t\tinputPaths = (\n\t\t\t);\n"
+        "\t\t\tname = \"Bundle Ghostty resources\";\n"
+        "\t\t\toutputFileListPaths = (\n\t\t\t);\n"
+        "\t\t\toutputPaths = (\n\t\t\t);\n"
+        "\t\t\trunOnlyForDeploymentPostprocessing = 0;\n"
+        "\t\t\tshellPath = /bin/sh;\n"
+        "\t\t\tshellScript = \"exec \\\"${SRCROOT}/scripts/cmux-next/bundle-ghostty-resources.sh\\\"\\n\";\n"
+        "\t\t};\n"
+    ))
+    return append_to_list(
+        text,
+        f"\t\t{TARGET} /* cmux-next */ = {{\n",
+        "buildPhases",
+        f"\t\t\t\t{PHASE_BUNDLE_GHOSTTY} /* Bundle Ghostty resources */,\n",
+    )
 
 
 def main() -> int:
     text = PBXPROJ.read_text()
     if TARGET in text:
-        upgraded = add_bundle_phases(text)
+        upgraded = add_bundle_ghostty_phase(add_embed_cef_phase(add_bundle_tui_phase(text)))
         if upgraded == text:
             print("cmux-next target already present; nothing to do")
         else:
             PBXPROJ.write_text(upgraded)
-            print("added cmux-next bundle phases")
+            print("upgraded cmux-next target phases (Bundle cmux-tui, Embed CEF, Bundle Ghostty resources)")
         return 0
-    for n in range(1, 24):
+    for n in range(1, 25):
         assert oid(n) not in text, f"ID collision: {oid(n)}"
 
     text = insert_before(text, "/* End PBXBuildFile section */", "".join([
@@ -321,7 +381,7 @@ def main() -> int:
         "\t\t};\n"
     ))
 
-    text = add_bundle_phases(text)
+    text = add_bundle_ghostty_phase(add_embed_cef_phase(add_bundle_tui_phase(text)))
     PBXPROJ.write_text(text)
     print(f"added cmux-next target {TARGET}")
     return 0

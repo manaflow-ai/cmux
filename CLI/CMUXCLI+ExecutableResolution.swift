@@ -205,7 +205,7 @@ extension CMUXCLI {
         case "vm", "cloud", "coderouter":
             return !CmuxTuiRemoteRouting.isAgentSubcommand(commandArgs.first)
                 || CmuxTuiRemoteRouting.vmAgentRequestsHelp(Array(commandArgs.dropFirst()))
-        case "claude-teams", "codex-teams":
+        case "claude-teams", "codex-teams", "action":
             return false
         case "omo", "omx", "omc":
             return commandArgs.count == 1 && ["--help", "-h"].contains(commandArgs[0])
