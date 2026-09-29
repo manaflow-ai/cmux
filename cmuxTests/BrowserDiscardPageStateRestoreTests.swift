@@ -360,8 +360,13 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        // Give a restore that should not have started time to show up.
-        try? await Task.sleep(for: .milliseconds(500))
+        // Give a restore that should not have started time to show up while
+        // yielding to the main actor instead of sleeping the test task.
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(500))
+        while panel.webViewLifecycleState != .discarded,
+              ContinuousClock.now < deadline {
+            await Task.yield()
+        }
         XCTAssertEqual(panel.webViewLifecycleState, .discarded, file: file, line: line)
         XCTAssertFalse(panel.shouldRenderWebView, file: file, line: line)
         XCTAssertFalse(panel.webView.isLoading, file: file, line: line)
