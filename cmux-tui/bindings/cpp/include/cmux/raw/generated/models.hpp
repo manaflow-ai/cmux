@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45";
+inline constexpr std::string_view kProtocolIrSha256 = "252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -79,6 +79,7 @@ struct NotifyResult;
 struct Pane;
 enum class PaneDirection;
 struct PaneNeighborResult;
+struct PaneRef;
 struct PingResult;
 struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
@@ -116,6 +117,7 @@ struct Size;
 enum class SplitDirection;
 struct SurfaceResult;
 struct Tab;
+struct TabRef;
 struct TerminalColorOverrides;
 struct TerminalColors;
 struct TerminalEventsResult;
@@ -136,6 +138,8 @@ struct WaitForResult;
 struct Workspace;
 struct WorkspaceMutationResult;
 struct ZoomPaneResult;
+struct AckTabNotificationsRequest;
+struct AddTabsToTabGroupRequest;
 struct ApplyLayoutRequest;
 struct AttachSurfaceRequest;
 struct BrowserActivateRequest;
@@ -159,12 +163,17 @@ struct ClosePaneRequest;
 struct CloseProviderManagedWorkspaceRequest;
 struct CloseScreenRequest;
 struct CloseSurfaceRequest;
+struct CloseTabGroupRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
 struct CopyRequest;
 struct CreateSurfaceWithReceiptRequest;
+struct CreateTabGroupRequest;
 struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
+struct CreateWorkspaceGroupRequest;
+struct DeleteSavedTabGroupRequest;
+struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
 struct ExportLayoutRequest;
@@ -180,7 +189,11 @@ struct JournalFrontendEventResult;
 struct ListAgentsRequest;
 struct ListClientsRequest;
 struct ListClientsResult;
+struct ListNotificationsRequest;
+struct ListSavedTabGroupsRequest;
+struct ListTabGroupsRequest;
 struct ListTerminalsRequest;
+struct ListWorkspaceGroupsRequest;
 struct ListWorkspacesRequest;
 struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
@@ -188,10 +201,20 @@ struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveTabRequest;
+struct MoveTabGroupRequest;
+struct MoveTabGroupToColumnRequest;
+struct MoveTabGroupToNewWorkspaceRequest;
+struct MoveTabGroupToSplitRequest;
+struct MoveTabToColumnRequest;
+struct MoveTabToNewWorkspaceRequest;
+struct MoveTabToSplitRequest;
 struct MoveTabToWorkspaceRequest;
 struct MoveTerminalRequest;
 struct MoveWorkspaceRequest;
+struct MoveWorkspaceGroupRequest;
+struct MoveWorkspaceToGroupRequest;
 struct NewBrowserTabRequest;
+struct NewFrontendBrowserTabRequest;
 struct NewPaneRequest;
 struct NewPaneRightRequest;
 struct NewScreenRequest;
@@ -212,17 +235,20 @@ struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
+struct RemoveTabsFromTabGroupRequest;
 struct RenamePaneRequest;
 struct RenameProviderManagedWorkspaceRequest;
 struct RenameScreenRequest;
 struct RenameSurfaceRequest;
 struct RenameWorkspaceRequest;
+struct ReopenSavedTabGroupRequest;
 struct ReportAgentRequest;
 struct ReportFocusRequest;
 struct ResizeAttachedViewRequest;
 struct ResizeSurfaceRequest;
 struct ResolveTerminalRequest;
 struct RunRequest;
+struct SaveTabGroupRequest;
 struct ScrollSurfaceRequest;
 struct SelectScreenRequest;
 struct SelectTabRequest;
@@ -236,9 +262,11 @@ struct SetClientSizingRequest;
 struct SetDefaultColorsRequest;
 struct SetRatioRequest;
 struct SetSplitRatioRequest;
+struct SetTabPinnedRequest;
 struct SetTerminalIdlePolicyRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
+struct SetWorkspaceMetadataRequest;
 struct ShutdownDaemonRequest;
 struct SidebarPluginRequest;
 struct SplitRequest;
@@ -246,7 +274,12 @@ struct SubscribeRequest;
 struct SwapPaneRequest;
 struct TerminalEventsRequest;
 struct UndoLayoutRequest;
+struct UngroupTabGroupRequest;
 struct UnregisterBrowserProviderRequest;
+struct UnsaveTabGroupRequest;
+struct UpdateFrontendBrowserTabRequest;
+struct UpdateTabGroupRequest;
+struct UpdateWorkspaceGroupRequest;
 struct UrlOpenRequest;
 struct UrlOpenClaimRequest;
 struct UrlOpenResultRequest;
@@ -291,6 +324,7 @@ struct SurfaceOutputEvent;
 struct SurfaceResizeFailedEvent;
 struct SurfaceResizedEvent;
 struct TabAddedEvent;
+struct TabChangedEvent;
 struct TabClosedEvent;
 struct TabRenamedEvent;
 struct TerminalRegistryChangedEvent;
@@ -300,6 +334,7 @@ struct UrlOpenEvent;
 struct VtStateEvent;
 struct WindowTitleRequestedEvent;
 struct WorkspaceAddedEvent;
+struct WorkspaceChangedEvent;
 struct WorkspaceClosedEvent;
 struct WorkspaceMovedEvent;
 struct WorkspaceRenamedEvent;
@@ -332,6 +367,28 @@ enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 
+struct Id {
+    std::uint64_t value{};
+    friend bool operator==(const Id&, const Id&) = default;
+};
+
+struct AckTabNotificationsRequest {
+    Id surface{};
+    friend bool operator==(const AckTabNotificationsRequest&, const AckTabNotificationsRequest&) = default;
+};
+
+struct TabRef {
+    Json value{};
+    friend bool operator==(const TabRef&, const TabRef&) = default;
+};
+
+struct AddTabsToTabGroupRequest {
+    std::string group{};
+    std::vector<TabRef> surfaces{};
+    Field<std::string> transaction{};
+    friend bool operator==(const AddTabsToTabGroupRequest&, const AddTabsToTabGroupRequest&) = default;
+};
+
 enum class AgentSource {
     plugin,
     detected,
@@ -345,11 +402,6 @@ enum class AgentState {
     idle,
     done,
     unknown,
-};
-
-struct Id {
-    std::uint64_t value{};
-    friend bool operator==(const Id&, const Id&) = default;
 };
 
 struct AgentChangedEvent {
@@ -906,6 +958,11 @@ struct CloseSurfaceRequest {
     friend bool operator==(const CloseSurfaceRequest&, const CloseSurfaceRequest&) = default;
 };
 
+struct CloseTabGroupRequest {
+    std::string group{};
+    friend bool operator==(const CloseTabGroupRequest&, const CloseTabGroupRequest&) = default;
+};
+
 struct CloseTerminalRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
@@ -1035,11 +1092,21 @@ struct CreateSurfaceWithReceiptRequest {
     friend bool operator==(const CreateSurfaceWithReceiptRequest&, const CreateSurfaceWithReceiptRequest&) = default;
 };
 
+struct CreateTabGroupRequest {
+    Field<std::string> color{};
+    Field<std::string> group{};
+    Field<std::string> name{};
+    std::vector<TabRef> surfaces{};
+    Field<std::string> transaction{};
+    friend bool operator==(const CreateTabGroupRequest&, const CreateTabGroupRequest&) = default;
+};
+
 struct CreateTerminalRequest {
     Field<std::vector<std::string>> argv{};
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
     Field<std::string> cwd{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> key{};
@@ -1050,6 +1117,15 @@ struct CreateTerminalRequest {
     Field<std::string> terminal_id{};
     Field<Id> workspace{};
     friend bool operator==(const CreateTerminalRequest&, const CreateTerminalRequest&) = default;
+};
+
+struct CreateWorkspaceGroupRequest {
+    std::optional<bool> collapsed{};
+    Field<std::string> color{};
+    Field<std::string> group{};
+    Field<std::uint64_t> index{};
+    std::string name{};
+    friend bool operator==(const CreateWorkspaceGroupRequest&, const CreateWorkspaceGroupRequest&) = default;
 };
 
 struct CreateWorkspaceRequest {
@@ -1069,6 +1145,16 @@ struct DaemonShutdownEvent {
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
+};
+
+struct DeleteSavedTabGroupRequest {
+    std::string saved{};
+    friend bool operator==(const DeleteSavedTabGroupRequest&, const DeleteSavedTabGroupRequest&) = default;
+};
+
+struct DeleteWorkspaceGroupRequest {
+    std::string group{};
+    friend bool operator==(const DeleteWorkspaceGroupRequest&, const DeleteWorkspaceGroupRequest&) = default;
 };
 
 struct DetachAttachedViewRequest {
@@ -1429,6 +1515,19 @@ struct ListClientsResult {
     friend bool operator==(const ListClientsResult&, const ListClientsResult&) = default;
 };
 
+struct ListNotificationsRequest {
+    Field<std::uint64_t> limit{};
+    friend bool operator==(const ListNotificationsRequest&, const ListNotificationsRequest&) = default;
+};
+
+struct ListSavedTabGroupsRequest {
+    friend bool operator==(const ListSavedTabGroupsRequest&, const ListSavedTabGroupsRequest&) = default;
+};
+
+struct ListTabGroupsRequest {
+    friend bool operator==(const ListTabGroupsRequest&, const ListTabGroupsRequest&) = default;
+};
+
 struct ListTerminalsRequest {
     friend bool operator==(const ListTerminalsRequest&, const ListTerminalsRequest&) = default;
 };
@@ -1485,6 +1584,10 @@ struct ListTerminalsResult {
     std::uint64_t terminal_revision{};
     std::vector<TerminalRecord> terminals{};
     friend bool operator==(const ListTerminalsResult&, const ListTerminalsResult&) = default;
+};
+
+struct ListWorkspaceGroupsRequest {
+    friend bool operator==(const ListWorkspaceGroupsRequest&, const ListWorkspaceGroupsRequest&) = default;
 };
 
 struct ListWorkspacesRequest {
@@ -1616,15 +1719,84 @@ struct MintTerminalRendererResult {
     friend bool operator==(const MintTerminalRendererResult&, const MintTerminalRendererResult&) = default;
 };
 
+struct PaneRef {
+    Json value{};
+    friend bool operator==(const PaneRef&, const PaneRef&) = default;
+};
+
+struct MoveTabGroupRequest {
+    std::string group{};
+    Field<std::uint64_t> index{};
+    Field<PaneRef> pane{};
+    Field<std::string> transaction{};
+    friend bool operator==(const MoveTabGroupRequest&, const MoveTabGroupRequest&) = default;
+};
+
+struct MoveTabGroupToColumnRequest {
+    Field<Id> after_column{};
+    std::string group{};
+    Field<PaneRef> pane{};
+    Field<Id> screen{};
+    Field<std::string> transaction{};
+    Field<float> width{};
+    friend bool operator==(const MoveTabGroupToColumnRequest&, const MoveTabGroupToColumnRequest&) = default;
+};
+
+struct MoveTabGroupToNewWorkspaceRequest {
+    std::string group{};
+    Field<std::uint64_t> index{};
+    Field<std::string> transaction{};
+    Field<std::string> workspace_group{};
+    friend bool operator==(const MoveTabGroupToNewWorkspaceRequest&, const MoveTabGroupToNewWorkspaceRequest&) = default;
+};
+
+struct MoveTabGroupToSplitRequest {
+    std::string edge{};
+    std::string group{};
+    PaneRef pane{};
+    Field<float> ratio{};
+    Field<std::string> transaction{};
+    friend bool operator==(const MoveTabGroupToSplitRequest&, const MoveTabGroupToSplitRequest&) = default;
+};
+
 struct MoveTabRequest {
     std::uint64_t index{};
     Id pane{};
     Id surface{};
+    Field<std::string> transaction{};
     friend bool operator==(const MoveTabRequest&, const MoveTabRequest&) = default;
+};
+
+struct MoveTabToColumnRequest {
+    Field<Id> after_column{};
+    Field<Id> pane{};
+    Field<Id> screen{};
+    Id surface{};
+    Field<std::string> transaction{};
+    Field<float> width{};
+    friend bool operator==(const MoveTabToColumnRequest&, const MoveTabToColumnRequest&) = default;
+};
+
+struct MoveTabToNewWorkspaceRequest {
+    Field<std::string> group{};
+    Field<std::uint64_t> index{};
+    Id surface{};
+    Field<std::string> transaction{};
+    friend bool operator==(const MoveTabToNewWorkspaceRequest&, const MoveTabToNewWorkspaceRequest&) = default;
+};
+
+struct MoveTabToSplitRequest {
+    std::string edge{};
+    Id pane{};
+    Field<float> ratio{};
+    Id surface{};
+    Field<std::string> transaction{};
+    friend bool operator==(const MoveTabToSplitRequest&, const MoveTabToSplitRequest&) = default;
 };
 
 struct MoveTabToWorkspaceRequest {
     Id surface{};
+    Field<std::string> transaction{};
     Field<Id> workspace{};
     friend bool operator==(const MoveTabToWorkspaceRequest&, const MoveTabToWorkspaceRequest&) = default;
 };
@@ -1657,6 +1829,12 @@ struct MoveTerminalResult {
     friend bool operator==(const MoveTerminalResult&, const MoveTerminalResult&) = default;
 };
 
+struct MoveWorkspaceGroupRequest {
+    std::string group{};
+    std::uint64_t index{};
+    friend bool operator==(const MoveWorkspaceGroupRequest&, const MoveWorkspaceGroupRequest&) = default;
+};
+
 struct MoveWorkspaceRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
@@ -1668,12 +1846,36 @@ struct MoveWorkspaceRequest {
     friend bool operator==(const MoveWorkspaceRequest&, const MoveWorkspaceRequest&) = default;
 };
 
+struct MoveWorkspaceToGroupRequest {
+    Field<std::string> expected_generation{};
+    Field<std::uint64_t> expected_revision{};
+    Field<std::string> group{};
+    Field<std::uint64_t> index{};
+    Field<std::string> key{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    Field<Id> workspace{};
+    friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
+};
+
 struct NewBrowserTabRequest {
     Field<std::uint16_t> cols{};
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
     std::string url{};
     friend bool operator==(const NewBrowserTabRequest&, const NewBrowserTabRequest&) = default;
+};
+
+struct NewFrontendBrowserTabRequest {
+    Field<std::uint16_t> cols{};
+    std::string engine{};
+    Field<std::string> favicon_url{};
+    Field<Id> pane{};
+    Field<std::string> profile_id{};
+    Field<std::uint16_t> rows{};
+    Field<std::string> title{};
+    std::string url{};
+    friend bool operator==(const NewFrontendBrowserTabRequest&, const NewFrontendBrowserTabRequest&) = default;
 };
 
 struct NewPaneRequest {
@@ -1701,6 +1903,7 @@ struct NewScreenRequest {
 struct NewTabRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
     friend bool operator==(const NewTabRequest&, const NewTabRequest&) = default;
@@ -1959,6 +2162,12 @@ struct ReloadConfigResult {
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
 };
 
+struct RemoveTabsFromTabGroupRequest {
+    std::vector<TabRef> surfaces{};
+    Field<std::string> transaction{};
+    friend bool operator==(const RemoveTabsFromTabGroupRequest&, const RemoveTabsFromTabGroupRequest&) = default;
+};
+
 struct RenamePaneRequest {
     std::string name{};
     Id pane{};
@@ -2089,6 +2298,13 @@ struct RenderStateEvent {
     friend bool operator==(const RenderStateEvent&, const RenderStateEvent&) = default;
 };
 
+struct ReopenSavedTabGroupRequest {
+    PaneRef pane{};
+    std::string saved{};
+    Field<std::string> transaction{};
+    friend bool operator==(const ReopenSavedTabGroupRequest&, const ReopenSavedTabGroupRequest&) = default;
+};
+
 struct ReportAgentRequest {
     Field<std::string> session{};
     AgentReportSource source{};
@@ -2189,6 +2405,11 @@ struct RunResult {
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
     friend bool operator==(const RunResult&, const RunResult&) = default;
+};
+
+struct SaveTabGroupRequest {
+    std::string group{};
+    friend bool operator==(const SaveTabGroupRequest&, const SaveTabGroupRequest&) = default;
 };
 
 struct Screen {
@@ -2413,6 +2634,12 @@ struct SetSplitRatioRequest {
     friend bool operator==(const SetSplitRatioRequest&, const SetSplitRatioRequest&) = default;
 };
 
+struct SetTabPinnedRequest {
+    bool pinned{};
+    Id surface{};
+    friend bool operator==(const SetTabPinnedRequest&, const SetTabPinnedRequest&) = default;
+};
+
 struct SetTerminalIdlePolicyRequest {
     Field<std::uint64_t> idle_close_seconds{};
     Field<Id> surface{};
@@ -2436,6 +2663,19 @@ struct SetViewportPaneWidthRequest {
 struct SetWindowTitleRequest {
     std::string title{};
     friend bool operator==(const SetWindowTitleRequest&, const SetWindowTitleRequest&) = default;
+};
+
+struct SetWorkspaceMetadataRequest {
+    Field<std::string> color{};
+    Field<std::string> expected_generation{};
+    Field<std::uint64_t> expected_revision{};
+    Field<std::string> icon{};
+    Field<std::string> key{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    Field<std::string> title{};
+    Field<Id> workspace{};
+    friend bool operator==(const SetWorkspaceMetadataRequest&, const SetWorkspaceMetadataRequest&) = default;
 };
 
 struct ShutdownDaemonRequest {
@@ -2467,7 +2707,9 @@ struct SidebarPluginResult {
 
 struct SplitRequest {
     Field<std::uint16_t> cols{};
+    Field<std::string> cwd{};
     SplitDirection dir{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
     Id pane{};
     Field<std::uint16_t> rows{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
@@ -2539,6 +2781,17 @@ struct TabAddedEvent {
     Id surface{};
     Id workspace{};
     friend bool operator==(const TabAddedEvent&, const TabAddedEvent&) = default;
+};
+
+struct TabChangedEvent {
+    Tab entity{};
+    Field<std::uint64_t> index{};
+    Id pane{};
+    Id screen{};
+    Id surface{};
+    Field<std::string> transaction{};
+    Id workspace{};
+    friend bool operator==(const TabChangedEvent&, const TabChangedEvent&) = default;
 };
 
 struct TabClosedEvent {
@@ -2646,8 +2899,42 @@ struct UndoLayoutRequest {
     friend bool operator==(const UndoLayoutRequest&, const UndoLayoutRequest&) = default;
 };
 
+struct UngroupTabGroupRequest {
+    std::string group{};
+    friend bool operator==(const UngroupTabGroupRequest&, const UngroupTabGroupRequest&) = default;
+};
+
 struct UnregisterBrowserProviderRequest {
     friend bool operator==(const UnregisterBrowserProviderRequest&, const UnregisterBrowserProviderRequest&) = default;
+};
+
+struct UnsaveTabGroupRequest {
+    std::string group{};
+    friend bool operator==(const UnsaveTabGroupRequest&, const UnsaveTabGroupRequest&) = default;
+};
+
+struct UpdateFrontendBrowserTabRequest {
+    Field<std::string> favicon_url{};
+    Id surface{};
+    Field<std::string> title{};
+    Field<std::string> url{};
+    friend bool operator==(const UpdateFrontendBrowserTabRequest&, const UpdateFrontendBrowserTabRequest&) = default;
+};
+
+struct UpdateTabGroupRequest {
+    Field<bool> collapsed{};
+    Field<std::string> color{};
+    std::string group{};
+    Field<std::string> name{};
+    friend bool operator==(const UpdateTabGroupRequest&, const UpdateTabGroupRequest&) = default;
+};
+
+struct UpdateWorkspaceGroupRequest {
+    Field<bool> collapsed{};
+    Field<std::string> color{};
+    std::string group{};
+    Field<std::string> name{};
+    friend bool operator==(const UpdateWorkspaceGroupRequest&, const UpdateWorkspaceGroupRequest&) = default;
 };
 
 struct UrlOpenClaimRequest {
@@ -2732,6 +3019,18 @@ struct WorkspaceAddedEvent {
     Id workspace{};
     std::uint64_t workspace_revision{};
     friend bool operator==(const WorkspaceAddedEvent&, const WorkspaceAddedEvent&) = default;
+};
+
+struct WorkspaceChangedEvent {
+    Workspace entity{};
+    std::string generation{};
+    Field<std::uint64_t> index{};
+    std::optional<std::string> mutation_id{};
+    std::optional<std::string> origin{};
+    std::string registry_id{};
+    Id workspace{};
+    std::uint64_t workspace_revision{};
+    friend bool operator==(const WorkspaceChangedEvent&, const WorkspaceChangedEvent&) = default;
 };
 
 struct WorkspaceClosedEvent {
@@ -3179,6 +3478,12 @@ struct Codec<PaneNeighborResult> {
 };
 
 template <>
+struct Codec<PaneRef> {
+    static Result<Json> encode(const PaneRef& value);
+    static Result<PaneRef> decode(const Json& value);
+};
+
+template <>
 struct Codec<PingResult> {
     static Result<Json> encode(const PingResult& value);
     static Result<PingResult> decode(const Json& value);
@@ -3401,6 +3706,12 @@ struct Codec<Tab> {
 };
 
 template <>
+struct Codec<TabRef> {
+    static Result<Json> encode(const TabRef& value);
+    static Result<TabRef> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalColorOverrides> {
     static Result<Json> encode(const TerminalColorOverrides& value);
     static Result<TerminalColorOverrides> decode(const Json& value);
@@ -3518,6 +3829,18 @@ template <>
 struct Codec<ZoomPaneResult> {
     static Result<Json> encode(const ZoomPaneResult& value);
     static Result<ZoomPaneResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AckTabNotificationsRequest> {
+    static Result<Json> encode(const AckTabNotificationsRequest& value);
+    static Result<AckTabNotificationsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AddTabsToTabGroupRequest> {
+    static Result<Json> encode(const AddTabsToTabGroupRequest& value);
+    static Result<AddTabsToTabGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -3659,6 +3982,12 @@ struct Codec<CloseSurfaceRequest> {
 };
 
 template <>
+struct Codec<CloseTabGroupRequest> {
+    static Result<Json> encode(const CloseTabGroupRequest& value);
+    static Result<CloseTabGroupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloseTerminalRequest> {
     static Result<Json> encode(const CloseTerminalRequest& value);
     static Result<CloseTerminalRequest> decode(const Json& value);
@@ -3683,6 +4012,12 @@ struct Codec<CreateSurfaceWithReceiptRequest> {
 };
 
 template <>
+struct Codec<CreateTabGroupRequest> {
+    static Result<Json> encode(const CreateTabGroupRequest& value);
+    static Result<CreateTabGroupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CreateTerminalRequest> {
     static Result<Json> encode(const CreateTerminalRequest& value);
     static Result<CreateTerminalRequest> decode(const Json& value);
@@ -3692,6 +4027,24 @@ template <>
 struct Codec<CreateWorkspaceRequest> {
     static Result<Json> encode(const CreateWorkspaceRequest& value);
     static Result<CreateWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CreateWorkspaceGroupRequest> {
+    static Result<Json> encode(const CreateWorkspaceGroupRequest& value);
+    static Result<CreateWorkspaceGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeleteSavedTabGroupRequest> {
+    static Result<Json> encode(const DeleteSavedTabGroupRequest& value);
+    static Result<DeleteSavedTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeleteWorkspaceGroupRequest> {
+    static Result<Json> encode(const DeleteWorkspaceGroupRequest& value);
+    static Result<DeleteWorkspaceGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -3785,9 +4138,33 @@ struct Codec<ListClientsResult> {
 };
 
 template <>
+struct Codec<ListNotificationsRequest> {
+    static Result<Json> encode(const ListNotificationsRequest& value);
+    static Result<ListNotificationsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListSavedTabGroupsRequest> {
+    static Result<Json> encode(const ListSavedTabGroupsRequest& value);
+    static Result<ListSavedTabGroupsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListTabGroupsRequest> {
+    static Result<Json> encode(const ListTabGroupsRequest& value);
+    static Result<ListTabGroupsRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ListTerminalsRequest> {
     static Result<Json> encode(const ListTerminalsRequest& value);
     static Result<ListTerminalsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListWorkspaceGroupsRequest> {
+    static Result<Json> encode(const ListWorkspaceGroupsRequest& value);
+    static Result<ListWorkspaceGroupsRequest> decode(const Json& value);
 };
 
 template <>
@@ -3833,6 +4210,48 @@ struct Codec<MoveTabRequest> {
 };
 
 template <>
+struct Codec<MoveTabGroupRequest> {
+    static Result<Json> encode(const MoveTabGroupRequest& value);
+    static Result<MoveTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabGroupToColumnRequest> {
+    static Result<Json> encode(const MoveTabGroupToColumnRequest& value);
+    static Result<MoveTabGroupToColumnRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabGroupToNewWorkspaceRequest> {
+    static Result<Json> encode(const MoveTabGroupToNewWorkspaceRequest& value);
+    static Result<MoveTabGroupToNewWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabGroupToSplitRequest> {
+    static Result<Json> encode(const MoveTabGroupToSplitRequest& value);
+    static Result<MoveTabGroupToSplitRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabToColumnRequest> {
+    static Result<Json> encode(const MoveTabToColumnRequest& value);
+    static Result<MoveTabToColumnRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabToNewWorkspaceRequest> {
+    static Result<Json> encode(const MoveTabToNewWorkspaceRequest& value);
+    static Result<MoveTabToNewWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabToSplitRequest> {
+    static Result<Json> encode(const MoveTabToSplitRequest& value);
+    static Result<MoveTabToSplitRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MoveTabToWorkspaceRequest> {
     static Result<Json> encode(const MoveTabToWorkspaceRequest& value);
     static Result<MoveTabToWorkspaceRequest> decode(const Json& value);
@@ -3851,9 +4270,27 @@ struct Codec<MoveWorkspaceRequest> {
 };
 
 template <>
+struct Codec<MoveWorkspaceGroupRequest> {
+    static Result<Json> encode(const MoveWorkspaceGroupRequest& value);
+    static Result<MoveWorkspaceGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveWorkspaceToGroupRequest> {
+    static Result<Json> encode(const MoveWorkspaceToGroupRequest& value);
+    static Result<MoveWorkspaceToGroupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<NewBrowserTabRequest> {
     static Result<Json> encode(const NewBrowserTabRequest& value);
     static Result<NewBrowserTabRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<NewFrontendBrowserTabRequest> {
+    static Result<Json> encode(const NewFrontendBrowserTabRequest& value);
+    static Result<NewFrontendBrowserTabRequest> decode(const Json& value);
 };
 
 template <>
@@ -3977,6 +4414,12 @@ struct Codec<ReloadConfigResult> {
 };
 
 template <>
+struct Codec<RemoveTabsFromTabGroupRequest> {
+    static Result<Json> encode(const RemoveTabsFromTabGroupRequest& value);
+    static Result<RemoveTabsFromTabGroupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<RenamePaneRequest> {
     static Result<Json> encode(const RenamePaneRequest& value);
     static Result<RenamePaneRequest> decode(const Json& value);
@@ -4004,6 +4447,12 @@ template <>
 struct Codec<RenameWorkspaceRequest> {
     static Result<Json> encode(const RenameWorkspaceRequest& value);
     static Result<RenameWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReopenSavedTabGroupRequest> {
+    static Result<Json> encode(const ReopenSavedTabGroupRequest& value);
+    static Result<ReopenSavedTabGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -4040,6 +4489,12 @@ template <>
 struct Codec<RunRequest> {
     static Result<Json> encode(const RunRequest& value);
     static Result<RunRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SaveTabGroupRequest> {
+    static Result<Json> encode(const SaveTabGroupRequest& value);
+    static Result<SaveTabGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -4121,6 +4576,12 @@ struct Codec<SetSplitRatioRequest> {
 };
 
 template <>
+struct Codec<SetTabPinnedRequest> {
+    static Result<Json> encode(const SetTabPinnedRequest& value);
+    static Result<SetTabPinnedRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetTerminalIdlePolicyRequest> {
     static Result<Json> encode(const SetTerminalIdlePolicyRequest& value);
     static Result<SetTerminalIdlePolicyRequest> decode(const Json& value);
@@ -4136,6 +4597,12 @@ template <>
 struct Codec<SetWindowTitleRequest> {
     static Result<Json> encode(const SetWindowTitleRequest& value);
     static Result<SetWindowTitleRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetWorkspaceMetadataRequest> {
+    static Result<Json> encode(const SetWorkspaceMetadataRequest& value);
+    static Result<SetWorkspaceMetadataRequest> decode(const Json& value);
 };
 
 template <>
@@ -4181,9 +4648,39 @@ struct Codec<UndoLayoutRequest> {
 };
 
 template <>
+struct Codec<UngroupTabGroupRequest> {
+    static Result<Json> encode(const UngroupTabGroupRequest& value);
+    static Result<UngroupTabGroupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<UnregisterBrowserProviderRequest> {
     static Result<Json> encode(const UnregisterBrowserProviderRequest& value);
     static Result<UnregisterBrowserProviderRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UnsaveTabGroupRequest> {
+    static Result<Json> encode(const UnsaveTabGroupRequest& value);
+    static Result<UnsaveTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdateFrontendBrowserTabRequest> {
+    static Result<Json> encode(const UpdateFrontendBrowserTabRequest& value);
+    static Result<UpdateFrontendBrowserTabRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdateTabGroupRequest> {
+    static Result<Json> encode(const UpdateTabGroupRequest& value);
+    static Result<UpdateTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdateWorkspaceGroupRequest> {
+    static Result<Json> encode(const UpdateWorkspaceGroupRequest& value);
+    static Result<UpdateWorkspaceGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -4451,6 +4948,12 @@ struct Codec<TabAddedEvent> {
 };
 
 template <>
+struct Codec<TabChangedEvent> {
+    static Result<Json> encode(const TabChangedEvent& value);
+    static Result<TabChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<TabClosedEvent> {
     static Result<Json> encode(const TabClosedEvent& value);
     static Result<TabClosedEvent> decode(const Json& value);
@@ -4502,6 +5005,12 @@ template <>
 struct Codec<WorkspaceAddedEvent> {
     static Result<Json> encode(const WorkspaceAddedEvent& value);
     static Result<WorkspaceAddedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<WorkspaceChangedEvent> {
+    static Result<Json> encode(const WorkspaceChangedEvent& value);
+    static Result<WorkspaceChangedEvent> decode(const Json& value);
 };
 
 template <>

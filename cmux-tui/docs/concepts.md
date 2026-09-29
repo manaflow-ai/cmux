@@ -20,15 +20,47 @@ The shared compatibility tree records default active workspace, screen, pane, an
 
 The compatibility tree's pane-focus metadata tracks recent activity. When closing its active pane or the last tab in it, mux chooses the most recently active remaining pane on that screen instead of always choosing a neighbor.
 
+Notifications mark the tab that raised them as unread. The marker belongs
+to the tab's content, so every view of one terminal shows it. Frontends clear
+it with an explicit acknowledgement when the user has seen the tab, not by
+moving focus, and the acknowledgement is durable across restarts.
+
 ## Frontend Projections
 
 The workspace tree is one durable shared backend projection. Frontends may also store opaque schema-versioned documents with `put-frontend-projection`: `personal` scope belongs to one stable user, profile, or device subject, while `shared` scope belongs to a collaboration view. Either document may place one terminal UUID several times and may deliberately save focus or viewport preferences. Unsaved focus, selection, scroll, crop, pan, hover, drag, and key-prefix state remain client-local. A projection owns presentation only; removing it never closes a terminal.
+
+## Workspace Groups
+
+The sidebar can group workspaces into ordered, named sections. Groups are
+shared durable state in the session registry, like workspace names and order,
+so every frontend shows the same groups after a restart. A group's collapsed
+flag is shared too. Groups partition the one workspace order instead of
+keeping their own member lists: a section shows its workspaces in workspace
+order, and moving a workspace inside a section reorders the workspace list
+around the other members. Deleting a group ungroups its workspaces in place.
+
+A workspace can also carry a shared color, an SF Symbol icon, and a custom
+title that frontends show instead of its name. These are durable like the
+name and are not per-window preferences.
 
 ## Tabs and Names
 
 A terminal resource wraps one child process connected to one pseudo-terminal, its ordered input and output, retained history, canonical grid, and graphics state. A PTY tab is a named view placement of that resource. A browser tab wraps one local Chrome/Chromium target and cannot have a second placement.
 
 `rename-tab` sets the placement-local name. Empty tab names clear the custom name and fall back to the generated tab label. The old config key `rename-pane` is still accepted as an alias for the `rename-tab` key binding, but the UI rename action targets the tab placement, not the pane object.
+
+A tab placement can be pinned. Pinned tabs sort first in their pane for
+every frontend, and the flag follows the tab across panes and restarts. Each
+PTY tab also reports its working directory and the git branch of the
+repository containing it, read on the machine that runs the terminal.
+
+Tabs in one pane can form Chrome-style tab groups: a name (possibly empty),
+one of nine colors, and a shared collapsed flag. Members are contiguous in
+the strip, pinned tabs cannot join, and a whole group moves as one: within a
+strip, to another pane, or into a new split, column, or workspace. A saved
+group is a session-wide record of a group's name, color, and members that
+outlives its tabs; reopening it reattaches terminals that are still running
+and starts new ones in the saved directories.
 
 Pane names still exist in the control socket through `rename-pane`. They are separate from the tab labels shown in the TUI.
 
@@ -44,6 +76,12 @@ The modeless `Alt-n` binding creates a new pane and reapplies Zellij's default d
 
 Each screen keeps an in-memory history of its latest structural layout actions. `Ctrl-b U` undoes the newest entry on the focused screen. Repeated changes to one divider are coalesced. Undoing pane creation requires confirmation because it removes the pane's tab placements and closes single-view browser surfaces. PTY terminal resources remain session-owned. The confirmation carries the exact layout revision, so a later layout action makes an older prompt fail without changing anything. A direct pane close clears the history because the journal cannot reconstruct exact removed tab membership or a closed browser target.
 
+Tab drags are single commands. Dropping a tab on a pane edge, between
+columns, on another pane's tab strip, or on the sidebar moves the existing
+placement in one commit, so the terminal never restarts. A drag that stays on
+one screen and keeps its source pane is one layout-undo entry; undo moves the
+tab back instead of closing the pane it created.
+
 ## Collapse Behavior
 
 Closing a tab removes one placement. A PTY terminal remains addressable with zero or more placements; closing its process requires `terminal.close`. A browser closes with its only tab. If the pane still has tabs, the active tab index moves to a remaining tab.
@@ -55,5 +93,10 @@ Closing a pane removes all tab placements in that pane. Closing a screen removes
 ## PTY and Browser Surfaces
 
 A terminal runtime parses child-process output once with libghostty-vt. Every PTY tab or attached frontend renders a view of that shared terminal state while keeping its own selection, scroll offset, crop, pan, and scale. Inline Kitty image storage, aliases, quota, cell pixels, and placement anchors belong to the terminal runtime rather than any one view. Attach clients receive a VT replay first, then a base64 stream of subsequent PTY bytes, plus ordered resize frames when canonical geometry changes. Graphics survive projection, attach, remote mirroring, scrolling, and resize within the configured replay and transport byte limits; graphics beyond the replay budget may be omitted.
+
+A frontend-rendered browser tab is a browser placement whose page a native
+frontend draws with WebKit or CEF. The daemon stores its URL, title, favicon,
+engine, and profile so the tab restores with the tree, but it never attaches
+a CDP target or renders frames for it; the frontend reports navigation back.
 
 A browser surface is a local Chrome/Chromium target controlled through the Chrome DevTools Protocol. The local TUI draws browser frames with kitty graphics and forwards keyboard, mouse, and wheel input over CDP. Protocol-v7 attach clients receive an initial `browser-state` event with the latest optional frame, followed by updated `browser-state` and base64 PNG `frame` events.

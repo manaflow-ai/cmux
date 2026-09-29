@@ -26,6 +26,8 @@ pub(crate) struct ResourceMutationPlan {
     pub(crate) deltas: Value,
     pub(crate) metrics: ResourceMutationMetrics,
     pub(crate) workspace_ledger: Option<ResourceWorkspaceLedger>,
+    /// Tab group state written in the same transaction as the patch.
+    pub(crate) tab_groups: Option<crate::workspace_registry::TabGroupState>,
     apply: StateApply,
 }
 
@@ -42,8 +44,18 @@ impl ResourceMutationPlan {
             deltas,
             metrics: ResourceMutationMetrics::default(),
             workspace_ledger: None,
+            tab_groups: None,
             apply: Box::new(apply),
         }
+    }
+
+    /// Commit this tab group state with the patch.
+    pub(crate) fn with_tab_groups(
+        mut self,
+        tab_groups: crate::workspace_registry::TabGroupState,
+    ) -> Self {
+        self.tab_groups = Some(tab_groups);
+        self
     }
 
     pub(crate) fn with_metrics(mut self, metrics: ResourceMutationMetrics) -> Self {

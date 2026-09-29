@@ -139,6 +139,8 @@
   },
   "commands": {
     "control": [
+      "ack-tab-notifications",
+      "add-tabs-to-tab-group",
       "apply-layout",
       "clear-history",
       "clear-window-title",
@@ -146,12 +148,17 @@
       "close-pane",
       "close-screen",
       "close-surface",
+      "close-tab-group",
       "close-terminal",
       "close-workspace",
       "copy",
       "create-surface-with-receipt",
+      "create-tab-group",
       "create-terminal",
       "create-workspace",
+      "create-workspace-group",
+      "delete-saved-tab-group",
+      "delete-workspace-group",
       "detach-client",
       "export-layout",
       "focus-direction",
@@ -162,15 +169,29 @@
       "journal-frontend-event",
       "list-agents",
       "list-clients",
+      "list-notifications",
+      "list-saved-tab-groups",
+      "list-tab-groups",
       "list-terminals",
+      "list-workspace-groups",
       "list-workspaces",
       "machine-listening-tcp",
       "machine-usage",
       "move-tab",
+      "move-tab-group",
+      "move-tab-group-to-column",
+      "move-tab-group-to-new-workspace",
+      "move-tab-group-to-split",
+      "move-tab-to-column",
+      "move-tab-to-new-workspace",
+      "move-tab-to-split",
       "move-tab-to-workspace",
       "move-terminal",
       "move-workspace",
+      "move-workspace-group",
+      "move-workspace-to-group",
       "new-browser-tab",
+      "new-frontend-browser-tab",
       "new-pane",
       "new-pane-right",
       "new-screen",
@@ -186,15 +207,18 @@
       "read-scrollback",
       "release-surface-size",
       "reload-config",
+      "remove-tabs-from-tab-group",
       "rename-pane",
       "rename-screen",
       "rename-surface",
       "rename-workspace",
+      "reopen-saved-tab-group",
       "report-agent",
       "report-focus",
       "resize-surface",
       "resolve-terminal",
       "run",
+      "save-tab-group",
       "scroll-surface",
       "select-screen",
       "select-tab",
@@ -206,13 +230,20 @@
       "set-default-colors",
       "set-ratio",
       "set-split-ratio",
+      "set-tab-pinned",
       "set-terminal-idle-policy",
       "set-viewport-pane-width",
       "set-window-title",
+      "set-workspace-metadata",
       "split",
       "swap-pane",
       "terminal-events",
       "undo-layout",
+      "ungroup-tab-group",
+      "unsave-tab-group",
+      "update-frontend-browser-tab",
+      "update-tab-group",
+      "update-workspace-group",
       "vt-state",
       "wait-for",
       "zoom-pane"
@@ -495,6 +526,12 @@
       ]
     },
     {
+      "name": "tab-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
       "name": "tab-closed",
       "streams": [
         "subscribe-deltas"
@@ -538,6 +575,12 @@
     },
     {
       "name": "workspace-added",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "workspace-changed",
       "streams": [
         "subscribe-deltas"
       ]
