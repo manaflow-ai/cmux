@@ -646,6 +646,21 @@ import Testing
         #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
     }
 
+    @Test func signingOutKeepsLocalCleanupPendingWhileVPNIsUnavailable() async {
+        let rig = Rig()
+        await signedIn(rig)
+
+        rig.manager.isAvailable = false
+        rig.controller.setScope(nil)
+        await rig.controller.waitForPendingOperation()
+
+        rig.manager.isAvailable = true
+        await rig.controller.refresh()
+
+        #expect(rig.manager.stops == [true])
+        #expect(rig.controller.phase == .off)
+    }
+
     @Test func theFirstSignedInScopeDoesNotRemoveAnything() async {
         let rig = Rig()
         await signedIn(rig)
