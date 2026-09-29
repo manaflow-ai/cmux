@@ -19,7 +19,7 @@ final class CloudRestoreReplayFixture {
     let socket: CloudManualMirrorSocketFixture
     private let session: CloudTuiManualMirrorSession
 
-    init(initiallyClaimsGeometry: Bool = true) throws {
+    init(initiallyClaimsGeometry: Bool = true, bindSurface: Bool = true) throws {
         _ = NSApplication.shared
         socket = try CloudManualMirrorSocketFixture()
         session = CloudTuiManualMirrorSession(
@@ -44,7 +44,7 @@ final class CloudRestoreReplayFixture {
         content.layoutSubtreeIfNeeded()
         hosted.setVisibleInUI(false)
         hosted.setActive(false)
-        session.bind(surface: surface)
+        if bindSurface { session.bind(surface: surface) }
     }
 
     func setGrid(columns: Int, rows: Int) async throws {
@@ -68,6 +68,20 @@ final class CloudRestoreReplayFixture {
         socket.send(["id": attach.id, "ok": true, "data": [:]])
         try await deliver(replay, event: "vt-state", marker: "STATUS_READY", columns: columns, rows: rows)
         try await waitUntil { self.session.phase == .attached }
+    }
+
+    func attachBeforeSurfaceBinding(replay: Data, columns: Int = 80, rows: Int = 24) async throws {
+        session.reconnect(socketPath: socket.socketPath)
+        let attach = try await answerHandshake()
+        socket.send(["id": attach.id, "ok": true, "data": [:]])
+        try await deliver(replay, event: "vt-state", marker: "prompt", columns: columns, rows: rows, waitForSurface: false)
+        try await waitUntil { self.session.lastRemoteGrid != nil }
+    }
+
+    func bindSurface() { session.bind(surface: surface) }
+
+    func waitForText(_ text: String) async throws {
+        try await waitUntil { self.surface.readText(region: .screen)?.contains(text) == true }
     }
 
     /// Answers identify and client registration on the session's newest
@@ -122,7 +136,7 @@ final class CloudRestoreReplayFixture {
 
     func deliver(
         _ bytes: Data, event: String, marker: String, colors: [String: Any]? = nil,
-        columns: Int = 80, rows: Int = 24
+        columns: Int = 80, rows: Int = 24, waitForSurface: Bool = true
     ) async throws {
         var payload: [String: Any] = [
             "event": event, "surface": 17, "cols": columns, "rows": rows,
@@ -130,7 +144,7 @@ final class CloudRestoreReplayFixture {
         ]
         if let colors { payload["colors"] = colors }
         socket.send(payload)
-        try await waitUntil { self.surface.readText(region: .screen)?.contains(marker) == true }
+        if waitForSurface { try await waitUntil { self.surface.readText(region: .screen)?.contains(marker) == true } }
     }
 
     func close() {

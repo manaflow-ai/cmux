@@ -41,6 +41,7 @@ final class CloudTuiManualMirrorSession {
     private(set) var socketPath: String?
     private var nextRequestID: UInt64 = 1
     private var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
+    var pendingReplay: Data?
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
     /// lease-fenced sizing or initial attach dimensions.
@@ -196,10 +197,7 @@ final class CloudTuiManualMirrorSession {
         self.surface = surface
         surface.hostedView.cloudTerminalOverlay.session = self
         manualMirrorLogger.info("bind terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
-        // A color sidecar that arrived before any surface existed reaches this
-        // one now. The stored sidecar is the remote truth, and the next
-        // identical sidecar would produce an empty delta and leave the pane on
-        // the local theme.
+        // A color sidecar that arrived before any surface existed reaches this one now.
         let pendingColors = appliedRemoteColors.oscBytes
         if !pendingColors.isEmpty {
             surface.processRemoteOutput(pendingColors)
@@ -216,6 +214,7 @@ final class CloudTuiManualMirrorSession {
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
         }
+        flushPendingReplay()
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
@@ -307,7 +306,7 @@ final class CloudTuiManualMirrorSession {
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
-        lastRemoteGrid = nil
+        lastRemoteGrid = nil; pendingReplay = nil
         diagnosticReplayReceived = false
     }
     /// Samples the grid after Ghostty has created its runtime surface. Runtime
@@ -634,8 +633,8 @@ final class CloudTuiManualMirrorSession {
         replay.append(bytes)
         replay.append(replayColors.oscBytes)
         appliedRemoteColors = replayColors
+        guard let surface else { pendingReplay = replay; return }
         let token = replayFidelity.replayQueued(remote: remote, local: settledGrid())
-        guard let surface else { return }
         surface.processRemoteReplay(replay) { [weak self, weak surface] in
             surface?.forceRefresh(reason: "cloud.replay.applied")
             self?.replayApplied(token: token)

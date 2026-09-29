@@ -752,6 +752,7 @@
 		C11324810000000000000001 /* CloudManualMirrorMaterialization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324820000000000000001 /* CloudManualMirrorMaterialization.swift */; };
 		C12376010000000000000001 /* CloudManualMirrorPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12376020000000000000001 /* CloudManualMirrorPresentationTests.swift */; };
 		95E93CB008517B3E2ABDC326 /* CloudManualMirrorSocketFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF70B0862D206C62CA5ACF65 /* CloudManualMirrorSocketFixture.swift */; };
+		865554BEE843813A69525FC0 /* CloudManualMirrorStartupRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD2286462BDC54589245BFF /* CloudManualMirrorStartupRenderingTests.swift */; };
 		C11322A10000000000000001 /* CloudManualMirrorTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322A20000000000000001 /* CloudManualMirrorTransportTests.swift */; };
 		AF4D952CE6254D3D8D886EBC /* CloudNameAuthorityFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A7787BF0744F3981CFD375 /* CloudNameAuthorityFixture.swift */; };
 		EF3CE50369C1428F8F611B2F /* CloudNameAuthorityTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */; };
@@ -937,6 +938,7 @@
 		A12367000000000000000002 /* CloudTreeWorkspaceTitleLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12367000000000000000001 /* CloudTreeWorkspaceTitleLayoutTests.swift */; };
 		A838AA211BDA47268C683501 /* CloudTuiManualIOConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A838AA211BDA47268C683502 /* CloudTuiManualIOConnectionTests.swift */; };
 		124760000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift */; };
+		79F5ACE2406FEBF9C900F333 /* CloudTuiManualMirrorSession+PendingReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB12D123CA2A96F1DDBA3405 /* CloudTuiManualMirrorSession+PendingReplay.swift */; };
 		F181020CA0F7042CBC03B870 /* CloudTuiManualMirrorSession+ReplayFidelity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D8DA9E8FCC6A6A56E0B6435 /* CloudTuiManualMirrorSession+ReplayFidelity.swift */; };
 		C11322F10000000000000001 /* CloudTuiManualMirrorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322F20000000000000001 /* CloudTuiManualMirrorSession.swift */; };
 		0F2A151D749994FC57D403CA /* CloudTunnelActivationObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9D51274EC32D701633288E /* CloudTunnelActivationObserver.swift */; };
@@ -5003,6 +5005,7 @@
 		C11324820000000000000001 /* CloudManualMirrorMaterialization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudManualMirrorMaterialization.swift; sourceTree = "<group>"; };
 		C12376020000000000000001 /* CloudManualMirrorPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudManualMirrorPresentationTests.swift; sourceTree = "<group>"; };
 		EF70B0862D206C62CA5ACF65 /* CloudManualMirrorSocketFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudManualMirrorSocketFixture.swift; sourceTree = "<group>"; };
+		FDD2286462BDC54589245BFF /* CloudManualMirrorStartupRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudManualMirrorStartupRenderingTests.swift"; sourceTree = "<group>"; };
 		C11322A20000000000000001 /* CloudManualMirrorTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudManualMirrorTransportTests.swift; sourceTree = "<group>"; };
 		F9A7787BF0744F3981CFD375 /* CloudNameAuthorityFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNameAuthorityFixture.swift"; sourceTree = "<group>"; };
 		20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNameAuthorityTestProvider.swift"; sourceTree = "<group>"; };
@@ -5188,6 +5191,7 @@
 		A12367000000000000000001 /* CloudTreeWorkspaceTitleLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeWorkspaceTitleLayoutTests.swift; sourceTree = "<group>"; };
 		A838AA211BDA47268C683502 /* CloudTuiManualIOConnectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOConnectionTests.swift; sourceTree = "<group>"; };
 		124770000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudTuiManualMirrorSession+Capabilities.swift"; sourceTree = SOURCE_ROOT; };
+		FB12D123CA2A96F1DDBA3405 /* CloudTuiManualMirrorSession+PendingReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTuiManualMirrorSession+PendingReplay.swift"; sourceTree = "<group>"; };
 		1D8DA9E8FCC6A6A56E0B6435 /* CloudTuiManualMirrorSession+ReplayFidelity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTuiManualMirrorSession+ReplayFidelity.swift"; sourceTree = "<group>"; };
 		C11322F20000000000000001 /* CloudTuiManualMirrorSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualMirrorSession.swift; sourceTree = "<group>"; };
 		8E9D51274EC32D701633288E /* CloudTunnelActivationObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelActivationObserver.swift; sourceTree = "<group>"; };
@@ -9032,6 +9036,7 @@
 				ED2C0C087F0298473CB156E7 /* MachinesPanelViewModel+MachineDeletion.swift */,
 				E3AF26EAE918E646929A4B58 /* CloudTreeOutlineView+RestoreState.swift */,
 				276B8742C711D7E718A5DC5A /* CloudTreePortPresentation.swift */,
+				FB12D123CA2A96F1DDBA3405 /* CloudTuiManualMirrorSession+PendingReplay.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -12557,6 +12562,7 @@
 				09DC7DE176A93C580A263ADD /* PaneDropTargetIdentityTests.swift */,
 				08202CA6A24B08873B5CC6FD /* GhosttyDialogThemeTests.swift */,
 				635AF226CFD6879AC9ACFD09 /* CloudDisplayMembershipProjectionTests.swift */,
+				FDD2286462BDC54589245BFF /* CloudManualMirrorStartupRenderingTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13832,6 +13838,7 @@
 				A12357000000000000000002 /* CloudTreeTerminalNavigationCoordinator.swift in Sources */,
 				12D5531F8CC84B0197E44AD6 /* CloudTreeTerminalRow+Directory.swift in Sources */,
 				124760000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift in Sources */,
+				79F5ACE2406FEBF9C900F333 /* CloudTuiManualMirrorSession+PendingReplay.swift in Sources */,
 				F181020CA0F7042CBC03B870 /* CloudTuiManualMirrorSession+ReplayFidelity.swift in Sources */,
 				C11322F10000000000000001 /* CloudTuiManualMirrorSession.swift in Sources */,
 				0F2A151D749994FC57D403CA /* CloudTunnelActivationObserver.swift in Sources */,
@@ -16415,6 +16422,7 @@
 				FA0000000000000000000001 /* CloudManualInputOptionBackspaceTests.swift in Sources */,
 				C12376010000000000000001 /* CloudManualMirrorPresentationTests.swift in Sources */,
 				95E93CB008517B3E2ABDC326 /* CloudManualMirrorSocketFixture.swift in Sources */,
+				865554BEE843813A69525FC0 /* CloudManualMirrorStartupRenderingTests.swift in Sources */,
 				C11322A10000000000000001 /* CloudManualMirrorTransportTests.swift in Sources */,
 				AF4D952CE6254D3D8D886EBC /* CloudNameAuthorityFixture.swift in Sources */,
 				EF3CE50369C1428F8F611B2F /* CloudNameAuthorityTestProvider.swift in Sources */,
