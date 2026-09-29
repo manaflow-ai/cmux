@@ -6,8 +6,8 @@ import os
 /// Settings and help actions (category `settings`, except appearance, see
 /// `AppearanceHandlers`). Settings live in cmux.json (architecture.md 1), so
 /// "open settings" opens that file and toggles write it; the watcher applies
-/// the change. Updates, CLI install, and account actions report that
-/// cmux-next has no implementation yet.
+/// the change. Update actions go to `UpdaterService` (UpdateHandlers). CLI
+/// install and account actions report that cmux-next has no implementation yet.
 enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
@@ -21,12 +21,9 @@ enum SettingsHandlers {
         registry.bind("palette.toggleSetting", run: { invocation in try toggleSetting(invocation, context) })
         registry.bind("sendFeedback", run: { _ in try context.open(URL(string: "https://github.com/manaflow-ai/cmux/issues/new")!) })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
+        UpdateHandlers.bind(into: registry, updater: context.services.updater)
 
         let unbuilt: [(ActionID, String)] = [
-            ("palette.checkForUpdates", "updates"),
-            ("palette.applyUpdateIfAvailable", "updates"),
-            ("palette.attemptUpdate", "updates"),
-            ("palette.switchAppChannel", "updates"),
             ("palette.installCLI", "cli-install"),
             ("palette.uninstallCLI", "cli-install"),
             ("palette.makeDefaultTerminal", "default-terminal"),

@@ -15,6 +15,15 @@ if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   exit 1
 fi
 
+# The macOS floor of the build in the DMG, from its bundle:
+#   SPARKLE_MINIMUM_SYSTEM_VERSION="$(scripts/ci/appcast_minimum_system_version.py floor "$APP")"
+# The new item must carry it as sparkle:minimumSystemVersion, or Sparkle would
+# offer a macOS 26 build (cmux-next) to macOS 14/15. Required: fail closed.
+if [[ -z "${SPARKLE_MINIMUM_SYSTEM_VERSION:-}" ]]; then
+  echo "SPARKLE_MINIMUM_SYSTEM_VERSION is required (scripts/ci/appcast_minimum_system_version.py floor <app>)." >&2
+  exit 1
+fi
+
 SPARKLE_VERSION="${SPARKLE_VERSION:-2.8.1}"
 DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/manaflow-ai/cmux/releases/download/$TAG/}"
 RELEASE_NOTES_URL="${RELEASE_NOTES_URL:-https://github.com/manaflow-ai/cmux/releases/tag/$TAG}"
@@ -190,6 +199,17 @@ done
 delta_prefix="${SPARKLE_DELTA_NAME_PREFIX:-$(basename "$DMG_PATH" .dmg | sed -E 's/-[0-9]+$//')-}"
 "$(dirname "$0")/ci/finalize-sparkle-deltas.sh" \
   "$generated_appcast_path" "$archives_dir" "$(cd "$(dirname "$OUT_PATH")" && pwd)" "$delta_prefix"
+
+floor_tool="$(dirname "$0")/ci/appcast_minimum_system_version.py"
+python3 "$floor_tool" enforce "$generated_appcast_path" \
+  --archive "$(basename "$DMG_PATH")" --minimum "$SPARKLE_MINIMUM_SYSTEM_VERSION"
+# Optional: the last build below the floor (the final legacy release), so
+# older macOS keeps being offered it instead of nothing. See
+# skills/cmux-release/references/cmux-next-update-floor.md.
+if [[ -n "${SPARKLE_LEGACY_APPCAST_ITEM_FILE:-}" ]]; then
+  python3 "$floor_tool" append-legacy "$generated_appcast_path" \
+    --item-file "$SPARKLE_LEGACY_APPCAST_ITEM_FILE" --floor "$SPARKLE_MINIMUM_SYSTEM_VERSION"
+fi
 
 cp "$generated_appcast_path" "$OUT_PATH"
 echo "Generated appcast at $OUT_PATH"

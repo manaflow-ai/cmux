@@ -624,6 +624,14 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
+          # The item carries the bundle's macOS floor (26.0 for cmux-next). A
+          # pinned final legacy item, when present, keeps macOS 14/15 on the
+          # last legacy build (skills/cmux-release/references/cmux-next-update-floor.md).
+          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor build-universal/Build/Products/Release/cmux.app)"
+          export SPARKLE_MINIMUM_SYSTEM_VERSION
+          if [ -f scripts/cmux-next/legacy-appcast-item.xml ]; then
+            export SPARKLE_LEGACY_APPCAST_ITEM_FILE=scripts/cmux-next/legacy-appcast-item.xml
+          fi
           ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
           # macOS /bin/bash 3.2 can report "unbound variable" from a script with
           # an EXIT trap and still exit 0; dry run 34227505375 (2026-09-08)
@@ -632,6 +640,7 @@ jobs:
           test -s appcast.xml
           grep -q 'sparkle:edSignature' appcast.xml
           grep -q 'cmux-macos.dmg' appcast.xml
+          grep -q "<sparkle:minimumSystemVersion>${SPARKLE_MINIMUM_SYSTEM_VERSION}</sparkle:minimumSystemVersion>" appcast.xml
 
       - name: Upload build artifacts (dry-run)
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
