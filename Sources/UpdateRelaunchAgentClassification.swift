@@ -130,7 +130,12 @@ final class UpdateRelaunchContinuationNudges {
 
     /// Restored panels whose next agent resume carries ``prompt``, with the uptime they were
     /// restored at.
-    private(set) var pendingPanels: [UUID: TimeInterval] = [:]
+    private struct PendingPanel {
+        let restoredAt: TimeInterval
+        let checkpointID: String?
+    }
+
+    private var pendingPanels: [UUID: PendingPanel] = [:]
 
     /// Whether a session save should mark `panelId`.
     func marksPanel(_ panelId: UUID) -> Bool? {
@@ -145,16 +150,24 @@ final class UpdateRelaunchContinuationNudges {
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) {
         guard resumesAgent, snapshot?.resumeWithContinuation == true else { return }
-        pendingPanels[panelId] = now
+        let checkpointID = snapshot?.agent?.sessionId
+            ?? snapshot?.managedAgentResumeBinding?.checkpointId
+            ?? snapshot?.resumeBinding?.checkpointId
+        pendingPanels[panelId] = PendingPanel(restoredAt: now, checkpointID: checkpointID)
     }
 
     /// The prompt for `panelId`'s next resume, if it has a nudge that has not expired.
-    func prompt(forPanel panelId: UUID, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> String? {
-        guard let restoredAt = pendingPanels[panelId] else { return nil }
-        guard now - restoredAt <= Self.lifetime else {
+    func prompt(
+        forPanel panelId: UUID,
+        checkpointID: String?,
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> String? {
+        guard let pending = pendingPanels[panelId] else { return nil }
+        guard now - pending.restoredAt <= Self.lifetime else {
             pendingPanels[panelId] = nil
             return nil
         }
+        guard pending.checkpointID == checkpointID else { return nil }
         return Self.prompt
     }
 

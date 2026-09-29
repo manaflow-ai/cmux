@@ -2551,6 +2551,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             StartupBreadcrumbLog.append("appDelegate.updateRelaunch.freshIndexTimedOut")
             return
         }
+        guard !Task.isCancelled else {
+            StartupBreadcrumbLog.append("appDelegate.updateRelaunch.freshIndexCancelled")
+            return
+        }
         updateRelaunchIndexCapture.store(indexes, capturedAt: ProcessInfo.processInfo.systemUptime)
     }
 
@@ -20475,6 +20479,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     func updaterPrepareForRelaunch() async {
         await prepareUpdateRelaunchIndexes()
+        guard !Task.isCancelled else { return }
         captureUpdateRelaunchMidTaskPanels()
     }
 

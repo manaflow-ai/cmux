@@ -119,6 +119,7 @@ final class UpdateRelaunchGate {
         var actions: Actions?
         var isPreparing = false
         var installNowRequested = false
+        var prepareTask: Task<Void, Never>?
 
         init(mode: Mode, relaunch: @escaping () -> Void, later: @escaping () -> Void) {
             self.mode = mode
@@ -248,9 +249,11 @@ final class UpdateRelaunchGate {
                 self.waitTask?.cancel()
                 self.waitTask = nil
                 request.isPreparing = true
-                Task { @MainActor [weak self] in
+                request.prepareTask = Task { @MainActor [weak self, weak request] in
                     await actions.prepare()
-                    self?.finish(request, relaunching: true)
+                    guard !Task.isCancelled, let self, let request else { return }
+                    request.prepareTask = nil
+                    self.finish(request, relaunching: true)
                 }
             },
             dismiss: { [weak self, weak request] in
@@ -292,9 +295,12 @@ final class UpdateRelaunchGate {
     /// owned it ended (an error, a finished cycle, or a completed install).
     func cancel() {
         guard pending != nil else { return }
+        let request = pending
         pending = nil
         waitTask?.cancel()
         waitTask = nil
+        request?.prepareTask?.cancel()
+        request?.prepareTask = nil
     }
 
     private func finish(_ request: Pending, relaunching: Bool) {
@@ -302,6 +308,8 @@ final class UpdateRelaunchGate {
         pending = nil
         waitTask?.cancel()
         waitTask = nil
+        request.prepareTask?.cancel()
+        request.prepareTask = nil
         if relaunching {
             request.relaunch()
         } else {

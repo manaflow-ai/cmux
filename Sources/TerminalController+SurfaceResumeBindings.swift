@@ -155,7 +155,6 @@ extension TerminalController {
         // returned to the CLI always agrees with the binding that generated its
         // typed `cmux restore`/`cmux fork` selector.
         let restoredAgent = target.restorableAgent
-        let continuationPrompt = UpdateRelaunchContinuationNudges.shared.prompt(forPanel: target.surfaceID)
         let compatibleAgent: (
             snapshot: SessionRestorableAgentSnapshot,
             source: String,
@@ -177,6 +176,12 @@ extension TerminalController {
         } else {
             compatibleAgent = nil
         }
+        let continuationCheckpointID = compatibleAgent?.snapshot.sessionId
+            ?? binding?.checkpointId
+        let continuationPrompt = UpdateRelaunchContinuationNudges.shared.prompt(
+            forPanel: target.surfaceID,
+            checkpointID: continuationCheckpointID
+        )
         if let compatibleAgent {
             return controlSurfaceAgentContinuationRecord(
                 agent: compatibleAgent.snapshot,
