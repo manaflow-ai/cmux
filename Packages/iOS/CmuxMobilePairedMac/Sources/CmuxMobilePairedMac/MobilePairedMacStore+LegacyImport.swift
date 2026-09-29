@@ -107,6 +107,13 @@ extension MobilePairedMacStore {
                     """)
             }
             // No legacy credential, trust-grant, or admission state is imported.
+            // The destination is already at v13, so the schema migration will
+            // never revisit these rows: convert any imported Tailscale Only
+            // method now (after the rows and routes above, since the
+            // conversion reads main.mac_routes). Without this, an imported
+            // 'tailscale' row no longer decodes and would silently behave as
+            // Iroh, dropping the user's strict-method choice.
+            try migrateToV13()
             try exec("INSERT INTO paired_mac_store_imports (source) VALUES ('legacy-local-v1');")
         }
     }

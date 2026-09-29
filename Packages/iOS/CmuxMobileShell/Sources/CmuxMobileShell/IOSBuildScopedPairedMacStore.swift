@@ -631,6 +631,37 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Revokes in the scope that actually holds the row, mirroring the
+    /// grant write above.
+    public func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        // Same scope resolution as the grant write above: revoke in the scope
+        // that actually holds the row.
+        if normalizedTeamID(teamID) != nil {
+            let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+            let targetTeamID = selectedRows.contains {
+                matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag)
+            } ? teamID : nil
+            try await inner.revokeAllLegacyTailscaleGrants(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetTeamID)
+            )
+            return
+        }
+        try await inner.revokeAllLegacyTailscaleGrants(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: scopedTeamID(teamID)
+        )
+    }
+
     private func removeAllUnlocked() async throws {
         for mac in try await inner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
             try await inner.remove(

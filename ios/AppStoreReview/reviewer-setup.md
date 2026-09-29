@@ -26,10 +26,10 @@ The prepared Mac must:
 - Publish a reachable route through the production device registry or relay path
   so the iOS app can show the prepared Mac automatically after demo sign-in.
 - Keep a manual fallback route ready before submission. For the manual Add
-  Computer form, tell the reviewer to select Tailscale Only under Connection
-  Method, then provide Tailscale install/sign-in instructions and credentials in
-  App Store Connect so the reviewer can join the same tailnet as the prepared Mac
-  if automatic discovery fails.
+  Computer flow, tell the reviewer to select Direct under Connection Method,
+  then choose Add Computer > Direct Connection. Provide Tailscale install/sign-in
+  instructions and credentials in App Store Connect so the reviewer can join the
+  same tailnet as the prepared Mac if automatic discovery fails.
 - Restrict every network path to the prepared Mac only. Use a dedicated
   Tailscale tailnet, ACL, firewall rule, relay policy, or tunnel that exposes
   only the route needed for review, not the rest of Manaflow's network.
@@ -100,7 +100,8 @@ Connect to the review Mac:
 
 Manual fallback:
 - If the prepared review Mac does not appear automatically, open Settings,
-  choose Tailscale Only under Connection Method, then tap Add Computer.
+  choose Direct under Connection Method, then tap Add Computer and choose
+  Direct Connection.
 - Install Tailscale from the App Store and sign in with the Tailscale
   credentials supplied here: <TAILSCALE_REVIEW_ACCESS>.
 - In the Add Computer form, enter:

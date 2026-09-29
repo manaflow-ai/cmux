@@ -418,6 +418,6 @@ cmux er gratis, åpen kildekode, og vil alltid være det. Hvis du vil støtte ut
 
 ## Lisens
 
-cmux er åpen kildekode under [GPL-3.0-or-later](LICENSE).
+cmux er åpen kildekode under [GPL-3.0-or-later](LICENSE). cmux-serverprogramvaren (`web/`, Cloudflare-workerne og relétjenestene i [LICENSE](LICENSE)) bruker i stedet [Business Source License 1.1](web/LICENSE): du kan lese, endre og kjøre den til ikke-produksjonsbruk, mens produksjonsbruk eller selvhosting krever en kommersiell lisens.
 
 Hvis organisasjonen din ikke kan overholde GPL, er en kommersiell lisens tilgjengelig. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for detaljer.

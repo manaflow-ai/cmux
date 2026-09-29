@@ -247,7 +247,9 @@ final class LocalSurfaceProvider: SurfaceProvider {
             initialCommand: initialCommand,
             workingDirectory: cwd,
             at: .workspace(id: workspace.id, placement: .split),
-            focus: true
+            // The pane is a staging spot: `surface.new_terminal` then projects it to its
+            // destination with the request's focus, so creating it must not take focus.
+            focus: false
         )
         let id = Self.resourceID(forTerminalPanel: made.panelID)
         if var resource = catalog.resources[id] {

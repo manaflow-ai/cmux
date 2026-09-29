@@ -1868,17 +1868,27 @@ impl RemoteSession {
     }
 
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
-        Self::connect_path(path, true)
+        Self::connect_path(path, false, true)
     }
 
-    pub fn connect_for_terminal_attach(path: &Path) -> anyhow::Result<Arc<Self>> {
-        Self::connect_path(path, false)
+    /// Connect to a session socket. A path derived from the session name must
+    /// be in this user's private runtime directory and served by this user.
+    pub fn connect_session(path: &Path, is_derived: bool) -> anyhow::Result<Arc<Self>> {
+        Self::connect_path(path, is_derived, true)
     }
 
-    fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
-        let stream = transport::connect(path).map_err(|e| {
-            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
-        })?;
+    pub fn connect_session_for_terminal_attach(
+        path: &Path,
+        is_derived: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_path(path, is_derived, false)
+    }
+
+    fn connect_path(path: &Path, is_derived: bool, subscribe: bool) -> anyhow::Result<Arc<Self>> {
+        let stream =
+            cmux_tui_core::server::connect_session_socket(path, is_derived).map_err(|e| {
+                anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
+            })?;
         if subscribe {
             Self::connect_stream(stream)
         } else {

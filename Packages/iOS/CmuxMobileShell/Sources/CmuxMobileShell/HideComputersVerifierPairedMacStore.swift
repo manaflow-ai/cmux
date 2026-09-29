@@ -293,5 +293,12 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         routes: [CmxAttachRoute]
     ) async throws {}
+
+    func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
 }
 #endif

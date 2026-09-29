@@ -43,6 +43,9 @@ struct MobileRootPresentationState: Equatable {
         case settings
         case computers
         case pairing(PairingPresentation)
+        /// The SSH computer form opened outside the Computers sheet (from
+        /// pairing or a workspace-list empty state).
+        case sshComputerEditor(SSHComputerEditorTarget)
         case child(ChildPresentation)
         case dismissingChild(
             ChildPresentation,
@@ -54,12 +57,13 @@ struct MobileRootPresentationState: Equatable {
     enum Action: Equatable {
         case presentAutoConnectMigrationIfIdle
         case useAutoConnect
-        case setUpTailscale(status: MobileTailscaleSetupStatus)
         case presentSettings
         case dismissSettings(presentAutoConnectMigration: Bool)
         case presentComputers
         case dismissComputers
         case presentPairing(PairingPresentation)
+        case presentSSHComputerEditor(SSHComputerEditorTarget)
+        case dismissSSHComputerEditor
         case presentChild(ChildPresentation)
         case dismissChild(ChildPresentation)
         case childDidDismiss(ChildPresentation)
@@ -74,7 +78,6 @@ struct MobileRootPresentationState: Equatable {
         case none
         case acknowledgeAutoConnectMigration
         case useAutoConnect
-        case setUpTailscale(requiresPairing: Bool)
         case finishPairing
         case retryAutoConnectMigration
     }
@@ -93,7 +96,8 @@ struct MobileRootPresentationState: Equatable {
         case .autoConnectMigrationIntroduction,
              .settings,
              .computers,
-             .pairing:
+             .pairing,
+             .sshComputerEditor:
             true
         case .child, .dismissingChild, nil:
             false
@@ -123,21 +127,6 @@ struct MobileRootPresentationState: Equatable {
             presentation = nil
             return .useAutoConnect
 
-        case let .setUpTailscale(status):
-            guard presentation == .autoConnectMigrationIntroduction else { return .none }
-            switch status {
-            case .pairingRequired:
-                presentation = .pairing(.scanner(entry: .autoConnectMigration))
-                return .setUpTailscale(requiresPairing: true)
-            case .authorized, .loadingAuthorization, .notSelected:
-                // Selecting Tailscale while authorization is still being
-                // resolved must not open a scanner based on a stale false
-                // authorization flag. The shell will promote the setup banner
-                // if the authoritative result later requires pairing.
-                presentation = nil
-                return .setUpTailscale(requiresPairing: false)
-            }
-
         case .presentSettings:
             guard presentation == nil else { return .none }
             presentation = .settings
@@ -164,7 +153,7 @@ struct MobileRootPresentationState: Equatable {
             case nil, .settings, .autoConnectMigrationIntroduction:
                 presentation = .computers
                 return .none
-            case .computers, .pairing, .child, .dismissingChild:
+            case .computers, .pairing, .sshComputerEditor, .child, .dismissingChild:
                 return .none
             }
 
@@ -184,6 +173,26 @@ struct MobileRootPresentationState: Equatable {
                 presentation = .pairing(pairingPresentation)
             }
             return .none
+
+        case let .presentSSHComputerEditor(target):
+            // Swaps in place from the pairing sheet ("Connect with SSH
+            // instead"), Settings, or Computers; child-owned sheets keep the
+            // slot.
+            switch presentation {
+            case .pairing:
+                presentation = .sshComputerEditor(target)
+                return .finishPairing
+            case nil, .settings, .computers, .autoConnectMigrationIntroduction, .sshComputerEditor:
+                presentation = .sshComputerEditor(target)
+                return .none
+            case .child, .dismissingChild:
+                return .none
+            }
+
+        case .dismissSSHComputerEditor:
+            guard case .sshComputerEditor = presentation else { return .none }
+            presentation = nil
+            return .retryAutoConnectMigration
 
         case let .presentChild(child):
             guard presentation == nil else { return .none }
@@ -240,7 +249,7 @@ struct MobileRootPresentationState: Equatable {
             case .pairing:
                 presentation = nil
                 return .finishPairing
-            case .settings, .computers:
+            case .settings, .computers, .sshComputerEditor:
                 presentation = nil
                 return .none
             case .child, .dismissingChild, nil:

@@ -418,6 +418,6 @@ cmux je besplatan, otvorenog koda i uvijek će biti. Ako želite podržati razvo
 
 ## Licenca
 
-cmux je otvorenog koda pod [GPL-3.0-or-later](LICENSE) licencom.
+cmux je otvorenog koda pod [GPL-3.0-or-later](LICENSE) licencom. Serverski softver cmux (`web/`, Cloudflare workeri i relej servisi navedeni u [LICENSE](LICENSE)) umjesto toga koristi [Business Source License 1.1](web/LICENSE): možete ga čitati, mijenjati i pokretati za neprodukcijsku upotrebu, a produkcijska upotreba ili samostalno hostovanje zahtijevaju komercijalnu licencu.
 
 Ako vaša organizacija ne može ispuniti uslove GPL-a, dostupna je komercijalna licenca. Kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com) za detalje.

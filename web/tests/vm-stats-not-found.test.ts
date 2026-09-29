@@ -23,16 +23,18 @@ async function withStatsFixture(
     }>;
     requests: string[];
     writes: unknown[];
+    usageEvents: { eventType: string; metadata?: Record<string, unknown> }[];
     row: CloudVmRow;
   }) => Promise<void>,
-  options: { failObservation?: boolean; team?: boolean } = {},
+  options: { failObservation?: boolean; team?: boolean; homeVolume?: boolean } = {},
 ) {
   const requests: string[] = [];
   const writes: unknown[] = [];
   const row = {
     id: "fixture-row", userId: "fixture-owner", ownerTeamId: options.team ? "fixture-team" : "fixture-owner",
     billingTeamId: options.team ? "fixture-team" : null,
-    provider: "freestyle", providerVmId: "vm-fixture", providerMetadata: {}, status: "running",
+    provider: "freestyle", providerVmId: "vm-fixture", status: "running",
+    providerMetadata: options.homeVolume ? { homeVolume: "vol-fixture" } : {},
   } as CloudVmRow;
   const client = new Freestyle({
     apiKey: "test-only",
@@ -47,15 +49,30 @@ async function withStatsFixture(
     client: () => client,
   });
   const getStats = spyOn(getProvider("freestyle"), "getStats").mockImplementation((id) => driver.getStats(id));
+  const usageEvents: { eventType: string; metadata?: Record<string, unknown> }[] = [];
   const repo = new Proxy({
     findUserVm: (input: { userId: string; providerVmId: string }) => Effect.sync(() =>
       input.userId === row.userId && input.providerVmId === row.providerVmId && row.status !== "destroyed" ? row : null),
-    markProviderObservedStatus: (input: { id: string; providerVmId: string; status: "destroyed" }) => Effect.suspend(() => {
+    markProviderObservedStatus: (input: { id: string; providerVmId: string; status: CloudVmRow["status"] }) => Effect.suspend(() => {
       writes.push(input);
       if (options.failObservation) return Effect.fail(new VmDatabaseError({ operation: "fixture", cause: new Error("offline") }));
-      expect(input).toEqual({ id: row.id, providerVmId: row.providerVmId, status: "destroyed" });
+      // A provider 404 is not always a destroy. A machine with a persistent
+      // home volume has lost its compute and not its volume, so the row lands
+      // on paused rather than on a terminal status.
+      expect(input).toEqual({
+        id: row.id,
+        providerVmId: row.providerVmId,
+        status: options.homeVolume ? "paused" : "destroyed",
+      });
       row.status = input.status;
       return Effect.succeed(true);
+    }),
+    // The transition is terminal, so this is the last chance to close the
+    // machine's lifetime. getVmStats records vm.destroyed here rather than
+    // leaving it to the cron, which stops seeing the row the moment it goes
+    // terminal.
+    recordUsageEvent: (input: { eventType: string; metadata?: Record<string, unknown> }) => Effect.sync(() => {
+      usageEvents.push(input);
     }),
   }, {
     get(target, key) {
@@ -69,7 +86,7 @@ async function withStatsFixture(
   );
   try {
     await run({
-      row, requests, writes,
+      row, requests, writes, usageEvents,
       poll: async (userId = row.userId, teamIds = options.team ? ["fixture-team"] : []) => {
         const result = await Effect.runPromise(Effect.either(getVmStats({
           userId, teamIds, providerVmId: row.providerVmId!,
@@ -90,7 +107,7 @@ const missing = () => Response.json({ code: "NOT_FOUND", message: "not found: vm
 
 describe("stats provider missing classification", () => {
   test("typed NOT_FOUND becomes a terminal 404 across repeated polling, retaining the row", async () => {
-    await withStatsFixture(missing, async ({ poll, row, requests, writes }) => {
+    await withStatsFixture(missing, async ({ poll, row, requests, writes, usageEvents }) => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const { tag, response, payload } = await poll();
         expect(tag).toBe("VmNotFoundError");
@@ -104,7 +121,32 @@ describe("stats provider missing classification", () => {
       expect(requests).toHaveLength(1);
       expect(writes).toHaveLength(1);
       expect(row).toMatchObject({ id: "fixture-row", providerVmId: "vm-fixture", status: "destroyed" });
+      // The transition is terminal, so the cron will never see this row again.
+      // Closing the machine's lifetime here is the last chance there is, and it
+      // happens once across the three polls, not once per poll.
+      expect(usageEvents).toHaveLength(1);
+      expect(usageEvents[0]).toMatchObject({
+        eventType: "vm.destroyed",
+        metadata: { source: "provider_status_stats" },
+      });
     });
+  });
+
+  test("a machine with a home volume is paused rather than destroyed, and bills no destroy", async () => {
+    await withStatsFixture(missing, async ({ poll, row, writes, usageEvents }) => {
+      const { tag, response, payload } = await poll();
+      // The read still fails: the compute this provider id named is gone, and a
+      // stats read must never wake a sleeping machine to make a new one.
+      expect(tag).toBe("VmNotFoundError");
+      expect(response.status).toBe(404);
+      expect(payload.error).toBe("vm_not_found");
+      // But the row is not terminal, so nothing here forecloses a later
+      // recovery, and no vm.destroyed is billed for a machine the provider
+      // never destroyed.
+      expect(row.status).toBe("paused");
+      expect(writes).toHaveLength(1);
+      expect(usageEvents).toEqual([]);
+    }, { homeVolume: true });
   });
 
   test("a failed observation write never changes missing VM guidance to a retryable outage", async () => {

@@ -2,10 +2,9 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// The two explicit outcomes offered by the migration notice.
+/// The outcome offered by the migration notice.
 struct MobileAutoConnectMigrationActions: View {
     let useAutoConnect: () -> Void
-    let setUpTailscale: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
@@ -19,17 +18,6 @@ struct MobileAutoConnectMigrationActions: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .accessibilityIdentifier("MobileAutoConnectMigrationUseAutoConnect")
-
-            Button(action: setUpTailscale) {
-                Text(L10n.string(
-                    "mobile.autoConnectMigration.setUpTailscale",
-                    defaultValue: "Set Up Tailscale"
-                ))
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .accessibilityIdentifier("MobileAutoConnectMigrationSetUpTailscale")
         }
         .frame(maxWidth: .infinity)
     }

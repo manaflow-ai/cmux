@@ -637,6 +637,36 @@ import WebKit
         ) {
             return
         }
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner {
+            // WebKit decodes the response after this decision. Defer only the
+            // accepted main-frame action while the bounded file probe runs so
+            // other navigation policy branches remain synchronous.
+            let encodingPolicy = owner.localFileEncodingPolicy
+            Task { @MainActor [weak owner, weak webView, encodingPolicy] in
+                guard let owner, let webView,
+                      owner.webView === webView else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                // Capture the policy for the initiating WebView. A replacement
+                // can occur while the detached probe is suspended; using the
+                // panel's current policy here would mutate that replacement
+                // before the identity check below can reject this navigation.
+                guard await encodingPolicy.prepare(for: url) else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                guard owner.webView === webView else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                decisionHandler(.allow)
+            }
+            return
+        }
         decisionHandler(.allow)
     }
 

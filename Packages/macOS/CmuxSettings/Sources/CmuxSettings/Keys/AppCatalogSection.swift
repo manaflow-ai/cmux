@@ -145,9 +145,11 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "app.iMessageMode"
     )
 
-    public let reorderOnNotification = DefaultsKey<Bool>(
+    /// Automatic workspace reordering. Legacy Bool values decode as
+    /// ``WorkspaceAutoReorderMode/off`` and ``WorkspaceAutoReorderMode/notifications``.
+    public let reorderOnNotification = DefaultsKey<WorkspaceAutoReorderMode>(
         id: "app.reorderOnNotification",
-        defaultValue: true,
+        defaultValue: .notifications,
         userDefaultsKey: "workspaceAutoReorderOnNotification"
     )
 
@@ -261,6 +263,15 @@ public struct AppCatalogSection: SettingCatalogSection {
                 )
             ))
         )
+    )
+
+    /// Pane tab bar visibility. Maps to bonsplit's `TabBarVisibility` at
+    /// the split-controller boundary; `.multipleTabs` hides the bar until a
+    /// pane has two or more tabs.
+    public let tabBarVisibility = DefaultsKey<PaneTabBarVisibility>(
+        id: "app.tabBarVisibility",
+        defaultValue: .always,
+        userDefaultsKey: "paneTabBarVisibility"
     )
 
     public let renameSelectsExistingName = DefaultsKey<Bool>(

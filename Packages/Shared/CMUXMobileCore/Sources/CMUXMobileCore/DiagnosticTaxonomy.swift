@@ -876,12 +876,20 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// effort count for root-cause queries. `b` is the provider,
     /// `c` is the source, and `ms` is the effort count.
     case taskModelListResultObserved = 666
+    /// Launch dialed the saved Mac with the cached account while auth restore
+    /// was still validating it. Pairs with ``authBootstrapCompleted`` to show
+    /// how much of restore the dial overlapped.
+    case storedMacReconnectStartedDuringAuthRestore = 667
 }
 
 /// The user's configured connection method, mirrored from the settings picker
 /// without account, address, or grant details.
+/// The connection method a diagnostics payload attributes an event to.
 public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
-    case automatic = 0
+    /// Iroh: discovery, direct paths, and managed relays (the default).
+    case iroh = 0
+    /// The former Tailscale Only method, folded into Direct. Kept so older
+    /// diagnostic reports still decode; no longer recorded.
     case tailscale = 1
     case direct = 2
 }

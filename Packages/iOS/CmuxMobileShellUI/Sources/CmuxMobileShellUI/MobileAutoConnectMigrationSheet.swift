@@ -4,7 +4,6 @@ import SwiftUI
 /// Explains the BETA-to-Auto-Connect migration and exposes its two outcomes.
 struct MobileAutoConnectMigrationSheet: View {
     let useAutoConnect: () -> Void
-    let setUpTailscale: () -> Void
     let showsLayoutProbe: Bool
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -38,8 +37,7 @@ struct MobileAutoConnectMigrationSheet: View {
     private var content: some View {
         MobileAutoConnectMigrationContent(
             layout: verticalSizeClass == .compact ? .compact : .regular,
-            useAutoConnect: useAutoConnect,
-            setUpTailscale: setUpTailscale
+            useAutoConnect: useAutoConnect
         )
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: CGFloat.self) { proxy in
@@ -94,14 +92,12 @@ private struct MobileAutoConnectMigrationViewportProbe: View {
 private struct MobileAutoConnectMigrationContent: View {
     let layout: MobileAutoConnectMigrationLayout
     let useAutoConnect: () -> Void
-    let setUpTailscale: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: layout.contentSpacing) {
             MobileAutoConnectMigrationExplanation(layout: layout)
             MobileAutoConnectMigrationActions(
-                useAutoConnect: useAutoConnect,
-                setUpTailscale: setUpTailscale
+                useAutoConnect: useAutoConnect
             )
         }
         .frame(maxWidth: 560, alignment: .leading)

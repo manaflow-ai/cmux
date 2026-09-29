@@ -349,4 +349,20 @@ public struct DemoContentPairedMacStore: MobilePairedMacStoring {
             routes: routes
         )
     }
+
+    /// Demonstration rows have no real grants; everything else forwards.
+    public func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        guard !isDemoDeviceID(macDeviceID) else { return }
+        try await inner.revokeAllLegacyTailscaleGrants(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
 }

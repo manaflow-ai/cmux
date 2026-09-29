@@ -641,7 +641,7 @@ import Testing
             code: .appFeatureAction,
             tNanos: 1,
             a: DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue,
-            c: DiagnosticConnectionMethod.automatic.rawValue
+            c: DiagnosticConnectionMethod.iroh.rawValue
         ))
         #expect(changed.fields == [
             .init(key: "operation", value: "connectionMethodPreferenceChanged"),

@@ -62,6 +62,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var stateRecoveryRefreshTask: Task<Void, Never>?
     private var stateRecoveryRefreshQueued = false
     private var stateRecoveryCount = 0
+    /// The cursor of the last full snapshot that disagreed with the installed
+    /// graph at the same cursor. The first conflict schedules a recovery read;
+    /// a second full snapshot conflicting at this cursor is adopted.
+    private(set) var equalCursorConflict: CloudVMCursor?
+    /// Set only by the install that armed ``equalCursorConflict``, so a read
+    /// that cannot adopt (stale, or fenced by a pending rename) at an already
+    /// armed cursor does not spend another recovery read.
+    private(set) var equalCursorConflictArmedByLastInstall = false
     private static let stateRecoveryLimit = 5
     private var changeWatcher: Task<Void, Never>?
     /// Identity of the link owned by `changeWatcher`. A provider can replace a
@@ -182,6 +190,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     func suspendForFeatureFlag() {
         isFeatureSuspended = true
+        // The first read after resuming must arm afresh, never adopt at once.
+        equalCursorConflict = nil
         displayCoordinator.stop()
         guestURLService?.stop()
         guestURLService = nil
@@ -323,6 +333,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                   let incoming = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine)
             else { throw ProviderError.invalidSnapshot(machineID) }
             let installed = installSnapshotIfNewer(incoming, requestVersion: requestVersion)
+            // A first equal-cursor conflict keeps the graph; read again so a
+            // repeated conflict can adopt the daemon's answer. When the budget
+            // is spent the conflict stays armed, and the next refresh adopts.
+            if !installed, equalCursorConflictArmedByLastInstall {
+                scheduleStateRecoveryRefresh()
+            }
             // Equal cursors are a valid no-op refresh only when the revisioned
             // graph is equivalent. A cursor alone is not proof
             // that a malformed or misconfigured daemon returned the same graph.
@@ -442,8 +458,53 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         return snapshotEstablishedCurrentGraph
     }
+    /// A full snapshot read at the installed cursor disagrees with the graph the
+    /// deltas built. One of them is wrong, and nothing later at this cursor
+    /// can reconcile them, so refusing forever would wedge the machine.
+    ///
+    /// The first conflict keeps the installed graph and arms a recovery read
+    /// (the caller schedules it), so a single race cannot discard state. A
+    /// second full snapshot conflicting at the same cursor wins: a full read
+    /// at the current cursor is the daemon's own answer. Adoption replaces the
+    /// whole graph, exactly like any fresh install, so a field or key the
+    /// daemon does not send is absent afterwards rather than kept from the
+    /// delta-built graph. App-side overlays (pending renames, pending
+    /// creations) live outside `cloudState` and are reapplied on publish.
+    /// Event-feed snapshots and reads that started before a newer install
+    /// never count: only a current full refresh can arm or adopt.
+    private func resolveEqualCursorConflict(incoming: CloudVMState, requestVersion: UInt64?) -> Bool {
+        guard let requestVersion, requestVersion == cloudStateInstallVersion, let cursor = incoming.cursor else {
+            #if DEBUG
+            cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=equal-cursor-conflict")
+            #endif
+            return false
+        }
+        guard equalCursorConflict == cursor else {
+            equalCursorConflict = cursor
+            equalCursorConflictArmedByLastInstall = true
+            #if DEBUG
+            cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=equal-cursor-conflict armed=1")
+            #endif
+            return false
+        }
+        cloudState = incoming
+        cloudStateInstallVersion &+= 1
+        equalCursorConflict = nil
+        // The recovery read that armed this succeeded; it must not count
+        // against the budget later event-feed barriers rely on.
+        stateRecoveryCount = 0
+        retirePendingRemoteRenames(observed: incoming)
+        sentryBreadcrumb(
+            "cloud.state.equalCursorConflictAdopted",
+            category: "cloud",
+            data: ["machine": machineID, "revision": String(cursor.revision)]
+        )
+        return true
+    }
+
     @discardableResult
     func installSnapshotIfNewer(_ incoming: CloudVMState, requestVersion: UInt64? = nil) -> Bool {
+        equalCursorConflictArmedByLastInstall = false
         guard acceptsIncomingGeneration(incoming.cursor) else {
             #if DEBUG
             cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=old-generation")
@@ -453,8 +514,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // A snapshot with the exact installed cursor is a valid no-op only when
         // its revisioned graph and every pending receipt agree. This is important after a
         // rename: a delayed equal-cursor predecessor must not look current.
-        if let current = cloudState, current.cursor == incoming.cursor {
+        // Two missing cursors (a legacy daemon) carry no ordering at all, so
+        // they are not equal; the snapshot decision below handles them.
+        if let current = cloudState, let currentCursor = current.cursor, currentCursor == incoming.cursor {
             guard current.hasSameRevisionedContent(as: incoming), incomingPassesPendingRenameFence(incoming) else {
+                // A pending rename's predecessor is refused outright; only a
+                // content conflict can arm recovery.
+                if incomingPassesPendingRenameFence(incoming), !current.hasSameRevisionedContent(as: incoming) {
+                    return resolveEqualCursorConflict(incoming: incoming, requestVersion: requestVersion)
+                }
                 #if DEBUG
                 cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=equal-cursor-conflict")
                 #endif
@@ -465,6 +533,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
             cloudState = incoming
             cloudStateInstallVersion &+= 1
+            equalCursorConflict = nil
             retirePendingRemoteRenames(observed: incoming)
             return true
         }
@@ -483,6 +552,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 requestVersion != cloudStateInstallVersion {
                 return false
             }
+            // Without cursors only the install version orders reads: a read
+            // that started before a newer install must not overwrite it.
+            if let current = cloudState, current.cursor == nil, incoming.cursor == nil,
+               let requestVersion, requestVersion != cloudStateInstallVersion, incoming != current {
+                return false
+            }
             guard incomingPassesPendingRenameFence(incoming) else {
                 #if DEBUG
                 cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=pending-rename-fence")
@@ -491,6 +566,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
             cloudState = incoming
             cloudStateInstallVersion &+= 1
+            equalCursorConflict = nil
             if let generation = incoming.cursor?.generation {
                 acceptedCloudGenerations.insert(generation)
             }
@@ -1454,6 +1530,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 retirePendingRemoteRenames(observed: next)
                 eventsFeedWarning = nil
                 clearStateRecovery()
+                // The cursor moved on, so an armed conflict no longer applies.
+                equalCursorConflict = nil
                 await link.setEventsCursor(next.cursor)
                 guard watchedLink === link, canPublishCloudState(next) else { return }
                 info.linkState = .connected

@@ -178,7 +178,7 @@ struct MobileWhatsNewCatalog: Sendable {
                     ),
                     detail: L10n.string(
                         "mobile.connectionsUpdate.perComputer.detail",
-                        defaultValue: "Each computer now picks how this iPhone reaches it: Iroh, Tailscale Only, or Direct. Set it in Computers → your computer → Connection Method."
+                        defaultValue: "Each computer now picks how this iPhone reaches it: Iroh or Direct. Set it in Computers → your computer → Connection Method."
                     )
                 ),
                 .init(
@@ -200,18 +200,18 @@ struct MobileWhatsNewCatalog: Sendable {
                     ),
                     detail: L10n.string(
                         "mobile.connectionsUpdate.direct.detail",
-                        defaultValue: "On your LAN, WireGuard, or any other network: add the addresses where a computer is reachable and dial exactly those, with no fallback."
+                        defaultValue: "On your LAN, Tailscale, WireGuard, or any other network: add the addresses where a computer is reachable and dial exactly those, with no fallback."
                     )
                 ),
                 .init(
                     symbol: "qrcode.viewfinder",
                     title: L10n.string(
                         "mobile.connectionsUpdate.tailscale.title",
-                        defaultValue: "Tailscale, on your terms"
+                        defaultValue: "Tailscale is now part of Direct"
                     ),
                     detail: L10n.string(
                         "mobile.connectionsUpdate.tailscale.detail",
-                        defaultValue: "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."
+                        defaultValue: "Tailscale Only is now part of Direct. Tap Add Address to add your Mac's Tailscale address and port. Computers set to Tailscale Only moved over automatically."
                     )
                 ),
             ]),

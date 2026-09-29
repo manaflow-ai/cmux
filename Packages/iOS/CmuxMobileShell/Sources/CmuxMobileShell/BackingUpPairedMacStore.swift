@@ -957,6 +957,21 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         )
     }
 
+    /// Forwards with the canonical device id and resolved team.
+    public func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await inner.revokeAllLegacyTailscaleGrants(
+            macDeviceID: cmxCanonicalDeviceID(macDeviceID),
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: await resolvedTeam(teamID)
+        )
+    }
+
     /// Clear local paired Macs without deleting the user's server backup.
     public func removeAll() async throws {
         // Sign-out wipe: clear local only. The server backup is intentionally

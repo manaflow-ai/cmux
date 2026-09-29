@@ -40,6 +40,15 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationSound"
     )
 
+    /// Plays the notification sound even when the notifying pane is already
+    /// focused. Off by default: the focused pane shows the ring and flash only,
+    /// since its "default" sound is the system alert that also marks errors.
+    public let soundWhenFocused = DefaultsKey<Bool>(
+        id: "notifications.soundWhenFocused",
+        defaultValue: false,
+        userDefaultsKey: "notificationSoundWhenFocused"
+    )
+
     public let customSoundFilePath = DefaultsKey<String>(
         id: "notifications.customSoundFilePath",
         defaultValue: "",
@@ -70,6 +79,18 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         id: "notifications.suppressOnlyFocusedSurface",
         defaultValue: false,
         userDefaultsKey: "notificationsSuppressOnlyFocusedSurface"
+    )
+
+    /// When enabled, cmux skips the desktop banner for every notification while
+    /// cmux is the active app, not only for the focused surface. The
+    /// notification is still recorded, the sound and custom command still run,
+    /// and phone forwarding keeps the focused-surface gate. Off keeps
+    /// delivering banners for other workspaces and panes while cmux is
+    /// focused. See issue #3126.
+    public let suppressWhenAppFocused = DefaultsKey<Bool>(
+        id: "notifications.suppressWhenAppFocused",
+        defaultValue: false,
+        userDefaultsKey: "notificationsSuppressWhenAppFocused"
     )
 
     /// Notify when an agent (e.g. Claude Code) is blocked waiting for the user's

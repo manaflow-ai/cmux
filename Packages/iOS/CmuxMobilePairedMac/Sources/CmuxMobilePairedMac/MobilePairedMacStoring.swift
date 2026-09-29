@@ -238,6 +238,15 @@ public protocol MobilePairedMacStoring: Sendable {
         teamID: String?,
         routes: [CmxAttachRoute]
     ) async throws
+
+    /// Deletes every device-local Tailscale compatibility grant for one
+    /// pairing, because its endpoints now live as Direct addresses.
+    func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
 }
 
 extension MobilePairedMacStoring {
@@ -286,6 +295,15 @@ extension MobilePairedMacStoring {
             now: now
         )
     }
+
+    /// Compatibility no-op for stores that predate grant revocation (test
+    /// fixtures); the SQLite store and scope decorators override.
+    public func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
 
     /// Compatibility no-op for stores that predate per-Computer Direct
     /// addresses (test fixtures); the SQLite store and decorators override.

@@ -13,77 +13,12 @@ struct MobileRootPresentationStateTests {
         #expect(approval.analyticsEntry == "version_approval")
     }
 
-    @Test func tailscaleReplacementStartsScannerWithReplacementAnalytics() {
-        let replacement = PairingPresentation.tailscaleReplacement
+    @Test func rootScannerKeepsItsManualPairingEscape() {
+        let scanner = PairingPresentation.scanner(entry: .settingsReplay)
 
-        #expect(replacement.showsScanner)
-        #expect(replacement.showsManualPairingControls)
-        #expect(replacement.analyticsEntry == "tailscale_replacement")
-    }
-
-    @Test func introductionStartsTailscaleScannerWithoutAUsableAuthorization() {
-        var state = MobileRootPresentationState()
-
-        #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
-        #expect(state.presentation == .autoConnectMigrationIntroduction)
-        #expect(state.isRootSheetPresented)
-
-        let scanner = PairingPresentation.scanner(entry: .autoConnectMigration)
-        #expect(
-            state.apply(.setUpTailscale(status: .pairingRequired))
-                == .setUpTailscale(requiresPairing: true)
-        )
-        #expect(state.presentation == .pairing(scanner))
-        #expect(state.isRootSheetPresented)
-    }
-
-    @Test func introductionSelectsAuthorizedTailscaleWithoutOpeningScanner() {
-        var state = MobileRootPresentationState()
-        state.apply(.presentAutoConnectMigrationIfIdle)
-
-        #expect(
-            state.apply(.setUpTailscale(status: .authorized))
-                == .setUpTailscale(requiresPairing: false)
-        )
-        #expect(state.isIdle)
-    }
-
-    @Test func introductionWaitsForLoadingTailscaleAuthorizationBeforePairing() {
-        var state = MobileRootPresentationState()
-        state.apply(.presentAutoConnectMigrationIfIdle)
-
-        #expect(
-            state.apply(.setUpTailscale(status: .loadingAuthorization))
-                == .setUpTailscale(requiresPairing: false)
-        )
-        #expect(state.isIdle)
-    }
-
-    @Test func tailscaleRequirementLatchesAcrossShellLoading() {
-        var state = MobileTailscaleSetupPromptState()
-
-        state.apply(.selectedTailscale(requiresPairing: true))
-        #expect(state.requiresPairing)
-
-        state.apply(.shellStatusChanged(.loadingAuthorization))
-        #expect(state.requiresPairing)
-
-        state.apply(.shellStatusChanged(.pairingRequired))
-        #expect(state.requiresPairing)
-    }
-
-    @Test func tailscaleRequirementFollowsDurableReadinessAcrossLaunches() {
-        var state = MobileTailscaleSetupPromptState()
-
-        state.apply(.shellStatusChanged(.loadingAuthorization))
-        #expect(!state.requiresPairing)
-
-        state.apply(.shellStatusChanged(.pairingRequired))
-        #expect(state.requiresPairing)
-
-        state.apply(.shellStatusChanged(.authorized))
-        #expect(!state.requiresPairing)
-        #expect(state.presentation == .followsShell)
+        #expect(scanner.showsScanner)
+        #expect(scanner.showsManualPairingControls)
+        #expect(scanner.analyticsEntry == "settings_scanner")
     }
 
     @Test func interactiveIntroductionDismissalRequestsAcknowledgement() {

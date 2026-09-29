@@ -7,6 +7,13 @@ import Foundation
 /// test can suspend a restore precisely inside its store write and prove the
 /// sign-out wipe is final.
 actor GatedUpsertStore: MobilePairedMacStoring {
+    func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
+
     func authorizeUserTailscaleRoutes(
         macDeviceID: String,
         instanceTag: String?,

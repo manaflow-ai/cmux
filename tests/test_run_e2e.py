@@ -270,6 +270,67 @@ class FocusedLauncherTests(unittest.TestCase):
             "LAUNCHER_CI_STATUS": status,
         }
 
+    def adopt_only(self, **env):
+        tour = self.root / "tour.json"
+        tour.write_text(json.dumps({"steps": [{"shot": "start"}]}))
+        return self.launch("--scenario", str(tour), "--adopt-only", **env)
+
+    def test_adopt_only_dispatches_a_tour_onto_the_product_ci_compiled(self):
+        result = self.adopt_only(**self.ci_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], MERGE)
+        self.assertEqual(self.dispatch()["runner"], MINI)
+        # test-e2e.yml fails before compiling if its own reuse still misses.
+        self.assertEqual(self.dispatch()["require_adopted_product"], "true")
+
+    def test_adopt_only_without_a_ci_run_exits_without_dispatching(self):
+        result = self.adopt_only(**{**self.ci_env(), "LAUNCHER_CI_RUNS": "[]"})
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("not compiling", result.stdout)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_adopt_main_dispatches_the_head_for_test_e2e_to_adopt_mains_product(self):
+        tour = self.root / "tour.json"
+        tour.write_text(json.dumps({"steps": [{"shot": "start"}]}))
+        result = self.launch("--scenario", str(tour), "--adopt-only", "--adopt-main",
+                             **{**self.ci_env(), "LAUNCHER_CI_RUNS": "[]"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["require_adopted_product"], "true")
+
+    def test_adopt_main_needs_adopt_only(self):
+        tour = self.root / "tour.json"
+        tour.write_text(json.dumps({"steps": [{"shot": "start"}]}))
+        result = self.launch("--scenario", str(tour), "--adopt-main", **self.ci_env())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--adopt-main goes with --adopt-only", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_adopt_only_exits_when_ci_ends_without_products(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        result = self.adopt_only(**self.ci_env(building, artifacts=[], status="completed"))
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_adopt_only_reports_a_compile_landing_where_no_ui_run_can_load_it(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        unusable = [{"name": "macos / macOS compile admission", "labels": ["macos-15"]}]
+        result = self.adopt_only(**self.ci_env(building, artifacts=[], jobs=unusable, status="in_progress"))
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_adopt_only_exits_when_the_product_is_on_a_pool_ui_runs_cannot_use(self):
+        result = self.adopt_only(**{**self.ci_env(), "CMUX_CI_E2E_OWNED_UI": ""})
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_adopt_only_takes_ui_runs_on_the_default_runner(self):
+        for args in (["cmuxTests/ExampleTests", "--adopt-only"], ["ExampleUITests", "--adopt-only", "--full-build"],
+                     ["ExampleUITests", "--adopt-only", "--runner", SMALL]):
+            with self.subTest(args=args):
+                result = self.launch(*args)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("--adopt-only", result.stderr)
+
     def test_a_ui_run_of_a_pull_request_head_tests_the_merge_ci_compiled(self):
         result = self.launch("ExampleUITests", **self.ci_env())
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -331,6 +392,17 @@ class FocusedLauncherTests(unittest.TestCase):
         result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], jobs=jobs, status="in_progress"))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("cannot use", result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+
+    def test_a_ui_run_stops_waiting_once_admission_ends_without_products(self):
+        # Run 36435812903: the fleet refused compile admission, and the run stayed
+        # in progress only because its ui-tests job waited on this dispatch.
+        building = {**self.PR_CI, "status": "in_progress"}
+        jobs = [{"name": "macos / macOS compile admission", "labels": [MINI], "status": "completed",
+                 "conclusion": "failure"}]
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], jobs=jobs, status="in_progress"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("finished compile admission without app-host products", result.stderr)
         self.assertEqual(self.dispatch()["ref"], HEAD)
 
     def test_a_fallback_to_the_head_still_refuses_a_known_head_failure(self):
@@ -1361,6 +1433,19 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         label, calls, _ = self.decide(queue(), variable=OLD)
         self.assertEqual((label, calls), (OLD, []))
 
+    def test_an_explicit_owned_pool_takes_its_root_runners(self):
+        # glaeda gives an E2E build a canonical root: on the pool label a non-root runner took it, and two such
+        # builds held both of a mini's roots while its root runner's compile admission waited (2026-09-28)
+        root = "glaeda-root-std-xcode-26.6"
+        for slots, want in (({MINI: 8, root: 4}, root), ({MINI: 8}, MINI), ({MINI: 8, root: 0}, MINI)):
+            with self.subTest(slots=slots):
+                label = self.pool.resolve(MINI, "", overflow="", order="", max_queued="", measure=lambda: None,
+                                          now=NOW, owned_slots=json.dumps(slots),
+                                          pr_xcode_app="/Applications/Xcode_26.6.app")
+                self.assertEqual(label, want)
+        self.assertEqual(self.pool.resolve(root, "", overflow="", order="", max_queued="", measure=lambda: None,
+                                           now=NOW, owned_slots=json.dumps({root: 4})), root)
+
     def test_the_commit_does_not_decide(self):
         for commit in self.COMMITS:
             with self.subTest(commit=commit):
@@ -1717,6 +1802,26 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         stale = self.pool.pr_runner_pool.MAX_SNAPSHOT_MINUTES + 1
         self.assertEqual(self.owned(age=stale, test_filter="cmuxUITests/A", owned_ui="1"), MINI)
 
+    def test_a_ui_run_pinned_to_blacksmith_macos_26_moves_to_an_owned_mac(self):
+        # Blacksmith macOS 26 sessions cannot capture the screen, so a pinned UI
+        # run failed its capture preflight (run 36426283823, 2026-09-28).
+        ui = dict(test_filter="cmuxUITests/ExampleUITests", owned_ui="1")
+        for requested in (SMALL, LARGE, "blacksmith-6vcpu-macos-latest"):
+            with self.subTest(requested=requested):
+                self.assertEqual(self.owned(requested=requested, **ui), MINI)
+                self.assertEqual(self.owned(requested=requested, running=8, queued=40, **ui), MINI)
+        kept = {
+            "a cmuxTests run": dict(test_filter="cmuxTests/ExampleTests", owned_ui="1"),
+            "UI runs not allowed on owned Macs": dict(test_filter="cmuxUITests/ExampleUITests", owned_ui=""),
+            "owned pools off": dict(owned="0", **ui),
+            "a drained fleet": dict(slots={}, **ui),
+        }
+        for why, kwargs in kept.items():
+            with self.subTest(why=why):
+                self.assertEqual(self.owned(requested=SMALL, **kwargs), SMALL)
+        # macOS 15 captures, so a pin there is honored.
+        self.assertEqual(self.owned(requested=OLD, **ui), OLD)
+
     def test_owned_macs_record_no_video(self):
         step = next(step for step in self.jobs["filter"]["steps"] if step.get("id") == "filter")
         self.assertIn("runner", self.jobs["filter"]["needs"])
@@ -1864,6 +1969,48 @@ class CIProductReuseTests(unittest.TestCase):
                 mock.patch.object(self.dispatch, "wait_for_retry", side_effect=AssertionError("waited")):
             self.assertIsNone(self.reuse())
         self.run_command.assert_not_called()
+
+    def test_ci_whose_compile_admission_ended_without_products_is_not_awaited(self):
+        # PR 15160's run 36435812903: the fleet refused compile admission at 14:30,
+        # and the UI dispatch kept waiting for products that run could never make.
+        # The run stayed in progress on its own ui-tests job, which waited for this
+        # dispatch, so the owned-pool rescue could not re-run the refused job.
+        for conclusion in ("failure", "cancelled", "success"):
+            with self.subTest(conclusion):
+                ci = {"id": 500, "path": ".github/workflows/ci.yml", "status": "in_progress",
+                      "event": "workflow_dispatch", "html_url": "https://x/runs/500", "head_sha": HEAD}
+                rerun = self.dispatch.rerun
+                rerun.gh_api.side_effect = lambda path, ci=ci, conclusion=conclusion: (
+                    {"workflow_runs": [ci]} if "head_sha=" in path
+                    else {"jobs": [{"name": "macos / macOS compile admission", "status": "completed",
+                                    "conclusion": conclusion}]} if "/jobs" in path
+                    else {"status": "in_progress"}
+                )
+                with mock.patch.object(self.dispatch, "planned_products", return_value=None), \
+                        mock.patch.object(rerun, "built_revision", return_value=HEAD), \
+                        mock.patch.object(rerun, "non_test_changes", return_value=[]), \
+                        mock.patch.object(rerun, "products_artifact", return_value=None), \
+                        mock.patch.object(self.dispatch, "wait_for_retry", side_effect=AssertionError("waited")):
+                    self.assertIsNone(self.reuse())
+                self.run_command.assert_not_called()
+
+    def test_ci_whose_compile_admission_is_still_running_is_awaited(self):
+        ci = {"id": 500, "path": ".github/workflows/ci.yml", "status": "in_progress",
+              "event": "workflow_dispatch", "html_url": "https://x/runs/500", "head_sha": HEAD}
+        rerun = self.dispatch.rerun
+        rerun.gh_api.side_effect = lambda path: (
+            {"workflow_runs": [ci]} if "head_sha=" in path
+            else {"jobs": [{"name": "macos / macOS compile admission", "status": "in_progress",
+                            "conclusion": None}]} if "/jobs" in path
+            else {"status": "in_progress"}
+        )
+        with mock.patch.object(self.dispatch, "planned_products", return_value=None), \
+                mock.patch.object(rerun, "built_revision", return_value=HEAD), \
+                mock.patch.object(rerun, "non_test_changes", return_value=[]), \
+                mock.patch.object(rerun, "products_artifact", return_value=None), \
+                mock.patch.object(self.dispatch, "wait_for_retry", side_effect=AssertionError("waited")):
+            with self.assertRaisesRegex(AssertionError, "waited"):
+                self.reuse()
 
     def test_a_refused_rerun_dispatch_falls_back_to_a_full_build(self):
         self.run_command.side_effect = subprocess.CalledProcessError(1, ["gh"])

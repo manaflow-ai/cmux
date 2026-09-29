@@ -424,6 +424,29 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Resolves the row's actual scope before revoking, like every other
+    /// exact-instance write.
+    public func revokeAllLegacyTailscaleGrants(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+        try await inner.revokeAllLegacyTailscaleGrants(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID
+        )
+    }
+
     private func resolvedTeam(_ teamID: String?) async -> String? {
         if let teamID { return teamID }
         return await teamIDProvider()

@@ -405,7 +405,7 @@ final class PaneDropTargetView: NSView {
     private func setActiveDropZone(_ zone: DropZone?) {
         activeZone = zone
         if let hostedView {
-            hostedView.setDropZoneOverlay(zone: zone)
+            hostedView.setDropZoneOverlay(zone: zone, fromPaneDrag: true)
             dropZoneOverlayView.isHidden = true
         } else {
             updateStandaloneDropZoneOverlay()

@@ -53,6 +53,16 @@ struct WorkspaceListView: View {
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     var createWorkspaceGroup: (() -> Void)? = nil
+    /// Computers `+` offers while "All Computers" is shown; with more than
+    /// one it asks which (see ``WorkspaceListNewWorkspaceMenuValue``).
+    var newWorkspaceComputerTargets: [WorkspaceCreateComputerTarget] = []
+    var createWorkspaceOnComputer: ((WorkspaceCreateComputerTarget, MobileSSHWorkspaceKind?) -> Void)? = nil
+    /// When `+` creates on one SSH computer: its kinds, and the create
+    /// action (PRD D31). Empty/`nil` for Macs.
+    var sshNewWorkspaceKinds: [WorkspaceCreateKindOption] = []
+    var createSSHWorkspace: ((MobileSSHWorkspaceKind) -> Void)? = nil
+    /// The SSH computer ``createSSHWorkspace`` creates on.
+    var sshCreateHostID: UUID? = nil
     var canCreateWorkspace = true
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
@@ -78,8 +88,6 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
-    /// Whether Tailscale still needs its one-time Mac authorization.
-    var tailscalePairingRequired = false
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
     var showAddDevice: (() -> Void)?
@@ -178,6 +186,10 @@ struct WorkspaceListView: View {
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
+    /// The question for ``workspacePendingCloseID``, resolved once when the
+    /// close is requested so the sheet's copy stays put while the list
+    /// refreshes underneath it.
+    @State var workspacePendingCloseConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     /// The workspace whose UIKit context-menu rename action is presenting the
     /// list-scoped rename alert.
     @State var workspacePendingRenameID: MobileWorkspacePreview.ID?
@@ -767,15 +779,12 @@ struct WorkspaceListView: View {
             }
         }
         .confirmationDialog(
-            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
+            workspacePendingCloseConfirmation.title,
             isPresented: workspaceCloseConfirmationIsPresented,
             titleVisibility: .visible
         ) {
             if closeWorkspace != nil, let workspaceID = workspacePendingCloseID {
-                Button(
-                    L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"),
-                    role: .destructive
-                ) {
+                Button(workspacePendingCloseConfirmation.actionTitle, role: .destructive) {
                     confirmCloseWorkspace()
                 }
                 .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspaceID.rawValue)")
@@ -784,12 +793,7 @@ struct WorkspaceListView: View {
                 workspacePendingCloseID = nil
             }
         } message: {
-            Text(
-                L10n.string(
-                    "mobile.workspace.delete.confirmMessage",
-                    defaultValue: "This will close the workspace on your Mac."
-                )
-            )
+            Text(workspacePendingCloseConfirmation.message)
         }
         .confirmationDialog(
             workspaceGroupDestructiveDialogTitle,
@@ -945,7 +949,6 @@ struct WorkspaceListView: View {
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             isRecoveringWorkspaceList: isRecoveringWorkspaceList,
             connectionStatus: connectionStatus,
-            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut,
             hasLiveTransportPath: store?.workspaceListHasLiveTransportPath ?? false
@@ -1108,6 +1111,7 @@ struct WorkspaceListView: View {
             } : nil,
             closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
+            closeConfirmation: workspacePendingCloseConfirmation,
             confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
                 confirmCloseWorkspace()
             } : nil

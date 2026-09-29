@@ -162,7 +162,7 @@ import Testing
         #expect(MobileAutoConnectMigrationStore(defaults: defaults).resolution == .pending)
 
         defaults.set(
-            MobileConnectionMethod.tailscale.rawValue,
+            MobileConnectionMethod.direct.rawValue,
             forKey: MobileConnectionMethodStore.methodKey
         )
 

@@ -149,17 +149,22 @@ impl Drop for ChildConnectionControl {
 
 pub(super) struct SocketSessionConnector {
     socket: PathBuf,
+    socket_is_derived: bool,
 }
 
 impl SocketSessionConnector {
-    pub(super) fn new(socket: PathBuf) -> Self {
-        Self { socket }
+    pub(super) fn new(socket: PathBuf, socket_is_derived: bool) -> Self {
+        Self { socket, socket_is_derived }
+    }
+
+    fn connect(&self) -> io::Result<Box<dyn transport::Stream>> {
+        cmux_tui_core::server::connect_session_socket(&self.socket, self.socket_is_derived)
     }
 }
 
 impl LocalSessionConnector for SocketSessionConnector {
     fn verify_protocol(&self) -> anyhow::Result<()> {
-        let mut stream = transport::connect(&self.socket).map_err(|error| {
+        let mut stream = self.connect().map_err(|error| {
             anyhow::anyhow!(
                 "cannot connect machine agent to cmux session socket {}: {error}",
                 self.socket.display()
@@ -188,7 +193,7 @@ impl LocalSessionConnector for SocketSessionConnector {
     }
 
     fn open(&self) -> io::Result<DuplexConnection> {
-        let writer = transport::connect(&self.socket)?;
+        let writer = self.connect()?;
         writer.set_write_timeout(Some(STREAM_IO_TIMEOUT))?;
         let reader = writer.try_clone_box()?;
         reader.set_read_timeout(None)?;
@@ -335,7 +340,7 @@ mod tests {
                 writeln!(stream, "{{\"id\":1,\"ok\":true,\"data\":{{\"protocol\":{version}}}}}")
                     .unwrap();
             });
-            let result = SocketSessionConnector::new(path.clone()).verify_protocol();
+            let result = SocketSessionConnector::new(path.clone(), false).verify_protocol();
             server.join().unwrap();
             std::fs::remove_file(path).unwrap();
             result

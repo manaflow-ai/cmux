@@ -104,11 +104,15 @@ PATH_OWNERS = {
     # test_ci_catch_up_pr.py runs the catch-up script, which runs these three
     # resolvers, and reads the workflow that calls it. The workflow also
     # answers to the preflight runner guard (test_ci_self_hosted_guard.sh).
-    "scripts/ci/catch_up_pr.py": frozenset(("ci",)),
+    # test_merge_pbxproj.py also runs catch_up_pr.py, for union_pbxproj.
+    "scripts/ci/catch_up_pr.py": frozenset(("preflight", "ci")),
     ".github/workflows/pr-catch-up.yml": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     "scripts/generate-cmux-config-schema.py": frozenset(("ci",)),
+    # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
+    # above and borrows union_pbxproj from the catch-up script.
+    "scripts/merge-pbxproj.py": frozenset(("preflight",)),
     # test_ci_auto_catch_up_select.py imports the selector and replays its fixture.
     "scripts/ci/auto_catch_up_select.py": frozenset(("ci",)),
     "tests/fixtures/auto_catch_up/replay.json": frozenset(("ci",)),
@@ -149,6 +153,13 @@ PATH_OWNERS = {
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # tests/test_ci_ui_tests_dispatch.py imports the script and reads the
+    # workflow; owned_pool_rescue.py and classify_failures.py import it too.
+    "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),
+    ".github/workflows/ci-ui-tests.yml": frozenset(("app-host-execution", "ci")),
+    # tests/test_ci_pr_media.py imports the script and reads the workflow.
+    "scripts/ci/pr_media.py": frozenset(("app-host-execution",)),
+    ".github/workflows/pr-media.yml": frozenset(("app-host-execution",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.

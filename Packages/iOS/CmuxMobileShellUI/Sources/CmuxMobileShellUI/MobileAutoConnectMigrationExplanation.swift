@@ -17,7 +17,6 @@ struct MobileAutoConnectMigrationExplanation: View {
             VStack(alignment: .leading, spacing: 12) {
                 title
                 bodyText
-                guidance
             }
         }
     }
@@ -26,7 +25,6 @@ struct MobileAutoConnectMigrationExplanation: View {
         VStack(alignment: .leading, spacing: 16) {
             title
             bodyText
-            guidance
         }
     }
 
@@ -54,16 +52,6 @@ struct MobileAutoConnectMigrationExplanation: View {
         ))
         .font(.body)
         .accessibilityIdentifier("MobileAutoConnectMigrationBody")
-    }
-
-    private var guidance: some View {
-        Text(L10n.string(
-            "mobile.autoConnectMigration.guidance",
-            defaultValue: "Older cmux versions still work over Tailscale. Open Mobile Pairing on the Mac and scan its QR, or enter its numeric Tailscale IP and port once."
-        ))
-        .font(.body)
-        .foregroundStyle(.secondary)
-        .accessibilityIdentifier("MobileAutoConnectMigrationGuidance")
     }
 }
 #endif

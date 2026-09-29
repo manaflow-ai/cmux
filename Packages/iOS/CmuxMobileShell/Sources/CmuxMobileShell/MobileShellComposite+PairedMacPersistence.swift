@@ -172,10 +172,118 @@ extension MobileShellComposite {
                         now: Date()
                     )
                 }
-                if !userAuthorizedTailscaleRoutes.isEmpty {
-                    // The user just proved control of this Mac by entering its
-                    // pairing code; record the device-local grant so later
-                    // preference-ordered dials use the evidence path.
+                if !userAuthorizedTailscaleRoutes.isEmpty,
+                   ticket.routes.contains(where: { $0.kind == .iroh }) {
+                    // The code named the Mac's device key: its Tailscale
+                    // endpoints become Direct addresses, verified by that key.
+                    // Merge against the row as it exists AFTER the upsert:
+                    // instance-tag adoption can move the row to a new owner
+                    // key, and merging against the pre-upsert snapshot would
+                    // overwrite the user's existing Direct addresses.
+                    // A failed re-read must not masquerade as an empty list:
+                    // merging against [] would overwrite the user's existing
+                    // addresses. Without the row, keep the grant and skip.
+                    let reloaded = (try? await pairedMacStore.loadAll(
+                        stackUserID: stackUserID, teamID: scope?.teamID
+                    ))?.first {
+                        MacPairingKey($0) == MacPairingKey(macDeviceID: ticket.macDeviceID, instanceTag: instanceTag)
+                    }
+                    if let reloaded {
+                        let current = reloaded.directAddresses
+                        let merged = current.appendingTailscaleAddresses(
+                            from: userAuthorizedTailscaleRoutes,
+                            transport: MobilePairedMacDirectAddress.directQuicTransport)
+                        do {
+                            if merged != current {
+                                try await pairedMacStore.setDirectAddresses(
+                                    macDeviceID: ticket.macDeviceID,
+                                    instanceTag: instanceTag,
+                                    rawJSON: MobilePairedMac.encodeDirectAddresses(merged),
+                                    stackUserID: stackUserID,
+                                    teamID: scope?.teamID
+                                )
+                            }
+                            // Revoke only once the replacement address is
+                            // durably saved: the grants are superseded by the
+                            // Direct list, and a removed address must not
+                            // stay dialable through the compatibility path —
+                            // but losing BOTH would strand the pairing.
+                            try await pairedMacStore.revokeAllLegacyTailscaleGrants(
+                                macDeviceID: ticket.macDeviceID,
+                                instanceTag: instanceTag,
+                                stackUserID: stackUserID,
+                                teamID: scope?.teamID
+                            )
+                        } catch {
+                            // The scanned authorization could not be saved,
+                            // and a keyed pairing can never dial a legacy
+                            // grant (its stored Iroh route disables the
+                            // compatibility path; Direct ignores grants), so
+                            // there is no durable fallback. Report failure so
+                            // the flow does not dismiss as paired.
+                            accepted = false
+                            pairedMacPersistenceLog.error(
+                                "direct address conversion persist failed: \(String(describing: error), privacy: .private)"
+                            )
+                            self.recordAppEvent(
+                                .pairedMacStoreWriteFailed,
+                                correlationID: ticket.macDeviceID,
+                                startedAt: startedAt,
+                                failure: DiagnosticFailureKind.classify(error)
+                            )
+                        }
+                    } else {
+                        accepted = false
+                        pairedMacPersistenceLog.error(
+                            "direct address conversion skipped: row not found after upsert"
+                        )
+                        self.recordAppEvent(
+                            .pairedMacStoreWriteFailed,
+                            correlationID: ticket.macDeviceID,
+                            startedAt: startedAt,
+                            failure: .unknown
+                        )
+                    }
+                } else if !userAuthorizedTailscaleRoutes.isEmpty {
+                    // A pre-Iroh Mac has no device key to verify, so Direct
+                    // can never redial it: keep the pairing on the default
+                    // Iroh method, whose legacy compatibility dials the grant.
+                    // The persisted row is the authority; the published list
+                    // may not be loaded yet on a fresh pairing path.
+                    let storedMethod = (try? await pairedMacStore.loadAll(
+                        stackUserID: stackUserID, teamID: scope?.teamID
+                    ))?.first {
+                        MacPairingKey($0) == MacPairingKey(macDeviceID: ticket.macDeviceID, instanceTag: instanceTag)
+                    }?.connectionMethodRawValue
+                    if storedMethod == "direct" {
+                        do {
+                            try await pairedMacStore.setConnectionMethod(
+                                macDeviceID: ticket.macDeviceID,
+                                instanceTag: instanceTag,
+                                rawValue: nil,
+                                stackUserID: stackUserID,
+                                teamID: scope?.teamID
+                            )
+                        } catch {
+                            // The row stays pinned to Direct, which ignores
+                            // the grant stored below and has no verified
+                            // allowlist for a keyless Mac: the reconnect
+                            // would strand. Report persistence failure so
+                            // the flow does not dismiss as paired.
+                            accepted = false
+                            pairedMacPersistenceLog.error(
+                                "pre-Iroh method reset failed: \(String(describing: error), privacy: .private)"
+                            )
+                            self.recordAppEvent(
+                                .pairedMacStoreWriteFailed,
+                                correlationID: ticket.macDeviceID,
+                                startedAt: startedAt,
+                                failure: DiagnosticFailureKind.classify(error)
+                            )
+                        }
+                    }
+                    // Record the device-local grant so the Iroh method's
+                    // compatibility can dial it.
                     do {
                         try await pairedMacStore.authorizeUserTailscaleRoutes(
                             macDeviceID: ticket.macDeviceID,

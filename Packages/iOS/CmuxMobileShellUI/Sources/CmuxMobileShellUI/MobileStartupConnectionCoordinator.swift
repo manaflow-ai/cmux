@@ -212,9 +212,15 @@ final class MobileStartupConnectionCoordinator {
         return attempt
     }
 
-    func finishStoredReconnect(_ attempt: Attempt) {
-        guard owner == .storedReconnect(attempt) else { return }
+    /// Completes a saved-Mac reconnect.
+    ///
+    /// - Returns: Whether the attempt still owned startup. A sign-out or an
+    ///   account/team change supersedes it, and the newer scope owns retries.
+    @discardableResult
+    func finishStoredReconnect(_ attempt: Attempt) -> Bool {
+        guard owner == .storedReconnect(attempt) else { return false }
         owner = .unclaimed
+        return true
     }
 
     func reset() {

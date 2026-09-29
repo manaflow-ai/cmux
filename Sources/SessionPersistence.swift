@@ -385,6 +385,35 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "cli"
     }
 
+    /// Source for bindings restored from an untrusted session file
+    /// (`cmux restore-session --from <path>`).
+    static let untrustedSessionImportSource = "session-import"
+
+    /// A binding restored from an untrusted session file. It is kept for
+    /// manual `cmux restore --surface` only: the approval store never matches
+    /// it against approved prefixes and never records an approval for it.
+    var isUntrustedSessionImportBinding: Bool {
+        source == Self.untrustedSessionImportSource
+    }
+
+    /// Marks this binding as coming from an untrusted session file, with no
+    /// automatic resume and no stored approval.
+    func markingUntrustedSessionImport() -> Self {
+        var marked = self
+        marked.source = Self.untrustedSessionImportSource
+        return marked.forcingManualRestore()
+    }
+
+    /// This binding with automatic resume and any stored approval removed.
+    func forcingManualRestore() -> Self {
+        var manual = self
+        manual.autoResume = false
+        manual.approvalPolicy = .manual
+        manual.approvalRecordId = nil
+        manual.resumeEvidenceProvenance = nil
+        return manual
+    }
+
     var allowsAutomaticResume: Bool {
         autoResume == true
     }
@@ -547,8 +576,10 @@ struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
 
     func matches(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
         // Remote approvals require a follow-up location-scoped record design that
-        // persists and signs an execution-location field.
-        guard binding.launchFlavor == .local,
+        // persists and signs an execution-location field. Bindings from an
+        // untrusted session file never match an approval.
+        guard !binding.isUntrustedSessionImportBinding,
+              binding.launchFlavor == .local,
               !commandPrefix.isEmpty,
               let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command),
               tokens.count >= commandPrefix.count,
@@ -1049,6 +1080,10 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalRecord? {
+        // A binding from an untrusted session file never gets an approval record.
+        guard !binding.isUntrustedSessionImportBinding else {
+            return nil
+        }
         // Location-scoped signed records are the follow-up if remote approvals are wanted.
         guard binding.launchFlavor == .local else {
             return nil

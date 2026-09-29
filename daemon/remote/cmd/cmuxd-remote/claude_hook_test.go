@@ -173,7 +173,7 @@ func TestClaudeArgsWithRelayHooksMergesLauncherSettings(t *testing.T) {
 	if !strings.Contains(string(data), `'/home/leo/.cmux/bin/cmux' claude-hook session-start`) {
 		t.Fatalf("cmux session-start hook missing: %s", data)
 	}
-	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Notification", "SessionEnd", "PreToolUse"} {
+	for _, event := range []string{"SessionStart", "UserPromptSubmit", "StopFailure", "Notification", "SessionEnd", "PreToolUse"} {
 		if _, ok := hooks[event]; !ok {
 			t.Fatalf("hook event %s missing", event)
 		}

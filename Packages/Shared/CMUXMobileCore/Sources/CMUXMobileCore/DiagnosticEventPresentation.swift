@@ -96,7 +96,7 @@ public struct DiagnosticEventPresentation: Sendable {
     /// Human-readable name of a configured connection method.
     public func displayName(_ method: DiagnosticConnectionMethod) -> String {
         switch method {
-        case .automatic: localized("diagnostics.connectionMethod.automatic", defaultValue: "Auto-Connect (Iroh)")
+        case .iroh: localized("diagnostics.connectionMethod.automatic", defaultValue: "Auto-Connect (Iroh)")
         case .tailscale: localized("diagnostics.connectionMethod.tailscale", defaultValue: "Tailscale Only")
         case .direct: localized("diagnostics.connectionMethod.direct", defaultValue: "Direct")
         }

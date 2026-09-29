@@ -52,6 +52,50 @@ import Testing
         #expect(try await reopened.loadAll().count == 0)
     }
 
+    /// The destination store is already at v13 when the one-time import copies
+    /// rows, so the schema migration never revisits them: the import itself
+    /// must apply the Tailscale Only fold, or an imported 'tailscale' row
+    /// (no longer decodable) silently behaves as Iroh.
+    @Test func importedTailscaleOnlyRowsAreConvertedLikeTheV13Migration() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let legacyURL = directory.appendingPathComponent("legacy.sqlite3")
+        let legacy = try MobilePairedMacStore(databaseURL: legacyURL)
+        let tailscale = try CmxAttachRoute(id: "tailscale", kind: .tailscale,
+                                           endpoint: .hostPort(host: "100.64.0.9", port: 58465))
+        let iroh = try CmxAttachRoute(
+            id: "iroh", kind: .iroh,
+            endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64)),
+                            pathHints: []))
+        let now = Date(timeIntervalSince1970: 1_000)
+        try await legacy.upsert(macDeviceID: "keyed-mac", displayName: "Keyed", routes: [iroh, tailscale],
+                                instanceTag: "default", markActive: true, stackUserID: "alice", now: now)
+        try await legacy.setDirectAddresses(macDeviceID: "keyed-mac", instanceTag: "default",
+                                            rawJSON: "[{\"address\":\"192.168.1.10\",\"port\":58465,\"enabled\":true}]",
+                                            stackUserID: "alice")
+        try await legacy.upsert(macDeviceID: "legacy-mac", displayName: "Legacy", routes: [tailscale],
+                                instanceTag: "default", markActive: false, stackUserID: "alice", now: now)
+        // The setters omit `teamID` so they resolve to the store's own methods.
+        for mac in ["keyed-mac", "legacy-mac"] {
+            try await legacy.setConnectionMethod(macDeviceID: mac, instanceTag: "default",
+                                                 rawValue: "tailscale", stackUserID: "alice")
+        }
+
+        let upgraded = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("v2.sqlite3"),
+            importingLegacyDatabaseURL: legacyURL
+        )
+        let macs = try await upgraded.loadAll(stackUserID: "alice", teamID: nil)
+        let keyed = try #require(macs.first { $0.macDeviceID == "keyed-mac" })
+        let legacyMac = try #require(macs.first { $0.macDeviceID == "legacy-mac" })
+        #expect(keyed.connectionMethodRawValue == "direct")
+        #expect(keyed.directAddresses == [
+            MobilePairedMacDirectAddress(address: "192.168.1.10", port: 58465),
+        ])
+        #expect(legacyMac.connectionMethodRawValue == nil)
+    }
+
     @Test func existingV2RowsWinAndUnrequestedImportsRemainIsolated() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

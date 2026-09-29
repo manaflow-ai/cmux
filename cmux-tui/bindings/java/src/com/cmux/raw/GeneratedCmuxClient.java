@@ -488,6 +488,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final SetTerminalIdlePolicyResult setTerminalIdlePolicy(SetTerminalIdlePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_TERMINAL_IDLE_POLICY, request.toWire());
+        return SetTerminalIdlePolicyResult.fromWire(result);
+    }
+
     public final EmptyResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
         Object result = execute(Commands.SET_VIEWPORT_PANE_WIDTH, request.toWire());
         return EmptyResult.fromWire(result);

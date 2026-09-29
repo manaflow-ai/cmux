@@ -29,9 +29,9 @@ final class SurfaceCatalog {
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
     private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
-    private var cloudProjectionIndex = Set<CloudProjectionKey>()
-    private var cloudProjectionIndexDirty = true
-    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true; noteProjectionChanges(from: oldValue) } }
+    /// Derived storage must not publish when a SwiftUI read rebuilds it.
+    @ObservationIgnored private var cloudProjectionIndex: Set<CloudProjectionKey>?
+    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndex = nil; noteProjectionChanges(from: oldValue) } }
     var projectionVersions: [SurfaceMachineID: UInt64] = [:]; var projectionMachinesByWorkspace: [UUID: Set<SurfaceMachineID>] = [:]
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
@@ -78,7 +78,7 @@ final class SurfaceCatalog {
     private let maximumTrackedMaterializations: Int
     private let materializationClock: any Clock<Duration>
     private var projectionEndReasons: [UUID: SurfaceProjectionEndReason] = [:]
-    var pendingRestoredProjections = SurfaceProjectionRestoreStore()
+    var pendingRestoredProjections = SurfaceProjectionRestoreStore() { didSet { cloudProjectionIndex = nil } }
     /// Focus/select behavior the app uses to bring an existing projection forward.
     var focusProjection: ((SurfaceProjection) -> Void)?
 
@@ -170,26 +170,7 @@ final class SurfaceCatalog {
         for key in inFlightKeys {
             cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
         }
-        // A machine that is gone (deleted, or access ended) takes its URL-backed
-        // panes with it: a display or browser pane holds a tokened gateway URL
-        // that decays into the hosting provider's raw error page once the
-        // workload is dead. Terminal panes stay — their attach process exits and
-        // the scrollback is still the user's to read.
-        let urlBacked = projections.filter {
-            $0.resource.machine == machine
-                && ($0.resource.kind == .display || $0.resource.kind == .browser)
-        }
-        let provider = providers[machine]
-        for projection in urlBacked {
-            if let provider {
-                provider.discardMaterialization(projection)
-            } else {
-                // The registry removes its provider before calling us during a
-                // fleet prune. There is still a real browser/display pane to
-                // close, even though no provider remains to do it for us.
-                SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-            }
-        }
+        closeURLBackedPanes(on: machine)
         cloudWorkspaceDeletionLedger.remove(machine: machine)
         providers[machine] = nil
         machines[machine] = nil
@@ -198,7 +179,6 @@ final class SurfaceCatalog {
         syncCloudTerminalTabIcons(on: machine)
         pendingRestoredProjections.remove(machine: machine)
         cloudWorkspaceProjectionCoordinator.cancel(machine: machine)
-        cloudProjectionIndexDirty = true
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
@@ -1216,7 +1196,6 @@ final class SurfaceCatalog {
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
         cloudWorkspaceCreationCoordinator.projectionDidEnd(panelID: panelID)
         let pendingMachine = pendingRestoredProjections.machineOwningPanel(panelID); let removedPending = pendingRestoredProjections.remove(panelID: panelID)
-        if removedPending { cloudProjectionIndexDirty = true }
         let ended = projections.filter { $0.panelID == panelID }
         guard !ended.isEmpty || removedPending else { return }
         projections.subtract(ended)
@@ -1231,7 +1210,6 @@ final class SurfaceCatalog {
 
     func moveProjections(panelID: UUID, to workspaceID: UUID) {
         let pendingBefore = pendingRestoredProjections.projection(forPanel: panelID); let movedPending = pendingRestoredProjections.move(panelID: panelID, to: workspaceID); if movedPending, let oldWorkspace = pendingBefore?.workspaceID, oldWorkspace != workspaceID { reconcileCloudWorkspaceBinding(localWorkspaceID: oldWorkspace) }
-        if movedPending { cloudProjectionIndexDirty = true }
         let moved = projections.filter { $0.panelID == panelID && $0.workspaceID != workspaceID }
         guard !moved.isEmpty || movedPending else { return }
         projections.subtract(moved)
@@ -1320,16 +1298,19 @@ final class SurfaceCatalog {
 
     /// Returns whether the panel is backed by a non-local resource projection.
     func hasCloudProjection(panelID: UUID, workspaceID: UUID) -> Bool {
-        if cloudProjectionIndexDirty {
-            cloudProjectionIndex = Set(projections.filter { !$0.resource.machine.isLocal }.map {
-                CloudProjectionKey(panelID: $0.panelID, workspaceID: $0.workspaceID)
-            })
-            cloudProjectionIndex.formUnion(pendingRestoredProjections.projections.compactMap {
-                $0.resource.machine.isLocal ? nil : CloudProjectionKey(panelID: $0.panelID, workspaceID: $0.workspaceID)
-            })
-            cloudProjectionIndexDirty = false
-        }
-        return cloudProjectionIndex.contains(CloudProjectionKey(panelID: panelID, workspaceID: workspaceID))
+        // Cache hits must observe the same authoritative inputs as cache misses.
+        access(keyPath: \.projections)
+        access(keyPath: \.pendingRestoredProjections)
+        let key = CloudProjectionKey(panelID: panelID, workspaceID: workspaceID)
+        if let cloudProjectionIndex { return cloudProjectionIndex.contains(key) }
+        var index = Set(projections.filter { !$0.resource.machine.isLocal }.map {
+            CloudProjectionKey(panelID: $0.panelID, workspaceID: $0.workspaceID)
+        })
+        index.formUnion(pendingRestoredProjections.projections.compactMap {
+            $0.resource.machine.isLocal ? nil : CloudProjectionKey(panelID: $0.panelID, workspaceID: $0.workspaceID)
+        })
+        cloudProjectionIndex = index
+        return index.contains(key)
     }
 
     func resource(forPanel panelID: UUID) -> SurfaceResource? {
@@ -1367,7 +1348,6 @@ final class SurfaceCatalog {
                 insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.restoredProjection(record, workspaceID: workspaceID))
             } else {
                 pendingRestoredProjections.stage(record, workspaceID: workspaceID)
-                cloudProjectionIndexDirty = true
             }
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
@@ -1427,7 +1407,6 @@ final class SurfaceCatalog {
         for projection in resolved {
             insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.resolvingLocalPreviewMembership(projection))
             resolvedWorkspaceIDs.insert(projection.workspaceID)
-            cloudProjectionIndexDirty = true
         }
         for workspaceID in resolvedWorkspaceIDs {
             reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
