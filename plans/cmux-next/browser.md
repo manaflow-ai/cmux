@@ -1,0 +1,264 @@
+# cmux next: browser (WebKit + CEF)
+
+Research and design note for goal 8 of `REWRITE.md`. Written 2026-09-28. Paths are absolute or rooted at the named repo. `cmux2:` = `~/fun/cmux2`, `fork:` = `~/fun/cef-cmux` (branch `cmux/8037`), `dist:` = `~/fun/cef-cmux-dist`, `cmux:` = this worktree.
+
+## Decisions that need Lawrence
+
+1. **Browser granularity.** A Chromium `Browser` shows only its active tab. cmux panes show several web tabs at the same time (splits, columns). This note proposes one Chromium `Browser` per cmux pane, not per cmux window. Extensions then see one Chrome window per pane that holds CEF tabs.
+2. **CEF presentation is a child `NSWindow`, not an `NSView`.** The fork keeps a frameless child window over our placeholder view (fork:`libcef/browser/chrome/views/chrome_child_window_mac.mm:186-198`). This breaks Liquid Glass over web content, overlays drawn in the main window, niri horizontal scroll, and clipping. Mitigations are below. This is the biggest risk of the CEF path. Chrome style plus offscreen rendering is not possible, because CEF OSR requires Alloy style, and Alloy has no extension tab model.
+3. **Where the fork lives.** fork has only `origin = chromiumembedded/cef`. cmux2 has no remote. Nothing is pushed anywhere. The CLAUDE.md in-org rule requires a new `manaflow-ai/cef` repo (release assets are hosted there too). Choose public or private.
+4. **Where browser automation lives** (the socket `browser.*` commands). Recommended: the daemon runs CEF tabs over CDP (it already has `cmux-tui-cdp` and a provider registry), and the frontend runs WebKit tabs. Alternative: the Swift frontend runs both engines.
+5. **Local CDP endpoint.** The daemon provider model expects a loopback DevTools port with no authentication (cmux:`cmux-tui/docs/browser-panes.md`). Any local process can then drive every CEF tab, cookies included. Choose among a bearer token (the daemon supports it, but agent-browser direct-page mode rejects it), `--remote-debugging-pipe`, or an in-process CDP proxy.
+6. **Architectures and codecs.** The fork builds arm64 only (fork:`scripts/build-cmux-cef.sh:46`). cmux ships a universal build. Choose between "CEF on Apple silicon only" and a second x86_64 fork build. `proprietary_codecs` is off, so H.264/AAC video fails in CEF tabs. Turning it on has licensing cost. Widevine is not available in CEF, so DRM sites must use WebKit.
+7. **Official build.** The dist is a non-official build (`is_official_build=false`, no LTO/PGO, fork:`scripts/build-cmux-cef.sh:34`). The binary is 584 MiB unstripped and 367 MiB after `strip -x`. An official build is smaller and faster but takes about a day to build. Recommended for release channels only.
+8. **Bundle vs on-demand download.** Put CEF in the app bundle (the DMG gets about 130 MB bigger), or ship it as a separately notarized runtime that is downloaded on the first CEF tab. Recommended: in the bundle first.
+9. **Chromium fork competition.** `cmux:cmux-browser/` imports a full Chromium fork (`~/fun/cmux-browser`) that already has real `Browser`/`TabStripModel` integration (cmux2:`docs/extensions-macos.md`, Approach 5). REWRITE.md chose CEF. State that CEF replaces cmux-browser, or keep both paths on purpose.
+
+Items that I did out of laziness, or that are not verified: I did not build or run CEF. I did not test lazy `CefInitialize` after `NSApp.run` has started (see "Lazy loading"). Also, the existing `cmux2:dist/cmux2.app` contains **stock** CEF (320 MiB framework with no `cmux_*` exports, dated 2026-09-27), not the fork. The extension results in cmux2's docs came from other builds that are not on disk now.
+
+## 1. How cmux2 embeds CEF
+
+### Crates and FFI
+
+| Piece | Role | Citation |
+| --- | --- | --- |
+| `crates/core` | Tab strip model, pinning, layout, session file. No CEF. | cmux2:`README.md`, `crates/core/src/tabs.rs` |
+| `crates/engine` | CEF glue: process setup, per-tab browsers, popups-as-tabs (keeps `window.opener`), Chrome accelerator routing, extension discovery, fork API binding | cmux2:`crates/engine/src/lib.rs:1-11` |
+| `crates/ffi` | `staticlib` `cmux_ffi`. Its C ABI is in `include/cmux_engine.h`. | cmux2:`crates/ffi/Cargo.toml`, `crates/ffi/include/cmux_engine.h` |
+| `crates/helper` | CEF subprocess binary. Enters the sandbox first, then loads the library and runs `execute_process`. | cmux2:`crates/helper/src/main.rs` |
+| `apple/` | SwiftPM app. `CCmuxEngine` system module shims the header, links `-lcmux_ffi -lc++` | cmux2:`apple/Package.swift`, `apple/Sources/CCmuxEngine/shim.h` |
+
+The Rust side uses the `cef` crate `=154.2.0` (cmux2:`Cargo.toml`). The crate loads the framework at runtime through `library_loader::LibraryLoader` (cmux2:`crates/engine/src/lib.rs:103-121`), so the framework is not linked.
+
+`cmux_engine.h` surface: process (`cmux_load_library`, `cmux_run_subprocess`, `cmux_initialize(data_dir, subprocess_path, load_extensions, cmux_host)`, `cmux_run`, `cmux_quit`, `cmux_shutdown`, `cmux_close_all`), an engine-owned tab strip (`cmux_tab_*`, `cmux_new_web_tab`, `cmux_new_terminal_tab`, `cmux_restore_session`), web control (`cmux_attach(id, NSView*, w, h)`, navigate/back/forward/reload/stop/focus/zoom/find/devtools), and extensions (`cmux_uses_chrome_tabs`, `cmux_extension_actions_json`, `cmux_run_extension_action`, `cmux_show_extension_action_menu`, `cmux_open_chrome_page`, stock-CEF popups `cmux_open_popup`). The host callbacks are `event`, `parent_for_new_tab`, and `unhandled_key` (cmux2:`crates/ffi/include/cmux_engine.h:46-53`).
+
+Important: the engine **owns the tab strip and the session file**, and also holds terminal tabs (cmux2:`crates/engine/src/lib.rs:222-305`). This conflicts with REWRITE goal 2 (the daemon owns layout).
+
+### Bundle layout, helpers, signing
+
+`scripts/build-mac.sh` builds `cmux-ffi` and `cmux-helper` with cargo, then builds Swift, then assembles:
+
+```
+cmux2.app/Contents/MacOS/cmux2
+cmux2.app/Contents/Frameworks/Chromium Embedded Framework.framework   (ditto from CEF_PATH)
+cmux2.app/Contents/Frameworks/cmux2 Helper.app
+cmux2.app/Contents/Frameworks/cmux2 Helper (GPU|Renderer|Plugin|Alerts).app
+```
+
+All five helpers are the same `cmux-helper` binary with different names and bundle ids `dev.cmux.browser2.helper[.gpu|.renderer|.plugin|.alerts]`, and they have `LSUIElement` (cmux2:`scripts/build-mac.sh:66-74`). `NSPrincipalClass` is the CEF-aware `NSApplication` subclass (`:50`). Signing is ad hoc, helpers first, then the app, with no entitlements and no hardened runtime (`:73-75`). Framework layout in dist: 584 MiB binary, `Libraries/` 22 MiB (`libcef_sandbox.dylib`, SwiftShader, Vulkan), `Resources/` 86 MiB (paks, locales).
+
+### Sandbox
+
+The helper calls `enter_helper_sandbox()` (Chromium `Sandbox::initialize` via `libcef_sandbox`) before it loads CEF (cmux2:`crates/engine/src/lib.rs:123-131`, `crates/helper/src/main.rs`). `no_sandbox` is 0 on macOS and 1 elsewhere (`lib.rs:152`). The browser process is not sandboxed. Verified in cmux2:`docs/extensions-macos.md` (the "CEF sandbox" row). A single `root_cache_path` = `cache_path` = `<data_dir>/Profile` (`lib.rs:146-154`).
+
+### Message loop
+
+`main.swift` calls `cmux_load_library(false)`, creates `CmuxApplication.shared`, calls `cmux_initialize`, then `cmux_run()` (`CefRunMessageLoop`, which runs `[NSApp run]`), then `cmux_shutdown()` (cmux2:`apple/Sources/CmuxMac/main.swift`). `CmuxApplication` adopts `CefAppProtocol` (`isHandlingSendEvent`/`setHandlingSendEvent`, set around `sendEvent`). It overrides `terminate:` so that Cmd-Q closes every browser first and quits the CEF loop after `CMUX_EVENT_ALL_CLOSED` (cmux2:`apple/Sources/CmuxMac/CmuxApplication.swift`, protocols declared in `CCmuxEngine/shim.h`). CEF therefore owns the run loop from process start. cmux next cannot keep this if CEF must be lazy.
+
+### Keyboard routing
+
+- CEF on macOS already offers keys that the page did not handle to the main menu. cmux2 sets `unhandled_key = nil` because a second offer ran every menu shortcut twice (cmux2:`apple/Sources/CmuxMac/Engine.swift:134-137`). The Rust `on_key_event` still forwards `RAWKEYDOWN` when a host hook exists (cmux2:`crates/engine/src/client.rs:374-390`).
+- Chrome accelerators that act on a tab strip (`IDC_NEW_TAB`, `IDC_CLOSE_TAB`, `IDC_SELECT_*`, `IDC_FOCUS_LOCATION`, new window) are captured in `CefCommandHandler::on_chrome_command` and re-emitted as `CMUX_EVENT_COMMAND` for the shell (`client.rs:394-440`).
+- Terminal views route key equivalents to the main menu first (cmux2:`apple/Sources/CmuxMac/TerminalView.swift:223-229`).
+- With the fork, focus goes to the embedded child window. `CefBrowserHost::SetFocus` activates that widget (fork commit `a7bcbc0`). The child window "never becomes main", and it counts as active while the parent is key (fork commit `377a33a`, `chrome_child_window_mac.mm:118-140`).
+
+### Browser process switches
+
+`on_before_command_line_processing` adds `--cmux-tabbed-windows` and `--disable-field-trial-config` when the fork API is present, `--use-mock-keychain` under `CMUX_MOCK_KEYCHAIN`, and `--load-extension` for dev (cmux2:`crates/engine/src/client.rs:75-110`).
+
+### Fork API detection and the added C API
+
+The engine resolves the fork symbols with `dlopen(RTLD_NOLOAD)` + `dlsym` and checks `cmux_cef_api_version() == 1`. Stock CEF falls back to Alloy (cmux2:`crates/engine/src/fork.rs:43-92`). The symbols are plain C exports, so the CEF API hash is unchanged. The build script copies the header into dist (fork:`scripts/build-cmux-cef.sh`, last lines). `nm -gU` on the dist framework shows all 11 exports.
+
+fork:`include/cef_cmux.h` (`CMUX_CEF_API_VERSION 1`). Browsers are addressed by `CefBrowser::GetIdentifier()`. UI thread only.
+
+| Function | Purpose |
+| --- | --- |
+| `int cmux_cef_api_version(void)` | version gate |
+| `void cmux_cef_free(char*)` | frees returned strings |
+| `void cmux_tab_set_observer(cmux_tab_observer_t, void* ctx)` | events `CMUX_TAB_INSERTED/ACTIVATED/MOVED/REMOVED`, `CMUX_EXTENSION_ACTIONS_CHANGED`, `CMUX_EXTENSION_POPUP_CLOSED`, with `(window_id, browser_id, a)` |
+| `int cmux_tab_add(int window_browser_id, const char* url, int index, int activate)` | adds a tab to that window's `Browser`. `OnAfterCreated` runs before it returns. |
+| `int cmux_tab_activate(int browser_id)` | makes the tab the shown tab |
+| `int cmux_tab_move(int browser_id, int index)` | reorders within its window |
+| `int cmux_tab_window_id(int browser_id)` | window id of a tab |
+| `char* cmux_ext_actions(int browser_id, int icon_px)` | JSON `[{id,name,title,badge,badge_color,badge_text_color,enabled,pinned,has_popup,icon_png}]`, base64 PNG without badge |
+| `int cmux_ext_action_run(int browser_id, const char* ext, int x, int width)` | Chromium `ExecuteUserAction`: popup anchored at the top of the browser area in `[x, x+width)`, `onClicked`, `activeTab` grant |
+| `void cmux_ext_action_hide_popup(int browser_id, const char* ext)` | hides the popup |
+| `void cmux_ext_action_context_menu(int browser_id, const char* ext, int sx, int sy)` | Chromium's action menu (pin, options, remove, site access) |
+
+cmux2's `fork::Api` does not bind `cmux_tab_window_id` or `cmux_ext_action_hide_popup` (cmux2:`crates/engine/src/fork.rs:24-33`).
+
+Missing for cmux next: detach or attach a tab across windows (moving a CEF tab between panes), close through the tab strip, and a tab snapshot. Chromium has `TabStripModel::DetachWebContentsAtForInsertion`, so a fork `cmux_tab_move_to_window` is a small patch.
+
+## 2. What the fork patches
+
+Base: upstream CEF branch `8037` at `564dd6c` (CEF 154.0.28, Chromium 154.0.8037.58). 10 cmux commits `0e93c8e..4065bbf`, 28 files, +1785/-13 (`git diff --stat 564dd6c HEAD`).
+
+| Change | Files | Why |
+| --- | --- | --- |
+| MV2 re-enabled | `patch/patches/cmux_extensions_manifestv2.patch` (ungoogled-chromium `800d0bb5`, BSD-3) | Chromium 154 rejects MV2. This makes full uBlock Origin work. |
+| Chrome style with a macOS `parent_view` | `browser_host_create.cc` (drops the `IS_MAC` Alloy force, CEF issue #3294), `chrome_child_window.cc`, new `chrome_child_window_mac.{h,mm}` (`CmuxParentViewTracker`) | a frameless child `NSWindow` tracks the parent view frame, hidden state, window moves, fullscreen, and key state |
+| One tabbed `Browser` per window (`--cmux-tabbed-windows`) | `chrome_browser_delegate.cc` (later tabs drop `browser_view`/`window_info`; hide title bar, tab strip, toolbar, location bar, bookmark bar), `chrome_browser_host_impl.cc` (keep `TYPE_NORMAL`), `cef_switches.*`, `cmux/cmux_window_registry.*` | extensions see one window with N tabs. `chrome.tabs`/`windows` work. |
+| `cmux_tabbed_layout_hidden_toolbar.patch` | Chromium layout | tabbed layout CHECKed for Chrome's toolbar |
+| `cmux_tab_strip_notify_uninserted.patch` | Chromium tab strip | tabs added by extensions notified before insertion and CHECKed |
+| Native action API | `cmux/cmux_api.cc`, `cmux/cmux_extension_action_delegate.*`, `include/cef_cmux.h` | AppKit toolbar drives `ExtensionActionViewModel` |
+| Embedded window activity | `chrome_child_window_mac.mm`, `views/ns_window.*`, `browser_view_impl.cc` | `Browser` is active while our window is key (`chrome.action.openPopup`) |
+| Popup anchor | `cmux_window_registry.cc` (commit `4065bbf`) | popup anchor excluded from RootView fill layout |
+| Build | `scripts/build-cmux-cef.sh`, `BUILD.gn` | `automate-git.py`, arm64 Release, minimal distrib, disk watchdog |
+
+fork:`CMUX.md` is stale: it still says the patches are "design below, not written". cmux2:`docs/extensions-macos.md` has the current state.
+
+Results with the fork (cmux2:`docs/extensions-macos.md`, "Update" section): `tabs.query` 1/1/1 (stock 0/0/0). `chrome.tabs.create` works. Full uBO 1.75 MV2 works. Web Store install works. The Bitwarden popup has the correct size. OneTab `onClicked` is partly verified. 1Password is blocked (native messaging host registered only for Chrome). The helper sandbox is on. Known gap: the address field stays empty for tabs that Chromium adds.
+
+Tracker gaps that matter for cmux (fork:`chrome_child_window_mac.mm:60-110, 176-200`): it observes `NSViewFrameDidChangeNotification` on ancestors only, not `NSViewBoundsDidChangeNotification` on an enclosing `NSClipView`, so a niri scroll does not move the page. It sets the child frame to the full parent bounds with no clip to the visible rect, so a half-scrolled column draws over the sidebar. It orders the child window above the parent's entire content.
+
+## 3. Integration plan
+
+### Engine abstraction
+
+The daemon owns browser tabs as canonical tabs (`TabPublicId`) with `kind = browser`, `engine = webkit | cef`, `profile_id`, `url`, and `title`. The frontend owns only the live engine object. The engine is fixed at tab creation. "Reopen in other engine" creates a new tab with the same URL.
+
+```swift
+@MainActor protocol BrowserEngine: AnyObject {
+    var kind: BrowserEngineKind { get }                    // .webkit, .cef
+    var capabilities: BrowserCapabilities { get }          // OptionSet: .cdp, .extensions, .trustedInput, .networkIntercept, .crossOriginFrames, ...
+    func makeTab(_ id: TabPublicId, url: URL?, profile: BrowserProfileID, host: BrowserTabHostView) async throws -> any BrowserTab
+}
+
+@MainActor protocol BrowserTab: AnyObject, Observable {
+    var id: TabPublicId { get }
+    var state: BrowserTabState { get }                     // url, title, favicon, loading, canGoBack/Forward, zoom
+    var presentation: BrowserPresentation { get }          // .inView (WKWebView) or .childWindow (CEF)
+    func load(_ url: URL); func goBack(); func goForward(); func reload(); func stop()
+    func setFocused(_ focused: Bool)
+    func setOccluded(_ occluded: Bool) async               // CEF: freeze to snapshot + hide child window
+    func snapshot() async throws -> CGImage                // WK takeSnapshot, CEF Page.captureScreenshot
+    func evaluate(_ script: String, in frame: BrowserFrameRef?) async throws -> JSONValue
+    func find(_ text: String, forward: Bool); func setZoom(_ step: Int)
+    func showDevTools()
+    func close() async
+}
+```
+
+`WebKitEngine` wraps `WKWebView` directly in the host view. `CEFEngine` wraps the Rust library (see below). The frontend never branches on engine kind except through `capabilities` and `presentation`.
+
+Child-window rules for `.childWindow` tabs (Decision 2):
+- The command palette, popovers, and menus are separate `NSPanel`s at a level above the child windows. Then no in-window overlay is needed.
+- Sidebar Liquid Glass must not sit over a CEF pane. Keep panes inset from glass, or accept the plain background next to CEF.
+- Column scroll, tab open/close animations, tab drag, and hover previews: call `setOccluded(true)`, which shows a `Page.captureScreenshot` image in the placeholder view and hides the child window. Restore after the settle signal. Fork patch: observe clip-view bounds changes and clip or hide when the placeholder is only partly visible. Do not ship the no-clip behavior.
+
+Chromium `Browser` per pane (Decision 1): the first CEF tab in a pane creates the tabbed browser in that pane's placeholder view. Later CEF tabs in the pane use `cmux_tab_add`. The pane's selected tab maps to `cmux_tab_activate`. When a WebKit or terminal tab is selected, the placeholder is hidden and the tracker hides the child window. Cross-pane moves need the new fork call. Without it, a move recreates the tab and loses page state.
+
+### Rust crate or Swift against the CEF C API
+
+Recommended: **a new slim Rust crate `cmux-cef` in the cmux repo, built into a static lib**, derived from cmux2's `crates/engine`. Do not reuse `cmux-ffi` as it is.
+
+- Keep from cmux2: process setup and switches (`client.rs:75-110`), sandbox entry, `LibraryLoader`, the fork binding (`fork.rs`), handlers (display, load, life span with popup-as-tab and `do_close` returning 1 on macOS, keyboard, command), the extension action JSON, and the `chrome://` page opening.
+- Delete from it: `cmux-core` (tab strip, session, omnibox), terminal tabs, the layout enum, the stock-CEF Alloy fallback and `chrome_window.rs`, and popups-as-browsers for stock CEF. Tabs are keyed by the daemon `TabPublicId`, and the frontend owns order and selection.
+- New surface: `cmux_cef_initialize(config, host)` with `external_message_pump`, `cmux_cef_do_work()`, `cmux_cef_create_window(pane_view)`, `cmux_cef_tab_add/activate/move/close`, `cmux_cef_devtools_call(browser, method, params_json, cb)` (`CefBrowserHost::ExecuteDevToolsMethod` + observer), `cmux_cef_target_id(browser)` (via `Target.getTargetInfo`), and a profile to request-context mapping.
+- Why Rust rather than Swift over `include/capi`: the C API is hand-refcounted structs of function pointers (`cef_base_ref_counted_t`) with one callback struct per handler. Swift would need about 30 `@convention(c)` trampolines and manual layout, and it duplicates `cef-rs`, which already generates safe wrappers, pins the API hash, and implements the loader and the sandbox. cmux already runs cargo inside the Xcode build (`cmux:cmux.xcodeproj/project.pbxproj:13077`, `run-diff-sidecar-cargo.sh`). The helper stays a Rust binary (`crates/helper` is 16 lines).
+- Cost: the `cef` crate version must match the fork's CEF branch. Upgrading CEF means bumping `cef` and rebasing the fork together.
+
+### Lazy loading
+
+Goal: a cmux session with no CEF tab does not load the 584 MiB framework, does not spawn helpers, and does not open the Chromium profile.
+
+1. Do not link the framework. `LibraryLoader` loads it on first use. The only link-time cost is the static Rust lib, which is small without `cmux-core`.
+2. The cmux `NSApplication` subclass always implements `CrAppControlProtocol`/`CefAppProtocol` (pure ObjC, no CEF symbols), because it must be `NSApp` before CEF starts. This is cmux2's `CmuxApplication` without `terminate:` changes until CEF is live.
+3. On the first CEF tab: load the library, then `CefInitialize` with `external_message_pump = 1`. Implement `OnScheduleMessagePumpWork(delay)` with one `CFRunLoopTimer` on the main run loop in common modes, reset on each request (this is the cefclient `MainMessageLoopExternalPumpMac` pattern), and call `CefDoMessageLoopWork`. This fits the cmux "no `asyncAfter`" rule, because the timer is owned and cancellable. Show a placeholder until `on_context_initialized`.
+4. `CefInitialize` runs once per process and cannot run again after `CefShutdown`. After the last CEF tab closes, keep CEF alive and idle. Quit path: if CEF is live, `terminate:` closes all CEF browsers, waits for all-closed, calls `CefShutdown`, then replies `NSTerminateNow`. Otherwise it quits normally.
+5. **UNVERIFIED, highest technical risk:** Chrome-style `CefInitialize` after `[NSApp run]` has started and after cmux has installed its own menus. cefclient calls `CefInitialize` before `[NSApp run]` even with the external pump. Chrome style also installs its own `NSApp` delegate hooks and main-menu items. Spike this first in cmux2: move `cmux_initialize` behind a button, with the external pump. If it fails, the fallback is to initialize CEF at launch when the daemon reports any CEF tab or a setting enables CEF. The cost then moves to "users who opt in".
+
+### Per-profile data dirs
+
+The daemon owns the profile identity (`BrowserProfileID` UUID, name). Each engine derives its storage from it:
+
+- WebKit: `WKWebsiteDataStore(forIdentifier: profileUUID)` (macOS 14+). The history file lives under the cmux app support profile dir.
+- CEF: `root_cache_path = ~/Library/Application Support/<bundle id>/Chromium`. Each profile gets a `CefRequestContext` with `cache_path = <root>/Profiles/<uuid>`. Each cmux profile is a separate Chromium `Profile`, with its own extensions and Chrome windows. The default profile uses its own subdir too, not the root (Chrome 136+ blocks remote debugging on the default user data dir).
+- Tagged DEV builds already have distinct bundle ids and therefore distinct dirs. DEV and tagged builds always pass `--use-mock-keychain`, because every new ad-hoc signature re-prompts for "Chromium Safe Storage" (cmux2:`client.rs:88-95`). Release uses the real keychain item.
+- Engines do not share cookies. A later "copy cookies to other engine" action can use `WKHTTPCookieStore` and CDP `Network.getAllCookies`/`setCookies`.
+
+### Socket browser automation
+
+Today: 138 `v2Browser*` handlers on `TerminalController` (cmux:`Sources/TerminalController.swift:3172-3232, 9934-10000`). Most run JS strings built by `CmuxBrowser/Control/BrowserControlService+Scripts.swift` through WKWebView. These return `not_supported` on WebKit: `geolocation.set`, `offline.set`, `trace.*`, `network.route/unroute/requests`, `input_mouse/keyboard/touch`, and cross-origin frames (cmux:`Sources/TerminalController.swift:11334-11389, 9815`).
+
+The daemon already has what CEF needs: `RegisterBrowserProvider {provider_id, endpoint, authentication, bearer_token, targets}`, allowed only from trusted Unix clients (cmux:`cmux-tui/crates/cmux-tui-core/src/server.rs:11461-11492`). A connection-scoped, non-durable registry maps `TabPublicId` to a CDP `target_id` (cmux:`cmux-tui/crates/cmux-tui-core/src/browser_provider.rs`). The `browser.*` daemon commands (`navigate`, `back`, `input.*`, `viewer.resize`, `target.adopt`) and TUI screencast mirroring are CDP clients through `cmux-tui-cdp` (cmux:`cmux-tui/docs/browser-panes.md`).
+
+Proposed mapping (Decision 4):
+
+| Command family | WebKit tab | CEF tab |
+| --- | --- | --- |
+| navigate/back/forward/reload/stop, url/title | frontend `BrowserTab` | CDP `Page.*` (daemon) |
+| eval, find.*, get.*, is.*, snapshot, wait, highlight | same JS scripts via `evaluateJavaScript` (keep `BrowserControlService` scripts) | the same JS scripts via `Runtime.evaluate`, so the output is byte-identical across engines |
+| click/dblclick/hover/type/fill/press/keydown/keyup/scroll | synthetic DOM events in JS (untrusted) | `Input.dispatchMouseEvent`/`dispatchKeyEvent`/`insertText` (trusted events), coordinates from `get.box` |
+| input_mouse/keyboard/touch | not_supported | CDP `Input.*` |
+| screenshot | `takeSnapshot` | `Page.captureScreenshot` |
+| cookies, storage | `WKHTTPCookieStore`, JS storage | `Network.*Cookies`, `DOMStorage`/JS |
+| network.route/requests, offline, geolocation, viewport, trace | not_supported (viewport keeps the current WK emulation) | `Fetch.enable`/`requestPaused`, `Network.emulateNetworkConditions`, `Emulation.setGeolocationOverride`, `Emulation.setDeviceMetricsOverride`, `Tracing.*` |
+| frame.select | same-origin only | `Page.getFrameTree` + execution contexts, cross-origin works |
+| dialog.accept/dismiss | `WKUIDelegate` pending dialog | `Page.javascriptDialogOpening` / `handleJavaScriptDialog` |
+| downloads | frontend `WKDownload` | `Browser.setDownloadBehavior` + `downloadProgress` |
+| devtools.toggle | `WKWebView` inspector | `CefBrowserHost::ShowDevTools` |
+| tab.new/list/switch/close | daemon tree | daemon tree plus `cmux_tab_*` |
+
+Path: CLI → daemon. The daemon resolves the tab. For CEF with a provider lease, the daemon runs CDP itself. For WebKit, the daemon forwards to the owning frontend client, which advertises a `browser.webkit.executor` capability. The capability error text is generated from `BrowserCapabilities`, not hard-coded "WKWebView". Inside the frontend, CEF also has in-process CDP (`ExecuteDevToolsMethod`) for tab previews and occlusion snapshots, so the app does not depend on the port.
+
+Provider registration: after `CefInitialize`, the frontend opens a loopback DevTools endpoint (Decision 5), reads `DevToolsActivePort`, and registers `{provider_id, endpoint, targets: {tab_id: target_id}}` over its trusted Unix connection. It re-registers when tabs change. The daemon already handles provider disconnect and target replacement.
+
+## 4. Distribution
+
+Sizes measured on 2026-09-28:
+
+| Artifact | Size |
+| --- | --- |
+| dist framework (non-official, arm64, `symbol_level=0`) | 691 MiB total, 584 MiB binary |
+| binary after `strip -x` | 367 MiB, about 93 MiB with `xz -6` |
+| minimal distrib `.tar.bz2` from the build tree | 198 MiB (`~/fun/cef-cmux-build/chromium/src/cef/binary_distrib/`) |
+| stock CEF 154 framework in `cmux2.app` | 320 MiB |
+| Chromium build tree (no history) | 46 GiB. Script budget 150 GB, requires 350 GiB free (fork:`scripts/build-cmux-cef.sh:19-28`) |
+
+Hosting and pinning (same model as GhosttyKit, cmux:`scripts/download-prebuilt-ghosttykit.sh:52`, `scripts/ghosttykit-checksums.txt`):
+
+- A new repo `manaflow-ai/cef` holds branch `cmux/8037` (push fork history there). GitHub release tag `cef-<forksha12>-chromium-154.0.8037.58-macos-arm64`. Asset `cef-cmux-minimal.tar.xz`: stripped framework, `include/` (with `cef_cmux.h`), `cmake/`, `libcef_dll/`, and `archive.json` (the layout `build-cmux-cef.sh` already writes). Also upload the unstripped binary or dSYM as a separate asset for Sentry symbolication. The GitHub asset limit is 2 GiB, so the size fits.
+- cmux repo: `scripts/cef-version.txt` (fork SHA + Chromium version) and `scripts/cef-checksums.txt` (`<forksha> <sha256>`). `scripts/ensure-cef.sh` downloads into `~/Library/Caches/cmux/cef/<forksha>/`, verifies sha256, refuses on mismatch, and exports `CEF_PATH`. Local override: `CMUX_CEF_PATH=~/fun/cef-cmux-dist` for fork development, which skips the checksum and prints a warning.
+- cmux-ci fleet Macs and hosted CI then need only network access. Keep the cache across jobs, because a cold fetch is about 100-200 MB. Jobs that do not need CEF (unit tests, most CI) build with `CMUX_CEF=0`: the CEF engine is compiled out or reports unavailable, and nothing is fetched. Nightly, release, and tagged reloads use `CMUX_CEF=1`.
+- Building the fork is not a CI job (hours, about 150 GB). Build on one designated fleet Mac with the disk, run `build-cmux-cef.sh build`, then a small `publish-cef.sh` that tars, hashes, and creates the release. Then open a cmux PR that bumps both pin files.
+
+Signing and notarization:
+
+- Helper names must be `<CFBundleName> Helper (X).app`. cmux has several bundle names (`cmux`, `cmux NIGHTLY`, `cmux DEV <tag>`), so helper names are generated per variant at build time. Set `browser_subprocess_path` explicitly to the base helper. **To verify:** CEF derives the `(GPU)`/`(Renderer)` variant paths from the base helper name.
+- Sign from the inside out, without `--deep`: `Libraries/*.dylib`, the framework, each helper (hardened runtime, `--timestamp`), then the app. Helper entitlements follow Chromium: Renderer and GPU need `com.apple.security.cs.allow-jit` (`~/fun/cef-cmux-build/chromium/src/chrome/app/helper-{renderer,gpu}-entitlements.plist`). Base, Plugin, and Alerts need none. The main app already has `allow-jit`, `allow-unsigned-executable-memory`, and `disable-library-validation` (cmux:`cmux.release.entitlements`), and camera, microphone, and location usage entitlements that Chrome also needs.
+- Notarization: one more 600 MiB Mach-O makes the upload and scan slower. The release flow in cmux:`.github/workflows/release.yml:561-592` needs no structural change. Sparkle deltas stay small when the framework does not change between releases. A fork bump means a full framework delta.
+- Keychain: release builds create a "cmux Safe Storage" item on the first CEF launch. A signing identity change re-prompts.
+- On-demand runtime (Decision 8, later): a separately signed and notarized `cmux Chromium.bundle` in Application Support, loaded with `framework_dir_path`/`main_bundle_path` and an explicit `browser_subprocess_path`. This keeps the DMG size flat. The cost is a second notarized artifact and version skew between the app and the runtime.
+
+## 5. Existing cmux browser code: delete vs keep
+
+Scale: `Sources/*Browser*.swift` = 146 files, 47,291 lines. `Packages/macOS/CmuxBrowser` = about 30.5k lines (11.6k import AppKit/WebKit/Bonsplit, 12.2k are pure). Also `BrowserPanel.swift` 11.5k, `BrowserPanelView.swift` 8k, `BrowserWindowPortal.swift` 4.3k, and browser code inside `TerminalController.swift`, `Workspace.swift`, and `ContentView.swift`.
+
+Delete (do not port):
+
+- All of `Sources/Panels/Browser*`, `Sources/Browser*` (portal, render state, drop targets), `BrowserWindowPortal.swift` (the WKWebView reparenting hack for bonsplit), `BrowserPopupWindowController.swift`, `BrowserPrewarmedWebViewPool.swift`, `BrowserDiscardRestoreHeal.swift`, `BrowserPanel+AutomationRecovery.swift`, `BrowserPanel+MobileBrowserStreaming.swift` (the daemon CDP screencast replaces it for CEF), `Workspace+DockBrowserLookup.swift`, `TerminalController+WindowDockBrowserRouting.swift`, and the `DockSplitStore` browser paths. All of these are lifecycle and layout owners that the daemon plus `BrowserTab` replace.
+- The 138 `v2Browser*` handlers in `TerminalController`. Re-implement them once over the table in section 3.
+- `CmuxBrowser/WebView/` (6.4k, including `CmuxWebView.swift` 2.7k), `BrowserHiddenWebViewDiscardManager`, `BrowserOffscreenRenderHost`, `BrowserViewportHostView`, and the scripted-download and context-menu-capture extensions. Write a new, small `WebKitEngine` against the protocol.
+- `Panel/`, `Focus/`, `Omnibar/PageFocus/`, `AppSession/` UI parts, `RecentlyClosed/` (the daemon journal owns closed tabs), `Screenshot/` frame verifiers, and the `Bonsplit` dependency in `Package.swift`.
+- cmux2's AppKit shell (`apple/Sources/CmuxMac/*`) is also a demo. Take only `CmuxApplication` (CefAppProtocol) and the extension action button logic from `BrowserToolbar.swift:91-165`.
+
+Keep (pure, tested, engine-neutral; move into a new small `CmuxBrowserCore` package without AppKit):
+
+- `Control/BrowserControlService*.swift` (JS locator, snapshot, storage, and keyboard scripts), `BrowserKeyboardEvent`, `BrowserKeyboardNativeKey` (canonical key names that map to both native events and CDP `Input.dispatchKeyEvent`), `BrowserAutomationDocumentReadiness`, `BrowserAutomationNavigationURL`, `BrowserAutomationWatchdog`. Keep their tests.
+- `Omnibar/BrowserURLResolver.swift` and `History/BrowserHistorySuggestionEngine.swift`, `BrowserHistoryEntry`, `BrowserHistoryFileRepository`. Use one resolver for both engines, and drop cmux2's `cmux_core::resolve_omnibox_input`.
+- `Import/Detection/BrowserInstalledBrowserDetector` and the `Import/Values`/`Outcome` types, for importing into WebKit profiles.
+- `Download/BrowserDownloadFilenameResolver` and `BrowserDownloadURLNormalizer` (WebKit only; Chromium does its own downloads).
+- WebKit-only, keep only if WebKit keeps the feature: `WebAuthn/BrowserWebAuthnSupport.swift` (1.9k, the passkey bridge that uses the `web-browser.public-key-credential` entitlement; CEF passkey support with that entitlement is untested), `Proxy/BrowserSystemProxyMirror` (WebKit has no loopback proxy bypass), `ClientCertificates/*` (Chrome style shows Chromium's own selector).
+- `DiffViewer/*` and `DesignMode/*` are cmux features hosted in WKWebView, not browser engine code. They are out of scope for this note. They stay WebKit-hosted surfaces and do not need the engine protocol.
+- `Profiles/Repository/BrowserProfileRepository` is tied to `WKWebsiteDataStore` and `UserDefaults`. Rewrite it: the daemon stores profile identity, and each engine maps it to storage.
+
+## Order of work
+
+1. Push the fork and cmux2 to `manaflow-ai` (Decision 3). Publish the current dist as the first pinned artifact.
+2. Spike in cmux2: lazy `CefInitialize` with the external pump after `NSApp.run` starts. Also check one browser per view with two views side by side, and clip-view scrolling.
+3. Fork patches: clip-view tracking and visible-rect clipping, cross-window tab move, and a `CMUX.md` refresh. Bump `CMUX_CEF_API_VERSION` to 2.
+4. `cmux-cef` crate, `ensure-cef.sh`, the helper app assembly, and signing in the Xcode build.
+5. `BrowserEngine` protocol, `WebKitEngine`, `CEFEngine`, and the daemon `engine` and `profile_id` fields on browser tabs.
+6. Automation: daemon CDP executor for CEF, WebKit executor capability in the frontend, and the ported JS scripts.
