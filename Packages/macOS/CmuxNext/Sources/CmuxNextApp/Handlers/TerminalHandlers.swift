@@ -19,7 +19,7 @@ enum TerminalHandlers {
     /// Runs a Ghostty binding action on the targeted or focused terminal.
     static func perform(_ binding: String, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let entry = ctx.terminal(invocation) else { return }
-        if !entry.session.surfaceView.performBindingAction(binding) { ctx.refuse("Ghostty rejected \(binding)") }
+        if !entry.session.surfaceView.performBindingAction(binding) { ctx.refuse(RefusalStrings.ghosttyRejected(String(describing: binding))) }
     }
 
     static func selection(of entry: TerminalEntry) -> String? {
@@ -29,7 +29,7 @@ enum TerminalHandlers {
     private static func bindClipboard(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("terminalCopy", invoke: { invocation in
             guard let entry = ctx.terminal(invocation) else { return }
-            guard selection(of: entry) != nil else { return ctx.refuse("nothing is selected") }
+            guard selection(of: entry) != nil else { return ctx.refuse(RefusalStrings.nothingSelected) }
             entry.session.surfaceView.copy(nil)
         })
         registry.bind("terminalPaste", invoke: { invocation in
@@ -59,7 +59,7 @@ enum TerminalHandlers {
         }
         registry.bind("reconnectPane", invoke: { invocation in
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
-            guard case .terminal = content, let key = pane.currentTabKey else { return ctx.refuse("the tab is not a terminal") }
+            guard case .terminal = content, let key = pane.currentTabKey else { return ctx.refuse(RefusalStrings.notATerminal) }
             ctx.services.cache.release(key)
             pane.showSelected()
             pane.focusContent()
@@ -67,14 +67,14 @@ enum TerminalHandlers {
     }
 
     private static func bindUnported(_ registry: ActionRegistry) {
-        registry.bindUnavailable("toggleTerminalCopyMode", reason: "needs a keyboard copy mode in the cmux-next terminal")
-        let textBox = "needs the TextBox composer, which cmux-next does not have yet"
+        registry.bindUnavailable("toggleTerminalCopyMode", reason: RefusalStrings.copyModeUnported)
+        let textBox = RefusalStrings.textBoxUnported
         for id: ActionID in ["focusTextBoxInput", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction", "attachTextBoxFile"] {
             registry.bindUnavailable(id, reason: textBox)
         }
         for id: ActionID in ["resumeCommandSet", "resumeCommandEdit", "resumeCommandClear"] {
-            registry.bindUnavailable(id, reason: "needs daemon capability resume-command")
+            registry.bindUnavailable(id, reason: RefusalStrings.needsDaemonCapability("resume-command"))
         }
-        registry.bindUnavailable("findInDirectory", reason: "needs the Find panel (not in cmux-next yet)")
+        registry.bindUnavailable("findInDirectory", reason: RefusalStrings.findPanelUnported)
     }
 }

@@ -39,11 +39,11 @@ extension AppActionContext {
     /// lacks `capability`.
     func needs(_ capability: String) -> @MainActor () -> String? {
         let daemon = services.daemon
-        return { daemon.supports(capability) ? nil : "needs daemon capability \(capability)" }
+        return { daemon.supports(capability) ? nil : RefusalStrings.needsDaemonCapability(capability) }
     }
 
     func connection() -> DaemonConnection? {
-        services.daemon.connection ?? refuse("cmux-tui daemon is not connected")
+        services.daemon.connection ?? refuse(MiscHandlerStrings.daemonOffline)
     }
 
     /// Runs a daemon command off the main actor; failures are logged.
@@ -67,7 +67,7 @@ extension AppActionContext {
     /// pane. Refuses an unknown target or one not shown in any window.
     func paneController(_ invocation: ActionInvocation) -> PaneController? {
         guard let target = explicitTarget(invocation, kinds: [.tab, .pane]) else {
-            return services.windows.active?.focusedPane ?? refuse("no pane is focused")
+            return services.windows.active?.focusedPane ?? refuse(MiscHandlerStrings.noPane)
         }
         for window in services.windows.controllers {
             for pane in window.content?.panes.values.map({ $0 }) ?? [] {
@@ -77,24 +77,24 @@ extension AppActionContext {
                 if hit { return pane }
             }
         }
-        return refuse("\(target) is not shown in any window")
+        return refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
     }
 
     /// The targeted tab (with its controller), else the focused pane's selected tab.
     func tab(_ invocation: ActionInvocation) -> (pane: PaneController, id: StripTabID)? {
         guard let pane = paneController(invocation) else { return nil }
         if let target = explicitTarget(invocation, kinds: [.tab]) { return (pane, StripTabID(target.id)) }
-        guard let id = pane.stripModel.selectedID else { return refuse("the focused pane has no tab") }
+        guard let id = pane.stripModel.selectedID else { return refuse(RefusalStrings.focusedPaneHasNoTab) }
         return (pane, id)
     }
 
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
-            return services.locateTab(target.id) ?? refuse("no tab \(target.id)")
+            return services.locateTab(target.id) ?? refuse(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }
-        guard let tab = pane.tab(id) else { return refuse("tab \(id.rawValue) is session-local, not a daemon tab") }
+        guard let tab = pane.tab(id) else { return refuse(RefusalStrings.sessionLocalTab(id.rawValue)) }
         return (tab, pane.pane)
     }
 
@@ -102,7 +102,7 @@ extension AppActionContext {
     func daemonPane(_ invocation: ActionInvocation) -> PaneModel? {
         if let target = explicitTarget(invocation, kinds: [.pane]) {
             let panes = services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
-            return panes.first { $0.id == target.id } ?? refuse("no pane \(target.id)")
+            return panes.first { $0.id == target.id } ?? refuse(RefusalStrings.noPaneID(target.id))
         }
         if explicitTarget(invocation, kinds: [.tab]) != nil { return daemonTab(invocation)?.pane }
         return paneController(invocation)?.pane
@@ -110,17 +110,17 @@ extension AppActionContext {
 
     /// The daemon workspace named by a `workspace` argument.
     func workspaceArgument(_ invocation: ActionInvocation) -> WorkspaceModel? {
-        guard let ref = invocation["workspace"]?.targetValue else { return refuse("a workspace argument is required") }
-        return services.workspace(id: ref.id) ?? refuse("no workspace \(ref.id)")
+        guard let ref = invocation["workspace"]?.targetValue else { return refuse(RefusalStrings.workspaceArgumentRequired) }
+        return services.workspace(id: ref.id) ?? refuse(RefusalStrings.noWorkspace(ref.id))
     }
 
     /// The focused window's workspace content, required for layout actions.
     func content(_ invocation: ActionInvocation = ActionInvocation()) -> WorkspaceContentController? {
         if explicitTarget(invocation, kinds: [.tab, .pane]) != nil {
             guard let pane = paneController(invocation) else { return nil }
-            return pane.workspace ?? refuse("pane \(pane.paneKey) has no workspace view")
+            return pane.workspace ?? refuse(RefusalStrings.paneHasNoWorkspaceView(pane.paneKey))
         }
-        return focusedContent ?? refuse("no window shows a workspace")
+        return focusedContent ?? refuse(RefusalStrings.noWindowShowsWorkspace)
     }
 
     /// Selects `pane`'s tab first when the invocation targets a hidden one,
@@ -128,17 +128,17 @@ extension AppActionContext {
     func visibleContent(_ invocation: ActionInvocation) -> (pane: PaneController, content: TabContent)? {
         guard let (pane, id) = tab(invocation) else { return nil }
         if pane.stripModel.selectedID != id {
-            guard pane.stripModel.tab(id) != nil else { return refuse("no tab \(id.rawValue)") }
+            guard pane.stripModel.tab(id) != nil else { return refuse(RefusalStrings.noTab(id.rawValue)) }
             pane.select(id)
         }
-        guard let content = pane.currentContent else { return refuse("tab \(id.rawValue) has no live content") }
+        guard let content = pane.currentContent else { return refuse(RefusalStrings.tabHasNoLiveContent(id.rawValue)) }
         return (pane, content)
     }
 
     /// The live terminal surface of the targeted or focused tab.
     func terminal(_ invocation: ActionInvocation) -> TerminalEntry? {
         guard let (_, content) = visibleContent(invocation) else { return nil }
-        guard case .terminal(let entry) = content else { return refuse("the tab is not a terminal") }
+        guard case .terminal(let entry) = content else { return refuse(RefusalStrings.notATerminal) }
         return entry
     }
 }

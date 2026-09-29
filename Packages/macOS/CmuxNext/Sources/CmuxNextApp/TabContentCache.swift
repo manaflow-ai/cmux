@@ -18,6 +18,7 @@ final class TabContentCache {
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
     let cef = CEFEngine()
+    private(set) var browserTabs: BrowserTabService!
     private var pendingBrowsers: Set<String> = []
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
@@ -25,6 +26,7 @@ final class TabContentCache {
 
     init(daemon: DaemonService) {
         self.daemon = daemon
+        browserTabs = BrowserTabService(daemon: daemon, cef: cef)
     }
 
     var liveTerminalCount: Int { terminals.count }
@@ -62,17 +64,25 @@ final class TabContentCache {
 
     func existingBrowser(_ key: String) -> BrowserEntry? { browsers[key] }
 
-    /// The page for a daemon browser tab on the engine its record names.
+    /// The page for a daemon browser tab on the engine its record names,
+    /// written back to the record (url, title, favicon) while it lives.
     /// CEF starts lazily and creates tabs asynchronously: nil until ready.
     /// Falls back to WebKit when the CEF runtime is not bundled.
-    func browser(for key: String, url: URL?, engine: String?) -> BrowserEntry? {
-        guard engine == "cef", cef.availability == .available else { return browser(for: key, url: url) }
+    func browser(for tab: TabModel) -> BrowserEntry? {
+        let key = tab.id
+        let url = tab.url.flatMap(URL.init(string:))
+        guard tab.browserEngine == BrowserEngineTag.cef.rawValue, browserTabs.cefAvailable() else {
+            let entry = browser(for: key, url: url)
+            browserTabs.track(entry.tab, for: tab)
+            return entry
+        }
         if let entry = browsers[key] { return entry }
         guard pendingBrowsers.insert(key).inserted else { return nil }
-        Task {
+        Task { [weak tab] in
             defer { pendingBrowsers.remove(key) }
-            guard let tab = try? await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url)) else { return }
-            browsers[key] = BrowserEntry(tab: tab)
+            guard let page = try? await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url)) else { return }
+            browsers[key] = BrowserEntry(tab: page)
+            if let tab { browserTabs.track(page, for: tab) }
             onBrowserReady?(key)
         }
         return nil
@@ -101,6 +111,7 @@ final class TabContentCache {
         retention.remove(key)
         terminals.removeValue(forKey: key)?.close()
         browsers.removeValue(forKey: key)?.close()
+        browserTabs.untrack(key)
         previews.remove(key)
     }
 

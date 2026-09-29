@@ -35,7 +35,7 @@ final class TabCell {
     var scale: CGFloat = 2 {
         didSet {
             guard oldValue != scale else { return }
-            for sublayer in [titleLayer, iconLayer] as [CALayer] { sublayer.contentsScale = scale }
+            for sublayer in [titleLayer, iconLayer, spinnerLayer, closeGlyphLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
             updateColors(animated: false)
             layoutLayers()
         }
@@ -53,14 +53,21 @@ final class TabCell {
     var bounds: CGRect { CGRect(origin: .zero, size: layer.bounds.size) }
 
     private let backgroundLayer = CALayer()
-    private let iconLayer = CALayer()
-    private let spinnerLayer = CAShapeLayer()
-    private let badgeLayer = CALayer()
-    private let titleLayer = CATextLayer()
+    let iconLayer = CALayer()
+    let titleLayer = CATextLayer()
     private let titleMask = CAGradientLayer()
-    private let closeBackgroundLayer = CALayer()
-    private let closeGlyphLayer = CAShapeLayer()
     private let separatorLayer = CALayer()
+    // Created on first need and removed when unused, so 100 idle tabs cost
+    // five layers each (architecture.md 3): spinner while busy, badge while
+    // unread or showing status, close button on the selected/hovered tab.
+    var spinnerLayer: CAShapeLayer?
+    var badgeLayer: CALayer?
+    var closeBackgroundLayer: CALayer?
+    var closeGlyphLayer: CAShapeLayer?
+
+    var hasSpinnerLayer: Bool { spinnerLayer != nil }
+    var hasBadgeLayer: Bool { badgeLayer != nil }
+    var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
 
     private(set) var visibility = TabChromeVisibility(showsIcon: true, showsTitle: true, showsClose: false, centersContent: false)
     /// Close button frame in this view's coordinates, or nil when hidden.
@@ -99,11 +106,6 @@ final class TabCell {
         root.masksToBounds = false
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
-        spinnerLayer.fillColor = nil
-        spinnerLayer.lineWidth = Metrics.space1 * 0.75
-        spinnerLayer.lineCap = .round
-        spinnerLayer.strokeStart = 0
-        spinnerLayer.strokeEnd = 0.72
         titleLayer.font = titleFont
         titleLayer.fontSize = titleFont.pointSize
         titleLayer.isWrapped = false
@@ -112,28 +114,23 @@ final class TabCell {
         titleMask.startPoint = CGPoint(x: 0, y: 0.5)
         titleMask.endPoint = CGPoint(x: 1, y: 0.5)
         titleMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
-        closeBackgroundLayer.cornerCurve = .continuous
-        closeGlyphLayer.fillColor = nil
-        closeGlyphLayer.lineWidth = Metrics.space1 * 0.65
-        closeGlyphLayer.lineCap = .round
         separatorLayer.opacity = 0
-        for sublayer in [backgroundLayer, separatorLayer, iconLayer, spinnerLayer, badgeLayer, titleLayer, closeBackgroundLayer, closeGlyphLayer] {
+        for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
         }
         // Fills fade; geometry never implicitly animates.
         backgroundLayer.actions = ["backgroundColor": Self.fade, "shadowOpacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
-        closeBackgroundLayer.actions = ["backgroundColor": Self.fade, "bounds": NSNull(), "position": NSNull()]
         separatorLayer.actions = ["opacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
     }
 
-    private static let noActions: [String: any CAAction] = [
+    static let noActions: [String: any CAAction] = [
         "bounds": NSNull(), "position": NSNull(), "contents": NSNull(), "opacity": NSNull(),
         "hidden": NSNull(), "string": NSNull(), "foregroundColor": NSNull(), "backgroundColor": NSNull(),
         "mask": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "sublayers": NSNull(),
     ]
 
-    private static let fade: CABasicAnimation = {
+    static let fade: CABasicAnimation = {
         let animation = CABasicAnimation()
         animation.duration = 0.14
         animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -173,6 +170,7 @@ final class TabCell {
     private func updateSpinner() {
         let key = "spin"
         if item.isBusy {
+            let spinnerLayer = makeSpinner()
             if spinnerLayer.animation(forKey: key) == nil {
                 let spin = CABasicAnimation(keyPath: "transform.rotation.z")
                 spin.fromValue = 0
@@ -183,7 +181,8 @@ final class TabCell {
                 spinnerLayer.add(spin, forKey: key)
             }
         } else {
-            spinnerLayer.removeAnimation(forKey: key)
+            spinnerLayer?.removeFromSuperlayer()
+            spinnerLayer = nil
         }
         layoutLayers()
     }
@@ -200,19 +199,16 @@ final class TabCell {
             }
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
             titleLayer.foregroundColor = text.cgColor
-            spinnerLayer.strokeColor = Palette.textSecondary.cgColor
-            closeGlyphLayer.strokeColor = (isCloseHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
-            closeBackgroundLayer.backgroundColor = isClosePressed
-                ? Palette.selectionFill.cgColor
-                : (isCloseHovered ? Palette.hoverFill.cgColor : nil)
+            spinnerLayer?.strokeColor = Palette.textSecondary.cgColor
             separatorLayer.backgroundColor = Palette.separator.cgColor
-            badgeLayer.backgroundColor = badgeColor?.cgColor
             iconLayer.contents = iconImage(tint: text)
         }
+        applyCloseColors()
+        applyBadgeColor()
         CATransaction.commit()
     }
 
-    private var badgeColor: NSColor? {
+    var badgeColor: NSColor? {
         switch item.status {
         case .needsInput: return .systemOrange
         case .success: return .systemGreen
@@ -288,23 +284,33 @@ final class TabCell {
         let showsIconArt = visibility.showsIcon && !item.isBusy
         iconLayer.frame = iconFrame
         iconLayer.opacity = showsIconArt ? 1 : 0
-        spinnerLayer.opacity = (visibility.showsIcon && item.isBusy) ? 1 : 0
-        let spinnerRect = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
-        spinnerLayer.bounds = CGRect(origin: .zero, size: spinnerRect.size)
-        spinnerLayer.position = CGPoint(x: spinnerRect.midX, y: spinnerRect.midY)
-        spinnerLayer.path = CGPath(ellipseIn: spinnerLayer.bounds, transform: nil)
+        if let spinnerLayer {
+            spinnerLayer.opacity = visibility.showsIcon ? 1 : 0
+            let spinnerRect = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
+            if spinnerLayer.bounds.size != spinnerRect.size {
+                spinnerLayer.bounds = CGRect(origin: .zero, size: spinnerRect.size)
+                spinnerLayer.path = CGPath(ellipseIn: spinnerLayer.bounds, transform: nil)
+            }
+            spinnerLayer.position = CGPoint(x: spinnerRect.midX, y: spinnerRect.midY)
+        }
 
-        let badge = m.badgeSize
-        badgeLayer.frame = CGRect(
-            x: pixel(iconFrame.maxX - badge + Metrics.space1),
-            y: pixel(iconFrame.minY - Metrics.space1),
-            width: badge,
-            height: badge
-        )
-        badgeLayer.cornerRadius = badge / 2
-        badgeLayer.opacity = (visibility.showsIcon && badgeColor != nil) ? 1 : 0
+        if visibility.showsIcon, badgeColor != nil {
+            let badgeLayer = makeBadge()
+            let badge = m.badgeSize
+            badgeLayer.frame = CGRect(
+                x: pixel(iconFrame.maxX - badge + Metrics.space1),
+                y: pixel(iconFrame.minY - Metrics.space1),
+                width: badge,
+                height: badge
+            )
+            badgeLayer.cornerRadius = badge / 2
+        } else if let badgeLayer {
+            badgeLayer.removeFromSuperlayer()
+            self.badgeLayer = nil
+        }
 
         if let closeRect {
+            let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
             closeBackgroundLayer.frame = closeRect
             closeBackgroundLayer.cornerRadius = max(0, m.cornerRadius - Metrics.space1)
             let inset = (closeRect.width - m.closeGlyphSize) / 2
@@ -316,11 +322,8 @@ final class TabCell {
             path.addLine(to: CGPoint(x: glyph.minX, y: glyph.maxY))
             closeGlyphLayer.frame = bounds
             closeGlyphLayer.path = path
-            closeGlyphLayer.opacity = 1
-            closeBackgroundLayer.opacity = 1
         } else {
-            closeGlyphLayer.opacity = 0
-            closeBackgroundLayer.opacity = 0
+            removeCloseLayers()
         }
         closeButtonRect = closeRect
 

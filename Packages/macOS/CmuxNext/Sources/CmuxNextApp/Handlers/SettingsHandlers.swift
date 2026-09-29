@@ -42,7 +42,7 @@ enum SettingsHandlers {
     }
 
     static func requireSettings(_ context: AppActionContext) throws -> SettingsController {
-        guard let settings = context.services.settings else { throw ActionFailure(message: "cmux.json is not loaded yet") }
+        guard let settings = context.services.settings else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         return settings
     }
 
@@ -75,7 +75,7 @@ enum SettingsHandlers {
     private static func toggleSetting(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let settings = try requireSettings(context)
         guard let setting = invocation["setting"]?.stringValue, !setting.isEmpty else {
-            throw ActionFailure.invalidTarget("setting is required (a dotted cmux.json path)")
+            throw ActionFailure.invalidTarget(RefusalStrings.settingArgumentRequired)
         }
         let path = CmuxConfigFile.keyPath(from: setting)
         let explicit = invocation["on"]?.boolValue

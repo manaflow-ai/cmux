@@ -19,11 +19,13 @@ final class AppServices {
     private(set) var dragSession: TabDragSession!
     private(set) var palette: PaletteController!
     private(set) var previews: TabPreviewSource!
+    private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     private let terminalDelegate = TerminalHostDelegate()
 
     init(environment: AppEnvironment) {
         self.environment = environment
         cache = TabContentCache(daemon: daemon)
+        emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
         windows = WindowManager(services: self)
         dragSession = TabDragSession(services: self)

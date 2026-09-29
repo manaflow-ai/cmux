@@ -79,7 +79,7 @@ enum PaneHandlers {
             registry.bind(id, invoke: { invocation in
                 guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
                 guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
-                    return ctx.refuse("no pane \(direction) of the focused pane")
+                    return ctx.refuse(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
                 }
                 focus(next, in: content)
             })
@@ -93,7 +93,7 @@ enum PaneHandlers {
               let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
         let order = screen.layout.panes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
-            return ctx.refuse("the screen has one pane")
+            return ctx.refuse(RefusalStrings.screenHasOnePane)
         }
         focus(order[(index + offset + order.count) % order.count], in: content)
     }
@@ -114,7 +114,7 @@ enum PaneHandlers {
                 case .columnWidth(let column, let width):
                     content.layoutModel.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
                 case nil:
-                    ctx.refuse("no divider to move \(direction) (or it is at its limit)")
+                    ctx.refuse(RefusalStrings.noDividerToMove(RefusalStrings.direction(direction)))
                 }
             })
         }
@@ -125,7 +125,7 @@ enum PaneHandlers {
             case .columns(let columns): columns.map(\.root)
             }
             let splits = trees.flatMap(\.splits)
-            guard !splits.isEmpty else { return ctx.refuse("the screen has no splits") }
+            guard !splits.isEmpty else { return ctx.refuse(RefusalStrings.screenHasNoSplits) }
             for split in splits { content.layoutModel.equalizeSplit(split) }
         })
         registry.bind("toggleSplitZoom", invoke: { invocation in

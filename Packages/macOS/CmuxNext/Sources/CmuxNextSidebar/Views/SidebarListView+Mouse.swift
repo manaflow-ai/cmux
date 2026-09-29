@@ -47,10 +47,11 @@ extension SidebarListView {
             reload(animated: true)
         case let .group(group):
             if event.clickCount == 2 {
-                // The first click toggled; undo that and rename instead.
-                model.send(.toggleCollapse(.group(group)))
+                // The first click's toggle is still pending (it waits out the
+                // double-click interval): cancel it and rename, so the group
+                // never collapses and re-expands under the pointer.
+                if pendingGroupToggle?.group == group { cancelPendingGroupToggle() }
                 self.press = nil
-                reload(animated: true)
                 beginRename(row.key)
                 return
             }
@@ -88,8 +89,12 @@ extension SidebarListView {
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
                 model.send(.openGroup(group))
-            } else {
+            } else if compact || isOnDisclosure(point, group: group) {
+                // The chevron has no double-click meaning: toggle at once.
                 model.send(.toggleCollapse(.group(group)))
+            } else {
+                scheduleGroupToggle(group)
+                return
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
@@ -97,6 +102,40 @@ extension SidebarListView {
             break
         }
         reload(animated: true)
+    }
+
+    // MARK: - Group header single vs double click
+
+    struct PendingGroupToggle {
+        let group: GroupID
+        let task: Task<Void, Never>
+    }
+
+    /// Whether `point` (list coordinates) is on the group's chevron/folder.
+    func isOnDisclosure(_ point: NSPoint, group: GroupID) -> Bool {
+        guard let view = rowViews[.group(group)] as? GroupHeaderRowView else { return false }
+        return view.disclosureFrame.contains(convert(point, to: view))
+    }
+
+    /// A single click on a group header's title toggles after the system
+    /// double-click interval, so a double-click can rename instead.
+    func scheduleGroupToggle(_ group: GroupID) {
+        cancelPendingGroupToggle()
+        let clock = clickClock
+        let delay = groupToggleDelay
+        let task = Task { [weak self] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard let self, self.pendingGroupToggle?.group == group else { return }
+            self.pendingGroupToggle = nil
+            self.model.send(.toggleCollapse(.group(group)))
+            self.reload(animated: true)
+        }
+        pendingGroupToggle = PendingGroupToggle(group: group, task: task)
+    }
+
+    func cancelPendingGroupToggle() {
+        pendingGroupToggle?.task.cancel()
+        pendingGroupToggle = nil
     }
 
     // MARK: - Keyboard

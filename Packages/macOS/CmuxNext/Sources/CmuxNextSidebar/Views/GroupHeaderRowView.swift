@@ -106,6 +106,9 @@ final class GroupHeaderRowView: SidebarRowView {
         }
     }
 
+    /// The chevron and folder icon: a click here toggles immediately.
+    var disclosureFrame: NSRect { chevron.frame.union(folder.frame).insetBy(dx: -Metrics.space1, dy: -bounds.height) }
+
     override func layout() {
         super.layout()
         let b = layoutBounds

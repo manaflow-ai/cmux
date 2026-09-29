@@ -1,0 +1,1587 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "handlers.refusal.audioMuteUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs audio mute support in the cmux-next browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next のブラウザで音声ミュートへの対応が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.browserFindClosesWithEscape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the browser find bar closes with Escape"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザの検索バーは Escape で閉じます"
+          }
+        }
+      }
+    },
+    "handlers.refusal.browserReopenNeedsWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser tabs reopen only in a pane shown in a window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザタブはウィンドウに表示中のペインでのみ再度開けます"
+          }
+        }
+      }
+    },
+    "handlers.refusal.canvasUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs canvas layout, which cmux-next does not have yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンバスレイアウトが必要ですが、cmux-next にはまだありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.closedTabPaneGone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the closed tab's pane is gone and no pane is focused"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じたタブのペインがなくなっていて、フォーカス中のペインもありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.cloudPaneUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs the Cloud panel as a pane (not in cmux-next yet)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインとしての Cloud パネルが必要です(cmux-next にはまだありません)"
+          }
+        }
+      }
+    },
+    "handlers.refusal.colorArgumentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a color argument (grey, blue, ...) is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color 引数(grey、blue など)が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.colorMustBeOneOf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color must be one of %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color は %@ のいずれかにしてください"
+          }
+        }
+      }
+    },
+    "handlers.refusal.columnAlreadyHasWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the column already has that width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列はすでにその幅です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.columnAtEdge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the column is already at the edge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列はすでに端にあります"
+          }
+        }
+      }
+    },
+    "handlers.refusal.copyModeUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs a keyboard copy mode in the cmux-next terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next のターミナルにキーボードのコピーモードが必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.couldNotOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "could not open %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を開けませんでした"
+          }
+        }
+      }
+    },
+    "handlers.refusal.deepLinksUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs cmux-next deep link navigation (cmux:// handler)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next のディープリンク移動(cmux:// ハンドラー)が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.directionDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下"
+          }
+        }
+      }
+    },
+    "handlers.refusal.directionLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        }
+      }
+    },
+    "handlers.refusal.directionRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        }
+      }
+    },
+    "handlers.refusal.directionUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上"
+          }
+        }
+      }
+    },
+    "handlers.refusal.filesPaneUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs the Files panel as a pane (not in cmux-next yet)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインとしての Files パネルが必要です(cmux-next にはまだありません)"
+          }
+        }
+      }
+    },
+    "handlers.refusal.findPaneUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs the Find panel as a pane (not in cmux-next yet)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインとしての Find パネルが必要です(cmux-next にはまだありません)"
+          }
+        }
+      }
+    },
+    "handlers.refusal.findPanelUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs the Find panel (not in cmux-next yet)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find パネルが必要です(cmux-next にはまだありません)"
+          }
+        }
+      }
+    },
+    "handlers.refusal.focusedPaneHasNoTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the focused pane has no tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のペインにタブがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.fullWidthTabUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs full-width tab support in the cmux-next tab strip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next のタブバーで全幅タブへの対応が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.ghosttyRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty rejected %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty が %@ を拒否しました"
+          }
+        }
+      }
+    },
+    "handlers.refusal.groupArgumentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a group argument is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "group 引数が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.groupAtEdge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the group is already at the edge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループはすでに端にあります"
+          }
+        }
+      }
+    },
+    "handlers.refusal.groupNotSaved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the group is not saved"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このグループは保存されていません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.groupRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "group is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "group が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.indexRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "an index 1-9 is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1〜9 のインデックスが必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.markUnreadUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs daemon capability %@ (only marking read is supported)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デーモン機能 %@ が必要です(既読にする操作のみ対応しています)"
+          }
+        }
+      }
+    },
+    "handlers.refusal.moveColumnUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs daemon capability %1$@ (the column has %2$lld panes; swap-pane moves one)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デーモン機能 %1$@ が必要です(この列には %2$lld 個のペインがあります。swap-pane は 1 つだけ移動します)"
+          }
+        }
+      }
+    },
+    "handlers.refusal.nameArgumentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a name argument is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "name 引数が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.needsAppCapability": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs app capability %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ機能 %@ が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.needsDaemonCapability": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs daemon capability %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デーモン機能 %@ が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noActiveFind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no find is active; use Find first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索が実行されていません。先に「検索」を使ってください"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noColumnInDirection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no column to the %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に列はありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noColumnShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no column %@ is shown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列 %@ は表示されていません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noDividerToMove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no divider to move %@ (or it is at its limit)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に動かせる境界線がありません(または限界に達しています)"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noLiveTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the workspace shows no live terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースに表示中のターミナルがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noOpenTabGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no open tab group %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているタブグループ %@ はありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noPaneID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no pane %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン %@ はありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noPaneInDirection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no pane %@ of the focused pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のペインの%@にペインはありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noPaneInDirectionOfTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no pane %@ of the tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブの%@にペインはありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noRecentlyClosedTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no recently closed tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近閉じたタブはありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noSavedTabGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no saved tab group %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したタブグループ %@ はありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no screen %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリーン %@ はありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noScreenshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no screenshot found in the screenshot folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリーンショットフォルダにスクリーンショットが見つかりません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no tab %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ %@ はありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no window %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウ %@ はありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWindowForFind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no window for the find prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索ダイアログを表示するウィンドウがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWindowForRename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no window for the rename prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前変更ダイアログを表示するウィンドウがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWindowOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no window is open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているウィンドウがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWindowShowsWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no window shows a workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを表示しているウィンドウがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWorkingDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the tab has no known working directory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブの作業ディレクトリが不明です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no workspace %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース %@ はありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWorkspaceGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no workspace group %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループ %@ はありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWorkspaceToActOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no workspace to act on"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作対象のワークスペースがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.notATerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the tab is not a terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはターミナルではありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.notColumnLayout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the screen is not in column layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスクリーンは列レイアウトではありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.notShownInAnyWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not shown in any window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はどのウィンドウにも表示されていません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.nothingSelected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nothing is selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何も選択されていません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.paneArgumentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a pane argument is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pane 引数が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.paneCannotSwapWithItself": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a pane cannot swap with itself"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを自分自身と入れ替えることはできません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.paneHasNoDaemonHandle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pane %@ has no daemon handle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン %@ にデーモンのハンドルがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.paneHasNoTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the pane has no tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインにタブがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.paneHasNoWorkspaceView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pane %@ has no workspace view"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン %@ にワークスペースビューがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.pinnedCannotGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pinned tabs cannot be grouped"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定したタブはグループにできません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.savedGroupAlreadyOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the saved group is already open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したグループはすでに開いています"
+          }
+        }
+      }
+    },
+    "handlers.refusal.screenCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the workspace has %lld screens"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースのスクリーンは %lld 個です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.screenHasNoOtherPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the screen has no other pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスクリーンにほかのペインがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.screenHasNoSplits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the screen has no splits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスクリーンに分割がありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.screenHasOnePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the screen has one pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスクリーンのペインは 1 つだけです"
+          }
+        }
+      }
+    },
+    "handlers.refusal.sessionLocalCannotPin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session-local tabs cannot be pinned"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション内のみのタブは固定できません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.sessionLocalCannotRename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session-local tabs cannot be renamed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション内のみのタブは名前を変更できません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.sessionLocalHasNoName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session-local tabs have no name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション内のみのタブには名前がありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.sessionLocalTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab %@ is session-local, not a daemon tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ %@ はセッション内のみのタブで、デーモンのタブではありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.settingArgumentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "setting is required (a dotted cmux.json path)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "setting が必要です(ドット区切りの cmux.json パス)"
+          }
+        }
+      }
+    },
+    "handlers.refusal.settingsNotLoaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json is not loaded yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json はまだ読み込まれていません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.simulatorUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs simulator panes, which cmux-next does not have yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シミュレーターペインが必要ですが、cmux-next にはまだありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.tabArgumentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a tab argument is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab 引数が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.tabAtEdge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the tab is already at the edge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブはすでに端にあります"
+          }
+        }
+      }
+    },
+    "handlers.refusal.tabHasNoLiveContent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab %@ has no live content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ %@ に表示中のコンテンツがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.tabNotInGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the tab is not in a group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはグループに入っていません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.terminalCannotReload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal tabs cannot reload; use Reconnect Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルタブは再読み込みできません。「ペインを再接続」を使ってください"
+          }
+        }
+      }
+    },
+    "handlers.refusal.textArgumentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a text argument is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "text 引数が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.textBoxUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs the TextBox composer, which cmux-next does not have yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TextBox 入力欄が必要ですが、cmux-next にはまだありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.vaultPaneUnported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs the Vault panel as a pane (not in cmux-next yet)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインとしての Vault パネルが必要です(cmux-next にはまだありません)"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceArgumentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a workspace argument is required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace 引数が必要です"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceHasNoDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the workspace has no working directory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースに作業ディレクトリがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceHasNoPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace %@ has no pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース %@ にペインがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceHasNoScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the workspace has no screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースにスクリーンがありません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceHasOneScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the workspace has one screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースのスクリーンは 1 つだけです"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceNotInGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the workspace is not in a group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはグループに入っていません"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceNotInSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the workspace is not in the sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはサイドバーにありません"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

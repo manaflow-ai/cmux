@@ -15,7 +15,7 @@ extension TerminalHandlers {
                 entry.chrome.perform(.findInPage)
             case .terminal(let entry):
                 if let text = invocation["text"]?.stringValue, !text.isEmpty { return entry.session.surfaceView.search(text) }
-                guard let window = pane.view.window ?? ctx.refuse("no window for the find prompt") else { return }
+                guard let window = pane.view.window ?? ctx.refuse(RefusalStrings.noWindowForFind) else { return }
                 let initial = entry.session.model.search?.needle ?? selection(of: entry) ?? ""
                 findPrompt(initial: initial, in: window) { entry.session.surfaceView.search($0) }
             }
@@ -24,12 +24,12 @@ extension TerminalHandlers {
         registry.bind("findPrevious", invoke: { navigate($0, forward: false, ctx) })
         registry.bind("hideFind", invoke: { invocation in
             guard let (_, content) = ctx.visibleContent(invocation) else { return }
-            guard case .terminal(let entry) = content else { return ctx.refuse("the browser find bar closes with Escape") }
+            guard case .terminal(let entry) = content else { return ctx.refuse(RefusalStrings.browserFindClosesWithEscape) }
             entry.session.surfaceView.endSearch()
         })
         registry.bind("useSelectionForFind", invoke: { invocation in
             guard let entry = ctx.terminal(invocation) else { return }
-            guard let text = selection(of: entry) ?? ctx.refuse("nothing is selected") else { return }
+            guard let text = selection(of: entry) ?? ctx.refuse(RefusalStrings.nothingSelected) else { return }
             entry.session.surfaceView.search(text)
         })
     }
@@ -57,33 +57,33 @@ extension TerminalHandlers {
             entry.chrome.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):
             let view = entry.session.surfaceView
-            guard entry.session.model.search != nil else { return ctx.refuse("no find is active; use Find first") }
+            guard entry.session.model.search != nil else { return ctx.refuse(RefusalStrings.noActiveFind) }
             if forward { view.searchNext() } else { view.searchPrevious() }
         }
     }
 
     static func bindInput(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind("terminal.sendText", invoke: { invocation in
-            guard let text = invocation["text"]?.stringValue ?? ctx.refuse("a text argument is required") else { return }
+            guard let text = invocation["text"]?.stringValue ?? ctx.refuse(RefusalStrings.textArgumentRequired) else { return }
             send(text, paste: false, invocation, ctx)
         })
         registry.bind("sendCtrlFToTerminal", invoke: { send("\u{06}", paste: false, $0, ctx) })
         // Ctrl-L: the shell redraws at the top and the old screen stays in scrollback.
         registry.bind("clearScreenKeepScrollback", invoke: { send("\u{0C}", paste: false, $0, ctx) })
         registry.bind("pasteLastScreenshot", invoke: { invocation in
-            guard let url = latestScreenshot() ?? ctx.refuse("no screenshot found in the screenshot folder") else { return }
+            guard let url = latestScreenshot() ?? ctx.refuse(RefusalStrings.noScreenshot) else { return }
             send(shellQuoted(url.path), paste: true, invocation, ctx)
         })
         registry.bind("palette.terminalOpenDirectory", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            guard let cwd = tab.cwd ?? ctx.refuse("the tab has no known working directory") else { return }
+            guard let cwd = tab.cwd ?? ctx.refuse(RefusalStrings.noWorkingDirectory) else { return }
             open(URL(fileURLWithPath: cwd, isDirectory: true), with: invocation["app"]?.stringValue, ctx)
         })
     }
 
     private static func send(_ text: String, paste: Bool, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-        guard tab.kind == .pty else { return ctx.refuse("the tab is not a terminal") }
+        guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
         let surface = tab.surface
         ctx.send("send") { try await $0.send(surface, text: text, paste: paste) }
     }
@@ -123,7 +123,7 @@ extension TerminalHandlers {
             URL(fileURLWithPath: "/System/Applications/\(app).app"),
         ]
         guard let appURL = candidates.compactMap({ $0 }).first(where: { FileManager.default.fileExists(atPath: $0.path) })
-            ?? ctx.refuse("no application \(app)") else { return }
+            ?? ctx.refuse(MiscHandlerStrings.appNotFound(app)) else { return }
         workspace.open([directory], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
     }
 }

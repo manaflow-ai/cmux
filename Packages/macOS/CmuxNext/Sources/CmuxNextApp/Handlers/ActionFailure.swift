@@ -8,12 +8,12 @@ struct ActionFailure: Error, Hashable, CustomStringConvertible {
 
     /// The cmux-tui daemon does not serve `capability`.
     static func needsDaemonCapability(_ capability: String) -> ActionFailure {
-        ActionFailure(message: "needs daemon capability \(capability)")
+        ActionFailure(message: RefusalStrings.needsDaemonCapability(capability))
     }
 
     /// cmux-next has no implementation of `feature` yet.
     static func needsAppCapability(_ feature: String) -> ActionFailure {
-        ActionFailure(message: "needs app capability \(feature)")
+        ActionFailure(message: RefusalStrings.needsAppCapability(feature))
     }
 
     static func invalidTarget(_ message: String) -> ActionFailure {

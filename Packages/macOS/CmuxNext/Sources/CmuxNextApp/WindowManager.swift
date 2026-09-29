@@ -93,9 +93,12 @@ final class WindowManager {
     func createWorkspace(cwd: String? = nil) async -> String? {
         guard let connection = services.daemon.connection else { return nil }
         do {
-            let result = try await connection.createWorkspace()
-            _ = try await connection.createTerminal(in: result.key, cwd: cwd ?? NSHomeDirectory())
-            return result.key.rawValue
+            let key = WorkspaceKey.generate()
+            return try await services.emptyWorkspaces.populating(key) {
+                let result = try await connection.createWorkspace(key: key)
+                _ = try await connection.createTerminal(in: result.key, cwd: cwd ?? NSHomeDirectory())
+                return result.key.rawValue
+            }
         } catch {
             services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil

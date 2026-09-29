@@ -33,10 +33,10 @@ enum TabGroupHandlers {
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .tabGroup }
         if let explicit {
             let id = GroupID(rawValue: explicit.id)
-            return pane(holding: id, ctx).map { (id, $0) } ?? ctx.refuse("no open tab group \(explicit.id)")
+            return pane(holding: id, ctx).map { (id, $0) } ?? ctx.refuse(RefusalStrings.noOpenTabGroup(explicit.id))
         }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return nil }
-        guard let id = tab.tabGroup ?? ctx.refuse("the tab is not in a group") else { return nil }
+        guard let id = tab.tabGroup ?? ctx.refuse(RefusalStrings.tabNotInGroup) else { return nil }
         return (id, pane)
     }
 
@@ -60,7 +60,7 @@ enum TabGroupHandlers {
     private static func bindMembership(_ bind: Binder, _ ctx: AppActionContext) {
         bind("tabGroup.create") { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            guard !tab.pinned else { return ctx.refuse("pinned tabs cannot be grouped") }
+            guard !tab.pinned else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let surface = tab.surface, handle = pane.handle
             let name = invocation["name"]?.stringValue
             let color = invocation["color"]?.stringValue ?? GroupColor.grey.rawValue
@@ -70,15 +70,15 @@ enum TabGroupHandlers {
         }
         bind("tabGroup.addTab") { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            guard let ref = invocation["group"]?.targetValue ?? ctx.refuse("a group argument is required") else { return }
-            guard !tab.pinned else { return ctx.refuse("pinned tabs cannot be grouped") }
+            guard let ref = invocation["group"]?.targetValue ?? ctx.refuse(RefusalStrings.groupArgumentRequired) else { return }
+            guard !tab.pinned else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let group = GroupID(rawValue: ref.id), surface = tab.surface
-            guard let pane = pane(holding: group, ctx) ?? ctx.refuse("no open tab group \(ref.id)") else { return }
+            guard let pane = pane(holding: group, ctx) ?? ctx.refuse(RefusalStrings.noOpenTabGroup(ref.id)) else { return }
             run("add-tabs-to-group", pane: pane, ctx) { c, t in _ = try await c.addTabs([surface], toGroup: group, transaction: t) }
         }
         bind("tabGroup.removeTab") { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            guard tab.tabGroup != nil else { return ctx.refuse("the tab is not in a group") }
+            guard tab.tabGroup != nil else { return ctx.refuse(RefusalStrings.tabNotInGroup) }
             let surface = tab.surface
             run("remove-tabs-from-group", pane: pane, ctx) { c, t in _ = try await c.removeTabsFromGroup([surface], transaction: t) }
         }
@@ -108,12 +108,12 @@ enum TabGroupHandlers {
     private static func bindAppearance(_ bind: Binder, _ ctx: AppActionContext) {
         bind("tabGroup.rename") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }
-            guard let name = invocation["name"]?.stringValue ?? ctx.refuse("a name argument is required") else { return }
+            guard let name = invocation["name"]?.stringValue ?? ctx.refuse(RefusalStrings.nameArgumentRequired) else { return }
             run("update-tab-group", pane: pane, ctx) { c, t in _ = try await c.updateTabGroup(group, name: name, transaction: t) }
         }
         bind("tabGroup.setColor") { invocation in
             let raw = invocation["color"]?.stringValue ?? ""
-            guard let color = GroupColor(rawValue: raw) else { return ctx.refuse("a color argument (grey, blue, ...) is required") }
+            guard let color = GroupColor(rawValue: raw) else { return ctx.refuse(RefusalStrings.colorArgumentRequired) }
             setColor(color, invocation, ctx)
         }
         for color in GroupColor.allCases {
@@ -165,7 +165,7 @@ enum TabGroupHandlers {
         bind("tabGroup.unsave") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }
             guard ctx.services.daemon.store.savedTabGroups.contains(where: { $0.openGroup == group }) else {
-                return ctx.refuse("the group is not saved")
+                return ctx.refuse(RefusalStrings.groupNotSaved)
             }
             run("unsave-tab-group", pane: pane, ctx) { c, _ in _ = try await c.unsaveTabGroup(group: group) }
         }
@@ -176,7 +176,7 @@ enum TabGroupHandlers {
         }
         bind("tabGroup.reopenSaved") { invocation in
             guard let saved = savedGroup(invocation, ctx), let pane = ctx.daemonPane(invocation) else { return }
-            guard saved.openGroup == nil else { return ctx.refuse("the saved group is already open") }
+            guard saved.openGroup == nil else { return ctx.refuse(RefusalStrings.savedGroupAlreadyOpen) }
             let id = saved.id, handle = pane.handle
             run("reopen-saved-tab-group", pane: pane, ctx) { c, t in _ = try await c.reopenSavedTabGroup(id, in: handle, transaction: t) }
         }
@@ -184,8 +184,8 @@ enum TabGroupHandlers {
 
     /// A saved group by saved id or by the id of its open group.
     private static func savedGroup(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> SavedTabGroupModel? {
-        guard let ref = invocation["group"]?.targetValue ?? ctx.refuse("a group argument is required") else { return nil }
+        guard let ref = invocation["group"]?.targetValue ?? ctx.refuse(RefusalStrings.groupArgumentRequired) else { return nil }
         let saved = ctx.services.daemon.store.savedTabGroups
-        return saved.first { $0.id.rawValue == ref.id || $0.openGroup?.rawValue == ref.id } ?? ctx.refuse("no saved tab group \(ref.id)")
+        return saved.first { $0.id.rawValue == ref.id || $0.openGroup?.rawValue == ref.id } ?? ctx.refuse(RefusalStrings.noSavedTabGroup(ref.id))
     }
 }
