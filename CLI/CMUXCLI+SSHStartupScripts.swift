@@ -146,7 +146,6 @@ extension CMUXCLI {
             "exit \"$cmux_ssh_status\"",
         ].joined(separator: "\n")
     }
-
     func sshAskpassExecShellScript(passwordFilePath: String, cleanupDirectory: String) -> String {
         [
             "set -e",
@@ -239,7 +238,6 @@ extension CMUXCLI {
             "exit \"$cmux_ssh_status\"",
         ].joined(separator: "\n")
     }
-
     private func buildSSHStartupScriptBody(
         sshCommand: String,
         shellFeatures: String,

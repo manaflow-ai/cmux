@@ -7,16 +7,33 @@ struct CloudWorkspaceSidebarPresentation {
     let machineLabel: String
     let directoryCandidates: [String]
     let isDeviceWorkspace: Bool
+    let deviceLabel: String?
 
+    /// Returns durable device provenance without scanning the catalog's projection set.
     @MainActor
-    static func deviceLabel(workspace: Workspace) -> String? {
+    private static func deviceMachines(for workspace: Workspace) -> Set<SurfaceMachineID> {
+        var machines = Set(workspace.cloudBindingState.projectedResources.values.map(\.machine).filter(\.isDevice))
+        machines.formUnion(SurfaceCatalog.shared.projectionMachines(forWorkspace: workspace.id).filter(\.isDevice))
+        return machines
+    }
+
+    /// Formats a stable device-workspace label from live or restored machine identity.
+    @MainActor
+    private static func deviceLabel(workspace: Workspace, machines: Set<SurfaceMachineID>) -> String? {
         let state = workspace.cloudBindingState
-        let machines = Set(state.projectedResources.values.map(\.machine).filter { $0.deviceInstance != nil })
         guard !machines.isEmpty else { return nil }
-        let names = machines.sorted { $0.rawValue < $1.rawValue }.map { state.machineNames[$0.rawValue] ?? $0.rawValue }
+        let names = machines.sorted { $0.rawValue < $1.rawValue }.map {
+            state.machineNames[$0.rawValue] ?? SurfaceCatalog.shared.machineInfo(for: $0)?.name ?? $0.rawValue
+        }
         return String.localizedStringWithFormat(
             String(localized: "sidebar.deviceWorkspace.label", defaultValue: "Workspace on %@"), names.joined(separator: " · ")
         )
+    }
+
+    /// Returns the current device-workspace label for callers without a full presentation.
+    @MainActor
+    static func deviceLabel(workspace: Workspace) -> String? {
+        deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace))
     }
 
     static var unavailableDirectory: String {
@@ -24,13 +41,17 @@ struct CloudWorkspaceSidebarPresentation {
     }
 
     @MainActor
+    /// Builds the immutable remote sidebar identity and directory presentation.
     init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool) {
         let state = workspace.cloudBindingState
-        var machineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
-        if let id = workspace.cloudVMID { machineIDs.insert(id) }
-        isDeviceWorkspace = machineIDs.isEmpty
-        machineIDs.formUnion(state.projectedResources.values.compactMap { $0.machine.isDevice ? $0.machine.rawValue : nil })
+        var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
+        if let id = workspace.cloudVMID { cloudMachineIDs.insert(id) }
+        let deviceMachines = Self.deviceMachines(for: workspace)
+        let deviceMachineIDs = Set(deviceMachines.map(\.rawValue))
+        isDeviceWorkspace = cloudMachineIDs.isEmpty && !deviceMachineIDs.isEmpty
+        let machineIDs = cloudMachineIDs.union(deviceMachineIDs)
         guard !machineIDs.isEmpty else { return nil }
+        deviceLabel = Self.deviceLabel(workspace: workspace, machines: deviceMachines)
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
             let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
             return (id, name.isEmpty ? id : name)
