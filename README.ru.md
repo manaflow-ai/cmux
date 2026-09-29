@@ -367,7 +367,7 @@ cmux бесплатен и с открытым исходным кодом, и �
 
 ### У меня есть запрос на функцию или я нашёл ошибку?
 
-Мы хотим об этом услышать. Откройте [issue](https://github.com/manaflow-ai/cmux/issues) или [pull request](https://github.com/manaflow-ai/cmux/pulls) на GitHub, или [напишите нам](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Мы хотим об этом услышать. Откройте [issue](https://github.com/manaflow-ai/cmux/issues) или [pull request](https://github.com/manaflow-ai/cmux/pulls) на GitHub, или [напишите нам](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## История звёзд
 
@@ -420,4 +420,4 @@ cmux бесплатен, с открытым исходным кодом и вс
 
 cmux распространяется с открытым исходным кодом по лицензии [GPL-3.0-or-later](LICENSE). Серверное ПО cmux (`web/`, воркеры Cloudflare и relay-сервисы, перечисленные в [LICENSE](LICENSE)) вместо этого распространяется по [Business Source License 1.1](web/LICENSE): его можно читать, изменять и запускать для непроизводственного использования, а производственное использование или самостоятельный хостинг требуют коммерческой лицензии.
 
-Если ваша организация не может соблюдать условия GPL, доступна коммерческая лицензия. Свяжитесь с [founders@manaflow.com](mailto:founders@manaflow.com) для получения подробностей.
+Если ваша организация не может соблюдать условия GPL, доступна коммерческая лицензия. Свяжитесь с [founders@cmux.com](mailto:founders@cmux.com) для получения подробностей.
