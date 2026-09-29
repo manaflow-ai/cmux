@@ -129,9 +129,7 @@ jobs:
       backend_url: ${{ steps.ensure.outputs.backend_url }}
     steps:
       - name: Join tailnet
-        # TODO(ios-e2e): pin to a commit SHA like the other third-party
-        # actions in this repo once the action version settles.
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -220,9 +218,7 @@ jobs:
           exit 1
 
       - name: Join tailnet
-        # TODO(ios-e2e): pin to a commit SHA (see backend job); also confirm
-        # the action's macOS-runner support on the Blacksmith image.
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -318,8 +314,7 @@ jobs:
           exit 1
 
       - name: Join tailnet
-        # TODO(ios-e2e): pin to a commit SHA (see backend job).
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -350,7 +345,11 @@ jobs:
           # never echoed.
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-        run: ./scripts/e2e/ios-e2e-run.sh
+        run: >-
+          ./scripts/e2e/ios-e2e-run.sh
+          --tag "$CMUX_E2E_TAG"
+          --sim-udid "$CMUX_E2E_SIM_UDID"
+          --evidence-dir "$CMUX_E2E_EVIDENCE_DIR"
 
       - name: Signal Mac host teardown
         # Always, pass or fail: this touch is what releases the Mac host's
