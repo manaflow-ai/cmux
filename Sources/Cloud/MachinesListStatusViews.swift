@@ -95,6 +95,18 @@ struct MachineListStatusPresentation {
             action = .signInAgain
             isFailure = true
             staleTitle = String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh, showing last known")
+        case .failed(.cloudAccessRevoked):
+            // `vm_access_revoked`: the tunnel refusal holds for this login, so
+            // route to the same fresh sign-in as a rejected session.
+            symbolName = "person.crop.circle.badge.exclamationmark"
+            title = String(localized: "machines.cloudAccessRevoked.title", defaultValue: "Cloud access for this Mac was revoked")
+            subtitle = String(
+                localized: "machines.cloudAccessRevoked.subtitle",
+                defaultValue: "Your machines are unchanged, but this Mac’s login can no longer connect to them. Sign out and sign back in to enroll this Mac again."
+            )
+            action = .signInAgain
+            isFailure = true
+            staleTitle = String(localized: "machines.cloudAccessRevoked.stale", defaultValue: "Cloud access revoked, sign in again")
         case .failed(.requiresPro):
             // HTTP 402: the fix is an upgrade, not a retry and not a sign-in.
             symbolName = "sparkles"

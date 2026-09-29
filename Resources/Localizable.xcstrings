@@ -578714,6 +578714,419 @@
           }
         }
       }
+    },
+    "cloudVM.error.accessRevoked.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign out of cmux, then sign in again. The new sign-in enrolls this Mac again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الخروج من cmux، ثم سجّل الدخول مرة أخرى. يعيد تسجيل الدخول الجديد تسجيل هذا الـ Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich von cmux ab und dann erneut an. Die neue Anmeldung registriert diesen Mac erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra sesión en cmux y vuelve a iniciarla. El nuevo inicio de sesión vuelve a registrar este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnectez-vous de cmux, puis reconnectez-vous. La nouvelle connexion réinscrit ce Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux からサインアウトして、もう一度サインインしてください。新しいサインインでこの Mac が再登録されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에서 로그아웃한 다음 다시 로그인하세요. 새 로그인이 이 Mac을 다시 등록합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出 cmux 登录，然后重新登录。新的登录会重新注册此 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登出 cmux，然後重新登入。新的登入會重新註冊此 Mac。"
+          }
+        }
+      }
+    },
+    "cloudVM.error.accessRevoked.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac’s cmux login can no longer reach your Cloud machines. Retrying will not fix it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد بإمكان تسجيل دخول cmux على هذا الـ Mac الوصول إلى أجهزتك السحابية. لن تحل إعادة المحاولة المشكلة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die cmux-Anmeldung dieses Macs kann deine Cloud-Maschinen nicht mehr erreichen. Ein erneuter Versuch behebt das nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sesión de cmux de este Mac ya no puede acceder a tus máquinas en la nube. Reintentar no lo solucionará."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session cmux de ce Mac ne peut plus atteindre vos machines Cloud. Réessayer ne résoudra pas le problème."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の cmux ログインでは Cloud マシンに接続できなくなりました。再試行しても解決しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 cmux 로그인으로 더 이상 Cloud 머신에 연결할 수 없습니다. 다시 시도해도 해결되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 的 cmux 登录已无法连接到你的云机器。重试无法解决此问题。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 的 cmux 登入已無法連線到你的雲端機器。重試無法解決此問題。"
+          }
+        }
+      }
+    },
+    "cloudVM.error.accessRevoked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud access for this Mac was revoked"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إلغاء وصول هذا الـ Mac إلى السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Zugriff für diesen Mac wurde widerrufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se revocó el acceso a la nube de este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accès Cloud de ce Mac a été révoqué"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の Cloud アクセスは取り消されました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 Cloud 접근 권한이 취소되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 的云访问权限已被撤销"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 的雲端存取權已被撤銷"
+          }
+        }
+      }
+    },
+    "cloudVM.error.accessRevoked.whatToDo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What to do:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ما الذي يجب فعله:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was zu tun ist:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qué hacer:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Que faire :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対処方法:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해결 방법:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "处理方法："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "處理方式："
+          }
+        }
+      }
+    },
+    "machines.cloudAccessRevoked.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud access revoked, sign in again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إلغاء الوصول إلى السحابة، سجّل الدخول مجددًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Zugriff widerrufen, erneut anmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acceso a la nube revocado, vuelve a iniciar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès Cloud révoqué, reconnectez-vous"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud アクセスが取り消されました。再度サインインしてください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 접근 권한 취소됨, 다시 로그인하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云访问权限已撤销，请重新登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端存取權已撤銷，請重新登入"
+          }
+        }
+      }
+    },
+    "machines.cloudAccessRevoked.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your machines are unchanged, but this Mac’s login can no longer connect to them. Sign out and sign back in to enroll this Mac again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزتك لم تتغير، لكن تسجيل دخول هذا الـ Mac لم يعد قادرًا على الاتصال بها. سجّل الخروج ثم سجّل الدخول مجددًا لإعادة تسجيل هذا الـ Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Maschinen sind unverändert, aber die Anmeldung dieses Macs kann keine Verbindung mehr zu ihnen herstellen. Melde dich ab und wieder an, um diesen Mac erneut zu registrieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus máquinas no han cambiado, pero la sesión de este Mac ya no puede conectarse a ellas. Cierra sesión y vuelve a iniciarla para registrar este Mac de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos machines sont inchangées, mais la session de ce Mac ne peut plus s’y connecter. Déconnectez-vous puis reconnectez-vous pour réinscrire ce Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンはそのままですが、この Mac のログインでは接続できなくなりました。サインアウトしてからもう一度サインインし、この Mac を再登録してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신은 그대로이지만 이 Mac의 로그인으로 더 이상 연결할 수 없습니다. 로그아웃한 후 다시 로그인하여 이 Mac을 다시 등록하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的机器没有变化，但此 Mac 的登录已无法连接到它们。请退出后重新登录，以重新注册此 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的機器沒有變更，但此 Mac 的登入已無法連線到它們。請登出後重新登入，以重新註冊此 Mac。"
+          }
+        }
+      }
+    },
+    "machines.cloudAccessRevoked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud access for this Mac was revoked"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إلغاء وصول هذا الـ Mac إلى السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Zugriff für diesen Mac wurde widerrufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se revocó el acceso a la nube de este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accès Cloud de ce Mac a été révoqué"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の Cloud アクセスは取り消されました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 Cloud 접근 권한이 취소되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 的云访问权限已被撤销"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 的雲端存取權已被撤銷"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

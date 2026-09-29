@@ -500,7 +500,12 @@ final class MachinesPanelViewModel: ObservableObject {
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: [:])
     }
 
-    func applyRefreshResult(_ result: Result<VMListPage, Error>, generation: UInt64, scope: String?) {
+    func applyRefreshResult(
+        _ result: Result<VMListPage, Error>,
+        generation: UInt64,
+        scope: String?,
+        cloudAccessRevoked: Bool = false
+    ) {
         guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier, isCloudEnabled() else { return }
         do {
             let page = try result.get()
@@ -530,7 +535,7 @@ final class MachinesPanelViewModel: ObservableObject {
             readCatalog()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil
-            listProblem = nil
+            listProblem = cloudAccessRevoked ? .cloudAccessRevoked : nil
         } catch is CancellationError {
             return
         } catch let error as URLError where error.code == .notConnectedToInternet {

@@ -17,6 +17,9 @@ extension MachinesPanelViewModel {
         case sessionRejected
         /// HTTP 402: the plan gates Cloud access.
         case requiresPro
+        /// The list loads, but the server revoked this Mac login's Cloud
+        /// network access (`vm_access_revoked`); only a new sign-in fixes it.
+        case cloudAccessRevoked
         /// Everything else — retrying may help.
         case unreachable
     }

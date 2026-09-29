@@ -69,8 +69,11 @@ extension MachinesPanelViewModel {
             let result: Result<VMListPage, Error>
             do { result = .success(try await client.listPage()) }
             catch { result = .failure(error) }
+            // The list read does not enroll this Mac, so it cannot see a
+            // revoked tunnel login; the client's enrollment gate can.
+            let cloudAccessRevoked = await client.isCloudAccessRevokedForCurrentLogin()
             guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
-            self.applyRefreshResult(result, generation: generation, scope: scope)
+            self.applyRefreshResult(result, generation: generation, scope: scope, cloudAccessRevoked: cloudAccessRevoked)
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {
                 let isRecovery = self.refreshRequestedWhileLoadingIsRecovery

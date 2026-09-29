@@ -50,6 +50,9 @@ public func formattedCloudVMHTTPError(status: Int, body: String) -> String {
               <unreadable response omitted>
             """
     }
+    if let revoked = cloudVMAccessRevokedDescription(status: status, response: object) {
+        return revoked
+    }
 
     let errorCode = cloudVMString(object["error"]) ?? "http_\(status)"
     let ui = object["ui"] as? [String: Any]
@@ -1057,6 +1060,8 @@ public actor VMClient {
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    /// Per-login refusal state for `POST /api/vm/tunnel`; see ``enrollTunnel``.
+    private var tunnelEnrollment = VMTunnelEnrollmentGuard()
     private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
     public nonisolated let operations: CloudOperationRecorder?
@@ -2056,6 +2061,11 @@ public actor VMClient {
     /// Enroll (or refresh) this Mac's WireGuard tunnel into the user's private
     /// Cloud VM network. Idempotent per device: safe to call on every launch.
     /// The server never sees a private key — only `clientPublicKey` travels.
+    ///
+    /// Every enrollment caller funnels through here, so this owns the retry
+    /// policy: after a refusal, ``VMTunnelEnrollmentGuard`` answers the stored
+    /// error without a request until its window passes. `vm_access_revoked`
+    /// never passes for the same login; signing in again starts a new one.
     func enrollTunnel(
         clientPublicKey: String,
         deviceID: String,
@@ -2070,6 +2080,8 @@ public actor VMClient {
         cmuxChannel: String? = nil
     ) async throws -> VMTunnelEndpoint {
         return try await withOperation(.tunnel, foreground: true) {
+            let gateKey = VMTunnelEnrollmentGuard.key(for: await auth.authenticatedSessionIdentity)
+            try tunnelEnrollment.admit(gateKey)
             var body: [String: Any] = [
                 "clientPublicKey": clientPublicKey,
                 "deviceId": deviceID,
@@ -2089,13 +2101,27 @@ public actor VMClient {
             ] where value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                 body[key] = value
             }
-            let (data, http) = try await request("POST", path: "/api/vm/tunnel", jsonBody: body)
-            try ensureOK(http, data: data)
+            let data: Data
+            do {
+                let (responseData, http) = try await request("POST", path: "/api/vm/tunnel", jsonBody: body)
+                try ensureOK(http, data: responseData)
+                data = responseData
+            } catch let error as VMClientError {
+                tunnelEnrollment.recordFailure(error, key: gateKey)
+                throw error
+            }
+            tunnelEnrollment.recordSuccess(gateKey)
             return try Self.decodeTunnelEndpoint(
                 decodeJSONObject(data),
                 fallbackPurpose: tunnelPurpose
             )
         }
+    }
+
+    /// True once the server refused this login's tunnel enrollment with
+    /// `vm_access_revoked`. The Machines panel reads it to offer a fresh sign-in.
+    public func isCloudAccessRevokedForCurrentLogin() async -> Bool {
+        tunnelEnrollment.isAccessRevoked(VMTunnelEnrollmentGuard.key(for: await auth.authenticatedSessionIdentity))
     }
 
     /// Unenroll this Mac. The server deletes the provider-side tunnel, so any

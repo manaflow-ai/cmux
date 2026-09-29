@@ -418,11 +418,17 @@ public actor CloudWireGuardHub {
                 try Task.checkCancellation()
                 guard generation == startGeneration else { throw CancellationError() }
                 lastError = CloudMachineLink.errorText(error)
-                guard attempt < delays.count else { throw error }
+                // A permanent enrollment refusal (a revoked login, an explicit
+                // `retryable: false`) gets the same answer on every attempt.
+                guard attempt < delays.count, !Self.isPermanentStartupFailure(error) else { throw error }
                 try await configuration.sleep(delays[attempt])
             }
         }
         throw HubError.notReady("hub startup failed without a reported error")
+    }
+
+    private static func isPermanentStartupFailure(_ error: Error) -> Bool {
+        (error as? VMClientError)?.isPermanentCloudTunnelRefusal ?? false
     }
 
     private func start(generation startGeneration: UInt64) async throws -> Ready {

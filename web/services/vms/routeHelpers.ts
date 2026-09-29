@@ -933,6 +933,8 @@ export const vmWorkflowErrorResponders = {
       message: "Cloud access for this Mac login was revoked.",
       action: "Sign out of cmux, then sign in again to enroll this Mac.",
       phase: "network",
+      // Permanent for this login: say so explicitly so clients stop retrying.
+      retryable: false,
     }),
   VmAccessGrantMutationBusyError: () =>
     vmErrorResponse({
