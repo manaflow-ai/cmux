@@ -222,9 +222,9 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         #if DEBUG
         var releaseGateUIProbe: MobileReleaseGateUIProbe?
         var releaseGateSawNonblankFrame = false
+        #endif
         /// The last shared-sizing viewport reassert this surface honored.
         var appliedViewportReassertGeneration: UInt64 = 0
-        #endif
         let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
