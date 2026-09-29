@@ -37,6 +37,14 @@ import Testing
             #expect(await caller.value == (cancelCaller ? .cancelled : .timedOut))
         }
 
+        if !cancelCaller {
+            var automaticStates = await engine.states().makeAsyncIterator()
+            _ = await automaticStates.next()
+            await retryClock.waitUntilArmed()
+            retryClock.advance()
+            #expect(await automaticStates.next() == .closed(code: "dial-cleanup-blocked"),
+                    "automatic backoff must observe the same native admission budget")
+        }
         for _ in 0..<3 {
             do {
                 _ = try await engine.ensureSession(explicit: true, trigger: "cleanup-full")
@@ -59,9 +67,8 @@ import Testing
         let states = await engine.states()
         await gates[0].release()
         _ = await first.session.connection.termination()
-        // Releasing physical cleanup must re-arm the existing retry owner.
-        await retryClock.waitUntilArmed()
-        retryClock.advance()
+        // The explicit retries cleared backoff. Cleanup release must resume
+        // their parked intent immediately, without another external trigger.
         let ready = try await withIrxDeadline(.seconds(2), onTimeout: {}) {
             for await state in states {
                 if case .ready = state { return true }
