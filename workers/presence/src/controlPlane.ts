@@ -36,7 +36,9 @@ import type {
   ReleaseTrack,
   Status,
 } from "./generated/controlPlane";
+import { resolveSubscribeDeadline } from "./core";
 import { DEFAULT_RETRY_AFTER_SECONDS } from "./retryAfterResponse";
+import { APPROVED_IROH_RELAY_URLS } from "./routePrivacy";
 
 export const CONTROL_PROTOCOL_VERSION = 1;
 
@@ -54,6 +56,20 @@ export const MAX_CONTROL_MESSAGE_BYTES = 8 * 1024;
  * (alarm-driven, hibernation-friendly) and broadcasts deltas. */
 export const CONTROL_REFRESH_INTERVAL_MS = 60_000;
 
+/** Upper bound on one control socket's authority. The worker derives each
+ * socket's deadline from the Stack token it verified at upgrade, capped at
+ * this age (the same bound as connectivity subscriptions). Past it the socket
+ * is closed and its stored credentials deleted; the client reconnects with a
+ * fresh token and resumes from `haveRev`, which costs no upstream fetch. */
+export const MAX_CONTROL_SOCKET_AGE_MS = 15 * 60 * 1000;
+
+/** Resolve the deadline the worker forwarded with a control socket upgrade.
+ * Null (reject the upgrade) when the header is missing, garbled, or already
+ * past; never replaced with a fresh window. Pure for tests. */
+export function resolveControlSocketDeadline(header: string | null, nowMs: number): number | null {
+  return resolveSubscribeDeadline(header, nowMs, MAX_CONTROL_SOCKET_AGE_MS);
+}
+
 /** Application heartbeat for the hibernatable WebSocket. Workers exposes
  * text/binary sends but no portable server-side RFC6455 ping method, so this
  * lightweight frame keeps idle intermediaries from reaping the network path.
@@ -65,6 +81,12 @@ export const CONTROL_HEARTBEAT_TYPE = "ping" as const;
  * only the Mac itself can perform). The DO broadcasts the claim immediately,
  * then confirms against broker truth this soon after. */
 export const HINT_CONFIRM_DELAY_MS = 3_000;
+
+/** Relay URLs a socket announcement may carry. The broker persists only
+ * managed relays (or custom relays the account saved), so an unproved socket
+ * claim is limited to the managed catalog; any other relay reaches peers only
+ * through the broker-confirmed directory refresh. */
+const ANNOUNCEABLE_RELAY_URLS: ReadonlySet<string> = new Set(APPROVED_IROH_RELAY_URLS);
 
 /** When the initial directory fetch fails and there is no cache to serve, the
  * socket stays snapshot-pending and the alarm retries this soon. */
@@ -91,7 +113,6 @@ export const ACK_RETRY_LADDER_MS: readonly number[] = [5_000, 30_000, 120_000, 6
 export const ACK_RETRY_STEADY_MS = 3_600_000;
 
 const MAX_ENDPOINT_ID_CHARS = 128;
-const MAX_RELAY_URL_CHARS = 512;
 /** Bounds for hello client info. Exceeding one skips the confirm-on-hello
  * (the hello itself still proceeds); nothing oversized reaches storage. */
 const MAX_DEVICE_ID_CHARS = 128;
@@ -118,8 +139,8 @@ export const MINT_RETRY_AT_KEY = "ctl:retry:mint";
 export const GEN_PREFIX = "ctl:gen:";
 /** Per-socket bearer token (`ctl:bearer:<sessionId>`), stored so upstream
  * calls survive DO hibernation. Strictly per-socket for endpoint-bound calls
- * (mint); deleted on close and on revocation. The control adapter keeps these
- * credentials for the lifetime of its authenticated socket. */
+ * (mint); deleted on close, on revocation, and at the socket's deadline, so
+ * it is never usable past the token lifetime the worker verified. */
 export const BEARER_PREFIX = "ctl:bearer:";
 /** Per-device authorization overlay (`ctl:dev:<endpointId>`): the DO-owned
  * listv2 facts (status, revoked, version/track/capabilities, confirmation and
@@ -743,10 +764,9 @@ export function directoryDelta(
 
 export interface CtlAttachment {
   sessionId: string;
-  /** Optional lifecycle cutoff used by test doubles and legacy adapters. The
-   * production control adapter uses a non-expiring sentinel after authenticating
-   * the upgrade in the worker. */
-  expiresAt?: number;
+  /** Socket deadline: the verified token's expiry capped at
+   * MAX_CONTROL_SOCKET_AGE_MS, computed by the worker, never client input. */
+  expiresAt: number;
   /** Validated x-cmux-app-namespace from the upgrade request; forwarded on
    * upstream calls so discovery/mint see the same namespace the client's own
    * HTTPS calls would carry. */
@@ -836,7 +856,7 @@ export interface CtlDeps {
 
 export interface CtlConnectInput {
   sessionId: string;
-  expiresAt?: number;
+  expiresAt: number;
   bearer: string;
   /** Stack refresh token: the web API's native auth (parseNativeStackTokens)
    * requires BOTH the bearer and x-stack-refresh-token; a bearer alone 401s. */
@@ -894,7 +914,7 @@ export class ControlPlaneCore {
   async handleConnect(socket: CtlSocket, input: CtlConnectInput): Promise<void> {
     socket.setAttachment({
       sessionId: input.sessionId,
-      ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+      expiresAt: input.expiresAt,
       ...(input.namespace ? { namespace: input.namespace } : {}),
     });
     await this.deps.storage.put(
@@ -905,11 +925,7 @@ export class ControlPlaneCore {
       }),
     );
     const now = this.deps.now();
-    await this.deps.scheduleAlarmAt(
-      input.expiresAt === undefined
-        ? now + CONTROL_REFRESH_INTERVAL_MS
-        : Math.min(now + CONTROL_REFRESH_INTERVAL_MS, input.expiresAt),
-    );
+    await this.deps.scheduleAlarmAt(Math.min(now + CONTROL_REFRESH_INTERVAL_MS, input.expiresAt));
   }
 
   async handleClose(socket: CtlSocket): Promise<void> {
@@ -923,7 +939,7 @@ export class ControlPlaneCore {
     const attachment = socket.getAttachment();
     if (!attachment) return;
     const now = this.deps.now();
-    if (attachment.expiresAt !== undefined && attachment.expiresAt <= now) {
+    if (attachment.expiresAt <= now) {
       try {
         socket.close(1000, "subscription expired; reconnect with a fresh token");
       } catch {
@@ -1301,9 +1317,13 @@ export class ControlPlaneCore {
    * keeps doing that over HTTPS in parallel). The socket path is the
    * instant-propagation lane: broadcast the claim to the account's OTHER
    * sockets at the current known rev, then confirm against broker truth a few
-   * seconds later and re-broadcast if the authoritative revision moved. Spoof
-   * scope is bounded to same-account devices, and a wrong announcement costs
-   * peers one failed dial before the confirm pass corrects it. */
+   * seconds later and re-broadcast if the authoritative revision moved.
+   *
+   * The claim carries no endpoint proof, so it is bounded to what the
+   * announcer could legitimately say: only a helloed socket, only about the
+   * endpoint it helloed as, and only a relay in the managed catalog. Another
+   * device's route, or an arbitrary relay host, reaches peers only through
+   * the broker's signed-registration truth. */
   private async handlePublishHint(
     socket: CtlSocket,
     attachment: CtlAttachment,
@@ -1311,10 +1331,19 @@ export class ControlPlaneCore {
   ): Promise<void> {
     const { endpointId, homeRelayUrl } = frame.payload;
     if (!endpointId || endpointId.length > MAX_ENDPOINT_ID_CHARS) return;
-    if (!isPlausibleRelayUrl(homeRelayUrl)) {
+    if (!attachment.helloed) return;
+    if (endpointId !== attachment.endpointId) {
+      this.sendFrame(socket, attachment, errorFrame(
+        "hint_endpoint_mismatch",
+        "a socket may only announce the endpoint it sent hello for",
+        false,
+      ));
+      return;
+    }
+    if (!ANNOUNCEABLE_RELAY_URLS.has(homeRelayUrl)) {
       this.sendFrame(socket, attachment, errorFrame(
         "invalid_hint",
-        "homeRelayUrl must be an http(s) URL",
+        "homeRelayUrl must be a managed relay URL",
         false,
       ));
       return;
@@ -1487,7 +1516,7 @@ export class ControlPlaneCore {
     for (const socket of this.deps.sockets()) {
       const attachment = socket.getAttachment();
       if (!attachment) continue;
-      if (attachment.expiresAt !== undefined && attachment.expiresAt <= now) {
+      if (attachment.expiresAt <= now) {
         await this.deps.storage.delete(BEARER_PREFIX + attachment.sessionId);
         try {
           socket.close(1000, "subscription expired; reconnect with a fresh token");
@@ -1507,9 +1536,7 @@ export class ControlPlaneCore {
     for (const socket of live) {
       const attachment = socket.getAttachment();
       if (!attachment) continue;
-      if (attachment.expiresAt !== undefined && attachment.expiresAt < earliestExpiry) {
-        earliestExpiry = attachment.expiresAt;
-      }
+      if (attachment.expiresAt < earliestExpiry) earliestExpiry = attachment.expiresAt;
       if (attachment.ackRetry !== undefined && attachment.ackRetry.nextAt < earliestAckRetry) {
         earliestAckRetry = attachment.ackRetry.nextAt;
       }
@@ -1524,7 +1551,7 @@ export class ControlPlaneCore {
   }
 
   /** Send one lightweight application heartbeat to every live, handshaken
-   * socket. Production control sockets have no subscription deadline. */
+   * socket. It keeps the network path warm; it grants no authority. */
   private sendHeartbeat(live: CtlSocket[]): void {
     const frame = JSON.stringify({
       v: CONTROL_PROTOCOL_VERSION,
@@ -1534,7 +1561,7 @@ export class ControlPlaneCore {
     for (const socket of live) {
       const attachment = socket.getAttachment();
       if (!attachment || !attachment.helloed
-        || (attachment.expiresAt !== undefined && attachment.expiresAt <= this.deps.now())) {
+        || attachment.expiresAt <= this.deps.now()) {
         continue;
       }
       try {
@@ -1563,8 +1590,7 @@ export class ControlPlaneCore {
         socket.setAttachment(attachment);
         continue;
       }
-      if (broker !== undefined
-        && (attachment.expiresAt === undefined || attachment.expiresAt > now)) {
+      if (broker !== undefined && attachment.expiresAt > now) {
         if (frameJson === null) {
           frameJson = JSON.stringify(
             directoryFrame(rev, await this.mergedDirectory(broker), rfc3339FromMs(now)),
@@ -1586,9 +1612,8 @@ export class ControlPlaneCore {
 
   /** Re-fetch discovery with a live socket's token and broadcast what changed.
    * Directory facts are account-scoped, so any live socket's token yields the
-   * same account view. When legacy adapters provide deadlines, the socket with
-   * the latest one is preferred because it was verified most recently. Control
-   * sockets omit that field. Endpoint-bound mints never borrow across sockets. */
+   * same account view; the latest-expiring one is picked because its token
+   * verified most recently. Endpoint-bound mints never borrow across sockets. */
   private async refreshDirectory(live: CtlSocket[]): Promise<void> {
     const holder = await this.freshestBearerHolder(live);
     if (holder === null) return;
@@ -1601,7 +1626,7 @@ export class ControlPlaneCore {
     for (const socket of live) {
       const attachment = socket.getAttachment();
       if (!attachment || !attachment.snapshotPending) continue;
-      if (attachment.expiresAt !== undefined && attachment.expiresAt <= now) continue;
+      if (attachment.expiresAt <= now) continue;
       await this.sendDirectory(socket, attachment, rev, fetched.payload);
       await this.finishSnapshot(socket, attachment, rev);
     }
@@ -1613,8 +1638,7 @@ export class ControlPlaneCore {
     const attachments = live
       .map((socket) => socket.getAttachment())
       .filter((attachment): attachment is CtlAttachment => attachment !== null)
-      .sort((left, right) => (right.expiresAt ?? Number.POSITIVE_INFINITY)
-        - (left.expiresAt ?? Number.POSITIVE_INFINITY));
+      .sort((left, right) => right.expiresAt - left.expiresAt);
     return attachments[0] ?? null;
   }
 
@@ -1732,15 +1756,15 @@ export class ControlPlaneCore {
   }
 
   /** Deltas are deliverable only to sockets that finished their snapshot and
-   * have not passed an adapter-provided lifecycle cutoff. */
+   * have not passed their deadline. */
   private deliverable(attachment: CtlAttachment, now: number): boolean {
-    return (attachment.expiresAt === undefined || attachment.expiresAt > now)
+    return attachment.expiresAt > now
       && attachment.helloed === true
       && attachment.snapshotPending !== true;
   }
 
   private sendFrame(socket: CtlSocket, attachment: CtlAttachment, frame: unknown): void {
-    if (attachment.expiresAt !== undefined && attachment.expiresAt <= this.deps.now()) return;
+    if (attachment.expiresAt <= this.deps.now()) return;
     try {
       socket.send(JSON.stringify(frame));
     } catch {
@@ -1764,15 +1788,4 @@ export class ControlPlaneCore {
       }
     }
   }
-}
-
-function isPlausibleRelayUrl(value: string): boolean {
-  if (!value || value.length > MAX_RELAY_URL_CHARS) return false;
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  return url.protocol === "https:" || url.protocol === "http:";
 }

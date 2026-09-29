@@ -36,7 +36,7 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
-import { parseRevocationRequest } from "./controlPlane";
+import { MAX_CONTROL_SOCKET_AGE_MS, parseRevocationRequest } from "./controlPlane";
 import {
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
@@ -133,10 +133,12 @@ const worker = {
 
     if (url.pathname === "/v1/control/socket") {
       // Account control plane: one WebSocket carrying revisioned facts
-      // (directory, hint updates, relay passes). Auth is checked on the
-      // WebSocket upgrade here, and the DO is derived from the VERIFIED user
-      // id. The socket itself is long-lived; hibernation controls DO memory,
-      // not the WebSocket lifetime. The DO additionally
+      // (directory, hint updates, relay passes). Auth follows the
+      // connectivity-subscribe pattern: verify the Stack bearer here, derive
+      // the DO from the VERIFIED user id, and forward a socket deadline
+      // (token expiry capped at MAX_CONTROL_SOCKET_AGE_MS). The DO closes the
+      // socket and deletes its credentials at that deadline; the client
+      // reconnects with a fresh token and resumes by revision. The DO additionally
       // keeps the connection's own bearer (already on the forwarded headers)
       // for its upstream broker proxy calls — never its own credentials.
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
@@ -149,8 +151,15 @@ const worker = {
       }
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
+      const token = bearerToken(request);
+      const expiresAt = cacheDeadline(
+        Date.now(),
+        token ? tokenExpiryMs(token) : null,
+        MAX_CONTROL_SOCKET_AGE_MS,
+      );
       const headers = new Headers(request.headers);
       headers.set("x-control-account-id", user.id);
+      headers.set("x-control-expires-at", String(Math.floor(expiresAt)));
       const stub = env.ACCOUNT_CONTROL_PLANE.get(
         env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
       );
