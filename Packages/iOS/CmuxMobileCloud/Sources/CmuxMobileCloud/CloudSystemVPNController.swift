@@ -393,15 +393,14 @@ public final class CloudSystemVPNController {
 
     private func removeLateInstallation() async {
         manager.cancelPendingOperation()
-        let removal = Task { @MainActor in
-            try await self.manager.stop(removeConfiguration: true)
-        }
         do {
-            try await timeout.value(removal)
+            // This runs inside the operation gate that owns the late install.
+            // Await the platform removal here so the gate cannot release
+            // while Network Extension is still tearing down the profile.
+            try await manager.stop(removeConfiguration: true)
             cleanupPending = false
             needsPlatformReconciliation = false
         } catch {
-            removal.cancel()
             cleanupPending = true
         }
     }

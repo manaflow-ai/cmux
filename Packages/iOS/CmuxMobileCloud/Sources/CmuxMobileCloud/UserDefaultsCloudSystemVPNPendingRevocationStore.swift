@@ -9,8 +9,7 @@ public import Foundation
 {
     private let defaults: UserDefaults
     private let key: String
-    private static let maxPrimaryScopes = 64
-    private static let maxPrimaryFingerprintsPerScope = 64
+    private static let maxPersistedEntries = 4096
 
     /// Creates a store in the supplied defaults domain.
     public init(
@@ -32,47 +31,53 @@ public import Foundation
 
     /// Loads fingerprints pending for one account and team scope.
     public func load(scope: String) async -> Set<String> {
-        let all = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
-        var fingerprints = Set(all[scope] ?? [])
-        if let overflow = defaults.array(forKey: overflowKey(scope: scope)) as? [String] {
-            fingerprints.formUnion(overflow)
-        }
-        return fingerprints
+        Set(loadEntries().compactMap { entry in
+            entry.scope == scope ? entry.fingerprint : nil
+        })
     }
 
     /// Replaces pending fingerprints for one account and team scope.
     public func save(_ fingerprints: Set<String>, scope: String) async {
-        // The primary dictionary is bounded so repeated account switches do
-        // not make every save rewrite an ever-growing property-list value.
-        // Overflow stays durable under a scope-specific key and is recovered
-        // by the same load/save path, so no cleanup obligation is discarded.
-        var all = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
-        if fingerprints.isEmpty {
-            all.removeValue(forKey: scope)
-            defaults.removeObject(forKey: overflowKey(scope: scope))
-        } else {
-            let sorted = fingerprints.sorted()
-            if all[scope] != nil || all.count < Self.maxPrimaryScopes {
-                all[scope] = Array(sorted.prefix(Self.maxPrimaryFingerprintsPerScope))
-                let overflow = Array(sorted.dropFirst(Self.maxPrimaryFingerprintsPerScope))
-                if overflow.isEmpty {
-                    defaults.removeObject(forKey: overflowKey(scope: scope))
-                } else {
-                    defaults.set(overflow, forKey: overflowKey(scope: scope))
-                }
-            } else {
-                defaults.set(sorted, forKey: overflowKey(scope: scope))
-            }
+        // This is an explicit FIFO retention policy. Updating a scope removes
+        // its old entries and appends the current set, so new cleanup work is
+        // retained. When the fixed capacity is full, the oldest entries are
+        // evicted instead of growing UserDefaults without a bound.
+        var entries = loadEntries().filter { $0.scope != scope }
+        entries.append(contentsOf: fingerprints.sorted().map {
+            (scope: scope, fingerprint: $0)
+        })
+        if entries.count > Self.maxPersistedEntries {
+            entries.removeFirst(entries.count - Self.maxPersistedEntries)
         }
 
-        if all.isEmpty {
+        if entries.isEmpty {
             defaults.removeObject(forKey: key)
         } else {
-            defaults.set(all, forKey: key)
+            defaults.set(
+                entries.map { ["scope": $0.scope, "fingerprint": $0.fingerprint] },
+                forKey: key
+            )
         }
     }
 
-    private func overflowKey(scope: String) -> String {
-        "\(key).overflow.\(Data(scope.utf8).base64EncodedString())"
+    private func loadEntries() -> [(scope: String, fingerprint: String)] {
+        if let stored = defaults.array(forKey: key) as? [[String: String]] {
+            return Array(stored.compactMap { entry in
+                guard let scope = entry["scope"],
+                      let fingerprint = entry["fingerprint"]
+                else { return nil }
+                return (scope: scope, fingerprint: fingerprint)
+            }.prefix(Self.maxPersistedEntries))
+        }
+
+        // Migrate the dictionary written by earlier builds into the bounded
+        // FIFO format on the next save.
+        let legacy = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
+        let entries = legacy.keys.sorted().flatMap { scope in
+            legacy[scope, default: []].sorted().map {
+                (scope: scope, fingerprint: $0)
+            }
+        }
+        return Array(entries.prefix(Self.maxPersistedEntries))
     }
 }

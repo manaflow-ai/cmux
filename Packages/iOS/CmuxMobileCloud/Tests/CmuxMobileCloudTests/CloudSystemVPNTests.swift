@@ -820,7 +820,7 @@ import Testing
         #expect(!policy.permitsOnlyPrivateRoutes(inQuickConfig: config))
     }
 
-    @Test func persistedRevocationsKeepEveryUnrevokedPeer() async {
+    @Test func persistedRevocationsStayWithinTheOutboxBound() async {
         let suiteName = "cmux.cloud-system-vpn.pending-revocation-retention"
         let key = "pending-revocations-test"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
@@ -830,6 +830,10 @@ import Testing
             key: key
         )
 
+        await store.save(
+            Set((0..<5000).map { "large-\($0)" }),
+            scope: "scope-large"
+        )
         for index in 0..<80 {
             await store.save(
                 ["fingerprint-\(index)", "second-\(index)"],
@@ -837,8 +841,9 @@ import Testing
             )
         }
 
-        let persisted = UserDefaults(suiteName: suiteName)?.dictionary(forKey: key) as? [String: [String]]
-        #expect((persisted?.count ?? 0) <= 64)
+        let persisted = UserDefaults(suiteName: suiteName)?.array(forKey: key) as? [[String: String]]
+        #expect((persisted?.count ?? 0) <= 4096)
+        #expect(await store.load(scope: "scope-large").count == 3936)
         for index in 0..<80 {
             #expect(
                 await store.load(scope: "scope-\(index)") == [
