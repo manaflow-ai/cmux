@@ -23,6 +23,13 @@ enum CompatBrowserScripts {
 
     static func wrap(_ body: String) -> String { "(() => {\n\(body)\n})()" }
 
+    /// Evaluates `script` as an expression and returns a JSON-safe copy
+    /// (`toJSON()` when present, else a structured clone through JSON).
+    static func jsonSafe(_ script: String) -> String {
+        "(() => { const v = (\n\(script)\n); if (v === undefined || v === null || typeof v !== 'object') return v; "
+            + "if (typeof v.toJSON === 'function') return v.toJSON(); try { return JSON.parse(JSON.stringify(v)); } catch (e) { return String(v); } })()"
+    }
+
     static func click(_ selector: String, _ text: String?) -> String {
         wrap(find(selector) + "el.scrollIntoView({block: 'center'}); el.click(); return { value: true };")
     }

@@ -68,7 +68,13 @@ enum CompatBrowserMethods {
     static func eval(_ call: CompatCall) async throws -> JSON {
         let script = try call.require("script")
         let (world, surface, target) = try await browserSurface(call)
-        let value = try await run(call, surface, .evaluate(script))
+        let value: JSON
+        do {
+            // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
+            value = try await run(call, surface, .evaluate(CompatBrowserScripts.jsonSafe(script)))
+        } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
+            value = try await run(call, surface, .evaluate(script))  // statements, not an expression
+        }
         var result = base(world, surface, target)
         result["value"] = value["value"] ?? .null
         return .object(result)
