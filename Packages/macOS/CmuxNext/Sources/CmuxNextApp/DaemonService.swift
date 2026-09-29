@@ -14,6 +14,8 @@ final class DaemonService {
     private(set) var windowState: WindowStateStore?
     private(set) var identity: DaemonIdentity?
     @ObservationIgnored private var runTask: Task<Void, Never>?
+    @ObservationIgnored private var reconciling: Task<Void, Never>?
+    @ObservationIgnored private var queuedReconcile: Task<Void, Never>?
     @ObservationIgnored private let scheduler = DisplayLinkFrameScheduler()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
 
@@ -95,9 +97,27 @@ final class DaemonService {
     /// Fetches and applies a snapshot. Requests on the control connection
     /// are answered in order, so the snapshot reflects every command sent
     /// before it, including ones whose replies missed their deadline.
+    /// Concurrent callers share snapshots: a caller joins the snapshot
+    /// queued behind the one in flight (so it is ordered after the caller's
+    /// commands), and at most one is queued.
     func reconcile() async {
-        guard let connection, let (tree, _) = try? await connection.snapshot() else { return }
-        store.apply(snapshot: tree)
+        if let queuedReconcile {
+            await queuedReconcile.value
+            return
+        }
+        let previous = reconciling
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            self.queuedReconcile = nil
+            if let connection = self.connection, let (tree, _) = try? await connection.snapshot() {
+                self.store.apply(snapshot: tree)
+            }
+        }
+        if previous != nil { queuedReconcile = task }
+        reconciling = task
+        await task.value
+        if reconciling == task { reconciling = nil }
     }
 
     /// Fire-and-forget variant for UI handlers.

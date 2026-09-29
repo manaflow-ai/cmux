@@ -93,6 +93,15 @@ def rss_kb(pid):
     return int(out) if out else 0
 
 
+def footprint_mb(pid):
+    """Physical footprint (what Activity Monitor shows as Memory), in MB."""
+    for line in run(["footprint", str(pid)]).splitlines():
+        if "Footprint:" in line:
+            value, unit = line.split("Footprint:")[1].split()[:2]
+            return float(value) * (1024 if unit.upper().startswith("G") else 1 / 1024 if unit.upper().startswith("K") else 1)
+    return None
+
+
 def app_bundle(pid):
     out = run(["ps", "-o", "comm=", "-p", str(pid)]).strip()
     marker = ".app/"
@@ -191,7 +200,13 @@ class NextProfile:
         self.daemon().call("send", {"surface": int(self.stream_tab["surface"]), "text": STREAM_TEXT.format(bytes=stream_bytes)}, cmd_key="cmd")
 
     def stop_stream(self, control):
-        self.daemon().call("send", {"surface": int(self.stream_tab["surface"]), "text": "\x03"}, cmd_key="cmd")
+        try:
+            # A fresh connection: the daemon may have dropped an idle one.
+            daemon = Client(self.daemon_path)
+            daemon.call("send", {"surface": int(self.stream_tab["surface"]), "text": "\x03"}, cmd_key="cmd")
+            daemon.close()
+        except (OSError, ConnectionError, ValueError):
+            pass
         self.action(control, "tab close", target=f"tab:{self.stream_tab['id']}")
 
     # Storm operations: each returns (category, method, thunk[, parses_candidates])
@@ -507,6 +522,7 @@ def main():
     profile.setup(control, pid)
     time.sleep(1.0)
     baseline_rss = rss_kb(pid)
+    baseline_footprint = footprint_mb(pid)
     # Pre-create tabs so sends, renames and closes have targets from the start.
     for _ in range(args.prewarm_tabs):
         profile.create(control)[2]()
@@ -548,8 +564,10 @@ def main():
             break
         for tab_id in extra:
             profile.close_tab_id(control, tab_id)
+        # The daemon closes ~10 terminals per second and the mirror may apply
+        # them in one batch, so allow a long quiet period before retrying.
         best, since = len(extra), time.monotonic()
-        while time.monotonic() - since < 10.0:
+        while time.monotonic() - since < 30.0:
             time.sleep(0.5)
             count = len(extra_tabs())
             if count == 0:
@@ -561,6 +579,7 @@ def main():
     time.sleep(5.0)
     leftover = len([t for t in profile.left_tabs(control) if t not in profile.keep])
     after_rss = rss_kb(pid)
+    after_footprint = footprint_mb(pid)
     after_hangs = profile.hangs(control)
     remaining = wait_for_pty_baseline(profile, pid, pty_baseline)
     leaked = remaining - pty_baseline
@@ -613,6 +632,7 @@ def main():
         "latency": report, "error_examples": storm.error_examples, "frames": frames, "hangs": hangs,
         "hangs_after_cleanup": after_hangs, "queue": queue, "leftover_tabs": leftover, "closed_by_daemon": closed_by_daemon,
         "rss_kb": {"baseline": baseline_rss, "peak": peak_rss, "after": after_rss},
+        "footprint_mb": {"baseline": baseline_footprint, "after": after_footprint},
         "load_average": {"start": load_start, "end": load_end}, "criteria": criteria,
         "failures": failures, "passed": not failures,
     }
