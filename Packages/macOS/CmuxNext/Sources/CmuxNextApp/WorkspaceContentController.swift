@@ -18,6 +18,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var observation: Task<Void, Never>?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
+    /// The first tab of a pane this window just created (split, column);
+    /// its pane takes focus once the daemon reports it.
+    var pendingFocusSurface: SurfaceID?
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
 
     init(workspace: WorkspaceModel, services: AppServices, state: WindowState) {
@@ -46,9 +49,22 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
     }
 
+    /// Re-applies the current store state (after a command response that
+    /// may trail its own delta).
+    func applyCurrent() {
+        apply(LayoutMapping.map(workspace))
+    }
+
     private func apply(_ result: LayoutMapping.Result) {
         handles = result.handles
         layoutModel.apply(screens: result.screens)
+        if let surface = pendingFocusSurface,
+           let pane = workspace.screens.flatMap(\.panes).first(where: { $0.tabs.contains { $0.surface == surface } }) {
+            pendingFocusSurface = nil
+            state.focusedPane[workspace.id] = LayoutPaneID(pane.id)
+            layoutModel.focus(LayoutPaneID(pane.id))
+            return
+        }
         if let remembered = state.focusedPane[workspace.id], layoutModel.focusedPane != remembered,
            result.screens.contains(where: { $0.layout.contains(remembered) }) {
             layoutModel.focus(remembered)

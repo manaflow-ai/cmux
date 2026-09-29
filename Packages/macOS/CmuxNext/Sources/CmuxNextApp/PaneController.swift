@@ -23,6 +23,8 @@ final class PaneController {
     private(set) var isVisible = false
     /// Tabs closed locally while the daemon confirms (Chrome-speed close).
     var pendingClosed: Set<String> = []
+    /// A tab this app just created here; selected once the daemon reports it.
+    var pendingSelectSurface: SurfaceID?
     private var observation: Task<Void, Never>?
 
     struct Snapshot: Equatable {
@@ -45,6 +47,10 @@ final class PaneController {
         view.stripView.previewProvider = services.previews
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.onFocus = { [weak self] in self?.didFocus() }
+        view.onWindow = { [weak self] in
+            guard let self, self.workspace?.layoutModel.focusedPane == self.layoutPaneID else { return }
+            self.focusContent()
+        }
         observe()
     }
 
@@ -102,10 +108,17 @@ final class PaneController {
         }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
+        var focusNew = false
+        if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
+            state.selection.select(tab.id, in: paneKey)
+            pendingSelectSurface = nil
+            focusNew = true
+        }
         let selected = state.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
         showSelected()
+        if focusNew { focusContent() }
     }
 
     /// Re-pushes daemon truth after a rejection.

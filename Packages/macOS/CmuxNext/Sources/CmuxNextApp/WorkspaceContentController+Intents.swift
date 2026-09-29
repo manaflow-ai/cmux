@@ -31,14 +31,24 @@ extension WorkspaceContentController {
         case .newColumn(let after, let width):
             guard let handle = handles.panes[after] else { return }
             let cwd = panes[after]?.selectedTab?.cwd
-            services.daemon.send("new-pane-right") { connection in
-                _ = try await connection.newColumn(rightOf: handle, width: width, options: SpawnOptions(cwd: cwd))
-            }
+            spawnPane("new-pane-right") { try await $0.newColumn(rightOf: handle, width: width, options: SpawnOptions(cwd: cwd)) }
         case .split(let pane, let axis):
             guard let handle = handles.panes[pane] else { return }
             let cwd = panes[pane]?.selectedTab?.cwd
-            services.daemon.send("split") { connection in
-                _ = try await connection.split(handle, direction: axis == .horizontal ? .right : .down, options: SpawnOptions(cwd: cwd))
+            let direction: SplitDirection = axis == .horizontal ? .right : .down
+            spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd)) }
+        }
+    }
+
+    /// Runs a pane-creating command and focuses the new pane when it lands.
+    private func spawnPane(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> SurfaceCreated) {
+        guard let connection = services.daemon.connection else { return }
+        Task {
+            do {
+                pendingFocusSurface = try await body(connection).surface
+                applyCurrent()
+            } catch {
+                services.daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
         }
     }

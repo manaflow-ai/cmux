@@ -66,8 +66,15 @@ extension PaneController {
     func newTerminalTab(cwd: String? = nil) {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
-        services.daemon.send("new-tab") { connection in
-            _ = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
+        guard let connection = services.daemon.connection else { return }
+        Task {
+            do {
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
+                pendingSelectSurface = created.surface
+                apply(snapshot())
+            } catch {
+                services.daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 

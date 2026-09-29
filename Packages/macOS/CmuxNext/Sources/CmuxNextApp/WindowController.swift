@@ -37,7 +37,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.contentView = root
-        if frame == nil { window.center() }
+        // contentRect grows by the titlebar; restore the saved frame exactly.
+        if let frame { window.setFrame(frame, display: false) } else { window.center() }
         super.init(window: window)
         window.delegate = self
         observeWorkspace()

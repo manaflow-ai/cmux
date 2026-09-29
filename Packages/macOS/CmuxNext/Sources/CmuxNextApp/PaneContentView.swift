@@ -12,6 +12,8 @@ final class PaneContentView: NSView {
     private var tokenObservation: Task<Void, Never>?
     /// The pane or any view inside it became first responder.
     var onFocus: (() -> Void)?
+    /// The view entered a window (first layout, workspace switch).
+    var onWindow: (() -> Void)?
 
     init(stripModel: TabStripModel) {
         stripView = TabStripView(model: stripModel)
@@ -58,6 +60,11 @@ final class PaneContentView: NSView {
         content = view
         if wasFocused { onFocus?() }
         return previous
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { onWindow?() }
     }
 
     override func viewDidChangeEffectiveAppearance() {

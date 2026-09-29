@@ -131,12 +131,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                 logger.error("attach \(self.target.attachment.surface.rawValue) failed: \(String(describing: error), privacy: .public)")
                 break
             }
-            let reattachClaim = state.withLock { state -> Bool in
+            // A visible view owns canonical geometry at the size it attached with.
+            let claimNow = state.withLock { state -> Bool in
                 state.attachment = attachment
-                defer { state.claimed = false }
-                return state.claimed && state.visible
+                state.claimed = state.visible && state.lastSize != nil
+                return state.claimed
             }
-            if reattachClaim { await attachment.claimGeometry() }
+            if claimNow { await attachment.claimGeometry() }
             let reason = await forward(attachment)
             state.withLock { $0.attachment = nil }
             guard reason == .overflow, attempts < 8 else { break }
