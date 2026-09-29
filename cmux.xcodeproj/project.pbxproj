@@ -1047,6 +1047,8 @@
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
 		C0DE1A060000000000000001 /* cmux_layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A060000000000000002 /* cmux_layout.swift */; };
 		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
+		AC9A00000000000000000003 /* CmuxAcpmux in Frameworks */ = {isa = PBXBuildFile; productRef = AC9A00000000000000000002 /* CmuxAcpmux */; };
+		AC9A00000000000000000004 /* CmuxAcpmux in Frameworks */ = {isa = PBXBuildFile; productRef = AC9A00000000000000000002 /* CmuxAcpmux */; };
 		A5001654 /* CmuxActionTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxActionTrust.swift */; };
 		AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */; };
 		AC4A6E7C4A700001AC4A0005 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */; };
@@ -8509,6 +8511,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AC9A00000000000000000003 /* CmuxAcpmux in Frameworks */,
 				AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */,
 				A77A0003A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
@@ -8632,6 +8635,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
+				AC9A00000000000000000004 /* CmuxAcpmux in Frameworks */,
 				AC4A6E7C4A700001AC4A0005 /* CmuxAgentChat in Frameworks */,
 				9758E0049758E0049758E004 /* CmuxAgentSessionStore in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
@@ -13080,6 +13084,7 @@
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
 				C4B1E0000000000000000002 /* CmuxMobileHost */,
+				AC9A00000000000000000002 /* CmuxAcpmux */,
 			);
 			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
@@ -13213,6 +13218,7 @@
 				AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
 				C4B1E0000000000000000002 /* CmuxMobileHost */,
+				AC9A00000000000000000002 /* CmuxAcpmux */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -13353,6 +13359,7 @@
 				1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
 				D0F3A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudImagePaste" */,
 				C4B1E0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileHost" */,
+				AC9A00000000000000000001 /* XCLocalSwiftPackageReference "CmuxAcpmux" */,
 			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -18580,6 +18587,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxMobileHost;
 		};
+		AC9A00000000000000000001 /* XCLocalSwiftPackageReference "CmuxAcpmux" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxAcpmux;
+		};
 		D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCloudTunnelCore;
@@ -18943,6 +18954,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C4B1E0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileHost" */;
 			productName = CmuxMobileHost;
+		};
+		AC9A00000000000000000002 /* CmuxAcpmux */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AC9A00000000000000000001 /* XCLocalSwiftPackageReference "CmuxAcpmux" */;
+			productName = CmuxAcpmux;
 		};
 		CE57E10000000000000000B2 /* CmuxSentryReporting */ = {
 			isa = XCSwiftPackageProductDependency;

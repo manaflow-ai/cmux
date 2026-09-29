@@ -76,6 +76,7 @@ ensure_parent() {
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
+    CmuxAcpmux
     CmuxBrowser
     CmuxCanvasUI
     CmuxCloud
