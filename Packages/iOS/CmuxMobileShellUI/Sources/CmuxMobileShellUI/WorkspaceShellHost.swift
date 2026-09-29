@@ -22,6 +22,8 @@ struct WorkspaceShellHost: View {
     let showPairingScanner: (() -> Void)?
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
+    /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
+    var showAddSSHComputer: (() -> Void)? = nil
     var taskComposerPresentation = MobileChildSheetPresentation()
     let reconnectStoredMac: () -> Void
     let workspaceListDidBecomeVisible: @MainActor @Sendable () async -> Void
@@ -41,6 +43,7 @@ struct WorkspaceShellHost: View {
             showPairingScanner: showPairingScanner,
             showSettings: showSettings,
             showComputers: showComputers,
+            showAddSSHComputer: showAddSSHComputer,
             taskComposerPresentation: taskComposerPresentation
         )
         .task(id: deadlineTaskID) {

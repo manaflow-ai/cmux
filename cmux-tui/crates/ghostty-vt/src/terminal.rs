@@ -3339,8 +3339,7 @@ impl Terminal {
         let Some(title) = self.title() else {
             return Vec::new();
         };
-        let title: String =
-            title.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        let title: String = title.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
         format!("\x1b]2;{title}\x1b\\").into_bytes()
     }
 
@@ -5311,6 +5310,30 @@ mod tests {
         // A TUI continues with absolute-cell diffs after attaching. Its header,
         // composer and cursor must still agree on the same physical rows.
         let update = b"\x1b[5;3HInput\x1b[6;1HDONE\x1b[5;8H";
+        source.vt_write(update);
+        restored.vt_write(update);
+        assert_eq!(restored.viewport_text().unwrap(), source.viewport_text().unwrap());
+    }
+
+    #[test]
+    fn vt_replay_preserves_codex_composer_before_incremental_redraw() {
+        let mut source = Terminal::new(40, 8, 100, Callbacks::default()).unwrap();
+        for _ in 0..12 {
+            source.vt_write(b"history\r\n");
+        }
+        source.vt_write(
+            b"\x1b[2J\x1b[HOpenAI Codex\x1b[4;1H> Ask Codex to do anything\x1b[5;1HSTATUS\x1b[4;3H",
+        );
+        let expected = source.viewport_text().unwrap();
+        let replay = source.vt_replay_bounded_theme_portable(128 * 1024).unwrap();
+        let mut restored = Terminal::new(40, 8, 100, Callbacks::default()).unwrap();
+        restored.vt_write(&replay);
+
+        assert_eq!(restored.viewport_text().unwrap(), expected);
+
+        // Codex redraws the composer incrementally after a restore. The
+        // replacement replay and the next redraw must share the same rows.
+        let update = b"\x1b[4;1H\x1b[2K> NEW PROMPT\x1b[5;1HDONE\x1b[4;3H";
         source.vt_write(update);
         restored.vt_write(update);
         assert_eq!(restored.viewport_text().unwrap(), source.viewport_text().unwrap());

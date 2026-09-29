@@ -32,8 +32,8 @@ struct DisconnectedWorkspaceShellView: View {
     var showSettings: () -> Void = {}
     /// Present the Computers management sheet. Essential while disconnected:
     /// the per-Computer connection method lives in the Computer detail, and a
-    /// Computer stuck on an undialable method (Tailscale Only with no grant)
-    /// can ONLY be fixed from there.
+    /// Computer stuck on Direct with no enabled address can only be fixed from
+    /// there.
     var showComputers: (() -> Void)? = nil
     var setupHelpPresentation = MobileChildSheetPresentation()
 

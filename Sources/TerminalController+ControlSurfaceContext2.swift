@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 /// The surface-domain lifecycle witnesses (`split` / `respawn` / `create` /
 /// `close` / `move` / `reorder`) plus the browser-disabled mapping and the
@@ -145,6 +146,16 @@ extension TerminalController {
         let insertFirst = direction.insertFirst
         let dividerPosition = inputs.initialDividerPosition.map { CGFloat($0) }
         let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
+        // Terminal splits check the minimum pane size in
+        // `newTerminalSplitOutcome`; other panel types check it here (#15371).
+        if panelType != .terminal, !ws.isRemoteTmuxMirror,
+           ws.splitSpaceVerdict(
+               splittingPanel: targetSurfaceId,
+               orientation: orientation,
+               dividerPosition: dividerPosition
+           ) == .noSpace {
+            return .noSpace
+        }
         let newId: UUID?
         if panelType == .browser {
             newId = ws.newBrowserSplit(
@@ -189,6 +200,8 @@ extension TerminalController {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
+            case .noSpace:
+                return .noSpace
             case .failed:
                 newId = nil
             }
@@ -469,7 +482,7 @@ extension TerminalController {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
-            case .failed:
+            case .failed, .noSpace:
                 newPanelId = nil
             }
         }

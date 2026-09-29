@@ -876,6 +876,10 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// effort count for root-cause queries. `b` is the provider,
     /// `c` is the source, and `ms` is the effort count.
     case taskModelListResultObserved = 666
+    /// Launch dialed the saved Mac with the cached account while auth restore
+    /// was still validating it. Pairs with ``authBootstrapCompleted`` to show
+    /// how much of restore the dial overlapped.
+    case storedMacReconnectStartedDuringAuthRestore = 667
 }
 
 /// The user's configured connection method, mirrored from the settings picker

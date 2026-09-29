@@ -211,7 +211,7 @@ struct MobileWhatsNewCatalog: Sendable {
                     ),
                     detail: L10n.string(
                         "mobile.connectionsUpdate.tailscale.detail",
-                        defaultValue: "Tailscale Only is now a subset of Direct: tap Add Tailscale Connection to add your Mac's Tailscale address. Computers set to Tailscale Only moved over automatically."
+                        defaultValue: "Tailscale Only is now part of Direct. Tap Add Address to add your Mac's Tailscale address and port. Computers set to Tailscale Only moved over automatically."
                     )
                 ),
             ]),

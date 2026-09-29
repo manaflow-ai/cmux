@@ -5,7 +5,7 @@ public import Foundation
 ///
 /// Every input is a `Sendable` value captured at construction, and the
 /// discovery value (with its non-`Sendable` file reader) is built inside each
-/// call, so ``snapshot()`` runs entirely off the caller's actor.
+/// call, so ``snapshot()`` is safe to call from any thread.
 ///
 /// ```swift
 /// let reader = DiscoveryGhosttyConfigLiveReloadSnapshotReader(
@@ -29,8 +29,8 @@ public struct DiscoveryGhosttyConfigLiveReloadSnapshotReader: GhosttyConfigLiveR
     ///   - currentBundleIdentifier: The running app's bundle identifier, which
     ///     selects the cmux Application Support config directory.
     ///   - appSupportDirectory: The user's Application Support directory.
-    ///   - configHomeDirectory: The XDG config home that holds
-    ///     `ghostty/themes`.
+    ///   - configHomeDirectory: The XDG config home that holds Ghostty's
+    ///     `ghostty/config` files and `ghostty/themes`.
     ///   - makeDiscovery: Builds the discovery value for one read. Defaults to
     ///     a `FileManager`-backed discovery; tests inject an in-memory reader.
     public init(
@@ -58,12 +58,13 @@ public struct DiscoveryGhosttyConfigLiveReloadSnapshotReader: GhosttyConfigLiveR
         return "~/.config"
     }
 
-    public func snapshot() async -> GhosttyConfigLiveReloadSnapshot {
+    public func snapshot() -> GhosttyConfigLiveReloadSnapshot {
         let discovery = makeDiscovery()
         return discovery.liveReloadSnapshot(
             topLevelPaths: discovery.liveReloadTopLevelPaths(
                 currentBundleIdentifier: currentBundleIdentifier,
-                appSupportDirectory: appSupportDirectory
+                appSupportDirectory: appSupportDirectory,
+                configHomeDirectory: configHomeDirectory
             ),
             configHomeDirectory: configHomeDirectory
         )

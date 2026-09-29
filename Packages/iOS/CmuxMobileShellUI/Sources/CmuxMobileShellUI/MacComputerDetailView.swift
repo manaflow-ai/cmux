@@ -17,14 +17,6 @@ struct MacComputerDetailView: View {
     /// The route kind of the Connections row that opened this detail; its
     /// routes lead the routes section. `nil` when opened without a row.
     var focusedRouteKind: CmxAttachTransportKind? = nil
-    /// Presents the Add Tailscale Connection sheet STACKED on this detail
-    /// (never replacing the Computers sheet). Scanning the Mac's Tailscale
-    /// pairing code adds its Tailscale address to this Computer's Direct
-    /// addresses; dismissing lands back here.
-    @State private var showsAddTailscaleConnection = false
-    /// Whether the Tailscale pairing sheet adds the first route or replaces
-    /// the route already shown for this Computer.
-    @State private var tailscalePairingPresentation: PairingPresentation = .tailscaleSetup
     @Environment(\.dismiss) private var dismiss
     @State private var newDirectAddress = ""
     @State private var newDirectAddressLabel = ""
@@ -161,7 +153,7 @@ struct MacComputerDetailView: View {
         } message: {
             Text(L10n.string(
                 "mobile.connections.direct.addMessage",
-                defaultValue: "A numeric IP and port where this computer is reachable, like 192.168.1.20:64000 or [fd00::5]:64000. A port is required."
+                defaultValue: "Enter a reachable IP address and port, such as a Tailscale, LAN, or WireGuard address. A port is required."
             ))
         }
         .confirmationDialog(
@@ -213,46 +205,6 @@ struct MacComputerDetailView: View {
             if let hex = mac?.customColor, let color = Color(hexString: hex) {
                 customColorPick = color
             }
-        }
-        // Stacked on top of the Computers sheet: dismissing returns to this
-        // detail instead of tearing the whole Computers flow down.
-        .sheet(isPresented: $showsAddTailscaleConnection) {
-            PairingView(
-                pairingCode: $store.pairingCode,
-                initialPresentation: tailscalePairingPresentation,
-                connectionError: store.connectionError,
-                connectionErrorGuidance: store.connectionErrorGuidance,
-                versionWarning: store.pairingVersionWarning,
-                connectPairingCode: {
-                    await store.connectPairingInput(
-                        allowPreview: false,
-                        pairedMacDeviceID: macDeviceID,
-                        instanceTag: instanceTag
-                    )
-                },
-                acceptVersionWarning: {
-                    await store.acceptPairingVersionWarning(
-                        pairedMacDeviceID: macDeviceID,
-                        instanceTag: instanceTag
-                    )
-                },
-                connectManualHost: { name, host, port in
-                    await store.connectManualHostResult(
-                        name: name,
-                        host: host,
-                        port: port,
-                        pairedMacDeviceID: macDeviceID,
-                        instanceTag: instanceTag
-                    )
-                },
-                cancelPairing: { store.cancelPairing() },
-                cancel: { showsAddTailscaleConnection = false },
-                onPairingResult: { result in
-                    if result == .connected {
-                        showsAddTailscaleConnection = false
-                    }
-                }
-            )
         }
         .task {
             guard let irohSettingsController else { return }
@@ -589,21 +541,6 @@ struct MacComputerDetailView: View {
                 )
             }
             .accessibilityIdentifier("MobileComputerDirectAddressAdd")
-            // A Tailscale address comes from the Mac's pairing code, which
-            // also carries the Mac's identity key.
-            Button {
-                presentTailscalePairing(.tailscaleSetup)
-            } label: {
-                Label {
-                    Text(L10n.string(
-                        "mobile.connections.tailscale.add",
-                        defaultValue: "Add Tailscale Connection"
-                    ))
-                } icon: {
-                    TailscaleMarkIcon()
-                }
-            }
-            .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
         } header: {
             Text(L10n.string(
                 "mobile.connections.direct.title",
@@ -989,21 +926,6 @@ struct MacComputerDetailView: View {
                     routeRow(route)
                 }
             }
-            Button {
-                presentTailscalePairing(
-                    routes.contains(where: { $0.kind == .tailscale })
-                        ? .tailscaleReplacement : .tailscaleSetup
-                )
-            } label: {
-                Label(
-                    L10n.string(
-                        "mobile.computers.routes.scanTailscale",
-                        defaultValue: "Scan Mobile Pairing Code"
-                    ),
-                    systemImage: "qrcode.viewfinder"
-                )
-            }
-            .accessibilityIdentifier("MobileComputerReplaceTailscaleConnectionButton")
         } header: {
             Text(L10n.string("mobile.computers.section.savedRoutes", defaultValue: "Routes"))
         }
@@ -1052,11 +974,6 @@ struct MacComputerDetailView: View {
                 instanceTag: instanceTag
             )
         }
-    }
-
-    private func presentTailscalePairing(_ presentation: PairingPresentation) {
-        tailscalePairingPresentation = presentation
-        showsAddTailscaleConnection = true
     }
 
     @ViewBuilder
