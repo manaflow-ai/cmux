@@ -95,7 +95,8 @@ struct CLILocalZellijLifecycleTests {
         let close = try runCLI(["local-zellij", "close", "work"], fixture)
         let status = try runCLI(["local-zellij", "status", "work", "--json"], fixture)
 
-        #expect(close.status != 0, Comment(rawValue: close.stdout))
+        #expect(close.status == 1, "close reports its own failure (CLIError's exit code)")
+        #expect(close.stderr.contains("local-zellij close failed"), Comment(rawValue: close.stderr))
         #expect(status.status == 0, Comment(rawValue: status.stderr))
         #expect(try jsonObject(status.stdout)["state"] as? String == "live", Comment(rawValue: status.stdout))
     }
