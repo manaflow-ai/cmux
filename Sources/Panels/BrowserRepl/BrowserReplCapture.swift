@@ -145,15 +145,15 @@ enum BrowserReplCapture {
         return Double(text).map { CGFloat($0) * 72 / 96 }
     }
 
-    /// Prints the page to a paginated PDF with the requested paper size and
-    /// margins; falls back to WebKit's single-page `createPDF`.
-    static func pdf(webView: WKWebView, options: [String: Any]) async throws -> Data {
+    /// Prints the page to a paginated PDF with Playwright's `format`, `width`,
+    /// `height`, `landscape`, `margin` and `printBackground` options.
+    static func printPDF(webView: WKWebView, options: [String: Any]) async throws -> Data {
         var paper = (options["format"] as? String).flatMap(paperSize(format:)) ?? CGSize(width: 8.5 * 72, height: 11 * 72)
         if let width = points(options["width"]) { paper.width = width }
         if let height = points(options["height"]) { paper.height = height }
         if options["landscape"] as? Bool == true { paper = CGSize(width: paper.height, height: paper.width) }
         let margin = options["margin"] as? [String: Any] ?? [:]
-        if let data = try? await printPDF(
+        return try await printPDF(
             webView: webView,
             paper: paper,
             margins: NSEdgeInsets(
@@ -163,10 +163,7 @@ enum BrowserReplCapture {
                 right: points(margin["right"]) ?? 0
             ),
             printBackground: options["printBackground"] as? Bool ?? false
-        ) {
-            return data
-        }
-        return try await webView.pdf(configuration: WKPDFConfiguration())
+        )
     }
 
     private static func printPDF(

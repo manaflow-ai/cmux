@@ -505,6 +505,18 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func frame(_ panel: BrowserPanel, _ params: [String: Any]) async throws -> BrowserReplFrame {
         let frameID = params["frameId"] as? String
+        if frameID?.isEmpty ?? true {
+            // `nil` frame info is the main frame; no frame tree round trip.
+            return BrowserReplFrame(
+                frameID: "main",
+                parentFrameID: nil,
+                indexInParent: 0,
+                info: nil,
+                url: panel.webView.url?.absoluteString ?? "",
+                name: "",
+                crossOrigin: false
+            )
+        }
         guard let frame = await BrowserReplFrameTree.frame(frameID, in: panel.webView) else {
             throw Self.error("stale", "Frame \(frameID ?? "main") is detached")
         }
@@ -1146,8 +1158,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func pdf(_ params: [String: Any]) async throws -> [String: Any] {
         let panel = try panel(params)
-        let data: Data = try await withWindow(panel) { webView, _ in
-            try await BrowserReplCapture.pdf(webView: webView, options: params)
+        let data: Data = try await withWindow(panel) { [self] webView, _ in
+            // Printing runs AppKit's print machinery; if it never reports
+            // back, fall back to WebKit's single-page PDF.
+            do {
+                return try await self.withTimeoutThrowing(milliseconds: 20_000, what: "printing") {
+                    try await BrowserReplCapture.printPDF(webView: webView, options: params)
+                }
+            } catch {
+                return try await webView.pdf(configuration: WKPDFConfiguration())
+            }
         }
         return ["base64": data.base64EncodedString()]
     }
