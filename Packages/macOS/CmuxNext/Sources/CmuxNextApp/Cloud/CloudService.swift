@@ -49,9 +49,8 @@ final class CloudService {
     /// hostname (`gethostname`): `ProcessInfo.hostName` resolves through DNS
     /// and blocked the main thread for 35 s on launch.
     static var deviceName: String {
-        var buffer = [CChar](repeating: 0, count: 256)
-        let raw = gethostname(&buffer, buffer.count) == 0 ? String(cString: buffer) : "mac"
-        let host = raw.split(separator: ".").first.map(String.init) ?? "mac"
+        let name = MacName.kernelHostName()
+        let host = name.isEmpty ? "mac" : name
         let cleaned = host.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
         return "cmux-" + String(String(cleaned).prefix(40))
     }
