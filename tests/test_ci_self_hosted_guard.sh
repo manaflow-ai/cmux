@@ -17,10 +17,6 @@ CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 CI_MACOS_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 CI_WEB_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
-COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
-E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
-E2E_TEST_ACTION_FILE="$ROOT_DIR/.github/actions/e2e-run-tests/action.yml"
-TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
 
@@ -62,26 +58,6 @@ check_macos_runner() {
   echo "PASS: $job in $(basename "$file") uses a paid macOS runner"
 }
 
-check_display_runner_identity_guard() {
-  local file="$1" job="$2"
-  if ! awk -v job="$job" '
-    $0 ~ "^  "job":" { in_job=1; next }
-    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /REQUESTED_RUNNER:.*vars\.MACOS_RUNNER_DISPLAY/ { saw_requested=1 }
-    in_job && /RUNNER_CONTEXT_NAME:[[:space:]]*\$\{\{ runner\.name \}\}/ { saw_runner_name=1 }
-    in_job && /case "\$REQUESTED_RUNNER" in/ { saw_requested_case=1 }
-    in_job && /depot-\*\)/ { saw_depot_case=1 }
-    in_job && /Display runner is not Depot; skipping Depot identity guard/ { saw_non_depot_skip=1 }
-    in_job && /resolved outside Depot/ { saw_error=1 }
-    END { exit !(saw_requested && saw_runner_name && saw_requested_case && saw_depot_case && saw_non_depot_skip && saw_error) }
-  ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must validate actual Depot identity when MACOS_RUNNER_DISPLAY resolves to a depot-* runner"
-    exit 1
-  fi
-
-  echo "PASS: $job in $(basename "$file") validates display runner identity"
-}
-
 check_release_build_runner_disk_capacity() {
   # Pin the whole expression, not the variable name and the literal as two
   # independent substring matches. Those two can both be satisfied by a line
@@ -105,132 +81,6 @@ check_release_build_runner_disk_capacity() {
   fi
 
   echo "PASS: release-build uses the macOS 26 runner variable and its exact Blacksmith fallback"
-}
-
-check_build_lag_deriveddata_cache_path() {
-  # A fresh checkout resets every file time, so a restored DerivedData never
-  # spares a rebuild. The job builds into a stable path and caches none of it.
-  if ! awk '
-    /^  tests-build-and-lag:/ { in_job=1; next }
-    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-
-    in_job && /- name: Prepare isolated DerivedData/ { in_prepare=1; next }
-    in_prepare && /^[[:space:]]*- name:/ { in_prepare=0 }
-    in_prepare && /DERIVED_DATA_PATH="\$RUNNER_TEMP\/cmux-deriveddata-tests-build-and-lag"/ { saw_prepare_path=1 }
-    in_prepare && /GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT/ { saw_dynamic_prepare_path=1 }
-
-    in_job && /key:[[:space:]]*deriveddata-/ { saw_deriveddata_cache=1 }
-
-    END {
-      exit !(saw_prepare_path && !saw_dynamic_prepare_path && !saw_deriveddata_cache)
-    }
-  ' "$CI_MACOS_FILE"; then
-    echo "FAIL: tests-build-and-lag must build into the stable RUNNER_TEMP DerivedData path and must not cache DerivedData"
-    exit 1
-  fi
-
-  echo "PASS: tests-build-and-lag builds into a stable DerivedData path and caches none of it"
-}
-
-check_e2e_runner_fallbacks() {
-  if ! awk '
-    /^on:$/ { in_on=1; next }
-    in_on && /^[^[:space:]]/ { in_on=0 }
-    in_on && /^  workflow_dispatch:$/ { saw_dispatch=1; next }
-    in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
-    END { exit !(saw_dispatch && !saw_other_trigger) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only"
-    exit 1
-  fi
-
-  if ! awk '
-    /^run-name:/ {
-      saw_run_name=1
-      if ($0 ~ /inputs\.test_filter/ && ($0 ~ /inputs\.runner/ || $0 ~ /depot-macos-latest/) && ($0 ~ /inputs\.ref/ || $0 ~ /github\.ref_name/)) {
-        saw_run_name_dynamic=1
-      }
-    }
-    /^concurrency:/ { in_concurrency=1; next }
-    in_concurrency && /^jobs:/ { in_concurrency=0 }
-    in_concurrency && /cancel-in-progress:[[:space:]]*true/ { saw_cancel=1 }
-    in_concurrency && (/inputs\.runner/ || /depot-macos-latest/) { saw_runner=1 }
-    in_concurrency && /inputs\.test_filter/ { saw_test_filter=1 }
-    in_concurrency && /github\.ref_name/ { saw_ref_name=1 }
-    END { exit !(saw_run_name && saw_run_name_dynamic && saw_cancel && saw_runner && saw_test_filter && saw_ref_name) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must dynamically name runs and cancel duplicate queued E2E jobs by runner, normalized ref, and test filter"
-    exit 1
-  fi
-
-  # Compilation caching is an optional optimization. Its failure must not
-  # suppress setup/test failures or make successful tests depend on the cache
-  # service. Keep the exception confined to these cache operations.
-  python3 - "$E2E_FILE" "${E2E_TEST_ACTION_FILE:-}" <<'PYTHON'
-import sys
-import yaml
-
-document = yaml.safe_load(open(sys.argv[1]))
-# The tests run in this composite action, from the build job or the fallback
-# test job, so its steps answer to the same rule. None may mask a failure.
-if len(sys.argv) > 2 and sys.argv[2]:
-    action = yaml.safe_load(open(sys.argv[2]))
-    document["jobs"]["e2e-run-tests action"] = {"steps": action["runs"]["steps"]}
-# Compilation caching, adopted DerivedData and the fast artifact transport are optimizations with
-# canonical fallbacks. Everything else must fail the job it runs in.
-allowed = {
-    ("build", "compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
-    ("build", None, "Save E2E compilation cache", "actions/cache/save"),
-    ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
-    ("build", "revision-on-main", "Check the selected revision against main", ""),
-    ("build", "reuse", "Reuse a compiled product instead of building one", ""),
-    ("build", None, "Start the DerivedData seed download", ""),
-    ("build", "seed", "Adopt the DerivedData seed", ""),
-    ("build", None, "Forget the adopted-build inode override", ""),
-    # An owned Mac's kept build state, read only: any failure leaves the
-    # cache and seed downloads to run as they would anywhere else.
-    ("build", "owned-state", "Reuse this owned Mac's build state", ""),
-    ("build", "prefer-seed", "Prefer a near seed over this owned Mac's DerivedData", ""),
-    ("build", "owned-adopt", "Adopt this owned Mac's DerivedData", ""),
-    ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
-    # The git object seed: a miss leaves checkout to fetch everything, and a
-    # checkout the seed breaks is retried without it by the next steps.
-    ("build", None, "Restore git object seed", ""),
-    ("build", "checkout", "Checkout", "actions/checkout"),
-    ("test", None, "Restore git object seed", ""),
-    ("test", "checkout", "Checkout", "actions/checkout"),
-    # The owned-pool rescue marker: without it the run is only not watched.
-    ("runner", "marker", "Mark a run on a persistent macOS pool", ""),
-    ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
-    # The sweeper's fixed-name marker: without it the run is only not watched.
-    ("runner", None, "Upload the owned-pool watch marker", "actions/upload-artifact"),
-    # The routing App's token: without it the pool choice reads the janitor snapshot.
-    ("runner", "route-token", "Mint the owned-pool routing token", "actions/create-github-app-token"),
-    ("runner", "route-token-repo", "Mint the routing token without the org permission",
-     "actions/create-github-app-token"),
-}
-for job_id, job in document["jobs"].items():
-    if "continue-on-error" in job:
-        raise SystemExit(f"FAIL: {job_id} must not mask E2E job failures")
-    for step in job.get("steps", []):
-        if "continue-on-error" not in step:
-            continue
-        identity = (job_id, step.get("id"), step.get("name"), step.get("uses", "").split("@", 1)[0])
-        if identity not in allowed or step["continue-on-error"] is not True:
-            raise SystemExit(f"FAIL: {step.get('name')} must not mask E2E setup or test failures")
-PYTHON
-
-  # The run name and the SwiftPM cache key both decide things about "the
-  # runner this job uses". If either reads a different repository variable
-  # than runs-on, it describes a runner the job does not use.
-  runner_vars="$(grep -oE "vars\.MACOS_RUNNER_[A-Z0-9_]+" "$E2E_FILE" | sort -u)"
-  if [ "$(printf '%s\n' "$runner_vars" | grep -c .)" -ne 1 ]; then
-    echo "FAIL: test-e2e.yml must select its runner from one variable, found:"
-    printf '  %s\n' $runner_vars
-    exit 1
-  fi
-
-  echo "PASS: test-e2e.yml is dispatch-only, cancels duplicate queued runs, and reads one runner variable"
 }
 
 check_ios_runner_routing() {
@@ -366,42 +216,6 @@ check_release_helper_artifact_from_package_lane() {
   fi
 
   echo "PASS: release-build consumes the Ghostty helper artifact built by swift-package-tests"
-}
-
-check_runtime_regressions_collapsed() {
-  if grep -Fq "ui-regressions:" "$CI_MACOS_FILE"; then
-    echo "FAIL: CI must not queue a separate ui-regressions job"
-    exit 1
-  fi
-
-  if ! awk '
-    /^  tests-build-and-lag:/ { in_job=1; next }
-    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-
-    in_job && /restore-app-host-test-product.sh/ { saw_shared_product=1 }
-    in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
-    in_job && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
-    in_job && /scripts\/ci\/virtual-display-lock\.sh reap-strays/ { saw_reap_strays=1 }
-    in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
-
-    END { exit !(saw_shared_product && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
-  ' "$CI_MACOS_FILE"; then
-    echo "FAIL: tests-build-and-lag must restore the shared product, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
-    exit 1
-  fi
-
-  if ! awk '
-    /^run_browser_find_focus\(\) \{/ { in_func=1; next }
-    in_func && /^}/ { in_func=0 }
-    in_func && /persistent_display_id="\$\(tr -d/ { saw_display_id_read=1 }
-    in_func && /CMUX_UI_TEST_TARGET_DISPLAY_ID="\$persistent_display_id"/ { saw_display_env=1 }
-    END { exit !(saw_display_id_read && saw_display_env) }
-  ' "$ROOT_DIR/scripts/ci/run-display-ui-regressions.sh"; then
-    echo "FAIL: browser-find UI regression must target the persistent virtual display"
-    exit 1
-  fi
-
-  echo "PASS: runtime display regressions are collapsed into tests-build-and-lag"
 }
 
 check_signing_intermediate_imports() {
@@ -1112,26 +926,6 @@ EOF
   echo "PASS: shared web test runner sorts recursive discovery and fails closed when empty"
 }
 
-check_tmux_terminal_nightly_isolation() {
-  check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
-
-  if ! awk '
-    /^  terminal-nightly:/ { in_job=1; next }
-    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /CMUX_DERIVED_DATA_PATH/ { saw_env=1 }
-    in_job && /-derivedDataPath "\$CMUX_DERIVED_DATA_PATH"/ { saw_flag=1 }
-    in_job && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_noninteractive=1 }
-    in_job && /SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"/ { saw_backtrace=1 }
-    in_job && /All failures are expected, treating as pass/ { saw_expected_failure_handling=1 }
-    END { exit !(saw_env && saw_flag && saw_noninteractive && saw_backtrace && saw_expected_failure_handling) }
-  ' "$TMUX_CORPUS_FILE"; then
-    echo "FAIL: tmux corpus terminal-nightly must use isolated DerivedData, the noninteractive xcodebuild wrapper, and expected-failure handling"
-    exit 1
-  fi
-
-  echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
-}
-
 check_no_bare_github_hosted_runners() {
   # Every product CI job must route its runner through a repo variable (LINUX_RUNNER,
   # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
@@ -1253,15 +1047,6 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
-  local e2e_owned_option_lines
-  e2e_owned_option_lines="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - glaeda-(xl|std|light)-xcode-[0-9]+([.][0-9]+)*$/ { print FNR }
-  ' "$E2E_FILE")"
-
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1277,11 +1062,6 @@ check_no_self_hosted_fleet_runners() {
     # (see selfhosted above).
     { printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)" ||
       printf '%s\n' "$content_without_allowed" | grep -Eq "($selfhosted)"; } || continue
-    local owned_line owned_option=0
-    for owned_line in $e2e_owned_option_lines; do
-      [[ "$line" == "$E2E_FILE:$owned_line:"* ]] && owned_option=1
-    done
-    [[ "$owned_option" == 1 ]] && continue
     hits+="$line"$'\n'
   done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
@@ -1456,29 +1236,19 @@ check_cla_guard_runner
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_owned_pools_route_through_picker
-check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
-check_macos_runner "$CI_MACOS_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_MACOS_FILE" "release-build"
 check_release_build_runner_disk_capacity
-check_display_runner_identity_guard "$CI_MACOS_FILE" "tests-build-and-lag"
 
 # build-ghosttykit.yml (routed through the MACOS_RUNNER_BACKGROUND repo var)
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
-# ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
-check_macos_runner "$COMPAT_FILE" "compat-tests"
-
-# test-e2e.yml is manual, so keep the supported GUI runner choices but cancel
-# duplicate queued runs for the same ref/filter/runner.
-check_e2e_runner_fallbacks
 check_ios_runner_routing
 
 check_xcode_selection
 check_release_build_signal
 check_release_build_disk_cleanup
 check_release_helper_artifact_from_package_lane
-check_runtime_regressions_collapsed
 check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
@@ -1861,8 +1631,6 @@ check_background_macos_lane() {
   # Pre-existing OS-version compatibility legs that need a specific hosted
   # image (macOS 14, Intel) that no paid provider offers. Exact lines only.
   local -a hosted_exceptions=(
-    "ci-macos-compat.yml:          - os: macos-14"
-    "ci-macos-compat.yml:          - os: macos-15-intel"
     "relay-publish-npm.yml:          - os: macos-14"
   )
   local failed=0 probe
@@ -1941,7 +1709,6 @@ check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_web_test_runner_behavior
-check_tmux_terminal_nightly_isolation
 check_pr_macos_workflows_cancel_superseded_runs
 check_ios_only_tests_stay_under_ios
 check_no_paid_overflow_fallbacks

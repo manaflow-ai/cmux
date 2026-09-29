@@ -18,11 +18,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SOURCES_ROOT = REPO_ROOT / "Sources"
 CLI_ROOT = REPO_ROOT / "CLI"
 IOS_ROOT = REPO_ROOT / "ios"
 PACKAGES_ROOT = REPO_ROOT / "Packages"
-BONSPLIT_SOURCES_ROOT = REPO_ROOT / "vendor" / "bonsplit" / "Sources"
 TYPE_DECLARATIONS = {"actor", "class", "enum", "extension", "protocol", "struct"}
 CALLABLE_DECLARATIONS = {"deinit", "func", "init", "subscript"}
 STATEMENT_STARTERS = {
@@ -45,10 +43,8 @@ KEYWORDS = TYPE_DECLARATIONS | CALLABLE_DECLARATIONS | STATEMENT_STARTERS | {
 IDENTIFIER_KINDS = {"escaped_identifier", "identifier"}
 SWIFTUI_STATE_AUDITED_HANDLE_TYPES = ("Task", "DispatchSourceTimer", "Timer")
 MACOS_SWIFTUI_SOURCE_PREFIXES = (
-    "Sources/",
     "Packages/Shared/",
     "Packages/macOS/",
-    "vendor/bonsplit/Sources/",
 )
 
 
@@ -89,63 +85,11 @@ class Allowance:
     reason: str
 
 
-class RequiredSourceRootMissingError(RuntimeError):
-    """Raised when an audited dependency source tree is unavailable."""
-
-
 # These declarations cannot link replaced queued work through their owner's
 # stored state. Context is part of each key so moving a function-local timeout
 # into stored owner state cannot inherit an allowance merely by preserving its
 # spelling.
 ALLOWANCES = (
-    Allowance(
-        "Sources/AppDelegate.swift",
-        "timeoutWorkItem",
-        "DispatchWorkItem?",
-        "local:AppDelegate.waitForDebugStressCondition",
-        1,
-        "function-local, single-shot debug stress deadline",
-    ),
-    Allowance(
-        "Sources/AppDelegate.swift",
-        "timeoutWorkItem",
-        "DispatchWorkItem?",
-        "local:AppDelegate.publishMultiWindowNotificationSocketStateIfNeeded",
-        1,
-        "function-local, single-shot UI-test deadline",
-    ),
-    Allowance(
-        "Sources/TabManager.swift",
-        "timeoutWork",
-        "DispatchWorkItem?",
-        "local:TabManager.setupChildExitKeyboardUITestIfNeeded",
-        1,
-        "function-local, single-shot UI-test deadline",
-    ),
-    Allowance(
-        "Sources/Update/UpdateTitlebarAccessory.swift",
-        "startupScanWorkItems",
-        "[DispatchWorkItem]",
-        "member:UpdateTitlebarAccessoryController",
-        1,
-        "fixed-size append-only startup scan fanout",
-    ),
-    Allowance(
-        "Packages/macOS/CmuxRemoteDaemon/Sources/CmuxRemoteDaemon/Client/RemoteDaemonRPCClient.swift",
-        "webSocketKeepaliveTimeoutWorkItem",
-        "DispatchWorkItem?",
-        "member:RemoteDaemonRPCClient",
-        1,
-        "state-queue-owned watchdog whose queued closure weakly captures the client",
-    ),
-    Allowance(
-        "Packages/macOS/CmuxRemoteDaemon/Sources/CmuxRemoteDaemon/Client/RemoteDaemonRPCClient.swift",
-        "transportKeepaliveTimeoutWorkItem",
-        "DispatchWorkItem?",
-        "member:RemoteDaemonRPCClient",
-        1,
-        "state-queue-owned watchdog whose queued closure weakly captures the client",
-    ),
     Allowance(
         "CLI/cmux.swift",
         "keepaliveTimeoutWorkItem",
@@ -686,16 +630,8 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
 
 
 def declarations() -> list[Declaration]:
-    if not BONSPLIT_SOURCES_ROOT.is_dir():
-        raise RequiredSourceRootMissingError(
-            f"required audited source root is missing: {BONSPLIT_SOURCES_ROOT}"
-        )
-
     found: list[Declaration] = []
-    # CI initializes Bonsplit before this audit so a parent-repository change
-    # cannot silently reintroduce the SwiftUI State ownership pattern that
-    # produced the recursive release chain.
-    source_roots = [SOURCES_ROOT, CLI_ROOT, IOS_ROOT, BONSPLIT_SOURCES_ROOT]
+    source_roots = [CLI_ROOT, IOS_ROOT]
     source_roots.extend(sorted(PACKAGES_ROOT.glob("*/*/Sources")))
     paths = {
         path
@@ -709,11 +645,7 @@ def declarations() -> list[Declaration]:
 
 
 def main() -> int:
-    try:
-        found = declarations()
-    except RequiredSourceRootMissingError as error:
-        print(f"lint-stored-dispatch-work-items: {error}", file=sys.stderr)
-        return 1
+    found = declarations()
     unexpected, stale = compare_allowances(found)
     if not unexpected and not stale:
         print(

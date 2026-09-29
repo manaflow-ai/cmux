@@ -38,7 +38,8 @@ class Scratch(unittest.TestCase):
         self.workspace, self.store = base / "ws", base / "store"
         self.store.mkdir()
         self.scratch = self.store / scratch.SCRATCH
-        for package in ("Packages/Shared/A", "Packages/macOS/B", "vendor/bonsplit"):
+        # A manifest outside Packages/*/* (a vendored package) gets no scratch.
+        for package in ("Packages/Shared/A", "Packages/macOS/B", "vendor/vendored"):
             (self.workspace / package).mkdir(parents=True)
             (self.workspace / package / "Package.swift").write_text("// swift-tools-version:5.9\n")
 
@@ -54,7 +55,7 @@ class Scratch(unittest.TestCase):
         stale.mkdir()
         (stale / "old").write_text("x")
         linked = scratch.link(self.workspace, self.store, RUNNER, fingerprint="xcode-a")
-        self.assertEqual(linked, ["Packages/Shared/A", "Packages/macOS/B", "vendor/bonsplit"])
+        self.assertEqual(linked, ["Packages/Shared/A", "Packages/macOS/B"])
         build = self.workspace / "Packages/Shared/A/.build"
         self.assertTrue(build.is_symlink())
         (build / "product").write_text("built")

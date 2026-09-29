@@ -27,9 +27,9 @@ For Release variants, `reloads.sh --tag <tag>` uses an isolated staging identity
 The installed cmux (`/Applications/cmux.app`, bundle id `com.cmuxterm.app`, process `cmux`) holds the user's live agent sessions. Never quit, kill (`pkill -x cmux`, `killall cmux`), relaunch or profile it with `xctrace --launch` or Instruments, and never launch a locally built Release app or any other bundle that uses `com.cmuxterm.app` while it runs. To reproduce the user's state, copy their session into the tagged build instead of touching the running app. Profile only by attaching to a tagged build's pid.
 
 `reloadp.sh` refuses to run while another stable-id cmux is running;
-`reload.sh --bundle-id` accepts only `com.cmuxterm.app.debug.*` IDs. A different
-bundle with the stable ID also exits instead of replacing the running app
-(`SingleInstanceConflictPolicy`). Never bypass these protections;
+`reload.sh --bundle-id` accepts only `com.cmuxterm.app.debug.*` IDs. The app
+itself has no single-instance guard, so never launch another bundle with the
+stable ID. Never bypass these protections;
 `CMUX_ALLOW_REPLACING_RUNNING_CMUX=1` is an override only the user may set.
 
 ## Prebuilt GhosttyKit

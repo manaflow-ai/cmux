@@ -72,7 +72,7 @@ GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
-MACOS_PRODUCT_TARGET = "cmux"
+MACOS_PRODUCT_TARGET = "cmux-next"
 CLI_PRODUCT_TARGET = "cmux-cli"
 XCODE_SHARED_SCHEMES_PREFIX = "cmux.xcodeproj/xcshareddata/xcschemes/"
 
@@ -108,8 +108,7 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     #
     # test_execution_registry.py is deliberately NOT here: run_python_test_lane.py
     # imports it and ci-macos.yml runs that on a Mac, which is the same reason
-    # cache_restore_receipt.py and xcodebuild_noninteractive.py stay out.
-    "scripts/ci/app_host_failure_census.py",
+    # cache_restore_receipt.py stays out.
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
     "scripts/ci/cmux_workload_profile.py",
@@ -503,8 +502,7 @@ _SELF_ROUTED_OUTPUTS = frozenset({
 # `changes` outputs derived from the macOS area (detect_linux_guard_changes.py
 # sets ghosttykit_release from it; the suite and pool outputs serve macOS).
 _MACOS_DERIVED_OUTPUTS = frozenset({
-    "ghosttykit_release", "full_suite", "unit_suite", "unit_selectors", "unit_strict_steps",
-    "unit_in_admission", "coverage_gap", "compile_admitted", "source_parent1",
+    "ghosttykit_release", "full_suite", "compile_admitted", "source_parent1",
     "macos_pr_runner", "macos_pr_xcode_app", "macos_pr_retry_runner",
 })
 
@@ -816,13 +814,10 @@ SHARED_WEB_WORKFLOW_EXACT = frozenset({
     "scripts/generate-diff-sidecar-types.sh",
     "scripts/install-rust-ci.sh",
     "scripts/run-diff-sidecar-cargo.sh",
-    "Sources/Panels/CmuxDiffViewerURLSchemeHandler.swift",
-    "Sources/Panels/DiffSidecarBridge.swift",
 })
 
 SHARED_WEB_WORKFLOW_PREFIXES = (
     "Native/DiffSidecar/",
-    "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/DiffViewer/",
 )
 
 
@@ -830,10 +825,8 @@ SHARED_WEB_WORKFLOW_PREFIXES = (
 # smoke checks, then cli-product-tests) runs besides the cmux-cli target's own
 # compile inputs, which cli_target_inputs() reads from the Xcode project.
 CLI_LANE_EXACT_INPUTS = frozenset({
-    # Checked-out submodules: bonsplit is a local package of the project the
-    # lane resolves, and ghostty supplies the GhosttyKit.xcframework binary
-    # target that CmuxTerminalCore (in the cmux-cli closure) re-vends.
-    "vendor/bonsplit",
+    # The checked-out ghostty submodule supplies the GhosttyKit.xcframework
+    # binary target that CmuxTerminalCore (in the cmux-cli closure) re-vends.
     "ghostty",
     "scripts/download-prebuilt-ghosttykit.sh",
     "scripts/ghosttykit-checksums.txt",
@@ -1424,8 +1417,7 @@ def _flat_object(objects: dict[str, str], identifier: str) -> str:
 def cli_target_inputs(root: Path) -> CliTargetInputs:
     """Read the cmux-cli target's compiled file names and package closure.
 
-    Files outside CLI/ that the target compiles (shared Sources/ helpers) are
-    matched by file name; Swift requires those to be unique within the module.
+    Files outside CLI/ that the target compiles are matched by file name; Swift requires those to be unique within the module.
     """
     project = (root / MACOS_XCODE_PROJECT_PATH).read_text(encoding="utf-8")
     native_targets, target = _native_target(project, CLI_PRODUCT_TARGET)
@@ -1460,10 +1452,6 @@ def cli_target_inputs(root: Path) -> CliTargetInputs:
 # the lane rather than skipping it.
 CLI_ROUTE_UNBUILT_TARGETS = frozenset({
     MACOS_PRODUCT_TARGET,
-    "cmuxTests",
-    "cmuxUITests",
-    "CmuxDockTilePlugin",
-    "cmuxTunnelExtension",
 })
 _PBX_TARGET_ISAS = frozenset({"PBXNativeTarget", "PBXAggregateTarget", "PBXLegacyTarget"})
 _PBX_TOKEN_RE = re.compile(
@@ -1654,7 +1642,6 @@ def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
 # fails if anything else starts naming one.
 LINUX_GUARD_ONLY_SCRIPTS = frozenset({
     "scripts/check-package-resolved-policy.py",
-    "scripts/check-sidebar-lazy-layout.py",
     "scripts/lint-stored-dispatch-work-items.py",
 })
 
@@ -1762,9 +1749,9 @@ _PACKAGE_TESTS_RE = re.compile(r"Packages/[^/]+/[^/]+/Tests/")
 
 
 def is_test_only_source(path: str) -> bool:
-    # The Release app builds only the cmux target, so test sources cannot reach
-    # it. A new test file also edits project.pbxproj, which is not matched here.
-    return path.startswith(("cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/", "cmuxUITests/")) or bool(_PACKAGE_TESTS_RE.match(path))
+    # The Release app builds only the cmux-next target, so test sources cannot
+    # reach it. A new test file also edits project.pbxproj, which is not matched here.
+    return path.startswith(("cmuxCLITests/", "cmuxCLITestSupport/")) or bool(_PACKAGE_TESTS_RE.match(path))
 
 
 RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({

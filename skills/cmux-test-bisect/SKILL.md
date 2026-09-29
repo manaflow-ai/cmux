@@ -9,8 +9,7 @@ PR CI runs selected tests, so a package suite can stay red on main for weeks
 with nobody noticing. This skill finds the commit behind each failure on CI,
 never on the Mac (no full cmux builds on laptops).
 
-App-host (`cmuxTests`) failures on main have their own automatic bisect
-(#14510). Use this skill for the SwiftPM package suites under `Packages/iOS` and `Packages/Shared` that `test-ios.yml` can run
+Use this skill for the SwiftPM package suites under `Packages/iOS` and `Packages/Shared` that `test-ios.yml` can run
 (`CMUXMobileCore`, `CmuxSyncStore`, `CmuxMobilePairedMac`, `CmuxMobileChanges`,
 `CmuxMobileShell`, `CmuxMobileShellModel`).
 

@@ -4,13 +4,14 @@
 step. Actions: splits, pane focus, resize, swap and zoom, tab create, close, move, reorder and drag, divider
 drags, workspace create, close, select, reorder, rename and actions, the sidebar, the command palette, terminal
 typing bursts and keys, window resize, new window and full screen, browser splits and Settings. Pointer
-actions go through cua-driver; everything else through the debug control socket.
+actions go through cua-driver; everything else through the debug control socket. Its oracles still call
+legacy-app `debug.*` methods (`debug.layout` and others) that cmux next does not implement yet.
 
 After each step it looks for a crash (a `.ips` report or the process gone), a hang (the main thread stops
 answering `system.identify`, or the app's own hang watchdog fires), fatal or assertion lines in the debug log,
-the bonsplit underflow counter, memory that keeps growing, and broken layout: panes that do not tile the
-window, zero-size or overlapping pane views, focus on more or fewer than one pane, and the socket's tab model
-disagreeing with bonsplit's. A failure is replayed from a fresh app, delta-minimized to the shortest step list
+memory that keeps growing, and broken layout: panes that do not tile the window, zero-size or overlapping
+pane views, focus on more or fewer than one pane, and the socket's tab model disagreeing with the view tree.
+A failure is replayed from a fresh app, delta-minimized to the shortest step list
 that still fails the same way, then replayed once more with a frame per step.
 
 The fleet runs it: an idle owned mini with `~/.config/glaeda/idle-fuzz.enabled` fuzzes the newest main build
@@ -33,12 +34,8 @@ A run writes `run.json`, `summary.json` and one `session-NNN/` per app launch: `
 frames and, for a failure, `finding.json`, `repro.json`, `repro/frames/`, the debug log tail, a sample and
 any crash report. To fix a finding, replay its `repro.json` against your build; it passes once the bug is gone.
 
-Pull request CI replays every repro in `regressions/` when a same-repository pull request without the
-`no-full-ci` label touches what they exercise: the sidebar, splits and panes, the main window's size, or the
-fuzzer and its repros. A fork pull request gets no replay. The `ui-tests` job asks for
-`cmuxUITests/FuzzRegressions` (`scripts/ci/ui_tests_dispatch.py` lists the paths), and the UI test lane runs
-`scripts/fuzz regressions` on an owned Mac against the app it already adopted. `scripts/run-e2e.sh
-cmuxUITests/FuzzRegressions` runs the same replay for any pushed commit.
+`scripts/fuzz regressions` replays every repro in `regressions/` against a given app. No CI lane runs it
+since the legacy UI test lane was removed.
 
 Steps address panes, tabs and workspaces by position (a fraction of whatever exists), never by id, so any
 subsequence of a run still executes. `tests/test_ui_fuzzer_engine.py` covers the parts that need no app.

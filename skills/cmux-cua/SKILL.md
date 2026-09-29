@@ -293,6 +293,6 @@ Settings → cmux Computer Use.
 - Never hand-edit `docs/.../cmux-cua/mcp-tools.mdx` in the fork — it is
   generated from the Rust tool descriptions.
 - The runtime service, helper lifecycle, capture and daemon admission live in
-  `Packages/macOS/CmuxComputerUse/`. cmux-side UX lives in `Sources/App/ComputerUse*.swift`,
-  `Packages/macOS/CmuxSettingsUI/.../Sections/ComputerUseSection.swift`, and the
-  two wrappers under `Resources/bin/`.
+  `Packages/macOS/CmuxComputerUse/`; the two wrappers live under `Resources/bin/`.
+  The app in `Packages/macOS/CmuxNext` does not wire Computer Use yet (its
+  actions are typed unavailable).

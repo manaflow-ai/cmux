@@ -261,7 +261,7 @@ class DoomedCategoryTests(unittest.TestCase):
         jobs[-1]["steps"] = [{"name": "Upload xcresults", "conclusion": "failure"}]
         self.assertIsNone(self.classify(jobs=jobs))
 
-    def test_app_host_job_has_no_job_level_continue_on_error(self):
+    def test_compile_admission_has_no_job_level_continue_on_error(self):
         # Job-level continue-on-error is not absorbed by the job conclusion the
         # test above relies on, so reading a `failure` conclusion as decisive
         # would stop being sound.
@@ -269,7 +269,7 @@ class DoomedCategoryTests(unittest.TestCase):
         # The job ends at the next line indented exactly two spaces. Splitting
         # on "\n  " alone stopped after the job's first key, so a job-level
         # continue-on-error anywhere below it went unseen.
-        block = re.split(r"\n  (?=\S)", macos.split("\n  app-host-unit-tests:\n", 1)[1], maxsplit=1)[0]
+        block = re.split(r"\n  (?=\S)", macos.split("\n  macos-compile-admission:\n", 1)[1], maxsplit=1)[0]
         self.assertIn("\n    steps:", "\n" + block)
         self.assertNotIn("\n    continue-on-error", "\n" + block)
 
@@ -283,13 +283,9 @@ class DoomedCategoryTests(unittest.TestCase):
         was cancelled by hand for exactly this and had to be restarted.
         """
         repairs = {
-            "PR #13643 app-host test sources": "cmuxTests/AgentSessionAutoResumeSettingsTests.swift",
-            "PR #13408 the failing regression itself": "cmuxTests/WorkspaceSSHFishShellTests.swift",
-            "PR #13579 shard splitter": "scripts/ci/cmux_unit_test_shard.py",
-            "PR #13579 shard workload": "scripts/ci/workloads/macos-app-host-test-shard.sh",
             "PR #13427 job definition": ".github/workflows/ci-macos.yml",
             "PR #13414 test product build": "scripts/ci/compile-app-host-test-product.sh",
-            "quarantine list": "scripts/ci/app-host-known-failures.json",
+            "a workload entrypoint": "scripts/ci/workloads/macos-compile-admission.sh",
         }
         for name, path in repairs.items():
             with self.subTest(name=name):

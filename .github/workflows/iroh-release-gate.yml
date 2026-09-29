@@ -52,7 +52,7 @@ jobs:
 
   runner:
     # Offers the Tailscale version-skew job to the owned Macs. It runs
-    # e2e_runner_pool.py, test-e2e.yml's picker: an owned pool on the lane's
+    # e2e_runner_pool.py, the owned-pool picker: an owned pool on the lane's
     # Xcode pin while CI_PR_POOL_OWNED is 1 and a machine is free now (no
     # queue rounds), else nothing. `label` is set only for an owned pick, so
     # any other answer, a skipped pick or a failure of this job leaves the
@@ -92,7 +92,7 @@ jobs:
 
       - name: Mint the owned-pool routing token
         id: route-token
-        # As in test-e2e.yml: idle owned runners read live. Any failure leaves
+        # Idle owned runners are read live. Any failure leaves
         # the token empty and the janitor snapshot decides.
         if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
@@ -210,7 +210,7 @@ jobs:
 
       # On an owned Mac the app-host tests share the console session and the
       # user's testmanagerd with every other GUI job, so they hold glaeda's gui
-      # token, as app-host-unit-tests and test-e2e.yml's tests do. glaeda's
+      # token, as every GUI job does. glaeda's
       # hook does not know this job id, so it admits it as a compile (the
       # persistent-DerivedData and root-1 tokens) and gives no gui token at job
       # start. take-gui exits 3 when the console is locked (no GUI job runs

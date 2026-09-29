@@ -7,8 +7,8 @@ skill. A key the app honors but the schema omits validates as "unknown", so a
 user who follows the Settings "Edit in cmux.json" button gets a warning for a
 setting that works. Four declarations have to agree:
 
-* `supportedSettingsJSONPaths` (`Sources/CmuxSettingsFileStore+SupportedPaths.swift`),
-  the cmux.json paths the section parsers accept.
+* `tests/fixtures/cmux-json-supported-paths.txt`, the cmux.json paths the
+  legacy section parsers accepted, frozen when `Sources/` was deleted.
 * The settings catalog (`Packages/macOS/CmuxSettings/.../Keys/*CatalogSection.swift`).
   A `JSONKey` or `SecretFileKey` id is itself a cmux.json path. A `DefaultsKey`
   id is only a cmux.json path when a section parser maps it, which is what the
@@ -32,20 +32,18 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = REPO_ROOT / "web" / "data" / "cmux.schema.json"
-SUPPORTED = REPO_ROOT / "Sources" / "CmuxSettingsFileStore+SupportedPaths.swift"
+SUPPORTED = REPO_ROOT / "tests" / "fixtures" / "cmux-json-supported-paths.txt"
 CATALOG_KEYS = REPO_ROOT / "Packages" / "macOS" / "CmuxSettings" / "Sources" / "CmuxSettings" / "Keys"
 SHORTCUT_ACTION = (
     REPO_ROOT / "Packages" / "macOS" / "CmuxSettings" / "Sources" / "CmuxSettings"
     / "Values" / "ShortcutAction.swift"
 )
-SOURCE_ROOTS = (REPO_ROOT / "Sources", REPO_ROOT / "Packages")
 
 KEY_DECLARATION = re.compile(
     r"\b(DefaultsKey|JSONKey|SecretFileKey)\b(?:<[^\n]*?>)?\(\s*id:\s*\"([^\"]+)\""
     r"(?:,\s*defaultValue:\s*([^\n]+?),?\n)?"
 )
 STRING = re.compile(r'"([^"]+)"')
-SYMBOL = re.compile(r"^([A-Z][A-Za-z0-9_]*)\.([A-Za-z0-9_]+)\s*,?$")
 
 # Catalog DefaultsKey ids that no cmux.json section parser reads. They are
 # stored only in UserDefaults (UI state, beta toggles, device and account
@@ -145,60 +143,11 @@ def schema_paths():
     return schema, nodes
 
 
-_swift_sources = None
-
-
-def _all_swift_sources():
-    global _swift_sources
-    if _swift_sources is None:
-        _swift_sources = [
-            path.read_text(encoding="utf-8", errors="replace")
-            for root in SOURCE_ROOTS
-            for path in root.rglob("*.swift")
-            if ".build" not in path.parts
-        ]
-    return _swift_sources
-
-
-def resolve_symbol(type_name, member):
-    declares = re.compile(
-        r"\b(?:enum|struct|class|extension|actor|protocol)\s+" + re.escape(type_name) + r"\b"
-    )
-    pattern = re.compile(
-        r"static\s+let\s+" + re.escape(member) + r"\s*(?::\s*String\s*)?=\s*\"([^\"]+)\""
-    )
-    values = set()
-    for text in _all_swift_sources():
-        # The substring checks skip the regexes for almost every file.
-        if type_name in text and member in text and declares.search(text):
-            found = pattern.search(text)
-            if found:
-                values.add(found.group(1))
-    return values.pop() if len(values) == 1 else None
-
-
 @functools.lru_cache(maxsize=None)
 def supported_paths():
-    resolved, unresolved = set(), []
-    body = SUPPORTED.read_text(encoding="utf-8")
-    body = body[body.index("supportedSettingsJSONPaths"):]
-    for raw in body.splitlines()[1:]:
-        line = raw.strip()
-        if line.startswith("]"):
-            break
-        if not line or line.startswith("//"):
-            continue
-        literal = STRING.search(line)
-        if literal:
-            resolved.add(literal.group(1))
-            continue
-        symbol = SYMBOL.match(line)
-        value = resolve_symbol(*symbol.groups()) if symbol else None
-        if value:
-            resolved.add(value)
-        else:
-            unresolved.append(line)
-    return frozenset(resolved), tuple(unresolved)
+    lines = SUPPORTED.read_text(encoding="utf-8").splitlines()
+    resolved = {line.strip() for line in lines if line.strip() and not line.startswith("#")}
+    return frozenset(resolved), ()
 
 
 def catalog_keys():

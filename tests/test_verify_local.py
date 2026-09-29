@@ -45,22 +45,46 @@ def cli(repo, *args):
 
 class PreflightTests(unittest.TestCase):
     def test_real_wiring_failure_then_repair_without_native_execution(self):
+        def project(wired):
+            build_files = "".join(
+                f"\t\tAAAA00000000000000000B{i:02d} /* {name} in Sources */ = "
+                f"{{isa = PBXBuildFile; fileRef = AAAA00000000000000000F{i:02d} /* {name} */; }};\n"
+                for i, name in enumerate(wired))
+            members = "".join(
+                f"\t\t\t\tAAAA00000000000000000B{i:02d} /* {name} in Sources */,\n"
+                for i, name in enumerate(wired))
+            return (
+                "/* Begin PBXBuildFile section */\n" + build_files +
+                "/* End PBXBuildFile section */\n"
+                "/* Begin PBXNativeTarget section */\n"
+                "\t\tAAAA000000000000000000T1 /* cmuxCLITests */ = {\n"
+                "\t\t\tisa = PBXNativeTarget;\n"
+                "\t\t\tbuildPhases = (\n"
+                "\t\t\t\tAAAA000000000000000000S1 /* Sources */,\n"
+                "\t\t\t);\n"
+                "\t\t\tname = cmuxCLITests;\n"
+                "\t\t};\n"
+                "/* End PBXNativeTarget section */\n"
+                "/* Begin PBXSourcesBuildPhase section */\n"
+                "\t\tAAAA000000000000000000S1 /* Sources */ = {\n"
+                "\t\t\tisa = PBXSourcesBuildPhase;\n"
+                "\t\t\tfiles = (\n" + members +
+                "\t\t\t);\n"
+                "\t\t};\n"
+                "/* End PBXSourcesBuildPhase section */\n")
+
         with repo_fixture() as repo:
-            for name in ("lint-pbxproj-test-wiring.sh", "sync-test-wiring",
-                         "sync_test_wiring.py", "normalize-pbxproj.py"):
-                shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
-            for name in ("test_ci_pbxproj_test_wiring.sh", "test_sync_test_wiring.py"):
-                shutil.copy2(ROOT / "tests" / name, repo / "tests" / name)
-            shutil.copytree(ROOT / "tests/fixtures/pbxproj-test-wiring",
-                            repo / "tests/fixtures/pbxproj-test-wiring")
-            (repo / "cmuxTests").mkdir()
-            (repo / "cmuxTests/ExistingTests.swift").write_text("import Testing\n")
+            shutil.copy2(ROOT / "scripts/lint-pbxproj-test-wiring.sh",
+                         repo / "scripts/lint-pbxproj-test-wiring.sh")
+            shutil.copy2(ROOT / "tests/test_ci_pbxproj_test_wiring.sh",
+                         repo / "tests/test_ci_pbxproj_test_wiring.sh")
+            (repo / "cmuxCLITests").mkdir()
+            (repo / "cmuxCLITestSupport").mkdir()
+            (repo / "cmuxCLITests/ExistingTests.swift").write_text("import Testing\n")
             (repo / "cmux.xcodeproj").mkdir()
-            project = repo / "cmux.xcodeproj/project.pbxproj"
-            shutil.copyfile(ROOT / "tests/fixtures/pbxproj-test-wiring/base.pbxproj", project)
-            sync = [str(repo / "scripts/sync-test-wiring"), "--repo-root", str(repo)]
-            subprocess.run(sync, check=True, capture_output=True, text=True)
-            (repo / "cmuxTests/UnwiredTests.swift").write_text("import Testing\n@Test func example() {}\n")
+            pbxproj = repo / "cmux.xcodeproj/project.pbxproj"
+            pbxproj.write_text(project(["ExistingTests.swift"]))
+            (repo / "cmuxCLITests/UnwiredTests.swift").write_text("import Testing\n@Test func example() {}\n")
             with tempfile.TemporaryDirectory() as receipts:
                 evidence = Path(receipts) / "receipt.json"
                 failed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
@@ -72,7 +96,7 @@ class PreflightTests(unittest.TestCase):
                 self.assertEqual(result["evidence"]["executions"][0]["argv"],
                                  ["bash", "tests/test_ci_pbxproj_test_wiring.sh"])
                 self.assertEqual(verify.receipt.check(result, "typechecking")["status"], "skipped")
-                subprocess.run(sync, check=True, capture_output=True, text=True)
+                pbxproj.write_text(project(["ExistingTests.swift", "UnwiredTests.swift"]))
                 fixed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
                 self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
                 result = json.loads(evidence.read_text())
@@ -378,15 +402,14 @@ class AffectedChecksTests(unittest.TestCase):
         with repo_fixture() as repo:
             (repo / "scripts/normalize-pbxproj.py").write_text("# changed helper")
             selected, _ = verify.affected_checks(repo, "HEAD")
-            self.assertEqual(selected, ["project-tests", "project", "test-wiring-sync", "feature-flags"])
+            self.assertEqual(selected, ["project-tests", "project", "feature-flags"])
 
-    def test_current_ci_schema_and_sync_inputs_select_their_checks(self):
+    def test_current_ci_schema_and_wiring_inputs_select_their_checks(self):
         for path, expected in (
             ("web/data/cmux.schema.json", "config-schema"),
             ("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift", "config-schema"),
-            ("scripts/sync-test-wiring", "test-wiring-sync"),
-            ("scripts/sync_test_wiring.py", "test-wiring-sync"),
-            ("tests/fixtures/pbxproj-test-wiring/new.pbxproj", "test-wiring-sync"),
+            ("cmuxCLITests/NewTests.swift", "test-wiring"),
+            ("cmuxCLITestSupport/NewSupport.swift", "test-wiring"),
         ):
             with self.subTest(path=path), repo_fixture() as repo:
                 target = repo / path
@@ -533,12 +556,12 @@ class AutomaticSelectionTests(unittest.TestCase):
     def test_plain_preview_selects_swift_without_running_compiler(self):
         with repo_fixture() as repo:
             self.remote_default(repo)
-            (repo / "Sources").mkdir()
-            (repo / "Sources/Changed.swift").write_text("not valid Swift")
+            (repo / "CLI").mkdir()
+            (repo / "CLI/Changed.swift").write_text("not valid Swift")
             with patch.dict(os.environ, {"CI": "", "GITHUB_ACTIONS": ""}):
                 result = cli(repo, "--list")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("Sources/Changed.swift", result.stdout)
+            self.assertIn("CLI/Changed.swift", result.stdout)
             self.assertIn("swift-syntax", result.stdout)
             self.assertNotIn("RUN ", result.stdout)
 

@@ -1,7 +1,7 @@
 name: Prune PR media
 
-# pr-media.yml and scripts/pr-media.py add screenshots and GIFs to the
-# pr-media branch on every app push, and every default clone fetches that
+# scripts/pr-media.py (and the retired pr-media.yml) add screenshots and GIFs
+# to the pr-media branch, and every default clone fetches that
 # branch. This drops the folders of pull requests closed over 30 days ago and
 # squashes the branch to one commit so their files leave history too (see
 # scripts/ci/prune_pr_media.py). It is a dry run unless a dispatch asks to

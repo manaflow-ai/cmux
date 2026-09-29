@@ -23,7 +23,7 @@ Read the matching skill before changing an area, then only the references needed
   user may. Reproduce in a tagged build and attach profiling to its PID.
 - Dogfood through `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, never `/tmp/cmux-cli`.
   Never report raw `.app` paths or `file://` URLs.
-- App-linked code (`Sources/`, `CLI/`, `TunnelExtension/` and their packages) must
+- App-linked code (`App/`, `CLI/` and their packages) must
   remain [Swift 6.0 compatible](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 
 ## Area instructions
@@ -88,13 +88,14 @@ Use these existing owners instead of duplicating their checklists here:
 | Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
-| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); run `scripts/sync-test-wiring` after adding, renaming or deleting a `cmuxTests/` file |
+| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); CmuxNext tests need no wiring, `cmuxCLITests/` files need pbxproj entries (`scripts/lint-pbxproj-test-wiring.sh` checks them) |
 | Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |
 
 ## Remote CLI relay
 
 For v2 socket methods and remote CLI changes, read [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md).
-`RemoteRelayCommandPolicy` defaults to deny. Allowlist only for a needed remote
+The legacy `RemoteRelayCommandPolicy` was deleted with `CmuxRemoteWorkspace`; any
+remote relay cmux-next adds must default to deny the same way. Allowlist only for a needed remote
 flow, scoped to the session's objects; command-bearing params stay denied except
 for the documented audited exception. The PR must analyze local command/content
 execution, access to unowned objects and local-state exposure, and include the

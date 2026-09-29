@@ -12,8 +12,8 @@ nothing: 206 to 594 MB per package on one mini on 2026-09-26, 1,430 runner-minut
 a day across the minis. The checkout keeps the modification times of files it
 did not change, so a kept `.build` rebuilds only what the change touched.
 
-`link` points each package's `.build` (every Package.swift under Packages/*/*
-and vendor/bonsplit) at STORE/spm-scratch/<fingerprint>/<package path>, outside
+`link` points each package's `.build` (every Package.swift under Packages/*/*)
+at STORE/spm-scratch/<fingerprint>/<package path>, outside
 the workspace, where the clean cannot reach. The fingerprint hashes
 `xcodebuild -version`, `swift -version` and the workspace path, so another
 Xcode (an upgrade, or a pull request's CMUX_CI_XCODE_APP) or another runner's
@@ -58,11 +58,7 @@ HOLD_SECONDS = 65 * 60
 
 
 def packages(workspace: Path) -> list[Path]:
-    found = [path.parent for path in sorted(workspace.glob("Packages/*/*/Package.swift"))]
-    bonsplit = workspace / "vendor/bonsplit"
-    if (bonsplit / "Package.swift").is_file():
-        found.append(bonsplit)
-    return found
+    return [path.parent for path in sorted(workspace.glob("Packages/*/*/Package.swift"))]
 
 
 def toolchain_fingerprint(workspace: Path) -> str:

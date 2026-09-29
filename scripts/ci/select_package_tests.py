@@ -18,11 +18,6 @@ from pathlib import Path
 
 PATH_DEPENDENCY = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*",\s*)?path:\s*"([^"]+)"')
 
-# Inputs outside a package's own directory and its path dependencies.
-EXTRA_INPUTS = {
-    "CmuxCommandPalette": ("Native/CommandPaletteNucleoFFI/",),
-}
-
 # The job itself: its workflow, the scripts its test steps call, and the pinned
 # toolchain and GhosttyKit revision. A change to any of these selects everything.
 GLOBAL_INPUTS = (
@@ -114,10 +109,6 @@ def input_prefixes(root: Path, name: str, dirs: dict[str, str]) -> set[str]:
         prefixes.add(prefix)
         if (root / directory / "Package.swift").is_file():
             pending.extend(path_dependencies(root, directory))
-    dependency_names = {Path(prefix).name for prefix in prefixes}
-    for owner, extra in EXTRA_INPUTS.items():
-        if owner in dependency_names:
-            prefixes.update(extra)
     return prefixes
 
 

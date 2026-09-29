@@ -183,14 +183,12 @@ jobs:
 
           # Guard against a stale/poisoned Swift-package cache: resolve can
           # report success without binary artifacts materialized. Matches the
-          # check test-e2e.yml and test-macos-suite.yml already run; this workflow
-          # now restores from the same shared `spm-` namespace they do.
+          # check compile admission runs (compile-app-host-test-product.sh).
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
-                && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
                 exit 0
               fi
               echo "Resolve succeeded without required binary artifacts; retrying cleanly" >&2
