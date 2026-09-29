@@ -128,7 +128,7 @@ export function DocsNav({
             </div>
             <div
               ref={contentRef}
-              className="docs-content text-[16px]"
+              className="docs-content text-[15px]"
               data-docs-page-body
               data-pagefind-body
               data-pagefind-meta="section:Docs"

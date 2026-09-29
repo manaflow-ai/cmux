@@ -2,7 +2,7 @@ import { codeToHtml } from "shiki";
 import { CodeCopyButton } from "./code-copy-button";
 
 const frameClass =
-  "not-prose group relative mb-8 mt-5 overflow-hidden rounded-2xl border border-border bg-code-bg";
+  "not-prose group relative mb-6 mt-4 overflow-hidden rounded-xl border border-border bg-code-bg";
 
 function CodeHeader({ label }: { label: string }) {
   return (
@@ -27,9 +27,9 @@ export async function CodeBlock({
   "use cache";
 
   const plainLineHeightClass =
-    variant === "ascii" ? "leading-[1.15]" : "leading-6";
+    variant === "ascii" ? "leading-[1.15]" : "leading-[22px]";
   const shikiLineHeightClass =
-    variant === "ascii" ? "[&_pre]:leading-[1.15]" : "[&_pre]:leading-6";
+    variant === "ascii" ? "[&_pre]:leading-[1.15]" : "[&_pre]:leading-[22px]";
   // Like Mintlify, only a titled block (a file name) gets a header bar.
   const headerLabel = title;
   // Without a header the copy button floats over the code and appears on hover.
@@ -48,7 +48,7 @@ export async function CodeBlock({
       <div className={frameClass} data-code-block>
         {headerLabel && <CodeHeader label={headerLabel} />}
         <div
-          className={`[&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:px-4 [&_pre]:py-3.5 [&_pre]:overflow-x-auto [&_pre]:text-[14px] ${shikiLineHeightClass} [&_pre]:font-mono [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[1em]`}
+          className={`[&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:px-4 [&_pre]:py-3.5 [&_pre]:overflow-x-auto [&_pre]:text-[13px] ${shikiLineHeightClass} [&_pre]:font-mono [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[1em]`}
           dangerouslySetInnerHTML={{ __html: html }}
         />
         {floatingCopy}
@@ -60,7 +60,7 @@ export async function CodeBlock({
     <div className={frameClass} data-code-block>
       {headerLabel && <CodeHeader label={headerLabel} />}
       <pre
-        className={`m-0 px-4 py-3.5 overflow-x-auto text-[14px] ${plainLineHeightClass} ${
+        className={`m-0 px-4 py-3.5 overflow-x-auto text-[13px] ${plainLineHeightClass} ${
           variant === "ascii" ? "" : "font-mono"
         }`}
         style={
