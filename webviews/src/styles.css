@@ -1550,3 +1550,33 @@ body[data-loading="true"] #status::before {
 .file-review-controls[data-viewed-state="viewed"] .file-review-viewed {
   color: var(--cmux-diff-text-muted);
 }
+/* Octicon-backed icons are filled 16px glyphs. These selectors outrank every
+   stroke-icon rule above (all `<container> svg`) without !important. */
+.toolbar-icon svg[data-icon-fill],
+.menu-item svg[data-icon-fill],
+.files-filter-button svg[data-icon-fill],
+.file-review-checkbox svg[data-icon-fill],
+#file-search-toggle svg[data-icon-fill],
+.base-picker-button svg[data-icon-fill],
+.base-picker-search svg[data-icon-fill],
+svg[data-icon-fill] {
+  fill: currentcolor;
+  stroke: none;
+}
+/* Status filters use the same colors as the file tree status marks. A filter
+   that is off keeps its shape but fades, so the four states stay legible. */
+.files-status-filter[data-file-status-filter="added"] {
+  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+}
+.files-status-filter[data-file-status-filter="modified"] {
+  color: var(--cmux-diff-accent);
+}
+.files-status-filter[data-file-status-filter="renamed"] {
+  color: light-dark(#a26300, #ffd166);
+}
+.files-status-filter[data-file-status-filter="deleted"] {
+  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+.files-status-filter[aria-pressed="false"] svg {
+  opacity: 0.35;
+}
