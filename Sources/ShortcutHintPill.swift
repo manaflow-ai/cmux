@@ -27,10 +27,28 @@ private struct ChromeRevealAnimationModifier: ViewModifier {
     }
 }
 
+/// Cmd-hold hints fade both in and out, unlike other reveal chrome: the
+/// whole hint layer appears at once across the window, and popping every
+/// pill in the same frame reads as a flash. Matches Bonsplit's
+/// `TabControlShortcutHintAnimation` so pane tab hints fade with the rest.
 enum ShortcutHintAnimation {
     static let visibilityDuration: TimeInterval = 0.12
-    static let fadeOut: Animation = .easeOut(duration: visibilityDuration)
-    static let transition: AnyTransition = .asymmetric(insertion: .identity, removal: .opacity)
+    static let fade: Animation = .easeOut(duration: visibilityDuration)
+    static let transition: AnyTransition = .opacity
+
+    /// The hint animation, or none under Reduce Motion.
+    static func animation(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : fade
+    }
+}
+
+private struct ShortcutHintVisibilityAnimationModifier<Value: Equatable>: ViewModifier {
+    let value: Value
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.animation(ShortcutHintAnimation.animation(reduceMotion: reduceMotion), value: value)
+    }
 }
 
 extension View {
@@ -44,7 +62,7 @@ extension View {
     }
 
     func shortcutHintVisibilityAnimation(value isVisible: Bool) -> some View {
-        chromeRevealAnimation(isVisible: isVisible, fadeOut: ShortcutHintAnimation.fadeOut)
+        modifier(ShortcutHintVisibilityAnimationModifier(value: isVisible))
     }
 }
 

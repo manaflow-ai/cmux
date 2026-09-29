@@ -2036,15 +2036,16 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func shortcutHintPillClipsMaterialToItsCapsule() throws {
+    func shortcutHintPillClipsItsFillToACapsule() throws {
         let pill = SidebarShortcutHintPillView()
         pill.frame = NSRect(x: 0, y: 0, width: 36, height: 18)
         pill.configure(text: "⌘1", fontSize: 10, emphasis: 1, colorScheme: .dark)
         pill.layoutSubtreeIfNeeded()
 
-        let material = try #require(Self.descendants(of: pill).compactMap { $0 as? NSVisualEffectView }.first)
-        #expect(material.layer?.masksToBounds == true)
-        #expect(material.layer?.cornerRadius == pill.bounds.height / 2)
+        let capsule = try #require(pill.subviews.first)
+        #expect(capsule.layer?.masksToBounds == true)
+        #expect(capsule.layer?.cornerRadius == pill.bounds.height / 2)
+        #expect(capsule.layer?.backgroundColor == ShortcutHintPalette.background(for: .dark).cgColor)
     }
 
     @Test

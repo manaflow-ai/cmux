@@ -789,10 +789,14 @@ final class SidebarShortcutHintPillView: NSView {
         visibilityGeneration &+= 1
         let generation = visibilityGeneration
 
-        // Hints appear at once (the modifier hold is already the wait) and
-        // only fade out.
-        if revealed || reduceMotionProvider() {
+        // Hints fade in and out (``ShortcutHintAnimation``), at once under
+        // Reduce Motion.
+        if reduceMotionProvider() {
             applyImmediateVisibility(revealed)
+            return
+        }
+        if revealed {
+            fadeIn()
             return
         }
 
@@ -801,6 +805,23 @@ final class SidebarShortcutHintPillView: NSView {
             return
         }
         fadeOut(generation: generation)
+    }
+
+    private func fadeIn() {
+        guard let layer else { return }
+        let currentOpacity = isHidden ? 0 : (layer.presentation()?.opacity ?? layer.opacity)
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = currentOpacity
+        animation.toValue = Float(1)
+        animation.duration = ShortcutHintAnimation.visibilityDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        isHidden = false
+        layer.opacity = 1
+        layer.add(animation, forKey: Self.visibilityAnimationKey)
+        CATransaction.commit()
     }
 
     private func applyImmediateVisibility(_ revealed: Bool) {
