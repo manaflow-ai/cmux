@@ -59,7 +59,7 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `reload-build.yml` | dispatch | blacksmith/macos | 276 | 107 / 71 / 0 / 98 | 4,689 | 2026-09-22 | lawrencecchen #6354 | Leo 2026-09-21 | 1 wf refs; 3 docs/tests |  |
 | `cla-policy-guard.yml` | pr_target | gh-ubuntu | 13,584 | 12,311 / 1,272 / 0 / 1 | 2,445 | 2026-09-22 | lawrence703 #11387 | Lawrence Chen 2026-09-02 | REQUIRED: CLA policy guard; 2 docs/tests |  |
 | `remote-daemon.yml` | pr push dispatch (paths) | blacksmith/warp/macos | 189 | 116 / 7 / 0 / 65 | 2,178 | 2026-09-22 | austinywang #12720 | austinpower1258 2026-09-15 | none |  |
-| `test-ios.yml` | dispatch | blacksmith/warp/macos | 163 | 14 / 124 / 0 / 25 | 2,086 | 2026-09-22 | lawrencecchen #5079 | Leo 2026-09-21 | 3 docs/tests | 76% fail |
+| `test-ios.yml` | pr merge_group dispatch (paths) | blacksmith/warp/macos | 163 | 14 / 124 / 0 / 25 | 2,086 | 2026-09-22 | lawrencecchen #5079 | Leo 2026-09-21 | 3 docs/tests | 76% fail |
 | `testbox-broker-guard.yml` | pr push | blacksmith | 6,275 | 5,549 / 92 / 0 / 430 | 1,877 | 2026-09-22 | lawrencecchen #10305 | Leo 2026-09-21 | 1 docs/tests | **c** always-on guard; header says CI is dispatch-only (stale) |
 | `web-complexity.yml` | pr push (paths) | blacksmith | 5,889 | 4,753 / 135 / 0 / 798 | 1,578 | 2026-09-22 | lawrencecchen #11944 | Leo 2026-09-22 | 2 wf refs; 4 docs/tests |  |
 | `cmux-tui-artifacts.yml` | push dispatch (paths) | blacksmith/warp/macos | 41 | 30 / 4 / 0 / 7 | 1,555 | 2026-09-22 | lawrencecchen #7710 | Austin Wang 2026-09-19 | 3 wf refs; 7 docs/tests |  |
