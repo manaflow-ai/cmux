@@ -13,6 +13,8 @@ import PackageDescription
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxGhosttyKit (binary)
 //   CmuxNextDesign, CmuxNextActions, CmuxNextDaemon -> system frameworks only
+//   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply)
+//   CmuxNextControl -> Actions, Settings (app control socket; no UI, no daemon)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -58,6 +60,8 @@ let package = Package(
                 "CmuxNextPalette",
                 "CmuxNextLayout",
                 "CmuxNextBrowser",
+                "CmuxNextControl",
+                "CmuxNextSettings",
             ],
             resources: [
                 .process("Resources"),
@@ -153,6 +157,26 @@ let package = Package(
             name: "CmuxNextBrowserTests",
             dependencies: ["CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextSettings",
+            dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextSettingsTests",
+            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextControl",
+            dependencies: ["CmuxNextActions", "CmuxNextSettings"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextControlTests",
+            dependencies: ["CmuxNextControl", "CmuxNextActions", "CmuxNextSettings"],
+            swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextActionsTests",

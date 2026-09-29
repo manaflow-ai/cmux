@@ -5061,7 +5061,11 @@ struct CMUXCLI {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
-            throw unknownCommandError(command)
+            // Generated action verbs (`cmux tab-group create --help`) get
+            // their help from the app's action schema after socket resolution.
+            if Self.topLevelCommandNames.contains(command) || !CmuxActionCLI.isCandidateNoun(command) {
+                throw unknownCommandError(command)
+            }
         }
 
         // Registry inspection, cleanup, and direct headless attach must keep
@@ -5204,6 +5208,17 @@ struct CMUXCLI {
 
         if shouldOpenAsPathArgument(command) {
             try openPathViaExplicitSocket(command, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)
+            return
+        }
+
+        // `cmux action …` and generated `cmux <noun> <verb>` (cmux-next).
+        if try runActionCLIIfApplicable(
+            command: command,
+            commandArgs: commandArgs,
+            socketPath: resolvedSocketPath,
+            explicitPassword: socketPasswordArg,
+            jsonOutput: jsonOutput
+        ) {
             return
         }
 
