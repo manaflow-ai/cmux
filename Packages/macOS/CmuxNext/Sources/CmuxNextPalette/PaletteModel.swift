@@ -1,3 +1,4 @@
+import CmuxNextActions
 public import Foundation
 public import Observation
 
@@ -6,6 +7,8 @@ public import Observation
 /// Holds a stack of pages (root list, nested lists, text entry). Each page
 /// keeps its own query and selection so popping restores them. Views read
 /// the observable properties; the panel controller feeds key commands.
+/// Non-empty queries are ranked off the main actor by `PaletteSearcher`;
+/// results carry a generation and stale ones are dropped.
 @Observable
 public final class PaletteModel {
     // MARK: Observable page state
@@ -19,24 +22,24 @@ public final class PaletteModel {
         }
     }
 
-    public private(set) var sections: [PaletteResultSection] = []
-    public private(set) var selectedRowID: String?
-    public private(set) var hoveredRowID: String?
-    public private(set) var actionsMenu: PaletteActionsMenuState?
+    public internal(set) var sections: [PaletteResultSection] = []
+    public internal(set) var selectedRowID: String?
+    public internal(set) var hoveredRowID: String?
+    public internal(set) var actionsMenu: PaletteActionsMenuState?
     public private(set) var pageTitle: String = ""
     public private(set) var placeholder: String = ""
     public private(set) var pageSymbol: String = "command"
     /// Titles of the pages above the root, for the breadcrumb.
     public private(set) var breadcrumbs: [String] = []
     public private(set) var isTextInput = false
-    public private(set) var isLoading = false
+    public internal(set) var isLoading = false
     /// Increments when keyboard navigation moves the selection, so the view
     /// scrolls it into view (mouse hover never scrolls).
-    public private(set) var scrollRequest = 0
+    public internal(set) var scrollRequest = 0
     /// Increments on every page change so the view refocuses the field.
     public private(set) var pageToken = 0
-    /// Drives the open and close animation; owned by the panel controller.
-    public var isPresented = false
+    /// Increments whenever `sections` is replaced, so list views reload once.
+    public internal(set) var resultsVersion = 0
 
     // MARK: Non-observable state
 
@@ -45,10 +48,15 @@ public final class PaletteModel {
     @ObservationIgnored public var onDismiss: (@MainActor () -> Void)?
     /// Injected clock for frecency.
     @ObservationIgnored public var now: @MainActor () -> Date = { Date() }
-    @ObservationIgnored public private(set) var frecency: FrecencyStore
-    @ObservationIgnored private let persistence: (any FrecencyPersisting)?
-    @ObservationIgnored private var stack: [PageState] = []
-    @ObservationIgnored private var current: PageState? { stack.last }
+    @ObservationIgnored public internal(set) var frecency: FrecencyStore
+    @ObservationIgnored let persistence: (any FrecencyPersisting)?
+    @ObservationIgnored var stack: [PageState] = []
+    @ObservationIgnored var current: PageState? { stack.last }
+    @ObservationIgnored let searcher = PaletteSearcher()
+    @ObservationIgnored var searchGeneration = 0
+    @ObservationIgnored var searchTask: Task<Void, Never>?
+    /// A Return pressed while a search was in flight; runs when it lands.
+    @ObservationIgnored var pendingSubmit: PaletteKeyCommand?
 
     public init(frecency: FrecencyStore? = nil, persistence: (any FrecencyPersisting)? = nil) {
         self.persistence = persistence
@@ -62,7 +70,10 @@ public final class PaletteModel {
 
     public var selectedItem: PaletteItem? {
         guard let selectedRowID else { return nil }
-        return rows.first { $0.id == selectedRowID }?.item
+        for section in sections {
+            if let row = section.rows.first(where: { $0.id == selectedRowID }) { return row.item }
+        }
+        return nil
     }
 
     /// Footer title for Return.
@@ -73,23 +84,42 @@ public final class PaletteModel {
 
     public var depth: Int { stack.count }
 
+    /// Waits for the in-flight search, if any (tests, scripted checks).
+    public func settle() async {
+        while let task = searchTask {
+            await task.value
+            if searchTask == task { searchTask = nil }
+        }
+    }
+
     // MARK: Navigation
 
     /// Starts over at `page`, discarding the stack. Called on open.
     public func reset(to page: PalettePageSpec) {
-        for state in stack { state.cancel() }
-        stack = []
-        actionsMenu = nil
-        hoveredRowID = nil
+        clearStack()
         push(page)
+    }
+
+    /// Starts over with the page an effect opens (argument collection from
+    /// a menu or shortcut). A `.perform` effect runs immediately.
+    public func reset(to effect: PaletteEffect, fallback: PalettePageSpec) {
+        clearStack()
+        switch effect {
+        case .push(let page): push(page)
+        case .textInput(let spec): pushTextInput(spec)
+        case .perform(let handler), .performKeepingOpen(let handler):
+            push(fallback)
+            onDismiss?()
+            handler()
+        }
     }
 
     public func push(_ page: PalettePageSpec) {
         let state = PageState(kind: .list(page))
         stack.append(state)
         actionsMenu = nil
-        activate(state, restoring: false)
         load(state)
+        activate(state, restoring: false)
     }
 
     func pushTextInput(_ spec: PaletteTextInputSpec) {
@@ -115,127 +145,15 @@ public final class PaletteModel {
     public func reload() {
         guard let current else { return }
         load(current)
+        refreshResults(resetSelection: false)
     }
 
-    // MARK: Keyboard
-
-    /// Applies a key command. Returns whether it was consumed; unconsumed
-    /// commands fall through to the text field.
-    @discardableResult
-    public func handle(_ command: PaletteKeyCommand) -> Bool {
-        if actionsMenu != nil, handleActionsMenu(command) { return true }
-        switch command {
-        case .moveUp: moveSelection(by: -1, wrap: true)
-        case .moveDown: moveSelection(by: 1, wrap: true)
-        case .pageUp: moveSelection(by: -Self.pageStep, wrap: false)
-        case .pageDown: moveSelection(by: Self.pageStep, wrap: false)
-        case .moveToFirst: selectRow(at: 0, scroll: true)
-        case .moveToLast: selectRow(at: rows.count - 1, scroll: true)
-        case .submit:
-            guard let item = selectedItem else { return false }
-            run(item.primary, of: item)
-        case .submitAlternate:
-            guard let item = selectedItem else { return false }
-            run(item.alternate ?? item.primary, of: item)
-        case .toggleActions, .openActions:
-            return openActionsMenu()
-        case .closeActions:
-            return false
-        case .escape:
-            if pop() { return true }
-            if !query.isEmpty {
-                query = ""
-                return true
-            }
-            onDismiss?()
-        case .back:
-            guard query.isEmpty else { return false }
-            return pop()
-        case .actionsFilterAppend, .actionsFilterDeleteBackward:
-            return false
-        }
-        return true
-    }
-
-    private func handleActionsMenu(_ command: PaletteKeyCommand) -> Bool {
-        guard var menu = actionsMenu else { return false }
-        let count = menu.visibleCommands.count
-        switch command {
-        case .moveUp, .moveDown:
-            guard count > 0 else { return true }
-            let delta = command == .moveUp ? -1 : 1
-            menu.selectedIndex = (menu.selectedIndex + delta + count) % count
-            actionsMenu = menu
-        case .moveToFirst, .pageUp:
-            menu.selectedIndex = 0
-            actionsMenu = menu
-        case .moveToLast, .pageDown:
-            menu.selectedIndex = max(0, count - 1)
-            actionsMenu = menu
-        case .submit, .submitAlternate:
-            let visible = menu.visibleCommands
-            guard visible.indices.contains(menu.selectedIndex),
-                  let item = rows.first(where: { $0.id == menu.itemID })?.item
-            else { return true }
-            let command = visible[menu.selectedIndex]
-            actionsMenu = nil
-            run(command, of: item)
-        case .toggleActions, .closeActions, .escape:
-            actionsMenu = nil
-        case .openActions:
-            break
-        case .back:
-            return false
-        case .actionsFilterAppend(let text):
-            menu.filter += text
-            menu.selectedIndex = 0
-            actionsMenu = menu
-        case .actionsFilterDeleteBackward:
-            if menu.filter.isEmpty {
-                actionsMenu = nil
-            } else {
-                menu.filter.removeLast()
-                menu.selectedIndex = 0
-                actionsMenu = menu
-            }
-        }
-        return true
-    }
-
-    private func openActionsMenu() -> Bool {
-        guard let item = selectedItem, item.isEnabled else { return false }
-        actionsMenu = PaletteActionsMenuState(itemID: item.id, itemTitle: item.title, commands: item.allCommands)
-        return true
-    }
-
-    /// Runs the command at `index` of the visible Actions menu (mouse).
-    public func runActionsMenuCommand(at index: Int) {
-        guard var menu = actionsMenu else { return }
-        menu.selectedIndex = index
-        actionsMenu = menu
-        handle(.submit)
-    }
-
-    public func closeActionsMenu() {
+    private func clearStack() {
+        for state in stack { state.cancel() }
+        stack = []
         actionsMenu = nil
-    }
-
-    // MARK: Mouse
-
-    public func hover(_ rowID: String?) {
-        if hoveredRowID != rowID { hoveredRowID = rowID }
-    }
-
-    /// Click: select the row and run its primary command.
-    public func activate(rowID: String) {
-        selectedRowID = rowID
-        actionsMenu = nil
-        handle(.submit)
-    }
-
-    public func select(rowID: String) {
-        guard rows.contains(where: { $0.id == rowID }) else { return }
-        selectedRowID = rowID
+        hoveredRowID = nil
+        pendingSubmit = nil
     }
 
     // MARK: Running commands
@@ -261,12 +179,7 @@ public final class PaletteModel {
         }
     }
 
-    // MARK: Internals
-
-    static let pageStep = 8
-
     private func activate(_ state: PageState, restoring: Bool) {
-        // Assign the query first; its didSet refreshes against `current`.
         switch state.kind {
         case .list(let page):
             pageTitle = page.title
@@ -282,113 +195,31 @@ public final class PaletteModel {
         breadcrumbs = stack.dropFirst().map(\.title)
         isLoading = !state.pendingProviders.isEmpty
         let savedSelection = state.selectedRowID
+        if restoring, let cached = state.lastSections {
+            // Show the page as it was while its search refreshes.
+            publish(cached, resetSelection: false)
+        }
+        // Assigning the query refreshes through its didSet; otherwise refresh here.
         if query != state.query {
             query = state.query
         } else {
             refreshResults(resetSelection: true)
         }
-        if restoring, let savedSelection, rows.contains(where: { $0.id == savedSelection }) {
-            selectedRowID = savedSelection
-            scrollRequest += 1
+        if restoring, let savedSelection {
+            restoreSelection = savedSelection
+            applyRestoredSelection()
         }
         pageToken += 1
     }
 
-    private func load(_ state: PageState) {
-        guard case .list(let page) = state.kind else { return }
-        state.cancel()
-        var pending = Set<String>()
-        for provider in page.providers {
-            if let items = provider.immediateItems {
-                state.providerItems[provider.id] = items
-            } else {
-                pending.insert(provider.id)
-            }
-        }
-        state.pendingProviders = pending
-        state.invalidateIndex()
-        if state === current {
-            isLoading = !pending.isEmpty
-            refreshResults(resetSelection: false)
-        }
-        for provider in page.providers where pending.contains(provider.id) {
-            let providerID = provider.id
-            state.tasks.append(Task { [weak self, weak state] in
-                let items = await provider.items()
-                guard !Task.isCancelled, let self, let state else { return }
-                state.providerItems[providerID] = items
-                state.pendingProviders.remove(providerID)
-                state.invalidateIndex()
-                if state === self.current {
-                    self.isLoading = !state.pendingProviders.isEmpty
-                    self.refreshResults(resetSelection: false)
-                }
-            })
-        }
-    }
+    /// Selection to restore after popping, applied once results land.
+    @ObservationIgnored var restoreSelection: String?
 
-    private func refreshResults(resetSelection: Bool) {
-        guard let state = current else {
-            sections = []
-            selectedRowID = nil
-            return
-        }
-        switch state.kind {
-        case .textInput(let spec):
-            let text = state.query
-            let valid = spec.isValid(text)
-            let item = PaletteItem(
-                id: "submit",
-                title: spec.submitTitle(text),
-                symbol: spec.symbol,
-                keycaps: ["↩"],
-                isEnabled: valid,
-                primary: PaletteCommand(id: "submit", title: PaletteStrings.submit, symbol: "return", effect: .perform {
-                    spec.submit(text)
-                }),
-                frecencyKey: nil
-            )
-            sections = [PaletteResultSection(section: .results, rows: [PaletteRow(item: item, highlights: [], score: 0)])]
-            selectedRowID = item.id
-        case .list(let page):
-            let index = state.index(for: page)
-            sections = PaletteRanker.rank(
-                index: index,
-                query: state.query,
-                frecency: frecency,
-                now: now(),
-                showsRecent: page.showsRecent
-            )
-            let rows = self.rows
-            if resetSelection || selectedRowID == nil || !rows.contains(where: { $0.id == selectedRowID }) {
-                selectedRowID = rows.first?.id
-                if resetSelection { scrollRequest += 1 }
-            }
-            if let menu = actionsMenu, !rows.contains(where: { $0.id == menu.itemID }) {
-                actionsMenu = nil
-            }
-        }
-        state.selectedRowID = selectedRowID
-    }
-
-    private func moveSelection(by delta: Int, wrap: Bool) {
-        let rows = self.rows
-        guard !rows.isEmpty else { return }
-        let currentIndex = rows.firstIndex { $0.id == selectedRowID } ?? -1
-        var next = currentIndex + delta
-        if wrap {
-            next = ((next % rows.count) + rows.count) % rows.count
-        } else {
-            next = min(max(next, 0), rows.count - 1)
-        }
-        selectRow(at: next, scroll: true)
-    }
-
-    private func selectRow(at index: Int, scroll: Bool) {
-        let rows = self.rows
-        guard rows.indices.contains(index) else { return }
-        selectedRowID = rows[index].id
-        current?.selectedRowID = selectedRowID
-        if scroll { scrollRequest += 1 }
+    func applyRestoredSelection() {
+        guard let saved = restoreSelection, rows.contains(where: { $0.id == saved }) else { return }
+        restoreSelection = nil
+        selectedRowID = saved
+        current?.selectedRowID = saved
+        scrollRequest += 1
     }
 }

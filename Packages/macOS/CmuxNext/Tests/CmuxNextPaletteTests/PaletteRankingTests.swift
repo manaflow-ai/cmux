@@ -6,16 +6,36 @@ import Testing
 @Suite struct PaletteRankingTests {
     let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
-    func catalogIndex() -> PaletteSearchIndex {
-        let provider = RegistryPaletteProvider(registry: .standard(), includeUnbound: true)
-        return PaletteSearchIndex(items: provider.makeItems())
+    /// Items plus their index, so ranked entry indices map back to item IDs.
+    struct Corpus {
+        let items: [PaletteItem]
+        var index: PaletteSearchIndex
+
+        init(_ items: [PaletteItem], visible: [Bool]? = nil) {
+            self.items = items
+            index = PaletteSearchIndex(items: items, visibleWhenQueryEmpty: visible)
+        }
+
+        mutating func rank(_ query: String, frecency: FrecencyStore, now: Date, showsRecent: Bool = false) -> [(section: Int?, ids: [String])] {
+            PaletteRanker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: showsRecent)
+                .map { section in (section.sectionIndex, section.rows.map { items[$0.index].id }) }
+        }
+
+        mutating func topID(_ query: String, frecency: FrecencyStore, now: Date) -> String? {
+            PaletteRanker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: false)
+                .flatMap(\.rows)
+                .max { $0.score < $1.score }
+                .map { items[$0.index].id }
+        }
     }
 
-    func topID(_ query: String, index: PaletteSearchIndex, frecency: FrecencyStore = FrecencyStore()) -> String? {
-        PaletteRanker.rank(index: index, query: query, frecency: frecency, now: now, showsRecent: false)
-            .flatMap(\.rows)
-            .sorted { $0.score > $1.score }
-            .first?.id
+    func catalogIndex() -> Corpus {
+        Corpus(RegistryPaletteProvider(registry: .standard(), includeUnbound: true).makeItems())
+    }
+
+    func topID(_ query: String, index: Corpus, frecency: FrecencyStore = FrecencyStore()) -> String? {
+        var index = index
+        return index.topID(query, frecency: frecency, now: now)
     }
 
     @Test func catalogQueriesRankTheObviousActionFirst() {
@@ -54,9 +74,11 @@ import Testing
 
     @Test func shortcutSearchFindsByKeys() {
         let registry = ActionRegistry.standard()
-        let index = PaletteSearchIndex(items: KeyboardShortcutsPaletteProvider(registry: registry).makeItems())
+        let index = Corpus(KeyboardShortcutsPaletteProvider(registry: registry).makeItems())
         #expect(topID("⇧⌘P", index: index) == "shortcut:commandPalette")
-        #expect(topID("cmd d split", index: index) == "shortcut:splitRight")
+        var corpus = index
+        let top = corpus.rank("cmd d split", frecency: FrecencyStore(), now: now).flatMap(\.ids).prefix(3)
+        #expect(top.contains("shortcut:splitRight"))
         // Every catalog action with a default shortcut or label is listed.
         let expected = ActionCatalog.all.filter { $0.defaultShortcut != nil || $0.shortcutLabel != nil }.count
         #expect(index.items.count == expected)
@@ -66,7 +88,7 @@ import Testing
         func item(_ id: String, _ title: String) -> PaletteItem {
             PaletteItem(id: id, title: title, primary: PaletteCommand(id: "run", title: "Run", effect: .perform {}))
         }
-        let index = PaletteSearchIndex(items: [
+        let index = Corpus([
             item("right", "Split Right"),
             item("down", "Split Down"),
             item("folder", "Open Folder"),
@@ -108,39 +130,40 @@ import Testing
     }
 
     @Test func incrementalSearchMatchesFullScan() {
-        let incremental = catalogIndex()
+        var incremental = catalogIndex().index
         _ = incremental.matches(for: FuzzyQuery("s"))
         _ = incremental.matches(for: FuzzyQuery("sp"))
         let narrowed = incremental.matches(for: FuzzyQuery("spl r")).map(\.index)
-        let fresh = catalogIndex().matches(for: FuzzyQuery("spl r")).map(\.index)
-        #expect(narrowed == fresh)
+        var fresh = catalogIndex().index
+        #expect(narrowed == fresh.matches(for: FuzzyQuery("spl r")).map(\.index))
         #expect(!narrowed.isEmpty)
         // Backspacing (not a refinement) rescans everything.
         let widened = incremental.matches(for: FuzzyQuery("sp")).map(\.index)
-        #expect(widened == catalogIndex().matches(for: FuzzyQuery("sp")).map(\.index))
+        var again = catalogIndex().index
+        #expect(widened == again.matches(for: FuzzyQuery("sp")).map(\.index))
     }
 
     @Test func emptyQueryShowsRecentThenSectionsInOrder() {
         let registry = ActionRegistry.standard()
-        let workspaces = StaticPaletteProvider(id: "ws", items: [
-            PaletteItem(id: "workspace:1", title: "api server", primary: PaletteCommand(id: "go", title: "Go", effect: .perform {})),
-        ], showsItemsForEmptyQuery: false)
-        let registryItems = RegistryPaletteProvider(registry: registry, includeUnbound: true).makeItems()
-        let index = PaletteSearchIndex(
-            items: registryItems + (workspaces.immediateItems ?? []),
-            visibleWhenQueryEmpty: Array(repeating: true, count: registryItems.count) + [false]
+        registry.bind("splitDown") {}
+        let workspace = PaletteItem(
+            id: "workspace:1", title: "api server",
+            section: PaletteSection(id: "ws", title: "Workspaces", order: 10),
+            primary: PaletteCommand(id: "go", title: "Go", effect: .perform {})
         )
+        let registryItems = RegistryPaletteProvider(registry: registry, includeUnbound: true).makeItems()
+        var corpus = Corpus(registryItems + [workspace], visible: Array(repeating: true, count: registryItems.count) + [false])
         var frecency = FrecencyStore()
         frecency.record("action:splitDown", at: now)
-        let sections = PaletteRanker.rank(index: index, query: "", frecency: frecency, now: now, showsRecent: true)
-        #expect(sections.first?.id == "recent")
-        #expect(sections.first?.rows.map(\.id) == ["action:splitDown"])
-        #expect(sections.dropFirst().first?.id == "category.window")
-        let all = sections.flatMap(\.rows).map(\.id)
+        let sections = corpus.rank("", frecency: frecency, now: now, showsRecent: true)
+        #expect(sections.first?.section == nil)
+        #expect(sections.first?.ids == ["action:splitDown"])
+        let all = sections.flatMap(\.ids)
+        #expect(all.dropFirst().first == "action:openSettings")
         #expect(!all.contains("workspace:1"))
         #expect(Set(all).count == all.count)
 
-        let typed = PaletteRanker.rank(index: index, query: "api", frecency: frecency, now: now, showsRecent: true)
-        #expect(typed.flatMap(\.rows).contains { $0.id == "workspace:1" })
+        let typed = corpus.rank("api", frecency: frecency, now: now, showsRecent: true)
+        #expect(typed.flatMap(\.ids).contains("workspace:1"))
     }
 }

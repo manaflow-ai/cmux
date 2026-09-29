@@ -46,7 +46,7 @@ import Testing
     }
 
     @Test func fullScanOf2000ItemsFitsBudget() {
-        let index = PaletteSearchIndex(items: Self.makeItems(count: 2000))
+        var index = PaletteSearchIndex(items: Self.makeItems(count: 2000))
         // Alternate queries that never refine each other, so every call is a
         // full scan (the worst case: first keystroke or backspace).
         let queries = ["s", "sp", "tab", "new w", "tgl", "cl ot", "fld", "move pane", "zoom", "rn"].map(FuzzyQuery.init)
@@ -64,15 +64,15 @@ import Testing
     }
 
     @Test func rankingOf2000ItemsFitsBudget() {
-        let index = PaletteSearchIndex(items: Self.makeItems(count: 2000))
+        var index = PaletteSearchIndex(items: Self.makeItems(count: 2000))
         var frecency = FrecencyStore()
         let now = Date()
         for i in stride(from: 0, to: 2000, by: 37) { frecency.record("item\(i)", at: now) }
         let queries = ["sp", "tab", "new", "move", "close"]
         let median = Self.medianMilliseconds(iterations: 40) {
             for query in queries {
-                _ = PaletteRanker.rank(index: index, query: query, frecency: frecency, now: now, showsRecent: true)
-                _ = PaletteRanker.rank(index: index, query: "q", frecency: frecency, now: now, showsRecent: true)
+                _ = PaletteRanker.rank(index: &index, query: query, sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
+                _ = PaletteRanker.rank(index: &index, query: "q", sectionOrders: [], frecency: frecency, now: now, showsRecent: true)
             }
         } / Double(queries.count * 2)
         print("palette benchmark: rank of 2000 items, median \(String(format: "%.3f", median)) ms per query")

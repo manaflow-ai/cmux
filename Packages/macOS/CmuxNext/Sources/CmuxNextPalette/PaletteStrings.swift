@@ -48,6 +48,7 @@ enum PaletteStrings {
     static var renameTab: String { String(localized: "palette.command.renameTab", defaultValue: "Rename Tab…", bundle: .module) }
     static var closeTab: String { String(localized: "palette.command.closeTab", defaultValue: "Close Tab", bundle: .module) }
     static var tabNamePlaceholder: String { String(localized: "palette.placeholder.tabName", defaultValue: "Tab name", bundle: .module) }
+    static var choose: String { String(localized: "palette.command.choose", defaultValue: "Choose", bundle: .module) }
     static var openInNewWorkspace: String { String(localized: "palette.command.openInNewWorkspace", defaultValue: "Open in New Workspace", bundle: .module) }
 
     static func unreadCount(_ count: Int) -> String {
@@ -58,6 +59,9 @@ enum PaletteStrings {
     }
     static func openIn(_ app: String) -> String {
         String(localized: "palette.openIn", defaultValue: "Open in \(app)", bundle: .module)
+    }
+    static func chooseArgument(_ name: String) -> String {
+        String(localized: "palette.chooseArgument", defaultValue: "Choose \(name)…", bundle: .module)
     }
     static func submitTextFormat(title: String, text: String) -> String {
         String(localized: "palette.submitText", defaultValue: "\(title) “\(text)”", bundle: .module)

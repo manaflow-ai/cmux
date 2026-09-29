@@ -47,14 +47,16 @@ import Testing
         #expect(model.selectedRowID == "a")
     }
 
-    @Test func typingResetsSelectionToBestMatch() {
+    @Test func typingResetsSelectionToBestMatch() async {
         let log = Log()
         let model = makeModel([item("a", "Alpha", log: log), item("b", "Bravo", log: log)], log: log)
         model.handle(.moveDown)
         model.query = "bra"
+        await model.settle()
         #expect(model.rows.map(\.id) == ["b"])
         #expect(model.selectedRowID == "b")
         model.query = "zzz"
+        await model.settle()
         #expect(model.rows.isEmpty)
         #expect(model.selectedRowID == nil)
         #expect(!model.handle(.submit))
@@ -67,10 +69,11 @@ import Testing
         #expect(log.events == ["dismiss", "run:a"])
     }
 
-    @Test func escapeClearsThenDismisses() {
+    @Test func escapeClearsThenDismisses() async {
         let log = Log()
         let model = makeModel([item("a", "Alpha", log: log)], log: log)
         model.query = "al"
+        await model.settle()
         model.handle(.escape)
         #expect(model.query == "")
         #expect(log.events.isEmpty)
@@ -78,7 +81,7 @@ import Testing
         #expect(log.events == ["dismiss"])
     }
 
-    @Test func nestedListPushesAndPopsRestoringState() {
+    @Test func nestedListPushesAndPopsRestoringState() async {
         let log = Log()
         let child = PalettePageSpec(
             id: "child",
@@ -91,6 +94,7 @@ import Testing
             item("go", "Go to Workspace", log: log, effect: .push(child)),
         ], log: log)
         model.query = "go"
+        await model.settle()
         model.handle(.submit)
         #expect(model.depth == 2)
         #expect(model.breadcrumbs == ["Go to Workspace"])
@@ -102,24 +106,26 @@ import Testing
 
         // Backspace on an empty field pops and restores the parent query.
         #expect(model.handle(.back))
+        await model.settle()
         #expect(model.depth == 1)
         #expect(model.query == "go")
         #expect(model.selectedRowID == "go")
         #expect(!model.handle(.back))
     }
 
-    @Test func escapePopsBeforeClearing() {
+    @Test func escapePopsBeforeClearing() async {
         let log = Log()
         let child = PalettePageSpec(id: "child", title: "Child", placeholder: "", providers: [])
         let model = makeModel([item("p", "Push", log: log, effect: .push(child))], log: log)
         model.handle(.submit)
         model.query = "x"
+        await model.settle()
         model.handle(.escape)
         #expect(model.depth == 1)
         #expect(log.events.isEmpty)
     }
 
-    @Test func textInputSubmitsTypedText() {
+    @Test func textInputSubmitsTypedText() async {
         let log = Log()
         let spec = PaletteTextInputSpec(
             id: "rename",
@@ -136,11 +142,15 @@ import Testing
         #expect(model.rows.first?.item.title == "Rename to zsh")
 
         model.query = "   "
+
+        await model.settle()
         #expect(model.rows.first?.item.isEnabled == false)
         model.handle(.submit)
         #expect(log.events.isEmpty)
 
         model.query = "api"
+
+        await model.settle()
         #expect(model.rows.first?.item.title == "Rename to api")
         model.handle(.submit)
         #expect(log.events == ["dismiss", "renamed:api"])
@@ -178,7 +188,7 @@ import Testing
         #expect(log.events == ["dismiss", "copy"])
     }
 
-    @Test func keepOpenCommandReloadsItems() throws {
+    @Test func keepOpenCommandReloadsItems() async throws {
         let data = MockPaletteData()
         let model = PaletteModel(persistence: InMemoryFrecencyPersistence())
         var dismissed = false
@@ -190,9 +200,11 @@ import Testing
             providers: [SettingsPaletteProvider(source: data, showsItemsForEmptyQuery: true)]
         ))
         model.query = "minimal"
+        await model.settle()
         let before = try #require(model.selectedItem)
         #expect(before.accessory == "Off")
         model.handle(.submit)
+        await model.settle()
         #expect(!dismissed)
         #expect(data.events == ["setToggle:sidebar.minimal:true"])
         #expect(model.selectedItem?.accessory == "On")
@@ -223,38 +235,42 @@ import Testing
         #expect(model.selectedRowID == "b")
     }
 
-    @Test func registryPaletteServesRenameWithInlineEntry() throws {
+    @Test func registryPaletteServesRenameWithInlineEntry() async throws {
         let registry = ActionRegistry.standard()
         let data = MockPaletteData()
         let controller = PaletteController(registry: registry, sources: data.sources, frecencyPersistence: nil)
         let model = controller.model
         model.reset(to: controller.commandsPage())
         model.query = "rename tab"
+        await model.settle()
         #expect(model.selectedRowID == "action:renameTab")
         model.handle(.submit)
         #expect(model.isTextInput)
         #expect(model.query == "zsh")
         model.query = "build"
+        await model.settle()
         model.handle(.submit)
         #expect(data.events == ["renameTab:t1:build"])
     }
 
-    @Test func goToWorkspaceOpensNestedList() {
+    @Test func goToWorkspaceOpensNestedList() async {
         let registry = ActionRegistry.standard()
         let data = MockPaletteData()
         let controller = PaletteController(registry: registry, sources: data.sources, frecencyPersistence: nil)
         let model = controller.model
         model.reset(to: controller.commandsPage())
         model.query = "go to workspace"
+        await model.settle()
         model.handle(.submit)
         #expect(model.depth == 2)
         #expect(model.rows.count == data.workspaces.count)
         model.query = "ghostty"
+        await model.settle()
         model.handle(.submit)
         #expect(data.events == ["selectWorkspace:w4"])
     }
 
-    @Test func rootHidesDynamicItemsUntilTyping() {
+    @Test func rootHidesDynamicItemsUntilTyping() async {
         let registry = ActionRegistry.standard()
         let data = MockPaletteData()
         let controller = PaletteController(registry: registry, sources: data.sources, frecencyPersistence: nil)
@@ -262,6 +278,7 @@ import Testing
         model.reset(to: controller.commandsPage())
         #expect(!model.rows.contains { $0.id.hasPrefix("workspace:") })
         model.query = "ghostty fork"
+        await model.settle()
         #expect(model.rows.first?.id == "workspace:w4")
     }
 

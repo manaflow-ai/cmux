@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextDesign
-import SwiftUI
 
 /// Palette geometry derived from the shared Design tokens. Every value is
 /// computed on read, so it follows `DesignSettings.shared` (density and
@@ -12,12 +11,14 @@ enum PaletteLayout {
     static var width: CGFloat { Metrics.paletteWidth }
     static var searchHeight: CGFloat { Metrics.paletteSearchHeight }
     static var rowHeight: CGFloat { Metrics.paletteRowHeight }
+    static var headerRowHeight: CGFloat { Metrics.sidebarHeaderHeight }
     static var footerHeight: CGFloat { Metrics.paletteRowHeight }
     static var listInset: CGFloat { Metrics.space2 }
     static var listHeight: CGFloat { rowHeight * visibleRows + listInset * 2 }
     static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
     static var height: CGFloat { searchHeight + listHeight + footerHeight + 2 * Metrics.dividerThickness }
+    static var horizontalPadding: CGFloat { Metrics.space5 }
 
     /// Transparent margin around the panel so the shadow and the open
     /// animation are never clipped by the window.
@@ -33,40 +34,23 @@ enum PaletteLayout {
     static var actionsMenuRowHeight: CGFloat { rowHeight - Metrics.space2 }
     static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var keycapCornerRadius: CGFloat { Metrics.itemCornerRadius - Metrics.space1 }
+    static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
 }
 
-extension Font {
-    /// A SwiftUI font from a Design `Typography` token.
-    static func token(_ font: NSFont) -> Font {
-        Font(font as CTFont)
+/// Label helpers so every text view uses Design typography.
+enum PaletteText {
+    static func label(_ font: NSFont, color: NSColor = .labelColor) -> NSTextField {
+        let field = NSTextField(labelWithString: "")
+        field.font = font
+        field.textColor = color
+        field.lineBreakMode = .byTruncatingTail
+        field.maximumNumberOfLines = 1
+        field.cell?.truncatesLastVisibleLine = true
+        return field
     }
-}
 
-extension Color {
-    static func token(_ color: NSColor) -> Color {
-        Color(nsColor: color)
-    }
-}
-
-/// Shortcut badges, one per key, in the Design shortcut face.
-struct KeycapsView: View {
-    let keycaps: [String]
-
-    var body: some View {
-        HStack(spacing: Metrics.space1) {
-            ForEach(Array(keycaps.enumerated()), id: \.offset) { _, cap in
-                Text(cap)
-                    .font(.token(Typography.shortcut))
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: PaletteLayout.keycapSize, minHeight: PaletteLayout.keycapSize)
-                    .padding(.horizontal, cap.count > 1 ? Metrics.space2 : 0)
-                    .background {
-                        RoundedRectangle(cornerRadius: PaletteLayout.keycapCornerRadius, style: .continuous)
-                            .fill(Color.token(Palette.hoverFill))
-                    }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(keycaps.joined())
+    static func symbol(_ name: String, size: CGFloat, color: NSColor = .secondaryLabelColor) -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
     }
 }

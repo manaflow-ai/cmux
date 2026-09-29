@@ -37,7 +37,7 @@ import Testing
 
     @Test func consecutiveBeatsGapped() throws {
         let run = try #require(score("side", "Toggle Sidebar"))
-        let gapped = try #require(score("side", "Show Diff Editor"))
+        let gapped = try #require(score("side", "Split Window Diff Editor"))
         #expect(run > gapped)
     }
 

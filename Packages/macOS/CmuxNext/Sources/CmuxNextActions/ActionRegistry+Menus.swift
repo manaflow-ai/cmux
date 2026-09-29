@@ -39,6 +39,17 @@ extension ActionRegistry {
     }
 }
 
+/// What a menu item runs: an action and, for context menus, its target.
+final class ActionMenuPayload: NSObject {
+    let id: ActionID
+    let target: ActionTargetRef?
+
+    init(id: ActionID, target: ActionTargetRef?) {
+        self.id = id
+        self.target = target
+    }
+}
+
 /// Objective-C target that forwards menu selections to the registry.
 final class ActionMenuTarget: NSObject, NSMenuItemValidation {
     private weak var registry: ActionRegistry?
@@ -48,12 +59,18 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
     }
 
     @objc func performAction(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String else { return }
-        registry?.perform(ActionID(rawValue: raw))
+        guard let registry, let payload = Self.payload(of: sender) else { return }
+        registry.perform(payload.id, invocation: ActionInvocation(target: payload.target))
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard let raw = menuItem.representedObject as? String else { return false }
-        return registry?.canPerform(ActionID(rawValue: raw)) ?? false
+        guard let payload = Self.payload(of: menuItem) else { return false }
+        return registry?.canPerform(payload.id) ?? false
+    }
+
+    private static func payload(of item: NSMenuItem) -> ActionMenuPayload? {
+        if let payload = item.representedObject as? ActionMenuPayload { return payload }
+        if let raw = item.representedObject as? String { return ActionMenuPayload(id: ActionID(rawValue: raw), target: nil) }
+        return nil
     }
 }

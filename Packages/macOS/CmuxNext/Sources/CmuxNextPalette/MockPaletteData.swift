@@ -5,7 +5,7 @@ public import Observation
 /// tested without the App or the daemon. Records each call in `events`.
 @Observable
 public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, PaletteOpenInSource,
-    PaletteSettingsSource, PaletteRecentDirectorySource
+    PaletteSettingsSource, PaletteRecentDirectorySource, PaletteTargetSource
 {
     public var workspaces: [PaletteWorkspace]
     public var tabs: [PaletteTab]
@@ -95,9 +95,29 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
         events.append("openDirectory:\(path)")
     }
 
+    public func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
+        switch kind {
+        case .workspace:
+            workspaces.map { PaletteTargetOption(id: $0.id, title: $0.title, subtitle: $0.directory, symbol: "rectangle.stack") }
+        case .tab:
+            tabs.map { PaletteTargetOption(id: $0.id, title: $0.title, subtitle: $0.workspaceTitle, symbol: "terminal") }
+        case .tabGroup:
+            [
+                PaletteTargetOption(id: "g1", title: "Review", subtitle: "3 tabs", symbol: "circle.fill"),
+                PaletteTargetOption(id: "g2", title: "Servers", subtitle: "2 tabs", symbol: "circle.fill"),
+            ]
+        case .workspaceGroup:
+            [PaletteTargetOption(id: "wg1", title: "cmux", symbol: "folder"), PaletteTargetOption(id: "wg2", title: "Personal", symbol: "folder")]
+        case .window:
+            [PaletteTargetOption(id: "win1", title: "Main Window", symbol: "macwindow")]
+        case .pane, .column, .screen:
+            [PaletteTargetOption(id: "\(kind.rawValue)1", title: "\(kind.rawValue.capitalized) 1")]
+        }
+    }
+
     /// Sources wired to this mock.
     public var sources: PaletteSources {
-        PaletteSources(workspaces: self, tabs: self, openIn: self, settings: self, recentDirectories: self)
+        PaletteSources(workspaces: self, tabs: self, openIn: self, settings: self, recentDirectories: self, targets: self)
     }
 
     /// Binds a sample of catalog actions to handlers that record events, so

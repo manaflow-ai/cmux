@@ -40,3 +40,14 @@ public enum ActionCategory: String, CaseIterable, Sendable, Hashable {
         Self.allCases.firstIndex(of: self) ?? Self.allCases.count
     }
 }
+
+/// Top-level menus of the menu bar. The App builds each from the actions
+/// whose `mainMenu` names it, in catalog order.
+public enum ActionMainMenu: String, CaseIterable, Sendable, Hashable {
+    case app
+    case file
+    case edit
+    case view
+    case window
+    case help
+}

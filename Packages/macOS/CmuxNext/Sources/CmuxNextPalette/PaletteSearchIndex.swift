@@ -1,18 +1,49 @@
 public import CmuxNextActions
 
-/// Prepared search candidates for one page. Built once per item set; each
-/// query only scans. A query that extends the previous one (typing another
-/// character) scans only the previous matches.
-public final class PaletteSearchIndex {
-    public let items: [PaletteItem]
-    /// Parallel to `items`: whether the item shows for an empty query.
-    public let visibleWhenQueryEmpty: [Bool]
+/// The searchable text and ranking inputs of one item. Sendable, so an
+/// index can be built and searched off the main actor.
+nonisolated public struct PaletteSearchEntry: Sendable {
+    public var title: String
+    public var keywords: [String]
+    public var subtitle: String?
+    public var accessory: String?
+    public var rankBias: Int
+    public var frecencyKey: String?
+    public var isEnabled: Bool
+    public var isVisibleWhenQueryEmpty: Bool
+    /// Index into the page's section table.
+    public var sectionIndex: Int
 
+    public init(
+        title: String,
+        keywords: [String] = [],
+        subtitle: String? = nil,
+        accessory: String? = nil,
+        rankBias: Int = 0,
+        frecencyKey: String? = nil,
+        isEnabled: Bool = true,
+        isVisibleWhenQueryEmpty: Bool = true,
+        sectionIndex: Int = 0
+    ) {
+        self.title = title
+        self.keywords = keywords
+        self.subtitle = subtitle
+        self.accessory = accessory
+        self.rankBias = rankBias
+        self.frecencyKey = frecencyKey
+        self.isEnabled = isEnabled
+        self.isVisibleWhenQueryEmpty = isVisibleWhenQueryEmpty
+        self.sectionIndex = sectionIndex
+    }
+}
+
+/// Prepared search candidates for one page: a flat fuzzy corpus plus the
+/// ranking inputs. A value type, so the main actor hands a snapshot to the
+/// searcher and never shares mutable state. A query that extends the
+/// previous one (typing another character) scans only the previous matches.
+nonisolated public struct PaletteSearchIndex: Sendable {
+    public let entries: [PaletteSearchEntry]
     private let corpus: FuzzyCorpus
-    /// Per-item ranking inputs, copied out so ranking never copies items.
-    let biases: [Int]
-    let frecencyKeys: [String?]
-    let enabled: [Bool]
     private var cache: (query: FuzzyQuery, matches: [Int])?
 
     /// Field weights in percent.
@@ -21,37 +52,35 @@ public final class PaletteSearchIndex {
     static let subtitleWeight: Int32 = 65
     static let accessoryWeight: Int32 = 50
 
-    public init(items: [PaletteItem], visibleWhenQueryEmpty: [Bool]? = nil) {
-        self.items = items
-        self.visibleWhenQueryEmpty = visibleWhenQueryEmpty ?? Array(repeating: true, count: items.count)
+    public init(entries: [PaletteSearchEntry]) {
+        self.entries = entries
         var corpus = FuzzyCorpus()
-        for item in items {
-            var fields = [FuzzyField(FuzzyText(item.title), weight: Self.titleWeight)]
-            if !item.keywords.isEmpty {
-                fields.append(FuzzyField(FuzzyText(item.keywords.joined(separator: " ")), weight: Self.keywordWeight))
+        for entry in entries {
+            var fields = [FuzzyField(FuzzyText(entry.title), weight: Self.titleWeight)]
+            if !entry.keywords.isEmpty {
+                fields.append(FuzzyField(FuzzyText(entry.keywords.joined(separator: " ")), weight: Self.keywordWeight))
             }
-            if let subtitle = item.subtitle, !subtitle.isEmpty {
+            if let subtitle = entry.subtitle, !subtitle.isEmpty {
                 fields.append(FuzzyField(FuzzyText(subtitle), weight: Self.subtitleWeight))
             }
-            if let accessory = item.accessory, !accessory.isEmpty {
+            if let accessory = entry.accessory, !accessory.isEmpty {
                 fields.append(FuzzyField(FuzzyText(accessory), weight: Self.accessoryWeight))
             }
             corpus.append(fields)
         }
         self.corpus = corpus
-        biases = items.map(\.rankBias)
-        frecencyKeys = items.map(\.frecencyKey)
-        enabled = items.map(\.isEnabled)
     }
 
+    public var count: Int { entries.count }
+
     /// Indices and raw match scores (before frecency and bias) for `query`,
-    /// in item order.
-    public func matches(for query: FuzzyQuery) -> [(index: Int, score: Int)] {
+    /// in entry order.
+    public mutating func matches(for query: FuzzyQuery) -> [(index: Int, score: Int)] {
         let result: [(index: Int, score: Int)]
         if let cache, query.refines(cache.query) {
             result = corpus.matches(query, in: cache.matches)
         } else {
-            result = corpus.matches(query, in: items.indices)
+            result = corpus.matches(query, in: entries.indices)
         }
         cache = (query, result.map(\.index))
         return result
@@ -60,5 +89,39 @@ public final class PaletteSearchIndex {
     /// Title positions to emphasize for `query`.
     public func highlights(for index: Int, query: FuzzyQuery) -> [Int] {
         corpus.matchedPositions(query, candidate: index)
+    }
+}
+
+extension PaletteSearchIndex {
+    /// Builds an index over `items`; sections are numbered in first-seen order.
+    @MainActor
+    public init(items: [PaletteItem], visibleWhenQueryEmpty: [Bool]? = nil) {
+        var sectionIndexByID: [String: Int] = [:]
+        let entries = items.enumerated().map { position, item in
+            let sectionIndex = sectionIndexByID[item.section.id] ?? {
+                let next = sectionIndexByID.count
+                sectionIndexByID[item.section.id] = next
+                return next
+            }()
+            return PaletteSearchEntry(item, visible: visibleWhenQueryEmpty?[position] ?? true, sectionIndex: sectionIndex)
+        }
+        self.init(entries: entries)
+    }
+}
+
+extension PaletteSearchEntry {
+    @MainActor
+    init(_ item: PaletteItem, visible: Bool, sectionIndex: Int) {
+        self.init(
+            title: item.title,
+            keywords: item.keywords,
+            subtitle: item.subtitle,
+            accessory: item.accessory,
+            rankBias: item.rankBias,
+            frecencyKey: item.frecencyKey,
+            isEnabled: item.isEnabled,
+            isVisibleWhenQueryEmpty: visible,
+            sectionIndex: sectionIndex
+        )
     }
 }

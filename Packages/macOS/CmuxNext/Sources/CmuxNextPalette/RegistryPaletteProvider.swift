@@ -13,8 +13,10 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public let registry: ActionRegistry
     public var includeUnbound: Bool
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
+    /// Lists objects for target arguments (workspace, tab group, ...).
+    public var targets: (any PaletteTargetSource)?
     /// Palette-internal actions that should not list themselves.
-    public var hiddenIDs: Set<ActionID> = ["commandPalette", "commandPaletteNext", "commandPalettePrevious"]
+    public var hiddenIDs: Set<ActionID> = ["commandPalette"]
 
     public init(registry: ActionRegistry, includeUnbound: Bool = RegistryPaletteProvider.defaultIncludeUnbound) {
         self.registry = registry
@@ -37,7 +39,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
         var items: [PaletteItem] = []
         for entry in registry.entries {
             let descriptor = entry.descriptor
-            guard !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
+            guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
             let override = effectOverrides[descriptor.id]?()
             guard entry.isBound || override != nil || includeUnbound else { continue }
             let isEnabled = override != nil || registry.canPerform(descriptor.id)
@@ -54,7 +56,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 isEnabled: isEnabled,
                 primary: PaletteCommand(
                     id: "run",
-                    title: Self.primaryTitle(for: descriptor.input),
+                    title: Self.primaryTitle(for: descriptor),
                     symbol: "return",
                     effect: effect
                 ),
@@ -73,26 +75,12 @@ public final class RegistryPaletteProvider: PaletteProvider {
     }
 
     private func defaultEffect(for descriptor: ActionDescriptor) -> PaletteEffect {
-        let registry = registry
-        let id = descriptor.id
-        if descriptor.input == .text, registry.action(for: id)?.argumentHandler != nil {
-            return .textInput(PaletteTextInputSpec(
-                id: "input:\(id.rawValue)",
-                title: descriptor.title,
-                placeholder: descriptor.title,
-                symbol: descriptor.symbol,
-                submitTitle: { text in PaletteStrings.submitText(title: descriptor.title, text: text) },
-                submit: { text in registry.perform(id, argument: text) }
-            ))
-        }
-        return .perform { registry.perform(id) }
+        PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets)
+            .effect(collected: ActionInvocation())
     }
 
-    static func primaryTitle(for input: ActionInput) -> String {
-        switch input {
-        case .none: PaletteStrings.runCommand
-        case .text, .list: PaletteStrings.open
-        }
+    static func primaryTitle(for descriptor: ActionDescriptor) -> String {
+        descriptor.arguments.contains(where: \.isRequired) ? PaletteStrings.open : PaletteStrings.runCommand
     }
 
     /// The section for a catalog category.

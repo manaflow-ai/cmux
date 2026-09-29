@@ -59,11 +59,12 @@ import Testing
     /// Left/Right/Up/Down") into one action each. Dynamic families (workspace
     /// switcher rows, per-app open targets, per-setting toggles) are served by
     /// palette providers and appear here once as their parent list action.
+    /// Workspace and tab include the group families (architecture.md section 7).
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 22,
-        .workspace: 62,
+        .workspace: 79,
         .pane: 45,
-        .tab: 34,
+        .tab: 63,
         .terminal: 22,
         .browser: 51,
         .sidebar: 30,

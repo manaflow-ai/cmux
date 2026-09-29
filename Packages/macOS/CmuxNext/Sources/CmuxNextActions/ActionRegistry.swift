@@ -39,6 +39,11 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// Collects missing required arguments (the palette installs itself
+    /// here) and then calls `perform(_:invocation:)` again. When nil, the
+    /// handler runs with what it has.
+    @ObservationIgnored public var argumentCollector: (@MainActor (ActionID, ActionInvocation) -> Void)?
+
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
@@ -129,6 +134,26 @@ public final class ActionRegistry {
         argumentHandler: (@MainActor (String) -> Void)? = nil,
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
+        bind(id, isEnabled: isEnabled, argumentHandler: argumentHandler, invoke: nil, handler: handler)
+    }
+
+    /// Binds a typed handler that receives the target and arguments.
+    @discardableResult
+    public func bind(
+        _ id: ActionID,
+        isEnabled: @escaping @MainActor () -> Bool = { true },
+        invoke: @escaping @MainActor (ActionInvocation) -> Void
+    ) -> Bool {
+        bind(id, isEnabled: isEnabled, argumentHandler: nil, invoke: invoke, handler: {})
+    }
+
+    private func bind(
+        _ id: ActionID,
+        isEnabled: @escaping @MainActor () -> Bool,
+        argumentHandler: (@MainActor (String) -> Void)?,
+        invoke: (@MainActor (ActionInvocation) -> Void)?,
+        handler: @escaping @MainActor () -> Void
+    ) -> Bool {
         guard let descriptor = descriptor(for: id) else { return false }
         register(Action(
             id: descriptor.id,
@@ -136,6 +161,7 @@ public final class ActionRegistry {
             keywords: descriptor.keywords,
             isEnabled: isEnabled,
             argumentHandler: argumentHandler,
+            invoke: invoke,
             handler: handler
         ))
         return true
@@ -187,22 +213,42 @@ public final class ActionRegistry {
     /// whether it ran.
     @discardableResult
     public func perform(_ id: ActionID) -> Bool {
+        perform(id, invocation: ActionInvocation())
+    }
+
+    /// Performs an action that takes one argument. The text is parsed with
+    /// the descriptor's first argument; handlers without a schema get it
+    /// through `argumentHandler`.
+    @discardableResult
+    public func perform(_ id: ActionID, argument: String) -> Bool {
+        let schema = descriptor(for: id)?.arguments.first
+        let name = schema?.name ?? "value"
+        let value = schema?.parse(argument) ?? .string(argument)
+        return perform(id, invocation: ActionInvocation(arguments: [name: value]))
+    }
+
+    /// Performs with a target and typed arguments (palette, CLI, context
+    /// menus). Fails when a required argument is missing.
+    @discardableResult
+    public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
         guard let action = action(for: id), isAvailable(id), action.isEnabled() else { return false }
-        action.handler()
+        let missing = descriptor(for: id)?.arguments.contains {
+            $0.isRequired && invocation.arguments[$0.name] == nil
+        } ?? false
+        if missing, let argumentCollector {
+            // A menu item or shortcut for an argument-taking action: let the
+            // palette ask for the rest, then run with the full invocation.
+            argumentCollector(id, invocation)
+            return true
+        }
+        action.run(invocation)
         return true
     }
 
-    /// Performs an argument-taking action with `argument`. Falls back to the
-    /// plain handler when the action takes no argument.
-    @discardableResult
-    public func perform(_ id: ActionID, argument: String) -> Bool {
-        guard let action = action(for: id), isAvailable(id), action.isEnabled() else { return false }
-        if let argumentHandler = action.argumentHandler {
-            argumentHandler(argument)
-        } else {
-            action.handler()
-        }
-        return true
+    /// IDs of catalog actions without a handler. The App's conformance test
+    /// asserts this is empty.
+    public func unboundActionIDs() -> [ActionID] {
+        descriptors.map(\.id).filter { !isBound($0) }
     }
 
     /// Performs the best action for a key-down event. Called by the window

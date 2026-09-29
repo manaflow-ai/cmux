@@ -9,6 +9,8 @@ public struct PaletteSources {
     public var openIn: (any PaletteOpenInSource)?
     public var settings: (any PaletteSettingsSource)?
     public var recentDirectories: (any PaletteRecentDirectorySource)?
+    /// Lists objects for target arguments (tab groups, windows, ...).
+    public var targets: (any PaletteTargetSource)?
     /// Extra root providers (custom `cmux.json` actions, extensions).
     public var extraProviders: [any PaletteProvider]
 
@@ -18,6 +20,7 @@ public struct PaletteSources {
         openIn: (any PaletteOpenInSource)? = nil,
         settings: (any PaletteSettingsSource)? = nil,
         recentDirectories: (any PaletteRecentDirectorySource)? = nil,
+        targets: (any PaletteTargetSource)? = nil,
         extraProviders: [any PaletteProvider] = []
     ) {
         self.workspaces = workspaces
@@ -25,6 +28,7 @@ public struct PaletteSources {
         self.openIn = openIn
         self.settings = settings
         self.recentDirectories = recentDirectories
+        self.targets = targets
         self.extraProviders = extraProviders
     }
 }

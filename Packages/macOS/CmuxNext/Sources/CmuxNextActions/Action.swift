@@ -68,6 +68,9 @@ public struct Action: Identifiable {
     /// numbered shortcut family. Nil means the action takes no argument and
     /// `handler` runs instead.
     public var argumentHandler: (@MainActor (String) -> Void)?
+    /// Typed handler: receives the target and every collected argument.
+    /// Takes precedence over `argumentHandler` and `handler` when set.
+    public var invoke: (@MainActor (ActionInvocation) -> Void)?
 
     public init(
         id: ActionID,
@@ -76,6 +79,7 @@ public struct Action: Identifiable {
         shortcut: Shortcut? = nil,
         isEnabled: @escaping @MainActor () -> Bool = { true },
         argumentHandler: (@MainActor (String) -> Void)? = nil,
+        invoke: (@MainActor (ActionInvocation) -> Void)? = nil,
         handler: @escaping @MainActor () -> Void
     ) {
         self.id = id
@@ -84,7 +88,19 @@ public struct Action: Identifiable {
         self.shortcut = shortcut
         self.isEnabled = isEnabled
         self.argumentHandler = argumentHandler
+        self.invoke = invoke
         self.handler = handler
+    }
+
+    /// Runs the most specific handler for `invocation`.
+    func run(_ invocation: ActionInvocation) {
+        if let invoke {
+            invoke(invocation)
+        } else if let argumentHandler, let argument = invocation.legacyArgument {
+            argumentHandler(argument)
+        } else {
+            handler()
+        }
     }
 
     /// A copy of this action under another ID (used to fold legacy IDs into
@@ -97,6 +113,7 @@ public struct Action: Identifiable {
             shortcut: shortcut,
             isEnabled: isEnabled,
             argumentHandler: argumentHandler,
+            invoke: invoke,
             handler: handler
         )
     }

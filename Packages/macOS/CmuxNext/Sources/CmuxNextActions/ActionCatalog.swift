@@ -1,9 +1,10 @@
 /// The canonical action catalog: one descriptor per row of the old app's
-/// action inventory (plans/cmux-next/inventory.md section 1), split by
-/// domain across `ActionCatalog+<Domain>.swift`. IDs match
-/// `KeyboardShortcutSettings.Action` raw values where one existed (users
-/// store them in `cmux.json` `shortcuts`), else the old palette command ID,
-/// else a new stable ID for context-menu-only rows.
+/// action inventory (plans/cmux-next/inventory.md section 1) plus the tab
+/// group and workspace group families (plans/cmux-next/architecture.md
+/// section 7), split by domain across `ActionCatalog+<Domain>.swift`. IDs
+/// match `KeyboardShortcutSettings.Action` raw values where one existed
+/// (users store them in `cmux.json` `shortcuts`), else the old palette
+/// command ID, else a new stable ID.
 public enum ActionCatalog {
     /// Every catalog descriptor, in inventory order.
     public static let all: [ActionDescriptor] = makeAll()
@@ -25,8 +26,10 @@ public enum ActionCatalog {
         var all: [ActionDescriptor] = []
         all += windowActions()
         all += workspaceActions()
+        all += workspaceGroupsActions()
         all += paneActions()
         all += tabActions()
+        all += tabGroupsActions()
         all += terminalActions()
         all += browserActions()
         all += sidebarActions()

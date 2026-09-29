@@ -38,6 +38,9 @@ public struct PaletteTextInputSpec {
     public var submitTitle: @MainActor (String) -> String
     public var isValid: @MainActor (String) -> Bool
     public var submit: @MainActor (String) -> Void
+    /// What Return does with the text when it is not the last step (an
+    /// argument chain pushes the next page). Nil means close and `submit`.
+    public var next: (@MainActor (String) -> PaletteEffect)?
 
     public init(
         id: String,
@@ -47,7 +50,8 @@ public struct PaletteTextInputSpec {
         initialText: String = "",
         submitTitle: @escaping @MainActor (String) -> String,
         isValid: @escaping @MainActor (String) -> Bool = { !$0.trimmingCharacters(in: .whitespaces).isEmpty },
-        submit: @escaping @MainActor (String) -> Void
+        next: (@MainActor (String) -> PaletteEffect)? = nil,
+        submit: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.id = id
         self.title = title
@@ -57,5 +61,6 @@ public struct PaletteTextInputSpec {
         self.submitTitle = submitTitle
         self.isValid = isValid
         self.submit = submit
+        self.next = next
     }
 }

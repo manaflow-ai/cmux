@@ -1,0 +1,44 @@
+public import Foundation
+
+/// Runs searches off the main actor on the latest index snapshot. Each
+/// request carries a generation; the caller drops results whose generation
+/// is stale, so fast typing never shows an older query's rows.
+public actor PaletteSearcher {
+    private var index = PaletteSearchIndex(entries: [])
+    private var indexVersion = -1
+
+    public init() {}
+
+    /// Installs a new snapshot unless this version is already current.
+    public func install(_ snapshot: PaletteSearchIndex, version: Int) {
+        guard version != indexVersion else { return }
+        index = snapshot
+        indexVersion = version
+    }
+
+    /// Builds the index here, off the main actor, when `version` is new.
+    public func install(entries: [PaletteSearchEntry], version: Int) {
+        guard version != indexVersion else { return }
+        index = PaletteSearchIndex(entries: entries)
+        indexVersion = version
+    }
+
+    public func search(
+        query: String,
+        generation: Int,
+        sectionOrders: [Int],
+        frecency: FrecencyStore,
+        now: Date,
+        showsRecent: Bool
+    ) -> (generation: Int, sections: [PaletteRankedSection]) {
+        let sections = PaletteRanker.rank(
+            index: &index,
+            query: query,
+            sectionOrders: sectionOrders,
+            frecency: frecency,
+            now: now,
+            showsRecent: showsRecent
+        )
+        return (generation, sections)
+    }
+}
