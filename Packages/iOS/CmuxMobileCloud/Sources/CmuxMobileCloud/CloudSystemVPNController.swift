@@ -674,7 +674,10 @@ public final class CloudSystemVPNController {
                     credentials: credentials
                 )
                 removePendingBrowserTunnelRevocation(tunnel)
-                browserTunnel = nil
+                if browserTunnel?.scope == tunnel.scope,
+                   browserTunnel?.deviceFingerprint == tunnel.deviceFingerprint {
+                    browserTunnel = nil
+                }
                 await clearPersistedBrowserTunnelRevocation(tunnel)
                 return
             } catch {

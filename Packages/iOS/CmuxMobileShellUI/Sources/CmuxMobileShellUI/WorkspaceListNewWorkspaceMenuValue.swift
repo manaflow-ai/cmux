@@ -8,5 +8,14 @@ struct WorkspaceListNewWorkspaceMenuValue: Equatable {
     var computerTargets: [ComputerTarget] = []
 
     var asksForComputer: Bool { computerTargets.count > 1 }
+    var singleConnectedTarget: ComputerTarget? {
+        guard computerTargets.count == 1,
+              let target = computerTargets.first,
+              target.isConnected
+        else {
+            return nil
+        }
+        return target
+    }
     var isEnabled: Bool { canCreate || computerTargets.contains(where: \.isConnected) }
 }

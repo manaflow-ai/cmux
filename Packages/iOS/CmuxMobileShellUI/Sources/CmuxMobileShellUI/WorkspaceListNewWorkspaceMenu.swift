@@ -32,6 +32,17 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
                     )
                 }
                 .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
+            } else if let target = value.singleConnectedTarget,
+                      actions.createWorkspaceOnComputer != nil {
+                Button {
+                    actions.createWorkspaceOnComputer?(target)
+                } label: {
+                    Label(
+                        L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
             }
             groupButton
         } label: {
