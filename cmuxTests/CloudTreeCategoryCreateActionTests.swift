@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar category create rows")
 struct CloudTreeCategoryCreateActionTests {
-    @Test("Cloud Machines ends with a New Cloud VM row, even when the fleet is empty")
+    @Test("Cloud Machines ends with a New Cloud Machine row, even when the fleet is empty")
     func cloudMachinesCategoryHasPersistentMachineAction() throws {
         let fixture = Fixture()
         defer { fixture.close() }
@@ -23,7 +23,7 @@ struct CloudTreeCategoryCreateActionTests {
         let action = try #require(section.children.last)
         #expect(action.kind == .createAction(.newCloudVM))
         #expect(fixture.row(for: action) >= 0)
-        #expect(try fixture.cell(for: action).accessibilityLabel() == action.title)
+        #expect(try fixture.cell(for: action).accessibilityLabel() == CloudTreeCreateAction.newCloudVM.title)
         #expect(try fixture.createHost(for: action).passesThrough == false)
     }
 
@@ -41,7 +41,7 @@ struct CloudTreeCategoryCreateActionTests {
         let action = try #require(workspaces.children.last)
         #expect(action.kind == .createAction(.newWorkspace(.cloud(fixture.machineID))))
         #expect(fixture.row(for: action) >= 0)
-        #expect(try fixture.cell(for: action).accessibilityLabel() == action.title)
+        #expect(try fixture.cell(for: action).accessibilityLabel() == CloudTreeCreateAction.newWorkspace(.cloud(fixture.machineID)).title)
     }
 
     @Test("Category create rows remain reachable through keyboard selection and Return")
@@ -53,10 +53,11 @@ struct CloudTreeCategoryCreateActionTests {
         let cloudSection = try #require(fixture.cloudSection)
         let newVM = try #require(cloudSection.children.last)
         let outline = try #require(fixture.coordinator.outlineView)
-        let sectionRow = outline.row(forItem: cloudSection)
         let newVMRow = outline.row(forItem: newVM)
         #expect(newVM.kind.isSelectable)
-        outline.selectRowIndexes(IndexSet(integer: sectionRow), byExtendingSelection: false)
+        // Start at the existing empty-state row immediately before the action.
+        // It remains selectable, just as it was before category actions existed.
+        outline.selectRowIndexes(IndexSet(integer: newVMRow - 1), byExtendingSelection: false)
         fixture.coordinator.moveSelection(by: 1)
         #expect(outline.selectedRow == newVMRow)
         fixture.coordinator.openSelection()
@@ -69,10 +70,9 @@ struct CloudTreeCategoryCreateActionTests {
             return false
         })
         let newWorkspace = try #require(workspaces.children.last)
-        let workspacesRow = outline.row(forItem: workspaces)
         let newWorkspaceRow = outline.row(forItem: newWorkspace)
         #expect(newWorkspace.kind.isSelectable)
-        outline.selectRowIndexes(IndexSet(integer: workspacesRow), byExtendingSelection: false)
+        outline.selectRowIndexes(IndexSet(integer: newWorkspaceRow - 1), byExtendingSelection: false)
         fixture.coordinator.moveSelection(by: 1)
         #expect(outline.selectedRow == newWorkspaceRow)
         fixture.coordinator.openSelection()
@@ -162,15 +162,14 @@ struct CloudTreeCategoryCreateActionTests {
                 },
                 resources: [], projections: []
             )
-            let nodes = CloudTreeNodeBuilder.nodes(
+            coordinator.update(inputs: CloudTreeBuildInputs(
                 machines: machines,
                 snapshot: snapshot,
                 localWorkspaces: [],
                 includeLocalMachine: false,
                 source: .cloudWithDevicesSection,
                 canCreateCloudMachine: true
-            )
-            coordinator.apply(nodes: CloudTreeCreateActionBuilder.add(to: nodes))
+            ))
             coordinator.outlineView?.expandItem(nil, expandChildren: true)
             container.layoutSubtreeIfNeeded()
         }
