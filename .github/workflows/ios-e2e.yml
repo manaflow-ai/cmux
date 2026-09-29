@@ -212,6 +212,8 @@ jobs:
           CMUX_DEV_BACKEND_URL: ${{ needs.backend.outputs.backend_url }}
           CMUX_DEV_BACKEND_MODE: remote
           CMUX_SKIP_ZIG_BUILD: "1"
+          CMUX_TUI_CLIENT_MANIFEST_URL: https://files.cmux.com/cmux-tui/latest/manifest.json
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           ./scripts/reload.sh --tag "${{ needs.route.outputs.backend_tag }}" \
@@ -259,6 +261,8 @@ jobs:
           CMUX_E2E_MAC_DERIVED_DATA: ${{ runner.temp }}/cmux-mac-derived-data
           CMUX_E2E_MINT_SCRIPT: /tmp/cmux-e2e-mint-${{ github.run_id }}.sh
           CMUX_E2E_READ_SCREEN_SCRIPT: /tmp/cmux-e2e-read-screen-${{ github.run_id }}.sh
+          CMUX_TUI_CLIENT_MANIFEST_URL: https://files.cmux.com/cmux-tui/latest/manifest.json
+          GH_TOKEN: ${{ github.token }}
           # Dedicated CI Stack account, the same secret pair
           # ios-streamed-validate.yml uses; the app's dev-secrets resolution
           # reads CMUX_DOGFOOD_STACK_* from the environment first. Values
