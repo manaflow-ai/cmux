@@ -19,7 +19,7 @@ extension BrowserDiscardPageStateRestoreTests {
     func testAutomationCommandRestoresPageTerminatedWhileHidden() async throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let (panel, pageA, pageB) = try loadScrolledFormPage { url in
+        let (panel, pageA, pageB) = try await loadScrolledFormPage { url in
             try self.makeWorkspaceBrowser(in: workspace, url: url)
         }
         defer { panel.close() }
