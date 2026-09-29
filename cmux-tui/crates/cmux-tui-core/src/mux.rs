@@ -9246,6 +9246,22 @@ impl Mux {
         }))
     }
 
+    /// Pins the `latest` policy on the workspace that shows `surface`, for
+    /// tests about latest-activity semantics (the default is `smallest`).
+    #[cfg(test)]
+    pub(crate) fn pin_latest_size_policy_for_test(&self, surface: SurfaceId) {
+        let workspace = self.surface_workspace(surface).expect("surface has a workspace");
+        self.set_workspace_size_policy(
+            workspace,
+            Some(TerminalSizingPolicy::new(
+                crate::sizing_policy::TerminalSizingMode::Latest,
+                Vec::new(),
+                None,
+            )),
+        )
+        .expect("pin latest size policy");
+    }
+
     /// Set (`Some`) or clear (`None`) a workspace's default policy and apply
     /// it to every live terminal in that workspace without an override.
     pub(crate) fn set_workspace_size_policy(
@@ -23998,12 +24014,13 @@ mod tests {
 
     // Shared sizing (docs/shared-terminal-sizing.md) replaced the explicit
     // geometry-authority model: a view that joins is activity, so under the
-    // default `latest` policy the newest view with a viewport sets the grid,
+    // `latest` policy (pinned here; the default is `smallest`) the newest view with a viewport sets the grid,
     // and a claim (focus or input) moves it back.
     #[test]
     fn terminal_views_follow_the_latest_activity() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
 
         assert!(mux.resize_surface_for_client(surface.id, 0, 120, 40).unwrap());
         assert_eq!(surface.size(), (120, 40));
@@ -24034,6 +24051,7 @@ mod tests {
     fn geometry_authority_moves_between_views_of_one_terminal() {
         let mux = test_mux();
         let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(source.id);
         let projected = projected_terminal_view(&mux, &source);
 
         assert!(source.shares_terminal_runtime(&projected));
@@ -24407,6 +24425,7 @@ mod tests {
     fn removing_the_owner_viewport_elects_the_next_owner() {
         let mux = test_mux();
         let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(source.id);
         let projected = projected_terminal_view(&mux, &source);
 
         mux.resize_surface_for_client(source.id, 7, 55, 18).unwrap();
@@ -24443,6 +24462,7 @@ mod tests {
     fn terminal_size_policy_changes_publish_size_state() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
         let workspace = mux.surface_workspace(surface.id).unwrap();
         mux.resize_surface_for_client(surface.id, 0, 150, 30).unwrap();
         mux.resize_surface_for_client(surface.id, 7, 118, 42).unwrap();

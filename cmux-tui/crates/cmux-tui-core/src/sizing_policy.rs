@@ -615,9 +615,10 @@ mod tests {
 
     #[test]
     fn sizing_policy_state_matches_contract_wire_shape() {
+        // Mirrors the `latest` example in docs/shared-terminal-sizing.md.
         let mut engine = TerminalSizingEngine::new(
             TerminalGridSize::new(80, 24),
-            TerminalSizingPolicy::default(),
+            TerminalSizingPolicy::new(TerminalSizingMode::Latest, Vec::new(), None),
         );
         engine.attach(TerminalSizingParticipant {
             id: "c3".into(),

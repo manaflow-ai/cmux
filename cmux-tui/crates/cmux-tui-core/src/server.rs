@@ -19892,6 +19892,7 @@ mod tests {
     fn relay_sub_views_join_shared_sizing_with_their_own_identity() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
         let (writer, outbound) = captured_writer();
         let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         handle_command(
@@ -20091,6 +20092,7 @@ mod tests {
     fn relay_forwarded_input_counts_as_the_phone_sub_view_activity() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
         let writer = test_writer();
         let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let activity = |view: Option<&str>| {
@@ -21128,6 +21130,7 @@ mod tests {
     fn attached_terminal_resizes_follow_the_latest_view_until_claimed() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
 
         let first_writer = test_writer();
         let first_stream = first_writer.start_stream(&attach_overflow_json(surface.id)).unwrap();
@@ -21841,6 +21844,7 @@ mod tests {
     fn client_sizing_command_applies_exclusive_and_all_modes_atomically() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
         let first_writer = test_writer();
         let second_writer = test_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
@@ -21973,6 +21977,8 @@ mod tests {
         let mux = test_mux();
         let current = mux.new_workspace(None, Some((120, 40))).unwrap();
         let other = mux.new_workspace(None, Some((110, 35))).unwrap();
+        mux.pin_latest_size_policy_for_test(current.id);
+        mux.pin_latest_size_policy_for_test(other.id);
         let writer = test_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let second = mux.control_clients.register(ClientTransport::Unix, test_writer());
