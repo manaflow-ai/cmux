@@ -1,4 +1,5 @@
 import CmuxFileTree
+import CmuxFileSearch
 import Foundation
 
 /// Runs bounded filesystem operations on one Cloud VM.
@@ -146,28 +147,37 @@ sys.stdout.write(base64.b64encode(data).decode("ascii"))
     }
 
     /// Keeps canceled HTTP callers from spawning overlapping guest scans.
-    func search(vmID: String, query: String, rootPath: String) async throws -> FileSearchSnapshot {
+    func search(vmID: String, query: FileSearchQuery, rootPath: String, matchLimit: Int) async throws -> CloudFileSearchResult {
         let runner = commandRunner
         return try await searchQueue.submit {
-            try await Self.performSearch(commandRunner: runner, vmID: vmID, query: query, rootPath: rootPath)
+            try await Self.performSearch(
+                commandRunner: runner,
+                vmID: vmID,
+                query: query,
+                rootPath: rootPath,
+                matchLimit: matchLimit
+            )
         }
     }
 
+    /// The exec API returns stdout only when the command ends, so the guest
+    /// filter keeps match lines only and stops ripgrep at a line or byte
+    /// budget. Exit 75 means `rg` is not installed on the VM.
     private static func performSearch(
         commandRunner: any CloudFileExplorerCommandRunning,
         vmID: String,
-        query: String,
-        rootPath: String
-    ) async throws -> FileSearchSnapshot {
+        query: FileSearchQuery,
+        rootPath: String,
+        matchLimit: Int
+    ) async throws -> CloudFileSearchResult {
+        let lineLimit = min(matchLimit, maxSearchResults)
         let script = #"""
 import subprocess, sys
-limit = \#(Self.maxSearchResults)
+limit = int(sys.argv[1])
 byte_limit = \#(Self.maxPreviewBytes)
-query = sys.argv[1]
-root = sys.argv[2]
-rg_args = sys.argv[3:]
+rg_args = sys.argv[2:]
 try:
-    process = subprocess.Popen(["rg", *rg_args, "--", query, root], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    process = subprocess.Popen(["rg", *rg_args], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 except OSError:
     sys.exit(75)
 count = 0
@@ -192,39 +202,32 @@ if limited:
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
-    sys.stdout.buffer.write(f"__CMUX_LIMIT__:{count}\n".encode())
+    sys.stdout.buffer.write(b"__CMUX_LIMIT__\n")
     sys.stdout.buffer.flush()
     sys.exit(0)
 exit_code = process.wait()
+if exit_code not in (0, 1):
+    sys.stderr.buffer.write(process.stderr.read()[-4096:])
 sys.exit(0 if exit_code in (0, 1) else exit_code)
 """#
-        let rgArguments = [
-            "--json", "--line-number", "--column", "--smart-case", "--fixed-strings",
-            "--max-columns", "300", "--max-columns-preview", "--color", "never", "--hidden",
-            "--glob", "!.git/**", "--glob", "!**/.git/**", "--glob", "!node_modules/**",
-            "--glob", "!**/node_modules/**", "--glob", "!dist/**", "--glob", "!**/dist/**",
-            "--glob", "!build/**", "--glob", "!**/build/**", "--glob", "!DerivedData/**",
-            "--glob", "!**/DerivedData/**",
-        ]
-        let command = "python3 -c \(Self.shellQuote(script)) \(Self.shellQuote(query)) \(Self.shellQuote(rootPath)) "
-            + rgArguments.map(Self.shellQuote).joined(separator: " ")
+        let command = "python3 -c \(Self.shellQuote(script)) \(lineLimit) "
+            + RipgrepArguments.make(query: query, rootPath: rootPath).map(Self.shellQuote).joined(separator: " ")
         let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
-        let limitCount = result.stdout
-            .split(whereSeparator: \.isNewline)
-            .first(where: { $0.hasPrefix("__CMUX_LIMIT__:") })
-            .flatMap { Int($0.dropFirst("__CMUX_LIMIT__:".count)) }
-        let results = result.stdout
-            .split(whereSeparator: \.isNewline)
-            .compactMap { FileSearchRipgrepParser.parseMatchLine(String($0), rootPath: rootPath) }
-        guard result.exitCode == 0 || result.exitCode == 1 else {
-            throw FileExplorerError.remoteCommandFailed("")
+        if result.exitCode == 75 {
+            return CloudFileSearchResult(groups: [], completion: .failed(.ripgrepNotFound))
         }
-        return FileSearchSnapshot(
-            query: query,
-            results: results,
-            status: results.isEmpty ? .noMatches : (limitCount.map { .limited($0) } ?? .matches),
-            isSearching: false
+        let decoder = RipgrepStreamDecoder(matchLimit: Int.max)
+        var groups = decoder.consume(Array(result.stdout.utf8))
+        groups.appendMerging(decoder.finish())
+        let wasLimited = result.stdout.contains("__CMUX_LIMIT__")
+        let completion = RipgrepStreamingSearch.classify(
+            status: Int32(truncatingIfNeeded: result.exitCode),
+            standardError: result.stderr,
+            matchCount: decoder.matchCount,
+            limitReached: wasLimited,
+            matchLimit: decoder.matchCount
         )
+        return CloudFileSearchResult(groups: groups, completion: completion)
     }
 
     private static func shellQuote(_ value: String) -> String {

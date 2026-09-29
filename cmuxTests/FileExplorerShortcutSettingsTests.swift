@@ -13,13 +13,6 @@ private typealias StoredShortcut = cmux.StoredShortcut
 private typealias ShortcutStroke = cmux.ShortcutStroke
 #endif
 
-private final class ShortcutNoopFileSearchController: FileSearchControlling {
-    var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
-
-    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {}
-    func cancel(clear: Bool) {}
-}
-
 @MainActor
 @Suite(.serialized) struct FileExplorerShortcutSettingsTests {
     @Test func openSelectionShortcutsAreSidebarFocusedAndSettingsBacked() throws {
@@ -413,8 +406,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,
-            presentation: .find,
-            searchController: ShortcutNoopFileSearchController()
+            presentation: .find
         )
         container.updatePresentation(.find)
         let searchField = try #require(findSearchField(in: container))
@@ -425,7 +417,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
 
-        let handled = container.control(
+        let handled = container.findPanel.control(
             searchField,
             textView: textView,
             doCommandBy: #selector(NSResponder.insertNewline(_:))

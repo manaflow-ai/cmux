@@ -250,7 +250,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport, @unchecke
         return result.stdout
     }
 
-    private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
+    static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
         var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
         if let port = connection.port {
             args += ["-p", String(port)]

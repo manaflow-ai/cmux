@@ -3459,5 +3459,11 @@
     "identityLocales": {
       "de": "Finder's German Sort By menu uses the same word, Name."
     }
+  },
+  "fileSearch.status.summary": {
+    "source": "%1$@ in %2$@",
+    "identityLocales": {
+      "de": "German uses the same preposition \"in\" between the two counts; the counts themselves are localized plurals."
+    }
   }
 }

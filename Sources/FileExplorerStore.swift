@@ -65,6 +65,8 @@ final class FileExplorerStore: ObservableObject {
     var remoteHomeResolutionTask: Task<Void, Never>?
     var remoteHomeResolutionKey: String?
     let cloudPreviewCache = CloudFilePreviewCache()
+    /// Find mode state per workspace; outlives the Find view itself.
+    let fileSearchSessions = FileSearchSessionCache()
     private(set) var resourceContextID = UUID()
 
     // MARK: Internal machinery (see FileExplorerStore+Tree.swift)
