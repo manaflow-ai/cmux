@@ -742,6 +742,17 @@ relay-tls `system-keychain` (it changes the System keychain trust store and
 selects Xcode 16.2) and plain-paste-worker (macOS 15 only) stay on Blacksmith.
 Clear both variables to send every side lane back.
 
+### Main compile probes
+
+`main-compile-probe.yml` compiles one main commit that the per-push seeds
+skipped, only when `ci-compile-attribution.yml` needs it to narrow a compile
+break down to one merge (rare: a burst of merges with a break inside). It asks
+for the PR pool's root label (`vars.CI_COMPILE_PROBE_POOL`, default
+`glaeda-root-std-xcode-26.6`) and adopts the nearest main seed. A probe still
+queued after three minutes is cancelled and dispatched on
+`blacksmith-12vcpu-macos-26`. The per-push compile itself is
+`seed-derived-data.yml`, which costs the canary no extra Mac time.
+
 ### Which macOS jobs may take an owned Mac
 
 Owned minis run macOS 26 with Xcode 26.6 only, run same-repository pull

@@ -1412,6 +1412,10 @@ path = "tests/test_ci_guard_attribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_main_compile_attribution.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
