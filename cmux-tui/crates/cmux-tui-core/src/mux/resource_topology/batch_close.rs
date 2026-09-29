@@ -441,6 +441,25 @@ impl Mux {
             "key": requested_key,
             "end_terminals": true,
         });
+        // A retry of a committed close replays before the selector resolves.
+        {
+            let registry = self.workspace_registry.lock().unwrap();
+            if let Some(commit) = registry.replay(mutation, &fingerprint)? {
+                let result = workspace_mutation_result(&commit)?;
+                let resource = registry
+                    .replay_resource_patch(mutation, "workspace.close", &fingerprint)?
+                    .context("replayed workspace close has no resource receipt")?;
+                return Ok((
+                    result,
+                    BatchCloseOutcome {
+                        result: resource.result,
+                        resource_revision: resource.revision,
+                        workspace_revision: Some(commit.revision),
+                        replayed: true,
+                    },
+                ));
+            }
+        }
         let resolved = {
             let state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
