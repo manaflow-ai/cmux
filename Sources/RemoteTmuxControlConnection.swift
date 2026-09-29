@@ -1249,6 +1249,11 @@ final class RemoteTmuxControlConnection {
         for message in parser.feed(data) {
             handle(message)
         }
+        // A prompt has no newline, so no line message ever carries it; check the unterminated
+        // tail after every chunk while the transport is still talking.
+        if connectionState == .connecting || connectionState == .reconnecting {
+            noteCredentialPromptIfSeen()
+        }
     }
 
     private func handleStreamEnd(processGeneration generation: UInt64) async {
@@ -1349,11 +1354,23 @@ final class RemoteTmuxControlConnection {
 
     private func parkForInteractiveAuth(reason: String) {
         guard connectionState != .ended, !awaitingInteractiveAuth else { return }
+        let firstAttach = !everReachedControlMode
         // A transport that does not authenticate through cmux's ssh master gets no login offer:
         // see `authenticationIsSSHShaped`. It keeps retrying instead of parking behind an edge
         // that says nothing about it.
         guard transportProfile.authenticationIsSSHShaped else {
             record("\(reason)-auth-required-not-ssh-shaped")
+            // On a first attach a retry cannot help: it is a new connection, which prompts again.
+            // Ending here also releases the attach's wait, and the latched prompt makes the error
+            // say the host wants a sign-in.
+            if firstAttach {
+                record("\(reason)-first-attach-ended")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+                return
+            }
             // A first attach still has a live stream to tear down; a failed reconnect attempt has
             // already been torn down by its caller and only needs the next attempt scheduled.
             if connectionState == .connecting || connectionState == .connected {
@@ -1369,6 +1386,9 @@ final class RemoteTmuxControlConnection {
         reconnectTask?.cancel()
         reconnectTask = nil
         awaitingInteractiveAuth = true
+        // Nothing arrives until the prompt is answered, so a first attach waiting for windows
+        // learns now instead of at its deadline.
+        if firstAttach { resolveInitialTopology(ready: false) }
         let handled = observers.notifyAuthRequired(sshArgv: host.interactiveAuthInvocation())
         if !handled {
             // Nobody is listening, so no login can arrive. Falling back to the
