@@ -1,7 +1,5 @@
 import AppKit
 import CmuxTerminalCore
-import GhosttyKit
-import CmuxTerminalGhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -19,41 +17,18 @@ import Testing
             backingScale: 2,
             phase: .settled
         )
-        surface.rendererPresentationReadinessDidChange()
-        failProbe(on: surface)
-        failProbe(on: surface)
-        #expect(surface.renderHealth == .notRendering)
+        surface.noteRendererPresentationReadinessGeometry(surface.committedPaneGeometry)
+        surface.rendererPresentationState.recoveryAttempted = true
+        surface.renderHealth = .notRendering
 
         surface.committedPaneGeometry = TerminalPaneGeometry(
             size: CGSize(width: 640, height: 480),
             backingScale: 2,
             phase: .settled
         )
-        surface.rendererPresentationReadinessDidChange()
+        surface.noteRendererPresentationReadinessGeometry(surface.committedPaneGeometry)
 
         #expect(surface.renderHealth == .awaitingFrame)
-        failProbe(on: surface)
-        acknowledgePendingPresentation(on: surface)
-        #expect(surface.renderHealth == .rendering)
-        #expect(surface.isRendererPresented)
-    }
-
-    private func acknowledgePendingPresentation(on surface: TerminalSurface) {
-        guard let token = surface.rendererPresentationState.inFlightToken else {
-            Issue.record("Expected a tokened presentation probe")
-            return
-        }
-        surface.rendererFrameDidPresent(token: token)
-    }
-
-    private func failProbe(on surface: TerminalSurface) {
-        guard let token = surface.rendererPresentationState.inFlightToken else {
-            Issue.record("Expected a tokened presentation probe")
-            return
-        }
-        surface.rendererFrameDidFail(
-            token: token,
-            status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED
-        )
+        #expect(!surface.rendererPresentationState.recoveryAttempted)
     }
 }

@@ -11,7 +11,14 @@ extension TerminalSurface {
     public func rendererPresentationReadinessDidChange() {
         guard rendererPortalVisible, isRendererPresentationReady else { return }
 
-        let geometry = committedPaneGeometry
+        noteRendererPresentationReadinessGeometry(committedPaneGeometry)
+        ensureRendererPresented(presentationReady: true)
+    }
+
+    /// Records a drawable geometry boundary before the native probe is queued.
+    /// Tests use this seam to exercise the state transition without AppKit.
+    @MainActor
+    func noteRendererPresentationReadinessGeometry(_ geometry: TerminalPaneGeometry?) {
         let geometryChanged = geometry?.size != rendererPresentationState.readinessSize
             || geometry?.backingScale != rendererPresentationState.readinessBackingScale
         if geometryChanged {
@@ -23,7 +30,5 @@ extension TerminalSurface {
                 renderHealth = .awaitingFrame
             }
         }
-
-        ensureRendererPresented(presentationReady: true)
     }
 }
