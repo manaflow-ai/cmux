@@ -22,7 +22,7 @@ import Testing
         let cloud = DaemonService(machineID: "vm-1")
         local.store.apply(snapshot: try Self.tree(key: "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a11", pane: 3, surface: 4,
                                                   tabResource: "tab_00000000000000000000000000000011"))
-        cloud.store.apply(snapshot: try Self.tree(key: "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a22", pane: 3, surface: 4,
+        cloud.store.apply(snapshot: try Self.tree(key: "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a22", pane: 7, surface: 8,
                                                   tabResource: "tab_00000000000000000000000000000022"))
         let daemons = [local, cloud]
         func route(_ kind: ActionTargetKind, _ id: String) -> DaemonService? {

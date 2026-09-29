@@ -14,8 +14,9 @@ enum WorkspaceHandlers {
         registry.bind("prevSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: -1) })
         registry.bind("palette.moveWorkspaceToTop", run: { invocation in
             let key = try context.workspace(invocation).key
+            let daemon = context.services.activeDaemon
             Task {
-                await context.services.activeDaemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: 0)) { connection, _ in
+                await daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: 0)) { connection, _ in
                     _ = try await connection.moveWorkspace(key, to: 0)
                 }
             }
@@ -60,8 +61,9 @@ enum WorkspaceHandlers {
     static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let services = context.services
+        let daemon = services.activeDaemon
         Task {
-            guard let connection = services.activeDaemon.connection else { return }
+            guard let connection = daemon.connection else { return }
             let created: String
             do {
                 let key = WorkspaceKey.generate()

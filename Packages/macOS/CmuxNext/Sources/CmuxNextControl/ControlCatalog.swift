@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextSettings
 
 /// One argument of an action's schema, in wire form. Built on the main
@@ -203,6 +204,14 @@ public struct ControlCatalog: Sendable {
 
     func isAvailable(_ action: ControlActionInfo) -> Bool {
         action.isAvailable(contextMask: contextMask, debugActionsAvailable: debugActionsAvailable)
+    }
+
+    /// Availability for a run with an explicit target, which stands in for
+    /// the facts it implies (`ActionContext.implied(byTargetKind:)`).
+    func isAvailable(_ action: ControlActionInfo, target: ControlTargetRef?) -> Bool {
+        let kind = target.flatMap { ActionTargetKind(rawValue: $0.kind) }
+        let mask = contextMask | ActionContext.implied(byTargetKind: kind).rawValue
+        return action.isAvailable(contextMask: mask, debugActionsAvailable: debugActionsAvailable)
     }
 
     func json(_ action: ControlActionInfo) -> JSONValue {

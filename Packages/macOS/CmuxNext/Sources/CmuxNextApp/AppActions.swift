@@ -34,6 +34,7 @@ enum AppActions {
         CloudHandlers.bind(into: registry, context: context)
         context.observeRefusals()
         DestructiveConfirmation.install(services)
+        ActionRouting.install(services)
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {

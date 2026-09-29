@@ -53,6 +53,10 @@ public final class ActionRegistry {
     /// Confirms destructive actions run from the keyboard, menu, or palette
     /// (`ActionRegistry+Confirmation`). Nil refuses them.
     @ObservationIgnored public var confirmationPresenter: ConfirmationPresenter?
+
+    /// Wraps every handler run with its invocation. The App routes the run
+    /// to the machine that owns the invocation's explicit target.
+    @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false
     @ObservationIgnored var capturedRefusal: String?
     @ObservationIgnored var capturedWork: [ActionWork]?
@@ -204,6 +208,12 @@ public final class ActionRegistry {
         return Self.isAvailable(descriptor, in: context ?? self.context)
     }
 
+    /// `isAvailable(_:in:)` with the facts the invocation's explicit target
+    /// implies (`ActionContext.implied(by:)`).
+    public func isAvailable(_ id: ActionID, for invocation: ActionInvocation) -> Bool {
+        isAvailable(id, in: context.union(ActionContext.implied(by: invocation)))
+    }
+
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
         #if !DEBUG
         if descriptor.isDebugOnly { return false }
@@ -241,7 +251,7 @@ public final class ActionRegistry {
     /// menus). Fails when a required argument is missing.
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
-        guard let action = action(for: id), isAvailable(id), action.isEnabled() else { return false }
+        guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
         let missing = descriptor(for: id)?.arguments.contains {
             $0.isRequired && invocation.arguments[$0.name] == nil
         } ?? false
@@ -252,7 +262,11 @@ public final class ActionRegistry {
             return true
         }
         if needsConfirmation(id, invocation) { return gateDestructive(id, invocation) }
-        action.run(invocation)
+        if let invocationScope {
+            invocationScope(invocation) { action.run(invocation) }
+        } else {
+            action.run(invocation)
+        }
         return true
     }
 

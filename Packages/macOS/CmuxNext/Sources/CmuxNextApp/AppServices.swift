@@ -15,6 +15,9 @@ final class AppServices {
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
     let machines: MachineRegistry
+    /// The machine of the action being run, while its handler runs
+    /// (`ActionRouting`); `activeDaemon` prefers it.
+    var routedDaemon: DaemonService?
     private(set) var cloud: CloudService!
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()

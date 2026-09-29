@@ -83,12 +83,12 @@ public final class RegistryControlBridge: ControlActionExecutor {
         // Reported before the context check, so a context-gated action that
         // cannot exist yet says why instead of "not available here".
         if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
-        guard registry.isAvailable(id) else { return .unavailable }
-        guard action.isEnabled() else { return .disabled }
         let invocation = ActionInvocation(
             target: request.target.flatMap(Self.actionTarget),
             arguments: request.arguments.compactMapValues(Self.actionValue)
         )
+        guard registry.isAvailable(id, for: invocation) else { return .unavailable }
+        guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }
         var ran = false
         let refusal = registry.capturingRefusal { ran = registry.perform(id, invocation: invocation) }

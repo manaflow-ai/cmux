@@ -49,8 +49,9 @@ enum TabGroupHandlers {
     static func run(_ label: String, pane: PaneModel?, patch: OptimisticPatch = .custom { _ in }, _ ctx: AppActionContext,
                     _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         guard ctx.connection() != nil else { return }
+        let daemon = ctx.services.activeDaemon
         Task {
-            let ok = await ctx.services.activeDaemon.perform(label, patch: patch, expectEcho: false, body)
+            let ok = await daemon.perform(label, patch: patch, expectEcho: false, body)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
         }
     }

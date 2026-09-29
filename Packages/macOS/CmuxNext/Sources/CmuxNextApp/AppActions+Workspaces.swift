@@ -76,8 +76,9 @@ extension AppActions {
               let index = store.workspaces.firstIndex(where: { $0 === workspace }) else { return }
         let target = min(max(index + offset, 0), store.workspaces.count - 1)
         guard target != index else { return }
+        let daemon = services.activeDaemon
         Task {
-            await services.activeDaemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: target)) { connection, _ in
+            await daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: target)) { connection, _ in
                 _ = try await connection.moveWorkspace(key, to: target)
             }
         }
