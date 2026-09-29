@@ -6,7 +6,12 @@ import Testing
 @MainActor
 @Suite("Auth coordinator team actions")
 struct AuthCoordinatorTeamActionsTests {
-    private func makeCoordinator(client: FakeAuthClient, launch: AuthLaunchOptions = .plain()) -> AuthCoordinator {
+    private func makeCoordinator(
+        client: FakeAuthClient,
+        launch: AuthLaunchOptions = .plain(),
+        timeout: Duration = .seconds(60),
+        clock: any Clock<Duration> = ContinuousClock()
+    ) -> AuthCoordinator {
         let store = FakeKeyValueStore()
         return AuthCoordinator(
             client: client,
@@ -15,7 +20,9 @@ struct AuthCoordinatorTeamActionsTests {
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: launch
+            launch: launch,
+            timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: timeout),
+            clock: clock
         )
     }
 
@@ -48,6 +55,28 @@ struct AuthCoordinatorTeamActionsTests {
         #expect(coordinator.resolvedTeamID == created.id)
         #expect(coordinator.availableTeams.contains(created))
         #expect(await client.lastSelectedTeamID == created.id)
+    }
+
+    @Test func stalledCreateTimesOutInsteadOfLeavingThePickerFrozen() async throws {
+        let clock = ManualTestClock()
+        let client = FakeAuthClient(user: CMUXAuthUser(
+            id: "user", primaryEmail: "user@example.com", displayName: "User"
+        ))
+        await client.setTeams([CMUXAuthTeam(id: "team-a", displayName: "Alpha")])
+        let coordinator = makeCoordinator(client: client, timeout: .seconds(2), clock: clock)
+        try await coordinator.signInWithPassword(email: "user@example.com", password: "password")
+        let started = TestPhaseSignal()
+        let release = TestContinuationBlocker()
+        await client.holdNextTeamCreate(started: started, release: release)
+
+        let create = Task { try await coordinator.createTeam(displayName: "Stalled Team") }
+        await started.waitUntilStarted()
+        await clock.waitUntilSleepers()
+        clock.advance(by: .seconds(2))
+
+        await #expect(throws: AuthError.timedOut) { try await create.value }
+        #expect(!coordinator.isCreatingTeam)
+        await release.release()
     }
 
     @Test func selectingUnknownTeamDoesNotChangeScope() async throws {
@@ -175,6 +204,14 @@ struct AuthCoordinatorTeamActionsTests {
         let coordinator = makeCoordinator(client: client)
         try await coordinator.signInWithPassword(email: "user@example.com", password: "password")
         return (coordinator, client)
+    }
+
+    private func waitUntil(_ condition: () async -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !(await condition()), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(await condition(), "The fake client never entered the expected phase.")
     }
 
     #if DEBUG
