@@ -38,8 +38,10 @@ absent).
 A participant **counts toward size** when it is attached, has a viewport, and:
 
 - `counts_override` is set: use it (tmux `attach -f ignore-size` is `false`).
-- otherwise a phone or tablet does not count while a `mac` or `tui` participant of
-  the same `user_id` is attached. Every other participant counts.
+- otherwise, in `smallest` and `largest`, every attached participant counts.
+- otherwise, in `latest`, `priority` and `fixed`, a phone or tablet does not count
+  while a `mac` or `tui` participant of the same `user_id` is attached. Every
+  other participant counts.
 
 The priority key is `<user_id or "anon:" + id>/<device_kind>`, so a priority list
 survives reconnects and can rank "Maya's Mac" above "Maya's iPhone".

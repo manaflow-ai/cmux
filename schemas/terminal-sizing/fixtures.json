@@ -4,164 +4,856 @@
   "cases": [
     {
       "name": "initial size is held until someone reports",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac"}},
-        {"op": "expect", "cols": 80, "rows": 24, "owners": [], "reason": "held"},
-        {"op": "report", "id": "a", "cols": 120, "rows": 40},
-        {"op": "expect", "cols": 120, "rows": 40, "owners": ["a"], "reason": "latest"}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac"
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 80,
+          "rows": 24,
+          "owners": [],
+          "reason": "held"
+        },
+        {
+          "op": "report",
+          "id": "a",
+          "cols": 120,
+          "rows": 40
+        },
+        {
+          "op": "expect",
+          "cols": 120,
+          "rows": 40,
+          "owners": [
+            "a"
+          ],
+          "reason": "latest"
+        }
       ]
     },
     {
       "name": "latest follows the newest input",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "attach", "participant": {"id": "b", "user_id": "u2", "device_kind": "mac", "viewport": {"cols": 118, "rows": 38}}},
-        {"op": "expect", "cols": 118, "rows": 38, "owners": ["b"], "reason": "latest"},
-        {"op": "activity", "id": "a"},
-        {"op": "expect", "cols": 150, "rows": 42, "owners": ["a"], "reason": "latest"}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 118,
+          "rows": 38,
+          "owners": [
+            "b"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "activity",
+          "id": "a"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "a"
+          ],
+          "reason": "latest"
+        }
       ]
     },
     {
       "name": "owner detach selects next owner without freezing",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "attach", "participant": {"id": "b", "user_id": "u2", "device_kind": "mac", "viewport": {"cols": 118, "rows": 38}}},
-        {"op": "detach", "id": "b"},
-        {"op": "expect", "cols": 150, "rows": 42, "owners": ["a"], "reason": "latest"}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "detach",
+          "id": "b"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "a"
+          ],
+          "reason": "latest"
+        }
       ]
     },
     {
       "name": "last participant leaving holds the size",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 100, "rows": 30}}},
-        {"op": "detach", "id": "a"},
-        {"op": "expect", "cols": 100, "rows": 30, "owners": [], "reason": "held"}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 100,
+              "rows": 30
+            }
+          }
+        },
+        {
+          "op": "detach",
+          "id": "a"
+        },
+        {
+          "op": "expect",
+          "cols": 100,
+          "rows": 30,
+          "owners": [],
+          "reason": "held"
+        }
       ]
     },
     {
       "name": "phone does not count while same user's mac is attached",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "mac", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "attach", "participant": {"id": "phone", "user_id": "u1", "device_kind": "iphone", "via": "mac", "viewport": {"cols": 54, "rows": 26}}},
-        {"op": "activity", "id": "phone"},
-        {"op": "expect", "cols": 150, "rows": 42, "owners": ["mac"], "reason": "latest", "counts": {"mac": true, "phone": false}},
-        {"op": "detach", "id": "mac"},
-        {"op": "expect", "cols": 54, "rows": 26, "owners": ["phone"], "reason": "latest", "counts": {"phone": true}}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 54,
+              "rows": 26
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "mac"
+          ],
+          "reason": "latest",
+          "counts": {
+            "mac": true,
+            "phone": false
+          }
+        },
+        {
+          "op": "detach",
+          "id": "mac"
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 26,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest",
+          "counts": {
+            "phone": true
+          }
+        }
       ]
     },
     {
       "name": "another user's mac does not silence my phone",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "maya", "user_id": "u2", "device_kind": "mac", "viewport": {"cols": 118, "rows": 38}}},
-        {"op": "attach", "participant": {"id": "phone", "user_id": "u1", "device_kind": "iphone", "viewport": {"cols": 54, "rows": 26}}},
-        {"op": "expect", "cols": 54, "rows": 26, "owners": ["phone"], "reason": "latest", "counts": {"phone": true}}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "maya",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 54,
+              "rows": 26
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 26,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest",
+          "counts": {
+            "phone": true
+          }
+        }
       ]
     },
     {
       "name": "counts override beats the phone default",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "mac", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "attach", "participant": {"id": "phone", "user_id": "u1", "device_kind": "iphone", "viewport": {"cols": 54, "rows": 26}, "counts_override": true}},
-        {"op": "expect", "cols": 54, "rows": 26, "owners": ["phone"], "reason": "latest"},
-        {"op": "set_counts", "id": "mac", "counts_override": false},
-        {"op": "activity", "id": "mac"},
-        {"op": "expect", "cols": 54, "rows": 26, "owners": ["phone"], "reason": "latest", "counts": {"mac": false, "phone": true}},
-        {"op": "set_counts", "id": "mac", "counts_override": null},
-        {"op": "activity", "id": "mac"},
-        {"op": "expect", "cols": 150, "rows": 42, "owners": ["mac"], "reason": "latest"}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 54,
+              "rows": 26
+            },
+            "counts_override": true
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 26,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "set_counts",
+          "id": "mac",
+          "counts_override": false
+        },
+        {
+          "op": "activity",
+          "id": "mac"
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 26,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest",
+          "counts": {
+            "mac": false,
+            "phone": true
+          }
+        },
+        {
+          "op": "set_counts",
+          "id": "mac",
+          "counts_override": null
+        },
+        {
+          "op": "activity",
+          "id": "mac"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "mac"
+          ],
+          "reason": "latest"
+        }
       ]
     },
     {
       "name": "smallest is component-wise over counting participants",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "set_policy", "policy": {"mode": "smallest"}},
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 30}}},
-        {"op": "attach", "participant": {"id": "b", "user_id": "u2", "device_kind": "mac", "viewport": {"cols": 118, "rows": 42}}},
-        {"op": "attach", "participant": {"id": "p", "user_id": "u1", "device_kind": "iphone", "viewport": {"cols": 40, "rows": 20}}},
-        {"op": "expect", "cols": 118, "rows": 30, "owners": ["a", "b"], "reason": "smallest"}
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 30
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "p",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 40,
+              "rows": 20
+            },
+            "counts_override": false
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 118,
+          "rows": 30,
+          "owners": [
+            "a",
+            "b"
+          ],
+          "reason": "smallest"
+        }
       ]
     },
     {
       "name": "largest is component-wise",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "set_policy", "policy": {"mode": "largest"}},
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 30}}},
-        {"op": "attach", "participant": {"id": "b", "user_id": "u2", "device_kind": "mac", "viewport": {"cols": 118, "rows": 42}}},
-        {"op": "expect", "cols": 150, "rows": 42, "owners": ["a", "b"], "reason": "largest"}
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "largest"
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 30
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "a",
+            "b"
+          ],
+          "reason": "largest"
+        }
       ]
     },
     {
       "name": "priority picks the first attached counting key",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "set_policy", "policy": {"mode": "priority", "priority": ["u2/mac", "u1/mac"]}},
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "expect", "cols": 150, "rows": 42, "owners": ["a"], "reason": "priority"},
-        {"op": "attach", "participant": {"id": "b", "user_id": "u2", "device_kind": "mac", "viewport": {"cols": 118, "rows": 38}}},
-        {"op": "activity", "id": "a"},
-        {"op": "expect", "cols": 118, "rows": 38, "owners": ["b"], "reason": "priority"},
-        {"op": "detach", "id": "b"},
-        {"op": "expect", "cols": 150, "rows": 42, "owners": ["a"], "reason": "priority"}
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "priority",
+            "priority": [
+              "u2/mac",
+              "u1/mac"
+            ]
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "a"
+          ],
+          "reason": "priority"
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "a"
+        },
+        {
+          "op": "expect",
+          "cols": 118,
+          "rows": 38,
+          "owners": [
+            "b"
+          ],
+          "reason": "priority"
+        },
+        {
+          "op": "detach",
+          "id": "b"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "a"
+          ],
+          "reason": "priority"
+        }
       ]
     },
     {
       "name": "priority with no match falls back to latest",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "set_policy", "policy": {"mode": "priority", "priority": ["u9/mac"]}},
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "expect", "cols": 150, "rows": 42, "owners": ["a"], "reason": "priority-fallback"}
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "priority",
+            "priority": [
+              "u9/mac"
+            ]
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "a"
+          ],
+          "reason": "priority-fallback"
+        }
       ]
     },
     {
       "name": "priority key without user id is per participant",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "set_policy", "policy": {"mode": "priority", "priority": ["anon:t/tui"]}},
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "attach", "participant": {"id": "t", "device_kind": "tui", "viewport": {"cols": 90, "rows": 30}}},
-        {"op": "activity", "id": "a"},
-        {"op": "expect", "cols": 90, "rows": 30, "owners": ["t"], "reason": "priority"}
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "priority",
+            "priority": [
+              "anon:t/tui"
+            ]
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "t",
+            "device_kind": "tui",
+            "viewport": {
+              "cols": 90,
+              "rows": 30
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "a"
+        },
+        {
+          "op": "expect",
+          "cols": 90,
+          "rows": 30,
+          "owners": [
+            "t"
+          ],
+          "reason": "priority"
+        }
       ]
     },
     {
       "name": "fixed ignores reports",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "set_policy", "policy": {"mode": "fixed", "fixed": {"cols": 100, "rows": 30}}},
-        {"op": "report", "id": "a", "cols": 160, "rows": 50},
-        {"op": "expect", "cols": 100, "rows": 30, "owners": [], "reason": "fixed"}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "fixed",
+            "fixed": {
+              "cols": 100,
+              "rows": 30
+            }
+          }
+        },
+        {
+          "op": "report",
+          "id": "a",
+          "cols": 160,
+          "rows": 50
+        },
+        {
+          "op": "expect",
+          "cols": 100,
+          "rows": 30,
+          "owners": [],
+          "reason": "fixed"
+        }
       ]
     },
     {
       "name": "no counting participant holds the last size",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "set_counts", "id": "a", "counts_override": false},
-        {"op": "expect", "cols": 150, "rows": 42, "owners": [], "reason": "held"}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "set_counts",
+          "id": "a",
+          "counts_override": false
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [],
+          "reason": "held"
+        }
       ]
     },
     {
       "name": "generation increments only on published change",
-      "initial": {"cols": 80, "rows": 24},
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
       "steps": [
-        {"op": "attach", "participant": {"id": "a", "user_id": "u1", "device_kind": "mac", "viewport": {"cols": 150, "rows": 42}}},
-        {"op": "expect", "generation": 1},
-        {"op": "report", "id": "a", "cols": 150, "rows": 42},
-        {"op": "expect", "generation": 1},
-        {"op": "report", "id": "a", "cols": 151, "rows": 42},
-        {"op": "expect", "generation": 2}
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "generation": 1
+        },
+        {
+          "op": "report",
+          "id": "a",
+          "cols": 150,
+          "rows": 42
+        },
+        {
+          "op": "expect",
+          "generation": 1
+        },
+        {
+          "op": "report",
+          "id": "a",
+          "cols": 151,
+          "rows": 42
+        },
+        {
+          "op": "expect",
+          "generation": 2
+        }
+      ]
+    },
+    {
+      "name": "fit everyone counts my phone even while my mac is attached",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 88,
+              "rows": 78
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 88,
+          "rows": 78,
+          "owners": [
+            "mac"
+          ],
+          "reason": "latest",
+          "counts": {
+            "phone": false
+          }
+        },
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 44,
+          "owners": [
+            "phone"
+          ],
+          "reason": "smallest",
+          "counts": {
+            "mac": true,
+            "phone": true
+          }
+        },
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "largest"
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 88,
+          "rows": 78,
+          "owners": [
+            "mac"
+          ],
+          "reason": "largest",
+          "counts": {
+            "phone": true
+          }
+        }
       ]
     }
   ]
