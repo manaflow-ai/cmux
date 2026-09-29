@@ -61,7 +61,9 @@ fn normalized_caller_arguments(extra_args: &[String], forwarding_off: bool) -> (
                 kept.push_str(attached);
                 normalized.push(kept);
                 kept = String::from("-");
-                if attached.is_empty() && let Some(value) = arguments.next() {
+                if attached.is_empty()
+                    && let Some(value) = arguments.next()
+                {
                     normalized.push(value.clone());
                 }
                 break;
