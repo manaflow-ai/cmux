@@ -3,14 +3,22 @@ import CmuxMobileTerminalKit
 import QuartzCore
 import UIKit
 
-/// The text of the size chip: "118×38 · Maya's Mac Studio · scaled".
+/// The text of the size chip: "118×38 · Maya's Mac Studio · scaled", and
+/// the compact title ("118×38") used when the grid leaves no letterbox.
 public struct TerminalSizingChipContent: Equatable, Sendable {
     public var title: String
+    public var compactTitle: String
     public var accessibilityLabel: String
     public var accessibilityHint: String
 
-    public init(title: String, accessibilityLabel: String, accessibilityHint: String) {
+    public init(
+        title: String,
+        compactTitle: String? = nil,
+        accessibilityLabel: String,
+        accessibilityHint: String
+    ) {
         self.title = title
+        self.compactTitle = compactTitle ?? title
         self.accessibilityLabel = accessibilityLabel
         self.accessibilityHint = accessibilityHint
     }
@@ -32,8 +40,8 @@ final class GhosttySurfaceSharedSizingLayers {
     static let hatchOpacity: CGFloat = 0.5
     /// Share of the separator's opacity used by the chip fill.
     static let chipFillOpacity: CGFloat = 0.5
-    /// Distance between the chip and the grid's corner, in points.
-    static let chipInset: CGFloat = 6
+    /// Distance between the chip and the grid or viewport edge, in points.
+    static let chipInset: CGFloat = TerminalSizingChipPlacement.defaultInset
 
     /// The single grey of the sizing UI.
     static let grey = UIColor.separator
@@ -79,11 +87,13 @@ final class GhosttySurfaceSharedSizingLayers {
         chip?.isHidden = true
     }
 
-    /// Shows the chip at the bottom-trailing corner of `gridRect`, or hides it.
+    /// Shows the chip outside the grid (`TerminalSizingChipPlacement`), or
+    /// hides it. It never covers the grid's last row.
     func layoutChip(
         _ content: TerminalSizingChipContent?,
         in hostView: UIView,
         gridRect: CGRect?,
+        viewportRect: CGRect,
         onTap: @escaping @MainActor () -> Void
     ) {
         guard let content, let gridRect else {
@@ -92,23 +102,38 @@ final class GhosttySurfaceSharedSizingLayers {
         }
         let button = chip ?? makeChip(in: hostView, onTap: onTap)
         chip = button
-        if button.configuration?.title != content.title {
-            button.configuration?.title = content.title
-        }
         button.accessibilityLabel = content.accessibilityLabel
         button.accessibilityHint = content.accessibilityHint
         button.isHidden = false
-        let inset = Self.chipInset
-        let limit = CGSize(width: max(0, gridRect.width - inset * 2), height: .greatestFiniteMagnitude)
+        let limit = CGSize(
+            width: max(0, viewportRect.width - Self.chipInset * 2),
+            height: .greatestFiniteMagnitude
+        )
+        let fullSize = fittingSize(of: button, title: content.title, limit: limit)
+        let compactSize = fittingSize(of: button, title: content.compactTitle, limit: limit)
+        let placement = TerminalSizingChipPlacement.place(
+            chipSize: fullSize,
+            compactChipSize: compactSize,
+            gridRect: gridRect,
+            viewportRect: viewportRect,
+            inset: Self.chipInset
+        )
+        let title = placement.isCompact ? content.compactTitle : content.title
+        if button.configuration?.title != title {
+            button.configuration?.title = title
+        }
+        button.frame = placement.frame
+        hostView.bringSubviewToFront(button)
+    }
+
+    /// The chip's fitting size for `title`, capped to `limit`'s width.
+    private func fittingSize(of button: UIButton, title: String, limit: CGSize) -> CGSize {
+        if button.configuration?.title != title {
+            button.configuration?.title = title
+        }
         var size = button.sizeThatFits(limit)
         size.width = min(size.width, limit.width)
-        button.frame = CGRect(
-            x: gridRect.maxX - inset - size.width,
-            y: gridRect.maxY - inset - size.height,
-            width: size.width,
-            height: size.height
-        )
-        hostView.bringSubviewToFront(button)
+        return size
     }
 
     private func makeChip(in hostView: UIView, onTap: @escaping @MainActor () -> Void) -> UIButton {
@@ -248,6 +273,7 @@ extension GhosttySurfaceView {
             sharedSizingChip,
             in: self,
             gridRect: geometry.borderRect,
+            viewportRect: viewportRect,
             onTap: { [weak self] in self?.onSharedSizingChipTap?() }
         )
     }

@@ -136,6 +136,7 @@ extension MobileTerminalSizingPresentation {
         guard showsChip else { return nil }
         return TerminalSizingChipContent(
             title: TerminalSizingText.chip(self),
+            compactTitle: TerminalSizingText.chipCompact(self),
             accessibilityLabel: TerminalSizingText.chipAccessibilityLabel(self),
             accessibilityHint: TerminalSizingText.chipAccessibilityHint()
         )

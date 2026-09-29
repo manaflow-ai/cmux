@@ -47,7 +47,8 @@ import Testing
         let placement = place(grid: grid)
         #expect(placement.anchor == .aboveGrid)
         #expect(placement.frame.maxY <= grid.minY)
-        #expect(placement.frame.maxX == grid.maxX)
+        // Trailing-aligned, kept one inset inside the viewport edge.
+        #expect(placement.frame.maxX == viewport.maxX - TerminalSizingChipPlacement.defaultInset)
         #expect(!placement.frame.intersects(grid))
     }
 

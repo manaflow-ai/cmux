@@ -70,6 +70,15 @@ struct TerminalSizingText {
         return joined(base, scaled())
     }
 
+    /// The compact chip used when the grid fills the viewport: "118×38",
+    /// plus " · scaled" when the grid is scaled to fit. The accessibility
+    /// label still names the owner.
+    static func chipCompact(_ presentation: MobileTerminalSizingPresentation) -> String {
+        let size = gridSizeCompact(presentation.grid)
+        guard presentation.isScaledToFit else { return size }
+        return joined(size, scaled())
+    }
+
     static func chipAccessibilityLabel(_ presentation: MobileTerminalSizingPresentation) -> String {
         let cols = presentation.grid.cols
         let rows = presentation.grid.rows

@@ -128,13 +128,18 @@ Disconnecting is not unpairing. Pairing revoke stays in pairing settings.
 
 ## Showing the bounds
 
-Every viewer whose viewport differs from the grid draws, from the size state:
+Every viewer whose viewport differs from the grid draws, from the size state
+(a viewer whose viewport equals the grid draws none of it, even while others
+are attached):
 
 - a 1 pt border around the grid in the separator grey (below);
 - a faint hatch outside the grid, so empty space never reads as blank output;
 - one small chip outside the grid's bottom-right corner,
   `118×38 · Maya's Mac` (plus `· 12 cols hidden` when the viewer is smaller),
-  that opens the size panel;
+  that opens the size panel. It never covers the grid's last row: on the
+  iPhone it goes in the letterbox below, beside or above the grid, and when
+  the grid fills the viewport it shrinks to `118×38` at the viewport's
+  top-trailing corner;
 - when the viewer is smaller, a short fade on the cut edge;
 - on each change, the border animates to the new grid. There is no HUD.
 
