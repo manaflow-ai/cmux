@@ -80,10 +80,12 @@ APP="$(ls -d "$DERIVED_DATA/Build/Products/Debug/"*.app 2>/dev/null | head -1 ||
 [[ -n "$APP" ]] || { phase launch "tagged Mac app not found for tag ${TAG}"; exit 1; }
 
 APP_PID=""
+LAUNCH_LABEL=""
 cleanup() {
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
     kill "$APP_PID" 2>/dev/null || true
   fi
+  [[ -z "$LAUNCH_LABEL" ]] || launchctl remove "$LAUNCH_LABEL" >/dev/null 2>&1 || true
   if [[ "$SECRETS_WROTE" -eq 1 ]]; then
     : > "$SECRETS_FILE"
     chmod 600 "$SECRETS_FILE"
@@ -101,23 +103,29 @@ write_remote_helpers
 APP_EXECUTABLE="$APP/Contents/MacOS/cmux DEV"
 [[ -x "$APP_EXECUTABLE" ]] || { phase launch "app executable missing: $APP_EXECUTABLE"; exit 1; }
 LAUNCH_LOG="${RUNNER_TEMP:-/tmp}/cmux-e2e-mac-${TAG_SLUG}.log"
-CMUX_TAG="$TAG_SLUG" \
-CMUX_BUNDLE_ID="com.cmuxterm.app.debug.${TAG_SLUG}" \
-CMUX_SOCKET_ENABLE=1 \
-CMUX_SOCKET_MODE=allowAll \
-CMUX_SOCKET_PATH="$SOCKET" \
-CMUXD_UNIX_PATH="$SOCKET" \
-CMUX_API_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
-CMUX_VM_API_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
-CMUX_IROH_BROKER_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
-"$APP_EXECUTABLE" >"$LAUNCH_LOG" 2>&1 &
-APP_PID="$!"
+LAUNCH_LABEL="com.cmux.e2e.${GITHUB_RUN_ID:-$$}"
+launchctl remove "$LAUNCH_LABEL" >/dev/null 2>&1 || true
+launchctl submit -l "$LAUNCH_LABEL" -- /usr/bin/env -i \
+  HOME="$HOME" USER="$(id -un)" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+  CMUX_TAG="$TAG_SLUG" CMUX_BUNDLE_ID="com.cmuxterm.app.debug.${TAG_SLUG}" \
+  CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=allowAll \
+  CMUX_SOCKET_PATH="$SOCKET" CMUXD_UNIX_PATH="$SOCKET" \
+  CMUX_API_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
+  CMUX_VM_API_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
+  CMUX_IROH_BROKER_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
+  "$APP_EXECUTABLE" >"$LAUNCH_LOG" 2>&1
 
 # Bounded readiness wait on the tagged debug socket, then capture the pid the
 # socket belongs to so cleanup never kills another tag's instance.
 deadline=$(( $(date +%s) + 180 ))
 until CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" identify >/dev/null 2>&1; do
-  (( $(date +%s) < deadline )) || { phase socket "debug socket never came up: $SOCKET"; exit 1; }
+  if (( $(date +%s) >= deadline )); then
+    phase socket "debug socket never came up: $SOCKET"
+    if [[ -s "$LAUNCH_LOG" ]]; then
+      sed -E 's#https?://[^[:space:]]+#<url>#g; s#(password|secret|token)[^[:space:]]*#\1=<redacted>#Ig' "$LAUNCH_LOG" | tail -80 >&2
+    fi
+    exit 1
+  fi
   sleep 2
 done
 APP_PID="$(pgrep -f "DerivedData/cmux-${TAG}/.*/cmux DEV" | head -1 || true)"
