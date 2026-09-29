@@ -126,10 +126,11 @@ final class BrowserReplTabAttachment {
     /// Keeps the tab rendering like a foreground page while a session drives
     /// it: `requestAnimationFrame`, timers and `visibilityState` all pause in
     /// a hidden WebKit page, and Playwright-style actionability waits for
-    /// animation frames. A tab whose pane is not showing it moves into the
-    /// same imperceptible offscreen render window screenshots use, for as
-    /// long as the session stays attached (the phone stream holds one the
-    /// same way). A tab the user is looking at is left where it is.
+    /// animation frames, and pages in a non-key window get no mouse moves. A
+    /// tab not shown in the key window moves into the same imperceptible
+    /// offscreen render window screenshots use, which reports itself as key,
+    /// for as long as the session stays attached (the phone stream holds one
+    /// the same way). A tab the user is looking at in the key window stays.
     func keepRendering() {
         guard isAttached, let panel else { return }
         _ = panel.restoreDiscardedWebViewIfNeeded(reason: "browser.repl", allowBlankShellHeal: false)
@@ -138,12 +139,19 @@ final class BrowserReplTabAttachment {
         renderHost?.abandon()
         renderHost = nil
         renderHostWebView = nil
-        guard !Self.isVisiblyRendering(webView),
+        // A tab the user sees in the key window is left alone. Otherwise the
+        // page is hidden or inactive (WebKit drops mouse moves, so `:hover`,
+        // for pages in a non-key window), and it moves to the render window.
+        guard !(Self.isVisiblyRendering(webView) && webView.window?.isKeyWindow == true),
               panel.mobileBrowserStreamRenderHost == nil,
               !webView.cmuxIsElementFullscreenActiveOrTransitioning else {
             return
         }
-        renderHost = BrowserOffscreenRenderHost(webView: webView, viewportSize: panel.visualAutomationViewportSize())
+        renderHost = BrowserOffscreenRenderHost(
+            webView: webView,
+            viewportSize: panel.visualAutomationViewportSize(),
+            reportsKeyWindow: true
+        )
         renderHostWebView = webView
         // The render window is nearly transparent; WebKit must not treat
         // window occlusion as hidden.

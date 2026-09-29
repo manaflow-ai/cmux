@@ -18,7 +18,10 @@ public final class BrowserOffscreenRenderHost {
     private let mirrorView: BrowserStreamMacMirrorView?
     private var isFinished = false
 
-    public init(webView: WKWebView, viewportSize: NSSize) {
+    /// - Parameter reportsKeyWindow: Make the render window report itself as
+    ///   key (see `BrowserOffscreenRenderPanel.reportsKeyWindowForAutomation`)
+    ///   so a driven page behaves as active, including hover.
+    public init(webView: WKWebView, viewportSize: NSSize, reportsKeyWindow: Bool = false) {
         let capturedPresentationView = webView.cmuxBrowserViewportPresentationView
         let capturedPreviousSuperview = capturedPresentationView.superview
         let previousSubviews = capturedPreviousSuperview?.subviews ?? []
@@ -50,6 +53,7 @@ public final class BrowserOffscreenRenderHost {
             backing: .buffered,
             defer: false
         )
+        renderWindow.reportsKeyWindowForAutomation = reportsKeyWindow
         renderWindow.isReleasedWhenClosed = false
         renderWindow.identifier = NSUserInterfaceItemIdentifier("cmux.browserVisualAutomationRender")
         renderWindow.hasShadow = false
