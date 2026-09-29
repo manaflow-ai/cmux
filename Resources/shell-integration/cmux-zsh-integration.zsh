@@ -1527,6 +1527,7 @@ _cmux_pr_state_dir() {
     local -a private_dir
     private_dir=( "$dir"(N/Uf:go-w:) )
     (( ${#private_dir} )) || return 1
+    _cmux_private_path_chain "$dir" || return 1
     REPLY="$dir"
 }
 

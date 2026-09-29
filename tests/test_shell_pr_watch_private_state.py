@@ -126,6 +126,17 @@ _cmux_pr_debug_log contract-branch cache-miss
 
         self.assertEqual(self.victim.read_text(), ORIGINAL)
 
+    def test_nonsticky_tmp_ancestor_does_not_host_state(self):
+        self.tmpdir.chmod(0o777)
+        self.run_zsh(r'''
+_cmux_pr_request_probe
+_cmux_report_pr_for_path "$PWD"
+_CMUX_PR_DEBUG=1
+_cmux_pr_debug_log contract-branch cache-miss
+''')
+        state = self.tmpdir / f"cmux-pr-{os.geteuid()}"
+        self.assertTrue(not state.exists() or not any(state.iterdir()), state.exists() and list(state.iterdir()))
+
     def test_state_directory_replaced_by_a_symlink_is_not_used(self):
         elsewhere = self.directory / "elsewhere"
         elsewhere.mkdir()
