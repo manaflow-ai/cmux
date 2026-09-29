@@ -26680,6 +26680,215 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// Append one hook event through the real journal ingress path, which
+    /// runs the hook projector (public agent rows) and the roster fold
+    /// (`list_agents`, the TUI and raw `agents`) exactly as a hook helper does.
+    fn append_journal_hook(
+        mux: &Arc<Mux>,
+        terminal_id: &TerminalPublicId,
+        event: &str,
+        session_id: Option<&str>,
+    ) {
+        let native = match session_id {
+            Some(session_id) => serde_json::json!({ "session_id": session_id }),
+            None => serde_json::json!({}),
+        };
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(terminal_id.as_str()),
+            native,
+        )
+        .unwrap();
+        let key = format!("roster-fence-{}", crate::workspace_registry::new_uuid_v4());
+        mux.append_journal_ingress(&ingress, "test", &key).unwrap();
+    }
+
+    fn roster_agent_state(mux: &Mux, terminal_id: &TerminalPublicId) -> Option<String> {
+        mux.agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .map(|entry| entry.state.clone())
+    }
+
+    fn public_agent_state(mux: &Mux, terminal_id: &TerminalPublicId) -> Option<String> {
+        hook_projected_agents(mux)
+            .into_iter()
+            .find(|agent| agent["terminal_id"] == terminal_id.as_str())
+            .and_then(|agent| agent["state"].as_str().map(str::to_owned))
+    }
+
+    /// The roster (and every view it backs) must show the state the public
+    /// agent rows show after each journal event.
+    #[track_caller]
+    fn assert_agent_views(
+        mux: &Arc<Mux>,
+        surface: SurfaceId,
+        terminal_id: &TerminalPublicId,
+        expected: Option<&str>,
+    ) {
+        assert_eq!(public_agent_state(mux, terminal_id).as_deref(), expected, "public agent row");
+        assert_eq!(roster_agent_state(mux, terminal_id).as_deref(), expected, "agent roster");
+        let listed = mux
+            .list_agents(Some(surface), None)
+            .into_iter()
+            .map(|record| record.state.as_str().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            listed,
+            expected.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+            "list_agents"
+        );
+    }
+
+    #[test]
+    fn journal_roster_ignores_late_hook_events_from_an_ended_session() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-fence-late-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = open_persistent_test_mux("roster-fence-late", &root);
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+
+        append_journal_hook(&mux, &terminal_id, "SessionStart", Some("old"));
+        append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", Some("old"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("working"));
+        append_journal_hook(&mux, &terminal_id, "SessionEnd", Some("old"));
+        assert_agent_views(&mux, surface.id, &terminal_id, None);
+
+        // A late event from the ended session cannot resurrect it.
+        append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", Some("old"));
+        assert_agent_views(&mux, surface.id, &terminal_id, None);
+
+        // A new session starts idle, and late events from the ended session
+        // (with or without its id) cannot mark it working.
+        append_journal_hook(&mux, &terminal_id, "SessionStart", Some("new"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+        append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", Some("old"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+        append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", None);
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+        append_journal_hook(&mux, &terminal_id, "SessionEnd", Some("old"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+
+        // The current session still drives the terminal.
+        append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", Some("new"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("working"));
+
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_roster_keeps_the_owning_session_when_sessions_overlap() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-fence-overlap-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = open_persistent_test_mux("roster-fence-overlap", &root);
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+
+        append_journal_hook(&mux, &terminal_id, "SessionStart", Some("a"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+        // A second session starting while `a` is live does not take over.
+        append_journal_hook(&mux, &terminal_id, "SessionStart", Some("b"));
+        append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", Some("b"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+        append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", Some("a"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("working"));
+        // Only the owning session can end it.
+        append_journal_hook(&mux, &terminal_id, "SessionEnd", Some("b"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("working"));
+        append_journal_hook(&mux, &terminal_id, "SessionEnd", Some("a"));
+        assert_agent_views(&mux, surface.id, &terminal_id, None);
+        // After `a` ends, `b` can start, and `a` can no longer write.
+        append_journal_hook(&mux, &terminal_id, "SessionStart", Some("b"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+        append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", Some("a"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+        append_journal_hook(&mux, &terminal_id, "UserPromptSubmit", Some("b"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("working"));
+        append_journal_hook(&mux, &terminal_id, "Stop", Some("b"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_roster_direct_hook_restart_fences_the_ended_session() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-fence-direct-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = open_persistent_test_mux("roster-fence-direct", &root);
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+
+        append_journal_hook(&mux, &terminal_id, "SessionStart", Some("old"));
+        append_journal_hook(&mux, &terminal_id, "SessionEnd", Some("old"));
+        // A direct hook report with a fresh session restarts the fence; its
+        // journal echo carries the restart to the roster.
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, Some("new".into()))
+            .unwrap();
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("working"));
+        append_journal_hook(&mux, &terminal_id, "Stop", Some("old"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("working"));
+        append_journal_hook(&mux, &terminal_id, "Stop", Some("new"));
+        assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_roster_session_fence_survives_restart_and_replay() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-fence-restart-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let session = "roster-fence-restart";
+        let terminal_id = {
+            let mux = open_persistent_test_mux(session, &root);
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+            append_journal_hook(&mux, &terminal_id, "SessionStart", Some("old"));
+            append_journal_hook(&mux, &terminal_id, "SessionEnd", Some("old"));
+            append_journal_hook(&mux, &terminal_id, "SessionStart", Some("new"));
+            assert_agent_views(&mux, surface.id, &terminal_id, Some("idle"));
+            mux.shutdown();
+            terminal_id
+        };
+
+        // The restored snapshot keeps the fence: a late event from the ended
+        // session arriving after the restart cannot mark the roster working.
+        let reopened = open_persistent_test_mux(session, &root);
+        assert_eq!(roster_agent_state(&reopened, &terminal_id).as_deref(), Some("idle"));
+        append_journal_hook(&reopened, &terminal_id, "UserPromptSubmit", Some("old"));
+        assert_eq!(roster_agent_state(&reopened, &terminal_id).as_deref(), Some("idle"));
+        reopened.shutdown();
+        drop(reopened);
+
+        // Re-folding the whole journal without the snapshot rebuilds the same
+        // fence, so replay also ignores the late event.
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID, 0, 0, "")
+            .unwrap();
+        drop(registry);
+        let replayed = open_persistent_test_mux(session, &root);
+        assert_eq!(roster_agent_state(&replayed, &terminal_id).as_deref(), Some("idle"));
+        append_journal_hook(&replayed, &terminal_id, "UserPromptSubmit", Some("new"));
+        assert_eq!(roster_agent_state(&replayed, &terminal_id).as_deref(), Some("working"));
+        replayed.shutdown();
+        drop(replayed);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn invalid_agent_roster_snapshot_replays_from_the_journal_head() {
         let root = std::env::temp_dir().join(format!(
