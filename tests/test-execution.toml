@@ -40,6 +40,10 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_tmux_wait_for_private_dir.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_cli_layout_focus_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -299,6 +303,10 @@ lane = "macos-shell"
 
 [[test]]
 path = "tests/test_shell_no_git_watch.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_shell_cli_shim_private_dir.py"
 lane = "macos-shell"
 
 [[test]]

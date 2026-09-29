@@ -730,13 +730,9 @@ class GhosttyApp {
     private static func initLog(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"
-        if let handle = FileHandle(forWritingAtPath: initLogPath) {
-            defer { try? handle.close() }
-            guard (try? handle.seekToEnd()) != nil else { return }
-            try? handle.write(contentsOf: Data(line.utf8))
-        } else {
-            FileManager.default.createFile(atPath: initLogPath, contents: line.data(using: .utf8))
-        }
+        guard let handle = OwnedLogFile(path: initLogPath).openForAppending() else { return }
+        defer { try? handle.close() }
+        try? handle.write(contentsOf: Data(line.utf8))
     }
 
     private static func dumpConfigDiagnostics(_ config: ghostty_config_t, label: String) {

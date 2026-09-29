@@ -367,14 +367,60 @@ _cmux_path_prepend_unique_directory() {
     _cmux_path_prepend_unique_directory_into_reply "$@"
     printf '%s' "$REPLY"
 }
+# Succeeds when every directory, checked in order, is an absolute path to a
+# real directory (not a symlink) owned by this user that no one else can write
+# to. With $1 set to 1, a missing directory is first created 0700. Anything
+# the shell later runs or reads must come from such a directory, since a
+# shared TMPDIR lets other users pre-create names in it.
+_cmux_private_dirs() {
+    builtin emulate -L zsh
+    local create="$1"
+    shift
+    local dir
+    local -a private_dir
+    (( $# )) || return 1
+    for dir in "$@"; do
+        [[ "$dir" == /* ]] || return 1
+        if [[ "$create" == 1 && ! -e "$dir" && ! -L "$dir" ]]; then
+            /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1
+        fi
+        # Glob qualifiers use lstat: / rejects symlinks, U requires our euid
+        # and f:go-w: requires no group or other write bit.
+        private_dir=( "$dir"(N/Uf:go-w:) )
+        (( ${#private_dir} )) || return 1
+    done
+}
+typeset -g _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
 _cmux_install_cli_command_shim() {
     local command_name="$1"
     local wrapper_path="$2"
     local surface_component="${CMUX_SURFACE_ID:-$$}"
     local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
     local shim_parent="${shim_root%/*}"
-    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]]; then
-        shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+    local rejected_root=""
+    local REPLY
+    # An inherited root is reused only while it is still private. Otherwise
+    # the shell makes its own, and skips the shim if it can't.
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]] \
+        || ! _cmux_private_dirs 0 "$shim_parent" "$shim_root"; then
+        # Keep a shim root this shell did not accept off PATH.
+        [[ "${shim_parent##*/}" == "cmux-cli-shims" ]] && rejected_root="$shim_root"
+        shim_parent="${TMPDIR:-/tmp}"
+        shim_parent="${shim_parent%/}/cmux-cli-shims"
+        shim_root="$shim_parent/$surface_component"
+        if ! _cmux_private_dirs 1 "$shim_parent" "$shim_root"; then
+            if [[ "$command_name" == "claude" ]]; then
+                unset CMUX_CLAUDE_WRAPPER_SHIM CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+                _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
+            fi
+            if [[ -n "$rejected_root" ]]; then
+                _cmux_path_prepend_unique_directory_into_reply "$rejected_root" "${PATH-}"
+                REPLY="${REPLY#"$rejected_root"}"
+                PATH="${REPLY#:}"
+                hash -r >/dev/null 2>&1 || rehash >/dev/null 2>&1 || true
+            fi
+            return 0
+        fi
     fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
@@ -439,15 +485,16 @@ _cmux_install_cli_command_shim() {
     if [[ "$command_name" == "claude" ]]; then
         export CMUX_CLAUDE_WRAPPER_SHIM="$shim_path"
         export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="$shim_root"
+        _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED="$shim_path"
     fi
 
-    local REPLY
-    _cmux_path_prepend_unique_directory_into_reply "$shim_root" "${PATH-}"
+    _cmux_path_prepend_unique_directory_into_reply "$shim_root" "${PATH-}" "$rejected_root"
     PATH="$REPLY"
     hash -r >/dev/null 2>&1 || rehash >/dev/null 2>&1 || true
 }
 _cmux_claude_wrapper_command() {
-    if [[ -x "${CMUX_CLAUDE_WRAPPER_SHIM:-}" ]]; then
+    # Only run a shim this shell wrote into a directory it checked.
+    if [[ -n "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" && "${CMUX_CLAUDE_WRAPPER_SHIM:-}" == "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" && -x "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" ]]; then
         "$CMUX_CLAUDE_WRAPPER_SHIM" "$@"
     elif [[ -x "${_CMUX_CLAUDE_WRAPPER:-}" ]]; then
         "$_CMUX_CLAUDE_WRAPPER" "$@"
