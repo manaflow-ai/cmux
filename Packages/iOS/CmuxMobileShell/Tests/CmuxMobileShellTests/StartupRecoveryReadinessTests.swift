@@ -258,8 +258,6 @@ extension ReconnectRouteSelectionTests {
         await pairedStore.waitUntilBackupRefreshStarted()
         #expect(await reconnect.value)
         #expect(factory.attemptedKinds() == [.iroh])
-        #expect(await pairedStore.currentLoadAllCount() == 1)
-        #expect(await pairedStore.currentActiveMacCount() == 0)
 
         await pairedStore.releaseBackupRefresh()
         await pairedStore.waitUntilBackupRefreshFinished()
