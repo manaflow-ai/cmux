@@ -121,8 +121,10 @@ public struct SSHConnectionSharingOptions: Sendable {
     public func mergingDefaults(
         into options: [String],
         userConfiguredControlOptions: [String]? = nil,
-        routeSensitiveOptions: [String] = []
+        routeSensitiveOptions: [String] = [],
+        routeIdentifier: String? = nil
     ) -> [String] {
+        _ = routeIdentifier
         let resolver = SSHAgentSocketResolver()
         let routeSensitive = !routeSensitiveOptions.isEmpty
             || options.contains { option in

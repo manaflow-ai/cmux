@@ -146,6 +146,32 @@ struct SSHConnectionSharingOptionsTests {
         #expect(!merged.contains("ControlMaster=auto"))
     }
 
+    @Test("Route-sensitive options use a private route-specific shared master")
+    func routeSensitiveOptionsUsePrivateRouteSpecificControlPath() {
+        let first = options.mergingDefaults(
+            into: ["ProxyJump=bastion"],
+            routeSensitiveOptions: ["IdentityFile=/Users/alice/.ssh/route-key"],
+            routeIdentifier: "route-a"
+        )
+        let second = options.mergingDefaults(
+            into: ["ProxyJump=bastion"],
+            routeSensitiveOptions: ["IdentityFile=/Users/alice/.ssh/route-key"],
+            routeIdentifier: "route-b"
+        )
+        let firstPath = first.first { $0.hasPrefix("ControlPath=") }
+        let secondPath = second.first { $0.hasPrefix("ControlPath=") }
+
+        #expect(first.contains("ControlMaster=auto"))
+        #expect(first.contains("ControlPersist=600"))
+        #expect(firstPath?.hasPrefix("ControlPath=\(socketDirectory)/") == true)
+        #expect(secondPath?.hasPrefix("ControlPath=\(socketDirectory)/") == true)
+        #expect(firstPath != secondPath)
+        #expect(firstPath?.dropFirst("ControlPath=\(socketDirectory)/".count).count == 40)
+        #expect(options.cmuxOwnedControlPath(in: first) == firstPath.map {
+            String($0.dropFirst("ControlPath=".count))
+        })
+    }
+
     @Test("Host-key policy options disable default sharing")
     func hostKeyPolicyOptionsDoNotShareAHostStableSocket() {
         for option in [
