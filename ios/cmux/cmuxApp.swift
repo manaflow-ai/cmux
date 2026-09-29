@@ -96,7 +96,7 @@ struct cmuxApp: App {
             preconditionFailure("Invalid mobile transport registrations: \(error)")
         }
 
-        let runtime = CMUXMobileRuntime(
+        var runtime = CMUXMobileRuntime(
             transportFactory: transportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
@@ -128,6 +128,9 @@ struct cmuxApp: App {
                 try await irx.tunnelListeningPorts(for: request)
             }
         )
+        runtime.daemonLaneOpener = { request in
+            try await irx.openDaemonLane(for: request)
+        }
 
         return AppCompositionRoot(
             runtime: runtime,

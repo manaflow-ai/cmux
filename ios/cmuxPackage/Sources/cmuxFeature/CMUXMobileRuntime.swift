@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileRPC
+import CmuxMobileShell
 import CmuxMobileSupport
 import Foundation
 import Observation
@@ -42,6 +43,10 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public var artifactLaneProvider: MobileArtifactLaneProvider?
     public var tunnelConnectProvider: MobileTunnelConnectProvider?
     public var tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider?
+    /// Opens a cmux-next Mac's daemon lane (irx `daemon` lane). The shell
+    /// uses it only while ``MobileDaemonLaneFlag`` is on and the Mac
+    /// advertises `daemon_lane.v1`.
+    public var daemonLaneOpener: MobileDaemonLaneOpener?
 
     /// Builds the production access-token provider over an injected
     /// ``TokenProviding`` (the app-root ``AuthCoordinator``), honoring the DEBUG

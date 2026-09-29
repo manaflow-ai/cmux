@@ -88152,6 +88152,65 @@
         }
       }
     },
+    "mobile.ssh.error.laneKindUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac serves cmux workspaces only."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Mac bietet nur cmux-Workspaces an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Mac ne propose que des espaces de travail cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يوفّر جهاز Mac هذا مساحات عمل cmux فقط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac solo ofrece espacios de trabajo de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 僅提供 cmux 工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 仅提供 cmux 工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac은 cmux 워크스페이스만 제공합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このMacはcmuxワークスペースのみ提供します。"
+          }
+        }
+      }
+    },
     "mobile.ssh.error.tmuxMissing": {
       "extractionState": "manual",
       "localizations": {
