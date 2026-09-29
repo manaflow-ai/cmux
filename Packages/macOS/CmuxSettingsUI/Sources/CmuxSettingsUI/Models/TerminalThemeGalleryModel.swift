@@ -96,13 +96,25 @@ final class TerminalThemeGalleryModel {
         slotInUse = context.prefersDarkAppearance ? .dark : .light
     }
 
-    /// Reads and parses every theme file off the main actor, once.
+    /// Parsed themes by search directories, kept for the app's lifetime so
+    /// reopening Themes renders the full gallery in its first layout pass
+    /// instead of growing the page after a background load.
+    private static var themeCache: [[URL]: [Theme]] = [:]
+
+    /// Reads and parses every theme file off the main actor, once per app
+    /// launch; later models reuse the result without suspending.
     func load() async {
         guard !isLoaded else { return }
         let directories = context.themeDirectories
+        if let cached = Self.themeCache[directories] {
+            themes = cached
+            isLoaded = true
+            return
+        }
         let loaded = await Task.detached(priority: .userInitiated) {
             Self.loadThemes(in: directories)
         }.value
+        Self.themeCache[directories] = loaded
         themes = loaded
         isLoaded = true
     }
