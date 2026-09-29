@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !environment.noActivate { NSApp.activate() }
         services.daemon.start(launch: environment.launch)
         cloudContext = services.startCloud()
+        services.updater.start()
         services.windows.restoreWhenLoaded()
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
@@ -44,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
                 control.registerMobileMethods(services)
+                control.registerUpdateMethods(services.updater)
                 if let router = control.service?.router { installCompat(on: router) }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {

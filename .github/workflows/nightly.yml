@@ -1834,6 +1834,10 @@ jobs:
           # After a key change, deltas from builds that embed the other key can
           # never install; skip building them. SPARKLE_PUBLIC_KEY is derived above.
           ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh previous-nightlies "$SPARKLE_PUBLIC_KEY"
+          # The new item carries the bundle's macOS floor (26.0 for cmux-next),
+          # so older macOS keeps the previous (legacy) items still in the feed.
+          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
+          export SPARKLE_MINIMUM_SYSTEM_VERSION
           SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
             ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"
           ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST" ./*.delta 2>/dev/null || true

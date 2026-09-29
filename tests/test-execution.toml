@@ -1450,3 +1450,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_btop_agents_sidebar.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_appcast_minimum_system_version.py"
+lane = "linux-guard"

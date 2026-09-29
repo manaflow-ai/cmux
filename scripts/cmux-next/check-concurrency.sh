@@ -27,7 +27,7 @@ sources = os.path.join(root, "Sources")
 # Targets built with `.defaultIsolation(MainActor.self)` (Package.swift uiSwiftSettings).
 MAIN_ACTOR_MODULES = {
     "CmuxNextApp", "CmuxNextBridge", "CmuxNextDesign", "CmuxNextActions", "CmuxNextTerminal",
-    "CmuxNextTabs", "CmuxNextSidebar", "CmuxNextPalette", "CmuxNextLayout", "CmuxNextBrowser",
+    "CmuxNextTabs", "CmuxNextSidebar", "CmuxNextPalette", "CmuxNextLayout", "CmuxNextBrowser", "CmuxNextUpdater",
 }
 
 EVERYWHERE = [
