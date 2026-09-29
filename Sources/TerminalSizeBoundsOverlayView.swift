@@ -172,7 +172,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
         }
         let path = CGMutablePath()
         for line in edges.polylines(around: geometry.gridRect.insetBy(dx: 0.5, dy: 0.5)) {
-            path.addLines(between: line.map(layerPoint))
+            path.addLines(between: line.map { layerPoint($0) })
         }
         let previous = borderLayer.presentation()?.path ?? borderLayer.path
         let wasHidden = borderLayer.isHidden
