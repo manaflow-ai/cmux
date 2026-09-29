@@ -30,7 +30,9 @@ When we change the fork, update this document and the parent submodule SHA.
   `vt_replay_preserves_blank_tail_after_history`,
   `vt_replay_preserves_codex_composer_before_incremental_redraw`, and the
   cell-level Cloud replay tests.
-- Artifact: pending the hosted GhosttyKit build for `9961d09be`.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-9961d09be3faf962b6e50541c3b709d5cd234472-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `f3d611f151e7337b116cd15e653d734bc04dd33d8bd5af5fd065bebb6ad78be9`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: do not add another `blank_rows - 1` adjustment on top of
   #241. Its carried `TrailingState.rows = 1` is required for page boundaries;
   duplicating the subtraction under-emits a row and shifts the composer in
