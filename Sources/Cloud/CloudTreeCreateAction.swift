@@ -52,7 +52,8 @@ struct CloudTreeCreateActionLabel: View {
             icon: "plus",
             tint: .secondary,
             title: action.title,
-            titleWeight: .medium
+            titleWeight: .regular,
+            titleDimmed: true
         )
     }
 }
@@ -74,15 +75,9 @@ struct CloudTreeCreateActionView: View {
                 // action background.
                 .padding(.trailing, 6)
                 .frame(maxWidth: .infinity, minHeight: style.rowHeight, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color.primary.opacity(0.045))
-                        .padding(.horizontal, 2)
-                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.primary)
         .help(action.title)
         .accessibilityLabel(action.title)
         .accessibilityIdentifier(action.accessibilityIdentifier)
