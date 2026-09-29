@@ -19,6 +19,11 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseTabGroupRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseTabsRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CreateSurfaceWithReceiptRequest, "selector_fallbacks");
     try expectExplicitNullRejected(protocol.CreateTerminalRequest, "keep");
     try expectExplicitNullRejected(protocol.CreateWorkspaceGroupRequest, "collapsed");

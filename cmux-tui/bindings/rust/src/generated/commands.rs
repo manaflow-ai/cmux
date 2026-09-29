@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e.
+// cmux-tui mux protocol 12, IR d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -298,6 +298,8 @@ pub struct ClientFocusResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClosePaneRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
     pub pane: T::Id,
 }
 
@@ -318,6 +320,8 @@ pub type CloseProviderManagedWorkspaceResult = T::ProviderWorkspaceMutationResul
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloseScreenRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
     pub screen: T::Id,
 }
 
@@ -336,11 +340,34 @@ pub type CloseSurfaceResult = T::EmptyResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloseTabGroupRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
     pub group: String,
 }
 
 #[rustfmt::skip]
 pub type CloseTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseTabsRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_generation: Optional<String>,
+    #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_revision: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    pub surfaces: Vec<T::TabRef>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CloseTabsResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -361,6 +388,8 @@ pub struct CloseTerminalRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloseWorkspaceRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub end_terminals: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
@@ -1984,6 +2013,10 @@ impl CmuxClient {
     }
 
     pub fn close_pane(&mut self, request: ClosePaneRequest) -> Result<ClosePaneResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("close-pane", 12)?;
+            self.require_capability_field("close-pane", "batch-close-v1")?;
+        }
         self.execute(&CLOSE_PANE_METADATA, &request)
     }
 
@@ -1992,6 +2025,10 @@ impl CmuxClient {
     }
 
     pub fn close_screen(&mut self, request: CloseScreenRequest) -> Result<CloseScreenResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("close-screen", 12)?;
+            self.require_capability_field("close-screen", "batch-close-v1")?;
+        }
         self.execute(&CLOSE_SCREEN_METADATA, &request)
     }
 
@@ -2000,7 +2037,15 @@ impl CmuxClient {
     }
 
     pub fn close_tab_group(&mut self, request: CloseTabGroupRequest) -> Result<CloseTabGroupResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("close-tab-group", 12)?;
+            self.require_capability_field("close-tab-group", "batch-close-v1")?;
+        }
         self.execute(&CLOSE_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn close_tabs(&mut self, request: CloseTabsRequest) -> Result<CloseTabsResult> {
+        self.execute(&CLOSE_TABS_METADATA, &request)
     }
 
     pub fn close_terminal(&mut self, request: CloseTerminalRequest) -> Result<T::CloseTerminalResult> {
@@ -2008,6 +2053,10 @@ impl CmuxClient {
     }
 
     pub fn close_workspace(&mut self, request: CloseWorkspaceRequest) -> Result<CloseWorkspaceResult> {
+        if request.end_terminals.is_some() {
+            self.require_protocol_field("close-workspace", 12)?;
+            self.require_capability_field("close-workspace", "batch-close-v1")?;
+        }
         if !request.expected_generation.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
         }

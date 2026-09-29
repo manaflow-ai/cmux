@@ -34,11 +34,13 @@ mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod presentation_store;
+mod public_fold;
 mod public_projection_store;
 mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
 mod terminal_keep_store;
+mod topology_close_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
@@ -102,6 +104,7 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub(crate) use topology_close_store::TopologyCloseCommit;
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
@@ -697,6 +700,8 @@ pub struct WorkspaceRegistry {
     machine_id: MachinePublicId,
     session_id: SessionPublicId,
     resource_effect_pepper: ResourceEffectPepper,
+    /// The topology state the resource journal states (see `public_fold`).
+    public_fold: Option<public_fold::PublicTopologyFold>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     #[cfg(test)]
@@ -2730,6 +2735,7 @@ impl WorkspaceRegistry {
             machine_id,
             session_id,
             resource_effect_pepper,
+            public_fold: None,
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
             #[cfg(test)]
@@ -3128,6 +3134,7 @@ impl WorkspaceRegistry {
         resource_store::validate_resource_patch(patch)?;
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let resource_result_json = canonical_json(resource_result)?;
+        let resource_deltas = &self.prune_stated_topology_deltas(resource_deltas)?;
         let tx = self.connection.transaction()?;
         let terminal_batch = [(terminal_id.to_string(), expected_incarnation.map(str::to_string))];
         let (patch, resource_deltas) =
@@ -3179,7 +3186,7 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        apply_resource_patch(&tx, &patch, sqlite_revision)?;
+        let patch = apply_resource_patch(&tx, &patch, sqlite_revision)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -3213,6 +3220,7 @@ impl WorkspaceRegistry {
         let resource =
             ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
         tx.commit()?;
+        self.record_public_fold(previous_revision, revision, &resource_deltas, true);
         Ok(TerminalResourceCloseCommit::Committed { terminal, resource })
     }
 
@@ -4707,15 +4715,65 @@ fn commit_workspace_registry_in_transaction(
     // underlying terminal.
     let terminal_batch =
         TerminalBatchClose { revision: transaction_terminal_revision(transaction)?, closed: 0 };
-    transaction.execute(
-        "UPDATE workspaces SET tombstoned = 1, position = NULL,
-         updated_revision = ?1, deleted_revision = ?1
-         WHERE tombstoned = 0",
-        [sqlite_revision],
-    )?;
-    // Tombstone first to release the partial unique position index, then
-    // upsert the complete desired order in this same transaction.
+    // Only rows that change are written. Removed rows are tombstoned and
+    // moved rows first park at a unique negative slot, which releases the
+    // partial unique position index for the desired order below.
+    let desired = workspaces
+        .iter()
+        .enumerate()
+        .map(|(position, workspace)| (workspace.key.as_str(), (position, workspace)))
+        .collect::<HashMap<_, _>>();
+    let stored = {
+        let mut statement = transaction.prepare(
+            "SELECT workspace_key, numeric_id, name, group_key, position
+             FROM workspaces WHERE tombstoned = 0",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    (
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<i64>>(4)?,
+                    ),
+                ))
+            })?
+            .collect::<Result<HashMap<_, _>, _>>()?
+    };
+    for (workspace_key, (_, _, _, stored_position)) in &stored {
+        match desired.get(workspace_key.as_str()) {
+            None => {
+                transaction.execute(
+                    "UPDATE workspaces SET tombstoned = 1, position = NULL,
+                     updated_revision = ?1, deleted_revision = ?1
+                     WHERE workspace_key = ?2 AND tombstoned = 0",
+                    params![sqlite_revision, workspace_key],
+                )?;
+            }
+            Some((position, _)) if *stored_position != i64::try_from(*position).ok() => {
+                transaction.execute(
+                    "UPDATE workspaces SET position = -rowid
+                     WHERE workspace_key = ?1 AND tombstoned = 0",
+                    [workspace_key],
+                )?;
+            }
+            Some(_) => {}
+        }
+    }
     for (position, workspace) in workspaces.iter().enumerate() {
+        let unchanged = stored.get(&workspace.key).is_some_and(
+            |(numeric_id, name, group_key, stored_position)| {
+                i64::try_from(workspace.id).ok() == Some(*numeric_id)
+                    && name == &workspace.name
+                    && group_key == &workspace.group_key
+                    && *stored_position == i64::try_from(position).ok()
+            },
+        );
+        if unchanged {
+            continue;
+        }
         transaction.execute(
             "INSERT INTO workspaces(
                workspace_key, numeric_id, name, group_key, position, tombstoned,

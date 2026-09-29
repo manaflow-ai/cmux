@@ -147,6 +147,7 @@ MODEL_BY_PATH = {
     'commands/close-screen/request': models.CloseScreenRequest,
     'commands/close-surface/request': models.CloseSurfaceRequest,
     'commands/close-tab-group/request': models.CloseTabGroupRequest,
+    'commands/close-tabs/request': models.CloseTabsRequest,
     'commands/close-terminal/request': models.CloseTerminalRequest,
     'commands/close-workspace/request': models.CloseWorkspaceRequest,
     'commands/copy/request': models.CopyRequest,

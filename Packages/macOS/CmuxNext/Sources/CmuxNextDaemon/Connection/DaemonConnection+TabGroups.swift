@@ -78,9 +78,11 @@ extension DaemonConnection {
     }
 
     /// `transaction` is accepted for source compatibility and not sent.
+    /// `endTerminals` requires `batch-close-v1`.
     @discardableResult
-    public func closeTabGroup(_ group: TabGroupID, transaction: ClientTransactionID? = nil) async throws -> TabGroupResult {
-        try await requestNew(CloseTabGroupRequest(group: group))
+    public func closeTabGroup(_ group: TabGroupID, endTerminals: Bool = false,
+                              transaction: ClientTransactionID? = nil) async throws -> TabGroupResult {
+        try await requestNew(CloseTabGroupRequest(group: group, endTerminals: endTerminals))
     }
 
     // Saved groups

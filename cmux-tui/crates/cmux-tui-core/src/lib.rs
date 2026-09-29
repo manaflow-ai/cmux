@@ -72,6 +72,7 @@ pub use layout::{
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
 pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
+pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,

@@ -130,6 +130,10 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `close-tabs` and `end_terminals` on `close-pane`,
+/// `close-screen`, `close-workspace`, and `close-tab-group`: many
+/// placements and the terminals they end close in one durable commit.
+pub const BATCH_CLOSE_CAPABILITY: &str = "batch-close-v1";
 /// Advertises a caller-chosen `terminal_id` on `new-tab`, `split`,
 /// `new-pane`, and `new-pane-right`, plus `cwd`/`env` on `new-pane` and
 /// `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four
@@ -270,6 +274,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        BATCH_CLOSE_CAPABILITY,
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
@@ -1458,6 +1463,8 @@ enum Command {
     /// Close every member placement of a group in one commit.
     CloseTabGroup {
         group: String,
+        #[serde(default)]
+        end_terminals: bool,
     },
     ListSavedTabGroups,
     SaveTabGroup {
@@ -1629,18 +1636,36 @@ enum Command {
     CloseSurface {
         surface: SurfaceId,
     },
+    /// Close several tab placements in one durable commit. With
+    /// `end_terminals`, also end every terminal whose views all close and
+    /// that is not kept.
+    CloseTabs {
+        surfaces: Vec<TabRef>,
+        #[serde(default)]
+        end_terminals: bool,
+        #[serde(default)]
+        transaction: Option<String>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
     /// Close a pane and all its tabs.
     ClosePane {
         pane: PaneId,
+        #[serde(default)]
+        end_terminals: bool,
     },
     CloseScreen {
         screen: ScreenId,
+        #[serde(default)]
+        end_terminals: bool,
     },
     CloseWorkspace {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
         #[serde(default)]
         key: Option<String>,
+        #[serde(default)]
+        end_terminals: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1902,6 +1927,24 @@ fn resolve_pane_ref(mux: &Mux, reference: &PaneRef) -> anyhow::Result<PaneId> {
             })
             .ok_or_else(|| anyhow::anyhow!("unknown pane {id}")),
     }
+}
+
+/// Upper bound on one `close-tabs` request; larger sets split into several.
+const MAX_CLOSE_TABS_SURFACES: usize = 4096;
+
+fn batch_close_terminals_json(outcome: &crate::mux::BatchCloseOutcome) -> Value {
+    Value::Array(
+        outcome
+            .terminals()
+            .into_iter()
+            .map(|terminal| {
+                json!({
+                    "terminal_id": terminal.terminal_id,
+                    "terminal_incarnation": terminal.terminal_incarnation,
+                })
+            })
+            .collect(),
+    )
 }
 
 /// A client transaction id: opaque, 1-128 printable ASCII characters.
@@ -13347,9 +13390,19 @@ fn handle_command_with_cancellation(
             let members = mux.ungroup_tab_group(&group)?;
             Ok(json!({ "group": group, "surfaces": members }))
         }
-        Command::CloseTabGroup { group } => {
-            let closed = mux.close_tab_group(&group)?;
-            Ok(json!({ "group": group, "closed": closed }))
+        Command::CloseTabGroup { group, end_terminals } => {
+            if !end_terminals {
+                let closed = mux.close_tab_group(&group)?;
+                return Ok(json!({ "group": group, "closed": closed }));
+            }
+            let outcome = mux.close_container_ending_terminals(
+                crate::BatchCloseTarget::TabGroup(group.clone()),
+            )?;
+            Ok(json!({
+                "group": group,
+                "closed": outcome.closed(),
+                "terminals": batch_close_terminals_json(&outcome),
+            }))
         }
         Command::ListSavedTabGroups => Ok(json!({ "saved_groups": mux.saved_tab_groups() })),
         Command::SaveTabGroup { group } => {
@@ -13580,27 +13633,68 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::ClosePane { pane } => {
-            if !mux.close_pane(pane)? {
+        Command::CloseTabs { surfaces, end_terminals, transaction, mutation } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            anyhow::ensure!(
+                mutation.expected_generation.is_none() && mutation.expected_revision.is_none(),
+                "close-tabs does not take expected_generation or expected_revision"
+            );
+            anyhow::ensure!(
+                surfaces.len() <= MAX_CLOSE_TABS_SURFACES,
+                "close-tabs takes at most {MAX_CLOSE_TABS_SURFACES} surfaces"
+            );
+            let surfaces = resolve_tab_refs(mux, &surfaces)?;
+            let outcome = mux.close_tabs(surfaces, end_terminals, &workspace_mutation)?;
+            let mut reply = json!({
+                "closed": outcome.closed(),
+                "terminals": batch_close_terminals_json(&outcome),
+                "resource_revision": outcome.resource_revision,
+                "replayed": outcome.replayed,
+            });
+            if let Some(transaction) = transaction {
+                reply["transaction"] = json!(transaction);
+            }
+            Ok(reply)
+        }
+        // With `end_terminals` the result shapes stay those of the plain
+        // closes; the ended terminals show in the terminal and resource streams.
+        Command::ClosePane { pane, end_terminals } => {
+            if end_terminals {
+                mux.close_container_ending_terminals(crate::BatchCloseTarget::Pane(pane))?;
+            } else if !mux.close_pane(pane)? {
                 anyhow::bail!("unknown pane {pane}");
             }
             Ok(json!({}))
         }
-        Command::CloseScreen { screen } => {
-            if !mux.close_screen(screen)? {
+        Command::CloseScreen { screen, end_terminals } => {
+            if end_terminals {
+                mux.close_container_ending_terminals(crate::BatchCloseTarget::Screen(screen))?;
+            } else if !mux.close_screen(screen)? {
                 anyhow::bail!("unknown screen {screen}");
             }
             Ok(json!({}))
         }
-        Command::CloseWorkspace { workspace, key, mutation } => {
+        Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
-            let result = mux.close_workspace_with_mutation(
-                workspace,
-                key.as_deref(),
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
+            let result = if end_terminals {
+                mux.close_workspace_ending_terminals(
+                    workspace,
+                    key.as_deref(),
+                    mutation.expected_generation.as_deref(),
+                    mutation.expected_revision,
+                    &workspace_mutation,
+                )?
+                .0
+            } else {
+                mux.close_workspace_with_mutation(
+                    workspace,
+                    key.as_deref(),
+                    mutation.expected_generation.as_deref(),
+                    mutation.expected_revision,
+                    &workspace_mutation,
+                )?
+            };
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
                 "workspace": result.workspace,
@@ -22046,9 +22140,9 @@ mod tests {
             mux.set_terminal_close_failure_for_test(true).unwrap();
 
             let command = if close_screen {
-                Command::CloseScreen { screen }
+                Command::CloseScreen { screen, end_terminals: false }
             } else {
-                Command::ClosePane { pane }
+                Command::ClosePane { pane, end_terminals: false }
             };
             handle_command(&mux, 0, command, &test_writer()).unwrap();
 
@@ -22376,6 +22470,75 @@ mod tests {
             run_json_command(&mux, json!({"cmd":"ungroup-tab-group","group":group})).unwrap();
         assert_eq!(ungrouped["surfaces"], json!([first, second]));
         assert!(run_json_command(&mux, json!({"cmd":"close-tab-group","group":group})).is_err());
+    }
+
+    #[test]
+    fn cmux_next_close_tabs_and_end_terminals_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&BATCH_CLOSE_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let third = mux.new_tab(Some(pane), None, None).unwrap().id;
+        assert!(run_json_command(&mux, json!({"cmd":"close-tabs","surfaces":[]})).is_err());
+        assert!(
+            run_json_command(&mux, json!({"cmd":"close-tabs","surfaces":[first, 999_999]}))
+                .is_err()
+        );
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"close-tabs","surfaces":[first],"expected_revision":1}),
+            )
+            .is_err()
+        );
+        assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.len()), 3);
+        let closed = run_json_command(
+            &mux,
+            json!({
+                "cmd":"close-tabs",
+                "surfaces":[first, second],
+                "end_terminals":true,
+                "transaction":"tx-close",
+                "origin":"cmux-next",
+                "mutation_id":"close-two",
+            }),
+        )
+        .unwrap();
+        assert_eq!(closed["closed"], json!([first, second]));
+        assert_eq!(closed["transaction"], "tx-close");
+        assert_eq!(closed["replayed"], false);
+        assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.clone()), vec![third]);
+        let replayed = run_json_command(
+            &mux,
+            json!({
+                "cmd":"close-tabs",
+                "surfaces":[first, second],
+                "end_terminals":true,
+                "origin":"cmux-next",
+                "mutation_id":"close-two",
+            }),
+        )
+        .unwrap();
+        assert_eq!(replayed["replayed"], true);
+        assert_eq!(replayed["closed"], json!([first, second]));
+        let group = run_json_command(
+            &mux,
+            json!({"cmd":"create-tab-group","surfaces":[third],"name":"Last"}),
+        )
+        .unwrap()["group"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let group_closed = run_json_command(
+            &mux,
+            json!({"cmd":"close-tab-group","group":group,"end_terminals":true}),
+        )
+        .unwrap();
+        assert_eq!(group_closed["closed"], json!([third]));
+        assert!(group_closed["terminals"].is_array());
+        let listed = run_json_command(&mux, json!({"cmd":"list-tab-groups"})).unwrap();
+        assert_eq!(listed["groups"], json!([]));
     }
 
     #[test]
@@ -24284,6 +24447,7 @@ mod tests {
             Command::CloseWorkspace {
                 workspace: None,
                 key: Some(key.into()),
+                end_terminals: false,
                 mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
             Command::RenameWorkspace {
@@ -24510,6 +24674,7 @@ mod tests {
                 Command::CloseWorkspace {
                     workspace: Some(workspace.workspace),
                     key: Some(workspace.key.clone()),
+                    end_terminals: false,
                     mutation: MutationRequest::default(),
                 },
                 "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls",

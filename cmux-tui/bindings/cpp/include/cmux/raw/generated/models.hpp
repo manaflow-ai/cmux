@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e";
+inline constexpr std::string_view kProtocolIrSha256 = "d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -165,6 +165,7 @@ struct CloseProviderManagedWorkspaceRequest;
 struct CloseScreenRequest;
 struct CloseSurfaceRequest;
 struct CloseTabGroupRequest;
+struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
 struct CopyRequest;
@@ -940,6 +941,7 @@ struct ClientListInvalidatedEvent {
 };
 
 struct ClosePaneRequest {
+    std::optional<bool> end_terminals{};
     Id pane{};
     friend bool operator==(const ClosePaneRequest&, const ClosePaneRequest&) = default;
 };
@@ -952,6 +954,7 @@ struct CloseProviderManagedWorkspaceRequest {
 };
 
 struct CloseScreenRequest {
+    std::optional<bool> end_terminals{};
     Id screen{};
     friend bool operator==(const CloseScreenRequest&, const CloseScreenRequest&) = default;
 };
@@ -962,8 +965,20 @@ struct CloseSurfaceRequest {
 };
 
 struct CloseTabGroupRequest {
+    std::optional<bool> end_terminals{};
     std::string group{};
     friend bool operator==(const CloseTabGroupRequest&, const CloseTabGroupRequest&) = default;
+};
+
+struct CloseTabsRequest {
+    std::optional<bool> end_terminals{};
+    Field<std::string> expected_generation{};
+    Field<std::uint64_t> expected_revision{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    std::vector<TabRef> surfaces{};
+    Field<std::string> transaction{};
+    friend bool operator==(const CloseTabsRequest&, const CloseTabsRequest&) = default;
 };
 
 struct CloseTerminalRequest {
@@ -988,6 +1003,7 @@ struct CloseTerminalResult {
 };
 
 struct CloseWorkspaceRequest {
+    std::optional<bool> end_terminals{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> key{};
@@ -4029,6 +4045,12 @@ template <>
 struct Codec<CloseTabGroupRequest> {
     static Result<Json> encode(const CloseTabGroupRequest& value);
     static Result<CloseTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloseTabsRequest> {
+    static Result<Json> encode(const CloseTabsRequest& value);
+    static Result<CloseTabsRequest> decode(const Json& value);
 };
 
 template <>

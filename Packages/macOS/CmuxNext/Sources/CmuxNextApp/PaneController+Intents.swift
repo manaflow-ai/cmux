@@ -117,9 +117,15 @@ extension PaneController {
         if url == nil { services.cache.existingBrowser(local.id)?.chrome.perform(.focusAddressBar) }
     }
 
+    /// Several tabs (close others, to the left, to the right) close in one
+    /// daemon commit with `batch-close-v1` (`close-tabs`). Like a single
+    /// close (`closeCommand`), it only detaches their terminals, so the daemon
+    /// reaps them after its grace period and Reopen Closed Tab can show them
+    /// again meanwhile. One tab, or an older daemon, takes one command per tab.
     func close(_ ids: [StripTabID]) {
         guard !ids.isEmpty else { return }
         var commands: [(label: String, run: @Sendable (DaemonConnection) async throws -> Void)] = []
+        var surfaces: [SurfaceID] = []
         for id in ids {
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state.localBrowserTabs[paneKey]?.removeAll { $0.id == id.rawValue }
@@ -128,16 +134,20 @@ extension PaneController {
             }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
+            surfaces.append(tab.surface)
             commands.append(daemon.closeCommand(for: tab))
         }
         apply(snapshot())
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
+        let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.batchClose)
+            ? [("close-tabs", { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) })]
+            : commands
         services.registry.track(Task {
             var failed = false
             var unknown = false
-            for command in commands {
-                switch await daemon.runReportingTimeout(command.label, command.run) {
+            for command in runs {
+                switch await daemon.runReportingTimeout(command.0, command.1) {
                 case .succeeded: break
                 case .failed: failed = true
                 case .unknown: unknown = true

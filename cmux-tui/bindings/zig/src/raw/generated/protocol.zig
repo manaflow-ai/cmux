@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e";
+pub const ir_sha256 = "d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2407,7 +2407,12 @@ pub fn clientFocus(client: anytype, request: ClientFocusRequest) !wire.Decoded(C
 }
 
 pub const ClosePaneRequest = struct {
+    end_terminals: ?bool = null,
     pane: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
 };
 
 pub const ClosePaneResult = EmptyResult;
@@ -2420,6 +2425,9 @@ pub fn closePane(client: anytype, request: ClosePaneRequest) !wire.Decoded(Close
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
+            },
         },
         request,
     );
@@ -2447,7 +2455,12 @@ pub fn closeProviderManagedWorkspace(client: anytype, request: CloseProviderMana
 }
 
 pub const CloseScreenRequest = struct {
+    end_terminals: ?bool = null,
     screen: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
 };
 
 pub const CloseScreenResult = EmptyResult;
@@ -2460,6 +2473,9 @@ pub fn closeScreen(client: anytype, request: CloseScreenRequest) !wire.Decoded(C
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
+            },
         },
         request,
     );
@@ -2485,7 +2501,12 @@ pub fn closeSurface(client: anytype, request: CloseSurfaceRequest) !wire.Decoded
 }
 
 pub const CloseTabGroupRequest = struct {
+    end_terminals: ?bool = null,
     group: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
 };
 
 pub const CloseTabGroupResult = JsonValue;
@@ -2498,6 +2519,38 @@ pub fn closeTabGroup(client: anytype, request: CloseTabGroupRequest) !wire.Decod
             .authority = "control",
             .since = 12,
             .capability = "tab-groups-v1",
+            .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const CloseTabsRequest = struct {
+    end_terminals: ?bool = null,
+    expected_generation: wire.Field([]const u8) = .absent,
+    expected_revision: wire.Field(u64) = .absent,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
+    surfaces: []const TabRef,
+    transaction: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
+};
+
+pub const CloseTabsResult = JsonValue;
+
+pub fn closeTabs(client: anytype, request: CloseTabsRequest) !wire.Decoded(CloseTabsResult) {
+    return client.callTyped(
+        CloseTabsResult,
+        .{
+            .name = "close-tabs",
+            .authority = "control",
+            .since = 12,
+            .capability = "batch-close-v1",
         },
         request,
     );
@@ -2526,12 +2579,17 @@ pub fn closeTerminal(client: anytype, request: CloseTerminalRequest) !wire.Decod
 }
 
 pub const CloseWorkspaceRequest = struct {
+    end_terminals: ?bool = null,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
 };
 
 pub const CloseWorkspaceResult = WorkspaceMutationResult;
@@ -2545,6 +2603,7 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
                 .{ .name = "expected_generation", .since = 7, .capability = null },
                 .{ .name = "expected_revision", .since = 7, .capability = null },
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
@@ -6152,7 +6211,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 145;
+pub const command_count: usize = 146;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
@@ -6179,6 +6238,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "close-tabs", .authority = "control", .since = 12, .capability = "batch-close-v1", .stream = null },
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },

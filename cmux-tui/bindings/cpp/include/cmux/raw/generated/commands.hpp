@@ -66,6 +66,7 @@ public:
     [[nodiscard]] Result<EmptyResult> close_screen(const CloseScreenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_surface(const CloseSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> close_tab_group(const CloseTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> close_tabs(const CloseTabsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CloseTerminalResult> close_terminal(const CloseTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> close_workspace(const CloseWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<CopyResult> copy(const CopyRequest& request, RequestOptions options = {});

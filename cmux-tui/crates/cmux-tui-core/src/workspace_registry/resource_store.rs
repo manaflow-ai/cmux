@@ -1704,7 +1704,7 @@ impl WorkspaceRegistry {
             presentation_store::write_tab_group_state(&tx, tab_groups)?;
         }
 
-        apply_resource_patch(&tx, patch, sqlite_revision)?;
+        let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -2729,7 +2729,23 @@ pub(super) fn repair_dangling_terminal_resources(
     Ok(())
 }
 
+/// Apply `patch` and return the changes that were actually written.
+///
+/// A full topology projection restates every live resource on each commit.
+/// Changes whose target row already holds the same value are dropped first,
+/// so a commit rewrites (and journals) only the rows it changes. Callers
+/// journal the returned patch, not their input.
 pub(super) fn apply_resource_patch(
+    transaction: &Transaction<'_>,
+    patch: &ResourcePatch,
+    revision: i64,
+) -> anyhow::Result<ResourcePatch> {
+    let patch = prune_unchanged_resource_changes(transaction, patch)?;
+    apply_effective_resource_patch(transaction, &patch, revision)?;
+    Ok(patch)
+}
+
+fn apply_effective_resource_patch(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
     revision: i64,
@@ -2832,6 +2848,365 @@ pub(super) fn apply_resource_patch(
     }
 
     validate_touched_resource_invariants(transaction, patch)
+}
+
+/// Drop every change that would leave its row exactly as stored. An order
+/// change is kept when the stored order differs, and also whenever a kept
+/// change under the same parent needs it: a create, move, or close of a
+/// child is validated against its parent's order in the same patch, and an
+/// earlier write in the transaction (the legacy workspace ledger) may
+/// already have stored the new order.
+pub(super) fn prune_unchanged_resource_changes(
+    transaction: &Transaction<'_>,
+    patch: &ResourcePatch,
+) -> anyhow::Result<ResourcePatch> {
+    let is_order = |change: &ResourceChange| {
+        matches!(
+            change,
+            ResourceChange::SetWorkspaceOrder { .. }
+                | ResourceChange::SetScreenOrder { .. }
+                | ResourceChange::SetTabOrder { .. }
+        )
+    };
+    let mut kept = Vec::with_capacity(patch.changes.len());
+    for change in &patch.changes {
+        kept.push(!is_order(change) && !resource_change_is_stored(transaction, change)?);
+    }
+    let mut workspace_order = false;
+    let mut screen_parents = HashSet::<String>::new();
+    let mut tab_parents = HashSet::<String>::new();
+    for (change, kept) in patch.changes.iter().zip(&kept) {
+        if !kept {
+            continue;
+        }
+        match change {
+            ResourceChange::UpsertWorkspace { .. } | ResourceChange::TombstoneWorkspace { .. } => {
+                workspace_order = true;
+            }
+            ResourceChange::UpsertScreen(screen) => {
+                screen_parents.insert(screen.workspace_id.to_string());
+                screen_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_screens",
+                    "workspace_id",
+                    screen.public_id.as_str(),
+                )?);
+            }
+            ResourceChange::TombstoneScreen { screen_id } => {
+                screen_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_screens",
+                    "workspace_id",
+                    screen_id.as_str(),
+                )?);
+            }
+            ResourceChange::UpsertTab(tab) => {
+                tab_parents.insert(tab.pane_id.to_string());
+                tab_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_tabs",
+                    "pane_id",
+                    tab.public_id.as_str(),
+                )?);
+            }
+            ResourceChange::TombstoneTab { tab_id, .. } => {
+                tab_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_tabs",
+                    "pane_id",
+                    tab_id.as_str(),
+                )?);
+            }
+            ResourceChange::TombstoneTerminal { public_id, .. } => {
+                tab_parents.extend(content_tab_panes(transaction, public_id.as_str())?);
+            }
+            ResourceChange::TombstoneBrowser { public_id } => {
+                tab_parents.extend(content_tab_panes(transaction, public_id.as_str())?);
+            }
+            _ => {}
+        }
+    }
+    let mut changes = Vec::with_capacity(patch.changes.len());
+    for (change, kept) in patch.changes.iter().zip(kept) {
+        let keep = kept
+            || match change {
+                ResourceChange::SetWorkspaceOrder { .. } => {
+                    workspace_order || !resource_change_is_stored(transaction, change)?
+                }
+                ResourceChange::SetScreenOrder { workspace_id, .. } => {
+                    screen_parents.contains(workspace_id.as_str())
+                        || !resource_change_is_stored(transaction, change)?
+                }
+                ResourceChange::SetTabOrder { pane_id, .. } => {
+                    tab_parents.contains(pane_id.as_str())
+                        || !resource_change_is_stored(transaction, change)?
+                }
+                _ => false,
+            };
+        if keep {
+            changes.push(change.clone());
+        }
+    }
+    Ok(ResourcePatch { changes })
+}
+
+fn content_tab_panes(
+    transaction: &Transaction<'_>,
+    content_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    let mut statement = transaction.prepare(
+        "SELECT pane_id FROM resource_tabs
+         WHERE content_id = ?1 AND deleted_revision IS NULL",
+    )?;
+    Ok(statement
+        .query_map([content_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+fn resource_change_is_stored(
+    transaction: &Transaction<'_>,
+    change: &ResourceChange,
+) -> anyhow::Result<bool> {
+    Ok(match change {
+        ResourceChange::UpsertWorkspace { workspace, position, active_screen } => {
+            let stored = transaction
+                .query_row(
+                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id
+                     FROM resource_workspaces rw
+                     JOIN workspaces w ON w.workspace_key = rw.workspace_key
+                     WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
+                       AND rw.deleted_revision IS NULL AND w.tombstoned = 0",
+                    params![workspace.public_id.as_str(), workspace.key],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, Option<i64>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            stored.is_some_and(|(numeric_id, name, group_key, stored_position, screen)| {
+                i64::try_from(workspace.id).ok() == Some(numeric_id)
+                    && name == workspace.name
+                    && group_key == workspace.group_key
+                    && stored_position == i64::try_from(*position).ok()
+                    && screen.as_deref() == active_screen.as_ref().map(ScreenPublicId::as_str)
+            })
+        }
+        ResourceChange::UpsertScreen(screen) => {
+            let stored = transaction
+                .query_row(
+                    "SELECT workspace_id, position, name, layout_json, active_pane_id,
+                            zoomed_pane_id, auto_layout_json, viewport_json
+                     FROM resource_screens
+                     WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [screen.public_id.as_str()],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<i64>>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, Option<String>>(6)?,
+                            row.get::<_, String>(7)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            match stored {
+                None => false,
+                Some((workspace_id, position, name, layout, active, zoomed, auto, viewport)) => {
+                    let desired_auto = screen
+                        .auto_layout
+                        .as_ref()
+                        .map(|value| canonical_json(&serde_json::to_value(value)?))
+                        .transpose()?;
+                    workspace_id == screen.workspace_id.as_str()
+                        && position == i64::try_from(screen.position).ok()
+                        && name == screen.name
+                        && active.as_deref() == Some(screen.active_pane.as_str())
+                        && zoomed.as_deref()
+                            == screen.zoomed_pane.as_ref().map(PanePublicId::as_str)
+                        && auto == desired_auto
+                        && layout == canonical_json(&serde_json::to_value(&screen.layout)?)?
+                        && viewport == canonical_json(&serde_json::to_value(&screen.viewport)?)?
+                }
+            }
+        }
+        ResourceChange::UpsertPane(pane) => {
+            let stored = transaction
+                .query_row(
+                    "SELECT screen_id, name, active_tab_id, creation_ordinal
+                     FROM resource_panes WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [pane.public_id.as_str()],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            stored.is_some_and(|(screen_id, name, active_tab, ordinal)| {
+                screen_id == pane.screen_id.as_str()
+                    && name == pane.name
+                    && active_tab.as_deref() == pane.active_tab.as_ref().map(TabPublicId::as_str)
+                    && i64::try_from(pane.creation_ordinal).ok() == Some(ordinal)
+            })
+        }
+        ResourceChange::UpsertTab(tab) => {
+            let (content_kind, content_id) = match &tab.content_id {
+                ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
+                ContentPublicId::Browser(id) => ("browser", id.as_str()),
+            };
+            let name_source = serde_json::to_value(tab.name_source)?;
+            let stored = transaction
+                .query_row(
+                    "SELECT pane_id, position, content_kind, content_id, name,
+                            name_source, name_revision
+                     FROM resource_tabs WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [tab.public_id.as_str()],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<i64>>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, Option<i64>>(6)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            stored.is_some_and(|(pane_id, position, kind, id, name, source, name_revision)| {
+                pane_id == tab.pane_id.as_str()
+                    && position == i64::try_from(tab.position).ok()
+                    && kind == content_kind
+                    && id == content_id
+                    && name == tab.name
+                    && source.as_deref() == name_source.as_str()
+                    && name_revision == i64::try_from(tab.name_revision).ok()
+            })
+        }
+        ResourceChange::UpsertTerminal { public_id, terminal } => {
+            let stored = transaction
+                .query_row(
+                    "SELECT terminal_id, lifecycle FROM resource_terminals
+                     WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [public_id.as_str()],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?;
+            match stored {
+                Some((host, lifecycle))
+                    if host == terminal.terminal_id && lifecycle == "active" =>
+                {
+                    read_terminal(transaction, &terminal.terminal_id)?.as_ref() == Some(terminal)
+                }
+                _ => false,
+            }
+        }
+        ResourceChange::UpsertBrowser(browser) => {
+            let stored = transaction
+                .query_row(
+                    "SELECT url, metadata_json, lifecycle FROM resource_browsers
+                     WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [browser.public_id.as_str()],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            match stored {
+                Some((url, metadata, lifecycle)) => {
+                    lifecycle == "running"
+                        && url == browser.url
+                        && metadata == canonical_json(&serde_json::to_value(browser)?)?
+                }
+                None => false,
+            }
+        }
+        ResourceChange::SetWorkspaceOrder { workspace_ids } => {
+            let mut statement = transaction.prepare(
+                "SELECT rw.public_id, w.position
+                 FROM resource_workspaces rw
+                 JOIN workspaces w ON w.workspace_key = rw.workspace_key
+                 WHERE rw.deleted_revision IS NULL AND w.tombstoned = 0
+                 ORDER BY w.position ASC",
+            )?;
+            let stored = statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            stored_order_matches(&stored, workspace_ids.iter().map(WorkspacePublicId::as_str))
+        }
+        ResourceChange::SetScreenOrder { workspace_id, screen_ids } => {
+            let stored = stored_child_order(
+                transaction,
+                "resource_screens",
+                "workspace_id",
+                workspace_id.as_str(),
+            )?;
+            stored_order_matches(&stored, screen_ids.iter().map(ScreenPublicId::as_str))
+        }
+        ResourceChange::SetTabOrder { pane_id, tab_ids } => {
+            let stored =
+                stored_child_order(transaction, "resource_tabs", "pane_id", pane_id.as_str())?;
+            stored_order_matches(&stored, tab_ids.iter().map(TabPublicId::as_str))
+        }
+        ResourceChange::SetActiveWorkspace { workspace_id } => {
+            meta_value(transaction, "active_workspace_id")?.as_deref()
+                == workspace_id.as_ref().map(WorkspacePublicId::as_str)
+        }
+        ResourceChange::TombstoneWorkspace { .. }
+        | ResourceChange::TombstoneScreen { .. }
+        | ResourceChange::TombstonePane { .. }
+        | ResourceChange::TombstoneTab { .. }
+        | ResourceChange::TombstoneTerminal { .. }
+        | ResourceChange::TombstoneBrowser { .. } => false,
+    })
+}
+
+fn stored_child_order(
+    transaction: &Transaction<'_>,
+    table: &str,
+    parent_field: &str,
+    parent_id: &str,
+) -> anyhow::Result<Vec<(String, Option<i64>)>> {
+    let query = format!(
+        "SELECT public_id, position FROM {table}
+         WHERE {parent_field} = ?1 AND deleted_revision IS NULL
+         ORDER BY position ASC"
+    );
+    let mut statement = transaction.prepare(&query)?;
+    Ok(statement
+        .query_map([parent_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// True when the stored live rows are exactly `desired`, at positions
+/// `0..desired.len()` in that order.
+fn stored_order_matches<'a>(
+    stored: &[(String, Option<i64>)],
+    desired: impl ExactSizeIterator<Item = &'a str>,
+) -> bool {
+    stored.len() == desired.len()
+        && stored.iter().zip(desired).enumerate().all(|(index, ((id, position), desired))| {
+            id == desired && *position == i64::try_from(index).ok()
+        })
 }
 
 fn validate_resource_order_coverage(

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e'
+IR_SHA256 = 'd47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85'
 
 
 @dataclass(frozen=True)
@@ -311,6 +311,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'pane': CommandFieldMetadata(None, None),
         },
     ),
@@ -335,6 +336,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'screen': CommandFieldMetadata(None, None),
         },
     ),
@@ -357,7 +359,25 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'close-tabs': CommandMetadata(
+        'close-tabs',
+        'control',
+        12,
+        'batch-close-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'end_terminals': CommandFieldMetadata(None, None),
+            'expected_generation': CommandFieldMetadata(None, None),
+            'expected_revision': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'surfaces': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
         },
     ),
     'close-terminal': CommandMetadata(
@@ -384,6 +404,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'expected_generation': CommandFieldMetadata(7, None),
             'expected_revision': CommandFieldMetadata(7, None),
             'key': CommandFieldMetadata(7, 'workspace-registry-v1'),

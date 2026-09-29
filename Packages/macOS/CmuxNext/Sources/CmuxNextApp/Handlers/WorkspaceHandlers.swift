@@ -131,8 +131,10 @@ enum WorkspaceHandlers {
     }
 
     static func close(_ workspaces: [WorkspaceModel], _ context: AppActionContext) {
-        for key in workspaces.compactMap(\.key) {
-            context.services.activeDaemon.send("close-workspace") { _ = try await $0.closeWorkspace(key) }
+        for workspace in workspaces {
+            guard let key = workspace.key else { continue }
+            let terminals = WorkspaceClose.terminals(of: workspace, on: context.services.activeDaemon)
+            context.services.activeDaemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
         }
     }
 }

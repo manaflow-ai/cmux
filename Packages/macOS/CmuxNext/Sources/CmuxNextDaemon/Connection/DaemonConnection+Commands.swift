@@ -63,9 +63,25 @@ extension DaemonConnection {
         try await request(MoveWorkspaceToGroupRequest(workspace: .key(key), group: group, index: index, mutation: mutation()))
     }
 
+    /// Closes a workspace. `endTerminals` also ends, in the same daemon
+    /// commit, each of its terminals not shown elsewhere and not kept; it is
+    /// sent only to a daemon with `batch-close-v1` (see `supportsBatchClose`).
     @discardableResult
-    public func closeWorkspace(_ key: WorkspaceKey) async throws -> WorkspaceMutationResult {
-        try await request(CloseWorkspaceRequest(workspace: .key(key), mutation: mutation()))
+    public func closeWorkspace(_ key: WorkspaceKey, endTerminals: Bool = false) async throws -> WorkspaceMutationResult {
+        try await request(CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals, mutation: mutation()))
+    }
+
+    /// Whether this daemon closes many tabs, and the terminals they end, in
+    /// one commit (`close-tabs`, `end_terminals`).
+    public var supportsBatchClose: Bool { identity?.supports(DaemonCapabilities.batchClose) == true }
+
+    /// Closes `surfaces` in one daemon commit (`batch-close-v1`). With
+    /// `endTerminals`, each terminal whose tabs all close ends too, unless kept.
+    @discardableResult
+    public func closeTabs(_ surfaces: [SurfaceID], endTerminals: Bool = true,
+                          transaction: ClientTransactionID? = nil) async throws -> CloseTabsResult {
+        try await requestNew(CloseTabsRequest(surfaces: surfaces, endTerminals: endTerminals, transaction: transaction,
+                                              mutation: mutation()))
     }
 
     // Terminals, tabs, panes, columns, screens
@@ -155,8 +171,12 @@ extension DaemonConnection {
     }
 
     public func closeTab(_ surface: SurfaceID) async throws { _ = try await request(CloseTabRequest(surface: surface)) }
-    public func closePane(_ pane: PaneID) async throws { _ = try await request(ClosePaneRequest(pane: pane)) }
-    public func closeScreen(_ screen: ScreenID) async throws { _ = try await request(CloseScreenRequest(screen: screen)) }
+    public func closePane(_ pane: PaneID, endTerminals: Bool = false) async throws {
+        _ = try await request(ClosePaneRequest(pane: pane, endTerminals: endTerminals))
+    }
+    public func closeScreen(_ screen: ScreenID, endTerminals: Bool = false) async throws {
+        _ = try await request(CloseScreenRequest(screen: screen, endTerminals: endTerminals))
+    }
 
     public func closeTerminal(_ terminal: TerminalID, incarnation: TerminalIncarnation? = nil) async throws {
         _ = try await request(CloseTerminalRequest(terminalID: terminal, terminalIncarnation: incarnation, mutation: mutation()))

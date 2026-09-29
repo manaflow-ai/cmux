@@ -19,6 +19,9 @@ use crate::workspace_registry::{
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
+mod batch_close;
+pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
+
 #[derive(Clone, Copy)]
 struct LayoutMutationContext<'a> {
     coalesce: Option<LayoutMutationKey>,
