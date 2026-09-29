@@ -555,13 +555,13 @@ public struct CMUXMobileRootScene: View {
             ),
             browserStreamEvents: browserStreamEvents,
             simulatorStreamStore: simulatorStreamStore,
-            workspaceSnapshotStore: MobileWorkspaceSnapshotStore(defaults: .standard),
             // SSH hosts and keys are device-local and account-independent
             // (docs/prd/ios-direct-ssh.md D5): Application Support, never
             // cleared by sign-out.
             sshComputers: MobileSSHComputers(
                 directory: URL.applicationSupportDirectory.appending(path: "ssh", directoryHint: .isDirectory)
-            )
+            ),
+            workspaceSnapshotStore: MobileWorkspaceSnapshotStore(defaults: .standard)
         )
         Task { await store.startSSHComputers() }
         #if os(iOS)
