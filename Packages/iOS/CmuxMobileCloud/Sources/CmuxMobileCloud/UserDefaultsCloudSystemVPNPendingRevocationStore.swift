@@ -2,8 +2,9 @@ public import Foundation
 
 /// UserDefaults-backed production store for pending browser-peer revocations.
 ///
-/// Only account scopes and device fingerprints are stored. Access and refresh
-/// tokens stay in the auth coordinator and are reacquired after the next sign-in.
+/// Account scopes, device fingerprints, and owning team IDs are stored. Access
+/// and refresh tokens stay in the auth coordinator and are reacquired after
+/// the next sign-in.
     public actor UserDefaultsCloudSystemVPNPendingRevocationStore:
     CloudSystemVPNPendingRevocationStoring
 {
@@ -29,22 +30,34 @@ public import Foundation
         self.key = key
     }
 
-    /// Loads fingerprints pending for one account and team scope.
-    public func load(scope: String) async -> Set<String> {
+    /// Loads pending browser-peer revocations for one account and team scope.
+    public func load(scope: String) async -> Set<CloudSystemVPNPendingRevocation> {
         Set(loadEntries().compactMap { entry in
-            entry.scope == scope ? entry.fingerprint : nil
+            guard entry.scope == scope else { return nil }
+            return CloudSystemVPNPendingRevocation(
+                deviceFingerprint: entry.fingerprint,
+                teamID: entry.teamID
+            )
         })
     }
 
-    /// Replaces pending fingerprints for one account and team scope.
-    public func save(_ fingerprints: Set<String>, scope: String) async {
+    /// Replaces pending browser-peer revocations for one account and team scope.
+    public func save(
+        _ revocations: Set<CloudSystemVPNPendingRevocation>,
+        scope: String
+    ) async {
         // This is an explicit FIFO retention policy. Updating a scope removes
         // its old entries and appends the current set, so new cleanup work is
         // retained. When the fixed capacity is full, the oldest entries are
         // evicted instead of growing UserDefaults without a bound.
         var entries = loadEntries().filter { $0.scope != scope }
-        entries.append(contentsOf: fingerprints.sorted().map {
-            (scope: scope, fingerprint: $0)
+        entries.append(contentsOf: revocations.sorted {
+            if $0.deviceFingerprint != $1.deviceFingerprint {
+                return $0.deviceFingerprint < $1.deviceFingerprint
+            }
+            return ($0.teamID ?? "") < ($1.teamID ?? "")
+        }.map {
+            (scope: scope, fingerprint: $0.deviceFingerprint, teamID: $0.teamID)
         })
         if entries.count > Self.maxPersistedEntries {
             entries.removeFirst(entries.count - Self.maxPersistedEntries)
@@ -54,19 +67,36 @@ public import Foundation
             defaults.removeObject(forKey: key)
         } else {
             defaults.set(
-                entries.map { ["scope": $0.scope, "fingerprint": $0.fingerprint] },
+                entries.map { entry in
+                    var value = [
+                        "scope": entry.scope,
+                        "fingerprint": entry.fingerprint
+                    ]
+                    if let teamID = entry.teamID {
+                        value["teamID"] = teamID
+                    }
+                    return value
+                },
                 forKey: key
             )
         }
     }
 
-    private func loadEntries() -> [(scope: String, fingerprint: String)] {
+    private func loadEntries() -> [(
+        scope: String,
+        fingerprint: String,
+        teamID: String?
+    )] {
         if let stored = defaults.array(forKey: key) as? [[String: String]] {
             return Array(stored.compactMap { entry in
                 guard let scope = entry["scope"],
                       let fingerprint = entry["fingerprint"]
                 else { return nil }
-                return (scope: scope, fingerprint: fingerprint)
+                return (
+                    scope: scope,
+                    fingerprint: fingerprint,
+                    teamID: entry["teamID"]
+                )
             }.prefix(Self.maxPersistedEntries))
         }
 
@@ -75,7 +105,7 @@ public import Foundation
         let legacy = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
         let entries = legacy.keys.sorted().flatMap { scope in
             legacy[scope, default: []].sorted().map {
-                (scope: scope, fingerprint: $0)
+                (scope: scope, fingerprint: $0, teamID: Optional<String>.none)
             }
         }
         return Array(entries.prefix(Self.maxPersistedEntries))

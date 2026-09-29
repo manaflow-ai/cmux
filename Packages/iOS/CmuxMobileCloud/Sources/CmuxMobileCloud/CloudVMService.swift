@@ -101,7 +101,7 @@ public actor CloudVMService: CloudVMServing {
             tunnelPurpose: tunnelPurpose,
             accessToken: accessToken,
             refreshToken: refreshToken,
-            teamID: await tokens.teamID()
+            teamID: nil
         )
     }
 

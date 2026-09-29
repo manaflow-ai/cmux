@@ -9,6 +9,13 @@ import Testing
         await rig.controller.waitForPendingOperation()
     }
 
+    private func pendingFingerprints(
+        _ store: any CloudSystemVPNPendingRevocationStoring,
+        scope: String
+    ) async -> Set<String> {
+        Set((await store.load(scope: scope)).map(\.deviceFingerprint))
+    }
+
     @Test func enablingEnrollsAPrivateBrowserPeerWithItsOwnKey() async throws {
         let rig = Rig()
         await signedIn(rig)
@@ -133,7 +140,7 @@ import Testing
         await rig.controller.waitForPendingOperation()
 
         #expect(rig.controller.phase == .failed(.permissionRequired))
-        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
     }
 
     @Test func aStalledInstallTimesOutAndLeavesTheSwitchRecoverable() async {
@@ -245,7 +252,7 @@ import Testing
         let teardown = rig.controller.serverTeardown()
         await teardown(nil, nil)
 
-        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
     }
 
     @Test func failedSignOutRevocationIsRetriedAfterControllerRecreation() async {
@@ -261,14 +268,14 @@ import Testing
         await first.controller.waitForPendingOperation()
         await teardown("captured-access", "captured-refresh")
 
-        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
 
         let second = Rig(pendingRevocationStore: pendingStore)
         await signedIn(second)
 
         #expect(second.service.calls.revoke.count == 1)
         #expect(second.service.calls.revoke.first?.fingerprint == "ios-abc")
-        #expect(await pendingStore.load(scope: "user-1/team-1").isEmpty)
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
     }
 
     @Test func failedPersistedRevocationCanBeRetriedFromTheRecoveryAction() async {
@@ -294,7 +301,7 @@ import Testing
         await second.controller.waitForPendingOperation()
 
         #expect(second.service.calls.revoke.count == 2)
-        #expect(await pendingStore.load(scope: "user-1/team-1").isEmpty)
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
     }
 
     @Test func aTimedOutInstallCanBeReplacedAfterPlatformCancellation() async {
@@ -632,7 +639,7 @@ import Testing
 
         #expect(rig.manager.stops == [true])
         #expect(rig.controller.phase == .failed(.configuration))
-        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
     }
 
     @Test func failedAccountSwitchCleanupCanBeRetriedFromTheRecoveryAction() async {
@@ -665,7 +672,10 @@ import Testing
 
     @Test func switchingAccountsDefersPendingRevocationsForAnotherScope() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
-        await pendingStore.save(["ios-abc"], scope: "user-1/team-1")
+        await pendingStore.save(
+            [CloudSystemVPNPendingRevocation(deviceFingerprint: "ios-abc", teamID: "team-1")],
+            scope: "user-1/team-1"
+        )
         let rig = Rig(pendingRevocationStore: pendingStore)
         rig.manager.isAvailable = false
 
@@ -675,8 +685,24 @@ import Testing
         await rig.controller.waitForPendingOperation()
 
         #expect(rig.service.calls.revoke.isEmpty)
-        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
         #expect(rig.manager.refreshedScopes == ["user-2/team-9"])
+    }
+
+    @Test func persistedRevocationDoesNotRetryForAnotherTeam() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let pending = CloudSystemVPNPendingRevocation(
+            deviceFingerprint: "ios-abc",
+            teamID: "team-1"
+        )
+        await pendingStore.save([pending], scope: "user-1/team-1")
+        let rig = Rig(pendingRevocationStore: pendingStore)
+
+        rig.controller.setScope("user-1/team-1", teamID: "team-2")
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.service.calls.revoke.isEmpty)
+        #expect(await pendingStore.load(scope: "user-1/team-1") == [pending])
     }
 
     @Test func switchingAccountsRevokesTheOldBrowserPeer() async {
@@ -717,19 +743,26 @@ import Testing
 
         rig.controller.setScope("user-2/team-9", teamID: "team-9")
         await rig.controller.waitForPendingOperation()
-        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        #expect(
+            await pendingStore.load(scope: "user-1/team-1") == [
+                CloudSystemVPNPendingRevocation(
+                    deviceFingerprint: "ios-abc",
+                    teamID: "team-1"
+                )
+            ]
+        )
 
         rig.service.revocationFailure = nil
         rig.controller.enable()
         await rig.controller.waitForPendingOperation()
 
         #expect(rig.service.calls.enroll.count == 1)
-        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
 
         rig.controller.setScope("user-1/team-1", teamID: "team-1")
         await rig.controller.waitForPendingOperation()
 
-        #expect(await pendingStore.load(scope: "user-1/team-1").isEmpty)
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
     }
 
     @Test func switchingAccountsPersistsTheOldBrowserPeerBeforeRevocation() async {
@@ -742,7 +775,7 @@ import Testing
         rig.controller.setScope("user-2/team-9")
         await rig.service.waitForRevocation()
 
-        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
         await rig.controller.waitForPendingOperation()
     }
 
@@ -757,7 +790,7 @@ import Testing
         rig.controller.setScope("user-2/team-9")
         await rig.controller.waitForPendingOperation()
 
-        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
     }
 
     @Test func signingOutKeepsLocalCleanupPendingWhileVPNIsUnavailable() async {
@@ -852,12 +885,26 @@ import Testing
         )
 
         await store.save(
-            Set((0..<5000).map { "large-\($0)" }),
+            Set((0..<5000).map {
+                CloudSystemVPNPendingRevocation(
+                    deviceFingerprint: "large-\($0)",
+                    teamID: "team-large"
+                )
+            }),
             scope: "scope-large"
         )
         for index in 0..<80 {
             await store.save(
-                ["fingerprint-\(index)", "second-\(index)"],
+                [
+                    CloudSystemVPNPendingRevocation(
+                        deviceFingerprint: "fingerprint-\(index)",
+                        teamID: nil
+                    ),
+                    CloudSystemVPNPendingRevocation(
+                        deviceFingerprint: "second-\(index)",
+                        teamID: nil
+                    )
+                ],
                 scope: "scope-\(index)"
             )
         }
@@ -865,9 +912,10 @@ import Testing
         let persisted = UserDefaults(suiteName: suiteName)?.array(forKey: key) as? [[String: String]]
         #expect((persisted?.count ?? 0) <= 4096)
         #expect(await store.load(scope: "scope-large").count == 3936)
+        #expect(await store.load(scope: "scope-large").first?.teamID == "team-large")
         for index in 0..<80 {
             #expect(
-                await store.load(scope: "scope-\(index)") == [
+                await pendingFingerprints(store, scope: "scope-\(index)") == [
                     "fingerprint-\(index)",
                     "second-\(index)"
                 ]

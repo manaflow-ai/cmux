@@ -57,7 +57,11 @@ struct CloudVMServiceTests {
         configuration.protocolClasses = [TeamHeaderURLProtocol.self]
         let service = CloudVMService(
             baseURL: "https://cmux.example",
-            tokens: .fixed(accessToken: "current-access", refreshToken: "current-refresh"),
+            tokens: .fixed(
+                accessToken: "current-access",
+                refreshToken: "current-refresh",
+                teamID: "current-team"
+            ),
             deviceID: { "saved-phone-id" },
             sessionConfiguration: configuration
         )
@@ -72,6 +76,7 @@ struct CloudVMServiceTests {
         let request = try #require(TeamHeaderURLProtocol.capturedRequest())
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access")
         #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "captured-refresh")
+        #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == nil)
     }
 
     @Test func revokeWithCapturedTokensUsesTheirTeamContext() async throws {

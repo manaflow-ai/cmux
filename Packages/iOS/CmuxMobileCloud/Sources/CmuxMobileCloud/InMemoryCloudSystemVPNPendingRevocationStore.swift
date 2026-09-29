@@ -2,22 +2,25 @@
 public actor InMemoryCloudSystemVPNPendingRevocationStore:
     CloudSystemVPNPendingRevocationStoring
 {
-    private var fingerprintsByScope: [String: Set<String>] = [:]
+    private var revocationsByScope: [String: Set<CloudSystemVPNPendingRevocation>] = [:]
 
     /// Creates an empty store.
     public init() {}
 
-    /// Loads fingerprints pending for one account and team scope.
-    public func load(scope: String) async -> Set<String> {
-        fingerprintsByScope[scope] ?? []
+    /// Loads pending browser-peer revocations for one account and team scope.
+    public func load(scope: String) async -> Set<CloudSystemVPNPendingRevocation> {
+        revocationsByScope[scope] ?? []
     }
 
-    /// Replaces pending fingerprints for one account and team scope.
-    public func save(_ fingerprints: Set<String>, scope: String) async {
-        if fingerprints.isEmpty {
-            fingerprintsByScope.removeValue(forKey: scope)
+    /// Replaces pending browser-peer revocations for one account and team scope.
+    public func save(
+        _ revocations: Set<CloudSystemVPNPendingRevocation>,
+        scope: String
+    ) async {
+        if revocations.isEmpty {
+            revocationsByScope.removeValue(forKey: scope)
         } else {
-            fingerprintsByScope[scope] = fingerprints
+            revocationsByScope[scope] = revocations
         }
     }
 }
