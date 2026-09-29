@@ -123,7 +123,13 @@ struct cmuxApp: App {
             },
             // irx.serverEventByteStream merges every per-surface event lane.
             independentEventsMergeSurfaceLanes: true,
-            connectionReadiness: connectionReadiness
+            connectionReadiness: connectionReadiness,
+            tunnelConnectProvider: { request, host, port in
+                try await irx.openTunnelConnection(for: request, host: host, port: port)
+            },
+            tunnelListeningPortsProvider: { request in
+                try await irx.tunnelListeningPorts(for: request)
+            }
         )
 
         return AppCompositionRoot(
