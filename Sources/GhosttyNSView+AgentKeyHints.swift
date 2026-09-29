@@ -231,28 +231,45 @@ extension GhosttyNSView {
         state.hoverCell = cell
         guard let surface = terminalSurface?.surface,
               let panel = agentKeyHintPanel(), let agent = panel.agentKeyHintAgent,
-              let row = agentKeyHintRow(cell.row, surface: surface),
-              let hint = TerminalPanel.agentKeyHint(
-                  inLine: row.line,
-                  atColumn: cell.column,
-                  agent: agent,
-                  isLiveRow: { row.viewport.liveRegion.contains(row: cell.row) }
-              ) else {
+              let row = agentKeyHintRow(cell.row, surface: surface) else {
             hideAgentKeyHintHover()
             return
         }
-        let keys = panel.agentKeyHintKeys(
-            for: hint,
+        let live = row.viewport.liveRegion.contains(row: cell.row)
+        if let hint = TerminalPanel.agentKeyHint(
+            inLine: row.line,
+            atColumn: cell.column,
             agent: agent,
-            keybindingsMaxAge: Self.agentKeyHintHoverKeybindingsMaxAge
-        )
+            isLiveRow: { live }
+        ) {
+            let keys = panel.agentKeyHintKeys(
+                for: hint,
+                agent: agent,
+                keybindingsMaxAge: Self.agentKeyHintHoverKeybindingsMaxAge
+            )
+            showAgentKeyHintHover(
+                row: cell.row,
+                columns: hint.columns,
+                viewport: row.viewport,
+                toolTip: Self.agentKeyHintToolTip(
+                    keys: keys,
+                    action: hint.action,
+                    needsCommand: ghostty_surface_mouse_captured(surface)
+                )
+            )
+            return
+        }
+        guard agent == .codex, live,
+              let command = CodexActionCommandDetector().command(in: row.line, atColumn: cell.column) else {
+            hideAgentKeyHintHover()
+            return
+        }
         showAgentKeyHintHover(
             row: cell.row,
-            columns: hint.columns,
+            columns: command.columns,
             viewport: row.viewport,
-            toolTip: Self.agentKeyHintToolTip(
-                keys: keys,
-                action: hint.action,
+            toolTip: Self.agentActionCommandToolTip(
+                command: command.command,
                 needsCommand: ghostty_surface_mouse_captured(surface)
             )
         )
@@ -331,6 +348,13 @@ extension GhosttyNSView {
             localized: "terminal.agentKeyHint.clickToPress",
             defaultValue: "Click to press \(shortcut) (\(action))"
         )
+    }
+
+    static func agentActionCommandToolTip(command: String, needsCommand: Bool) -> String {
+        if needsCommand {
+            return "⌘-click to run \(command)"
+        }
+        return "Click to run \(command)"
     }
 
     /// `ctrl+shift+o` as `⌃⇧O`, `escape` as `⎋`.
