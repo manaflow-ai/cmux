@@ -27,6 +27,8 @@ final class PaneController {
     var pendingClosed: Set<String> = []
     /// A tab this app just created here; selected once the daemon reports it.
     var pendingSelectSurface: SurfaceID?
+    /// Same, named by tab resource id (a reopened tab's restored view).
+    var pendingSelectTab: String?
     /// A blank browser tab this app just created; its address bar takes
     /// focus once its page exists (CEF pages arrive asynchronously).
     var pendingAddressBarFocus: SurfaceID?
@@ -125,6 +127,10 @@ final class PaneController {
         if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
             state.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
+            focusNew = true
+        } else if let pending = pendingSelectTab, let tab = pane.tabs.first(where: { $0.id == pending }) {
+            state.selection.select(tab.id, in: paneKey)
+            pendingSelectTab = nil
             focusNew = true
         }
         let selected = state.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex)

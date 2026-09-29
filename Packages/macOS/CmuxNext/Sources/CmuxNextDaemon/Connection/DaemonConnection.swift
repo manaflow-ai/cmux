@@ -137,6 +137,17 @@ public actor DaemonConnection {
         return try await Self.perform(request, on: transport, timeout: timeout)
     }
 
+    /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
+    /// on the control socket and decodes its `result`.
+    func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
+                                       as type: R.Type) async throws -> R {
+        guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
+        let response = try await transport.request(cmd: envelope(0).operation, timeout: configuration.requestTimeout) { id in
+            try envelope(id).line()
+        }
+        return try ResourceRequestEnvelope.decodeResult(R.self, from: response.line)
+    }
+
     /// `list-workspaces` plus the sequence of the last event it supersedes.
     public func snapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
         guard case .ready(let transport, let serial) = phase else { throw DaemonError.notConnected }

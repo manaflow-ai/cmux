@@ -32,7 +32,10 @@ extension WorkspaceContentController {
         case .newColumn(let after, let width):
             guard let handle = handles.panes[after] else { return }
             let cwd = panes[after]?.selectedTab?.cwd
-            spawnPane("new-pane-right") { try await $0.newColumn(rightOf: handle, width: width, options: SpawnOptions(cwd: cwd)) }
+            let key = workspace.key
+            spawnPane("new-pane-right") {
+                try await $0.newColumn(rightOf: handle, width: width, options: SpawnOptions(cwd: cwd, workspace: key))
+            }
         case .split(let pane, let axis):
             guard let handle = handles.panes[pane] else { return }
             let cwd = panes[pane]?.selectedTab?.cwd

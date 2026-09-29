@@ -12,11 +12,13 @@ enum TabLifecycle {
     static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard let pane = ctx.daemonPane(invocation) else { return }
         let cwd = invocation["cwd"]?.stringValue
-        if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd) }
+        // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
+        let keep = invocation["keep"]?.boolValue == true ? true : nil
+        if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd, keep: keep) }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
-        ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace)) }
+        ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)) }
     }
 
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {

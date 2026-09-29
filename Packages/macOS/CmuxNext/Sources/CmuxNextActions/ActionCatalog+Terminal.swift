@@ -53,6 +53,13 @@ extension ActionCatalog {
                 cliName: "terminal paste-last-screenshot"
             ),
             ActionDescriptor(
+                id: "terminal.keep",
+                title: String(localized: "action.terminal.keep", defaultValue: "Keep Terminal Running After Close", bundle: .module),
+                keywords: ["keep", "detach", "background", "reap"], category: .terminal, symbol: "pin",
+                surfaces: [.palette], arguments: [CatalogArgument.onBool.optional], targets: [.tab],
+                cliName: "terminal keep"
+            ),
+            ActionDescriptor(
                 id: "clearScreenKeepScrollback",
                 title: String(localized: "action.clearScreenKeepScrollback", defaultValue: "Clear Screen (Keep Scrollback)", bundle: .module),
                 keywords: ["clear", "reset"], defaultShortcut: Shortcut("k", modifiers: [.command, .shift]),

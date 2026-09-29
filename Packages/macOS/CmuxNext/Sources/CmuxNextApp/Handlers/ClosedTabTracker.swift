@@ -4,11 +4,15 @@ import Foundation
 import Observation
 
 /// Feeds `ClosedTabHistory` from the daemon store and reopens closed tabs.
-/// Observes structure only (which tab is in which pane); a closed tab's cwd
-/// and URL are read from the last `TabModel` seen, which the store leaves
-/// untouched after removal. Session-local browser tabs are not tracked.
+/// Observes structure only (which tab is in which pane); a closed tab's cwd,
+/// URL, and terminal are read from the last `TabModel` seen, which the store
+/// leaves untouched after removal. Session-local browser tabs are not tracked.
+/// A terminal tab reopened within the daemon's reap grace period shows the
+/// same live terminal (`ClosedTerminalRestorer`).
 final class ClosedTabTracker {
     private unowned let services: AppServices
+    /// Daemon path for reopening terminal tabs; tests replace it.
+    var restorer: ClosedTerminalRestorer
     private var history = ClosedTabHistory()
     private var lastSeen: [String: TabModel] = [:]
     private var generation: String?
@@ -23,6 +27,7 @@ final class ClosedTabTracker {
 
     init(services: AppServices) {
         self.services = services
+        restorer = .live(services.activeDaemon)
         let store = services.activeDaemon.store
         observation = Task { [weak self] in
             for await structure in Observations({ Self.structure(of: store) }) {
@@ -67,6 +72,7 @@ final class ClosedTabTracker {
             var record = record
             record.cwd = previous[record.tabID]?.cwd
             record.url = previous[record.tabID]?.url
+            record.terminalResourceID = previous[record.tabID]?.terminalResourceID?.rawValue
             return record
         }
         lastSeen = Dictionary(structure.tabs.map { ($0.tab.id, $0.tab) }, uniquingKeysWith: { first, _ in first })
@@ -93,24 +99,37 @@ final class ClosedTabTracker {
             }
             controller.newBrowserTab(url: record.url.flatMap(URL.init(string:)))
         case .terminal:
-            guard let connection = services.activeDaemon.connection else {
+            let daemon = services.daemon(for: paneModel)
+            guard restorer.isAvailable() else {
                 services.registry.refuse(MiscHandlerStrings.daemonOffline)
                 return
             }
-            let handle = paneModel.handle, cwd = record.cwd, index = record.index
-            let workspace = services.workspaceKey(of: paneModel)
-            Task {
-                do {
-                    let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
-                    _ = try await connection.moveTab(created.surface, to: handle, index: index)
-                    if let controller {
-                        controller.pendingSelectSurface = created.surface
-                        controller.apply(controller.snapshot())
+            let spawn = ClosedTerminalRestorer.Spawn(pane: paneModel.handle, cwd: record.cwd,
+                                                     workspace: services.workspaceKey(of: paneModel), index: record.index)
+            let path = services.resourcePath(of: paneModel)
+            let restorer = restorer, logger = daemon.logger
+            services.registry.track(Task { @MainActor in
+                if let terminal = record.terminalResourceID, let path {
+                    do {
+                        let tab = try await restorer.project(ResourceID(rawValue: terminal), path, record.index)
+                        controller?.pendingSelectTab = tab.rawValue
+                        controller.map { $0.apply($0.snapshot()) }
+                        return nil
+                    } catch {
+                        // Ended (reaped, exited, or closed): start a new shell there.
+                        logger.info("reopen-closed-tab: terminal \(terminal, privacy: .public) is gone (\(String(describing: error), privacy: .public)); starting a new one")
                     }
-                } catch {
-                    services.daemon.logger.error("reopen-closed-tab failed: \(String(describing: error), privacy: .public)")
                 }
-            }
+                do {
+                    let surface = try await restorer.spawn(spawn)
+                    controller?.pendingSelectSurface = surface
+                    controller.map { $0.apply($0.snapshot()) }
+                    return nil
+                } catch {
+                    logger.error("reopen-closed-tab failed: \(String(describing: error), privacy: .public)")
+                    return "reopen-closed-tab: \(error)"
+                }
+            })
         }
     }
 }

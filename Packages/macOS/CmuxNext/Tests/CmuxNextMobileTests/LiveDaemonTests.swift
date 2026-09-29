@@ -20,8 +20,9 @@ enum LiveBinary {
 }
 
 
-/// One isolated real daemon for a test; closes every terminal and shuts the
-/// daemon down afterwards (terminal hosts outlive it and each holds a PTY).
+/// One isolated real daemon for a test. Afterwards `shutdown-daemon
+/// end_terminals` ends every terminal, detached ones included, and the test
+/// fails if any terminal host (one PTY each) outlives it.
 enum LiveDaemon {
     static func with(_ body: (DaemonConnection, DaemonEndpoint) async throws -> Void) async throws {
         let id = UUID().uuidString.prefix(8).lowercased()
@@ -35,17 +36,43 @@ enum LiveDaemon {
         try await control.start()
         var failure: (any Error)?
         do { try await body(control, ensured.endpoint) } catch { failure = error }
-        if let tree = try? await control.listWorkspaces() {
-            for tab in tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
-                if let terminal = tab.terminalID { try? await control.closeTerminal(terminal, incarnation: tab.terminalIncarnation) }
-            }
-        }
-        try? await control.shutdownDaemon()
+        let hosts = terminalHosts(of: ensured.pid)
+        // Stop reconnecting first, or the daemon's EOF starts a fresh one.
         await control.close()
+        do {
+            try await control.shutdownDaemon(endTerminals: true)
+        } catch {
+            Issue.record("shutdown-daemon end_terminals failed: \(error)")
+        }
+        var leaked = hosts.filter { kill($0, 0) == 0 && !isZombie($0) }
+        // Host exits trail the reply by a few milliseconds.
+        for _ in 0..<200 where !leaked.isEmpty {
+            try? await Task.sleep(for: .milliseconds(50))
+            leaked = leaked.filter { kill($0, 0) == 0 && !isZombie($0) }
+        }
+        #expect(leaked.isEmpty, "terminal hosts outlived shutdown-daemon end_terminals: \(leaked)")
         try? FileManager.default.removeItem(at: root)
         if let failure { throw failure }
     }
 
+    /// The daemon's `cmux-tui __terminal-host` children (one PTY each).
+    static func terminalHosts(of pid: Int32) -> Set<Int32> {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-P", String(pid), "-f", "__terminal-host"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        guard (try? process.run()) != nil else { return [] }
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return Set(String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { Int32($0) })
+    }
+
+    static func isZombie(_ pid: Int32) -> Bool {
+        var info = proc_bsdinfo()
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
+        return size > 0 && info.pbi_status == UInt32(SZOMB)
+    }
 }
 
 /// Compat adapter and daemon lane against a real, isolated cmux-tui daemon.

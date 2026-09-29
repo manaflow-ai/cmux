@@ -5,15 +5,26 @@ public struct ShutdownDaemonRequest: DaemonRequest {
         public var accepted: Bool?
         public var pid: Int32?
         public var generation: DaemonGeneration?
+        /// Terminals ended before the handoff (`end_terminals`).
+        public var endedTerminals: UInt64?
+
+        enum CodingKeys: String, CodingKey {
+            case accepted, pid, generation
+            case endedTerminals = "ended_terminals"
+        }
     }
     public static let command = "shutdown-daemon"
     public var pid: Int32
     public var generation: DaemonGeneration
     public var force: Bool?
-    public init(pid: Int32, generation: DaemonGeneration, force: Bool? = nil) {
+    /// Ends every terminal and waits for its host before the handoff
+    /// (`terminal-reap-v1`). Test teardown uses it so no PTY outlives a run.
+    public var endTerminals: Bool?
+    public init(pid: Int32, generation: DaemonGeneration, force: Bool? = nil, endTerminals: Bool? = nil) {
         self.pid = pid
         self.generation = generation
         self.force = force
+        self.endTerminals = endTerminals
     }
 }
 
