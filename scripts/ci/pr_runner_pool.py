@@ -372,6 +372,26 @@ LIGHT_CLASS = "light"
 # outputs and takes the owned label, and a full re-run picks here like attempt 1 (without queueing).
 # The light tier, which the rescue's full re-run may claim, stays the rescue's.
 RESCUE_ACTOR = "github-actions[bot]"
+CLOUD_OVERFLOW_RECORD_VARIABLE = "CI_CLOUD_OVERFLOW_SAVED"
+
+
+def cloud_overflow_active(record: str | None, default_runner: str | None) -> bool:
+    """Whether the cloud switch moved this run's PR lane off Blacksmith.
+
+    The record is durable state written before the switch changes repository
+    variables. Requiring its recorded `after` value to equal the live lane
+    keeps a stale or hand-edited record from changing picker behavior.
+    """
+    if not (record or "").strip() or not (default_runner or "").strip():
+        return False
+    try:
+        data = json.loads(str(record))
+    except (TypeError, ValueError):
+        return False
+    changed = data.get("changed") if isinstance(data, Mapping) else None
+    lane = changed.get("MACOS_RUNNER_PR") if isinstance(changed, Mapping) else None
+    return (isinstance(lane, Mapping) and isinstance(lane.get("after"), str)
+            and lane["after"].strip() == default_runner.strip())
 
 
 def host_fault_retry(run_attempt: int, triggering_actor: str | None) -> bool:
@@ -1540,6 +1560,7 @@ def decide(
     owned_now: Mapping[str, int] | None = None,
     root_since: Mapping[str, int] | None = None,
     root_now: Mapping[str, int] | None = None,
+    outage: bool = False,
 ) -> Choice:
     """The preference rule over a janitor snapshot. Uncertainty keeps today's route.
 
@@ -1696,10 +1717,13 @@ def decide(
     retry = ""
     if persistent(label):
         # A re-run of failed jobs keeps this run's outputs, so it needs a pool
-        # named now: the Blacksmith pool this rule would take on the lane's
-        # own Xcode, which is also the Xcode the owned label names.
+        # named now: normally the Blacksmith pool this rule would take on the
+        # lane's own Xcode, which is also the Xcode the owned label names. A
+        # cloud outage leaves it empty so the workflow falls back to the
+        # owned route instead of naming a dead pool.
         lane = [pool_label for pool_label in usable if not persistent(pool_label) and not POOLS.get(pool_label)]
-        retry = pick(load, added, lane, limits.max_queued, queue_rounds=queue_rounds).label if lane else DEFAULT_RUNNER
+        retry = pick(load, added, lane, limits.max_queued, queue_rounds=queue_rounds).label \
+            if lane else ("" if outage else DEFAULT_RUNNER)
     shard = spread_shards(load, added, usable, label, shards)
     if shard:
         note += f"; its {shards} app-host shards take {shard}, which has more room for them"
@@ -1767,6 +1791,7 @@ def choose(
     shards: int = 0,
     queue_rounds: str | None = None,
     ref: str = "",
+    cloud_overflow: str | None = None,
 ) -> tuple[Choice, Mapping[str, Any] | None]:
     """The pool for this run and the snapshot it was read from (None when none was read).
 
@@ -1799,12 +1824,22 @@ def choose(
         return Choice("", "", "pull request head repository unknown"), None
     fork = head_repo != repo
     if not fork:
-        if (default_runner or "").strip() != DEFAULT_RUNNER:
+        outage = cloud_overflow_active(cloud_overflow, default_runner)
+        if not outage and (default_runner or "").strip() != DEFAULT_RUNNER:
             return Choice("", "", f"MACOS_RUNNER_PR is {default_runner or 'unset'}, not {DEFAULT_RUNNER}"), None
         limits = settings(overflow, order, max_queued, owned, xcode_pins.get(PR_XCODE_VARIABLE), queue_rounds)
         if limits is None:
             return Choice("", "", f"{OVERFLOW_VARIABLE} is 0, or {ORDER_VARIABLE}/{MAX_QUEUED_VARIABLE}/"
                                   f"{QUEUE_ROUNDS_VARIABLE} is invalid"), None
+        if outage:
+            # Blacksmith is unavailable while the record exists. Keep the
+            # normal owned split/root/GUI placement, but never emit an
+            # ephemeral candidate or a retry target back onto the dead pool.
+            limits = dataclasses.replace(limits, order=tuple(label for label in limits.order if persistent(label)))
+            if not limits.order:
+                return Choice("", "", "cloud overflow is off; no owned pool is in the picker order"), None
+    else:
+        outage = False
     unreadable = ""
     try:
         snapshot = fetch()
@@ -1932,7 +1967,8 @@ def choose(
                     root_since=root_since, root_now=root_now,
                     # Main only ever takes an owned pool; the replay still
                     # spreads newer runs over the whole order.
-                    choose_from=tuple(label for label in limits.order if persistent(label)) if main else None)
+                    choose_from=tuple(label for label in limits.order if persistent(label)) if main else None,
+                    outage=outage)
     if (main and limits.queue_rounds and persistent(choice.runner)
             and (choice.owned_budget < jobs or choice.root_runner and choice.root_budget < jobs)
             # Only a pool that holds the whole run at once: on a small one the
@@ -1971,6 +2007,8 @@ def choose(
         choice = dataclasses.replace(choice, reason=f"retry attempt {run_attempt}; {choice.reason}")
     if main and choice.runner:
         choice = dataclasses.replace(choice, reason=f"main's full-suite dispatch; {choice.reason}")
+    if outage and choice.runner:
+        choice = dataclasses.replace(choice, reason=f"cloud overflow off; {choice.reason}")
     return choice, snapshot
 
 
@@ -2368,6 +2406,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         live_online=online,
         shards=sum(1 for key in plan.after if key.startswith("shard-")),
         queue_rounds=env.get("POOL_QUEUE_ROUNDS") or "",
+        cloud_overflow=env.get(CLOUD_OVERFLOW_RECORD_VARIABLE),
     )
     pr_xcode_app = env.get(PR_XCODE_VARIABLE)
     # Only a same-repository pull request (and main's dispatch) reads the slots;
