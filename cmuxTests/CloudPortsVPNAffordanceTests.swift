@@ -114,7 +114,7 @@ struct CloudPortsVPNAffordanceTests {
             showsCloudVPNWarning: true)
         #expect(children.count == 1)
         let row = try #require(children.first)
-        #expect(row.searchableTitle == "Port 33015")
+        #expect(row.searchableTitle == ":33015")
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         cell.configure(node: row, machineActions: machineActions(), nodeActions: nodeActions())
         #expect(cell.toolTip == "Open in cmux. No VPN setup needed.")

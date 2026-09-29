@@ -53,6 +53,11 @@ final class CloudVPNSetupModel {
         errorMessage ?? unavailableMessage ?? status.flatMap(CloudTunnelBanner.init(status:))?.text
     }
 
+    /// The shared banner projection used by the richer setup page.
+    var tunnelBanner: CloudTunnelBanner? {
+        status.flatMap(CloudTunnelBanner.init(status:))
+    }
+
     func observe() async {
         guard let coordinator else { return }
         for await _ in await coordinator.stateUpdates() {

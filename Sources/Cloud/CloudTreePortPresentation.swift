@@ -8,7 +8,7 @@ struct CloudTreePortPresentation {
 
     var title: String {
         guard let port = resource.id.forwardedPort ?? resource.port else { return resource.title }
-        return String(format: String(localized: "cloudTree.port.title", defaultValue: "Port %@"), String(port))
+        return ":\(port)"
     }
 
     var detail: String? {
@@ -22,6 +22,12 @@ struct CloudTreePortPresentation {
     }
 
     var accessibilityLabel: String {
-        [title, detail].compactMap { $0 }.joined(separator: ", ")
+        let portLabel: String
+        if let port = resource.id.forwardedPort ?? resource.port {
+            portLabel = String(format: String(localized: "cloudTree.port.title", defaultValue: "Port %@"), String(port))
+        } else {
+            portLabel = title
+        }
+        return [portLabel, detail].compactMap { $0 }.joined(separator: ", ")
     }
 }
