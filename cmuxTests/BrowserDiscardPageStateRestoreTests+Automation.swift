@@ -76,11 +76,8 @@ extension BrowserDiscardPageStateRestoreTests {
         XCTAssertGreaterThanOrEqual(budgetPane.hiddenAt ?? .distantPast, commandAt)
     }
 
-    /// An agent that keeps waking a hidden pane must not grow memory: each
-    /// discard releases the web view it drops, so its WebContent process can
-    /// exit, the restored page goes back under the memory budget once idle,
-    /// and the captured page state is freed when the restore commits.
-    func testAutomationRestoreCyclesReleaseDroppedWebViews() throws {
+    /// Repeated agent restores detach every app-owned attachment from the dropped web view.
+    func testAutomationRestoreCyclesDetachDroppedWebViews() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let page = try writePlainPage()
@@ -93,19 +90,14 @@ extension BrowserDiscardPageStateRestoreTests {
 
         let hiddenDelay = BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: .standard)
         for cycle in 1...3 {
-            weak var dropped: WKWebView?
-            autoreleasepool {
-                let live = panel.webView
-                dropped = live
-                XCTAssertTrue(
-                    panel.discardHiddenWebViewForMemoryBudget(now: Date().addingTimeInterval(hiddenDelay + 1)),
-                    "Cycle \(cycle) discard refused; blockers: " +
-                        "\(panel.webViewLifecycleTopPayload()["discard_blockers"] ?? "unknown")"
-                )
-                // Only the first web view sits in the test window, not the pane.
-                if cycle == 1 { live.removeFromSuperview() }
-            }
-            waitForRelease("web view dropped in cycle \(cycle)") { dropped }
+            let dropped = panel.webView
+            XCTAssertTrue(
+                panel.discardHiddenWebViewForMemoryBudget(now: Date().addingTimeInterval(hiddenDelay + 1)),
+                "Cycle \(cycle) discard refused; blockers: " +
+                    "\(panel.webViewLifecycleTopPayload()["discard_blockers"] ?? "unknown")"
+            )
+            XCTAssertFalse(panel.webView === dropped)
+            assertDetached(dropped)
 
             let context = try resolveAutomationContext(for: panel, in: workspace, manager: manager)
             XCTAssertEqual(awaitAutomationDocumentReadiness(of: panel, driving: context.webView), .committed)
@@ -114,9 +106,8 @@ extension BrowserDiscardPageStateRestoreTests {
         }
     }
 
-    /// The web view whose content process died while hidden is dropped when
-    /// an agent command restores the page, and nothing may keep it alive.
-    func testAutomationRestoreReleasesWebViewTerminatedWhileHidden() throws {
+    /// A web view whose content process died while hidden is fully detached when restored.
+    func testAutomationRestoreDetachesWebViewTerminatedWhileHidden() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let page = try writePlainPage()
@@ -125,14 +116,11 @@ extension BrowserDiscardPageStateRestoreTests {
         waitForPage(panel, url: page)
         panel.noteWebViewVisibility(false, reason: "test.hidden")
 
-        weak var terminated: WKWebView?
-        try autoreleasepool {
-            terminated = try terminateWebContent(of: panel)
-        }
+        let terminated = try terminateWebContent(of: panel)
         let context = try resolveAutomationContext(for: panel, in: workspace, manager: manager)
         XCTAssertFalse(context.webView === terminated)
         XCTAssertEqual(awaitAutomationDocumentReadiness(of: panel, driving: context.webView), .committed)
-        waitForRelease("web view whose content process died") { terminated }
+        assertDetached(terminated)
     }
 
     private func writePlainPage() throws -> URL {
@@ -142,22 +130,17 @@ extension BrowserDiscardPageStateRestoreTests {
         return page
     }
 
-    /// Drains autorelease pools while waiting, so an object only a pending
-    /// pool still holds is not reported as leaked.
-    private func waitForRelease(
-        _ description: String,
-        timeout: TimeInterval = 10,
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        of object: () -> AnyObject?
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while object() != nil, Date() < deadline {
-            autoreleasepool {
-                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-            }
+    private func assertDetached(_ webView: WKWebView, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertNil(webView.superview, file: file, line: line)
+        XCTAssertNil(webView.navigationDelegate, file: file, line: line)
+        XCTAssertNil(webView.uiDelegate, file: file, line: line)
+        XCTAssertNil(webView.cmuxBrowserViewportHostView, file: file, line: line)
+        if let cmuxWebView = webView as? CmuxWebView {
+            XCTAssertNil(cmuxWebView.cmuxDownloadDelegate, file: file, line: line)
+            XCTAssertNil(cmuxWebView.browserViewportModel, file: file, line: line)
+            XCTAssertNil(cmuxWebView.onBrowserViewportHierarchyChanged, file: file, line: line)
+            XCTAssertNil(cmuxWebView.onSubframeDownloadIntent, file: file, line: line)
         }
-        XCTAssertNil(object(), "\(description) was never released", file: file, line: line)
     }
 
     private func makeWorkspaceBrowser(in workspace: Workspace, url: URL) throws -> BrowserPanel {
