@@ -11,6 +11,11 @@ import Foundation
 /// that follows them, or to the last line when they end the file. A run that
 /// both inserts and deletes lines is reported as modified.
 ///
+/// Lines shared at the start and end are trimmed first, so an ordinary edit
+/// costs linear time. Only the differing middle is aligned, and a middle
+/// larger than the alignment budget, such as a formatter rewriting the whole
+/// file, is reported as a single modified run instead of being aligned.
+///
 /// ```swift
 /// let diff = FilePreviewGitLineDiff()
 /// let changes = diff.changes(base: "one\ntwo\n", current: "one\nTWO\n")
@@ -21,25 +26,29 @@ public struct FilePreviewGitLineDiff: Sendable {
     let maximumLineCount: Int
     /// UTF-8 size, on either side, above which diffing is skipped.
     let maximumByteCount: Int
+    /// Differing middle size, on either side, above which lines are not
+    /// aligned one by one.
+    let maximumAlignedLineCount: Int
 
-    /// Creates a diff with the default budgets of 20,000 lines and 2 MiB.
+    /// Creates a diff with the default budgets: 20,000 lines, 2 MiB, and
+    /// 2,000 aligned lines.
     ///
-    /// The line diff costs time proportional to the line count times the
-    /// number of edits, so the budgets make an unusually large file cost
-    /// nothing instead of stalling a core.
+    /// Aligning costs time proportional to the middle's size times its edit
+    /// count, so the alignment budget keeps the worst case near a tenth of a
+    /// second instead of several seconds for a fully rewritten large file.
     public init() {
         self.init(maximumLineCount: 20_000, maximumByteCount: 2 * 1024 * 1024)
     }
 
-    init(maximumLineCount: Int, maximumByteCount: Int) {
+    init(maximumLineCount: Int, maximumByteCount: Int, maximumAlignedLineCount: Int = 2_000) {
         self.maximumLineCount = maximumLineCount
         self.maximumByteCount = maximumByteCount
+        self.maximumAlignedLineCount = maximumAlignedLineCount
     }
 
     /// Returns the changed lines of `current` relative to `base`.
     ///
-    /// The line diff costs time proportional to the line count times the
-    /// number of edits, so call it off the main actor.
+    /// Splitting and trimming scan both texts, so call it off the main actor.
     ///
     /// - Parameters:
     ///   - base: The git base content, usually the file at HEAD.
@@ -58,9 +67,33 @@ public struct FilePreviewGitLineDiff: Sendable {
               currentLines.count <= maximumLineCount else { return [:] }
         guard baseLines != currentLines else { return [:] }
 
+        var prefix = 0
+        let shorter = min(baseLines.count, currentLines.count)
+        while prefix < shorter, baseLines[prefix] == currentLines[prefix] {
+            prefix += 1
+        }
+        var suffix = 0
+        while suffix < shorter - prefix,
+              baseLines[baseLines.count - 1 - suffix] == currentLines[currentLines.count - 1 - suffix] {
+            suffix += 1
+        }
+        let baseMiddle = Array(baseLines[prefix..<(baseLines.count - suffix)])
+        let currentMiddle = Array(currentLines[prefix..<(currentLines.count - suffix)])
+
+        var accumulator = FilePreviewGitLineChangeAccumulator(currentLineCount: currentLines.count)
+        guard baseMiddle.count <= maximumAlignedLineCount,
+              currentMiddle.count <= maximumAlignedLineCount else {
+            accumulator.recordRemovals(baseMiddle.count)
+            for offset in currentMiddle.indices {
+                accumulator.recordInsertion(atOffset: prefix + offset)
+            }
+            accumulator.closeRun(beforeOffset: prefix + currentMiddle.count)
+            return accumulator.changes
+        }
+
         var removedBaseOffsets: Set<Int> = []
         var insertedCurrentOffsets: Set<Int> = []
-        for change in currentLines.difference(from: baseLines) {
+        for change in currentMiddle.difference(from: baseMiddle) {
             switch change {
             case let .remove(offset, _, _):
                 removedBaseOffsets.insert(offset)
@@ -68,26 +101,25 @@ public struct FilePreviewGitLineDiff: Sendable {
                 insertedCurrentOffsets.insert(offset)
             }
         }
-        var accumulator = FilePreviewGitLineChangeAccumulator(currentLineCount: currentLines.count)
         var baseIndex = 0
         var currentIndex = 0
         // Removal offsets index the base and insertion offsets index the
         // current buffer, so both must be consumed in the same walk.
-        while baseIndex < baseLines.count || currentIndex < currentLines.count {
-            if baseIndex < baseLines.count, removedBaseOffsets.contains(baseIndex) {
-                accumulator.recordRemoval()
+        while baseIndex < baseMiddle.count || currentIndex < currentMiddle.count {
+            if baseIndex < baseMiddle.count, removedBaseOffsets.contains(baseIndex) {
+                accumulator.recordRemovals()
                 baseIndex += 1
-            } else if currentIndex < currentLines.count,
+            } else if currentIndex < currentMiddle.count,
                       insertedCurrentOffsets.contains(currentIndex) {
-                accumulator.recordInsertion(atOffset: currentIndex)
+                accumulator.recordInsertion(atOffset: prefix + currentIndex)
                 currentIndex += 1
             } else {
-                accumulator.closeRun(beforeOffset: currentIndex)
+                accumulator.closeRun(beforeOffset: prefix + currentIndex)
                 baseIndex += 1
                 currentIndex += 1
             }
         }
-        accumulator.closeRun(beforeOffset: currentIndex)
+        accumulator.closeRun(beforeOffset: prefix + currentMiddle.count)
         return accumulator.changes
     }
 

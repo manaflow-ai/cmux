@@ -176,6 +176,50 @@ struct SystemGitHeadContentReaderTests {
         #expect(paths.first?.hasSuffix("/.git/HEAD") == true)
     }
 
+    @Test("A packed branch watches the directory its loose ref appears in")
+    func packedBranchWatchesRefDirectory() async throws {
+        let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: true)
+        try fixture.makeBaseline()
+        try fixture.write("tracked.txt", "second\n")
+        try fixture.git(["add", "tracked.txt"])
+        try fixture.commit("second")
+        try fixture.git(["pack-refs", "--all"])
+        let looseRef = fixture.root.appendingPathComponent(".git/refs/heads/main")
+        #expect(!FileManager.default.fileExists(atPath: looseRef.path))
+
+        let reader = SystemGitHeadContentReader(
+            runner: SystemWorkspaceChangesGitRunner(executableURL: fixture.gitExecutableURL)
+        )
+        let paths = try #require(await reader.watchedPaths(
+            forFile: fixture.root.appendingPathComponent("tracked.txt").path
+        ))
+        let refDirectory = try #require(paths.first { $0.hasSuffix("/.git/refs/heads") })
+
+        // Moving a packed branch writes a loose ref into the watched directory.
+        try fixture.git(["reset", "--soft", "HEAD~1"])
+        #expect(FileManager.default.fileExists(
+            atPath: URL(fileURLWithPath: refDirectory).appendingPathComponent("main").path
+        ))
+    }
+
+    @Test("A linked worktree resolves its common directory to an absolute ref path")
+    func linkedWorktreeResolvesCommonDirectory() async throws {
+        let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: true)
+        try fixture.makeBaseline()
+        try fixture.git(["worktree", "add", "--quiet", "-b", "feature", "wt"])
+
+        let reader = SystemGitHeadContentReader(
+            runner: SystemWorkspaceChangesGitRunner(executableURL: fixture.gitExecutableURL)
+        )
+        let paths = try #require(await reader.watchedPaths(
+            forFile: fixture.root.appendingPathComponent("wt/tracked.txt").path
+        ))
+
+        #expect(paths.contains { $0.hasSuffix("/.git/worktrees/wt/HEAD") })
+        #expect(paths.contains { $0.hasSuffix("/.git/refs/heads/feature") })
+        #expect(paths.allSatisfy { $0.hasPrefix("/") && FileManager.default.fileExists(atPath: $0) })
+    }
+
     @Test("A detached HEAD has no branch ref to watch")
     func detachedHeadHasNoBranchRef() async throws {
         let fixture = try WorkspaceChangesGitRepositoryFixture(initializeRepository: true)

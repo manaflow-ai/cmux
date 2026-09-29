@@ -1851,6 +1851,7 @@
 		10200F1E000000000000000D /* FilePreviewObserverReloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200F1E000000000000000E /* FilePreviewObserverReloadTests.swift */; };
 		C0DE86520000000000000003 /* FilePreviewPanel+Reload.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000004 /* FilePreviewPanel+Reload.swift */; };
 		A5001422 /* FilePreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001423 /* FilePreviewPanel.swift */; };
+		7EC3E7AFD3809F60AEA012F3 /* FilePreviewPanelGitTrackingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC90480E4FDF5B555D78739A /* FilePreviewPanelGitTrackingTests.swift */; };
 		C0DE86520000000000000105 /* FilePreviewPDFLoadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000106 /* FilePreviewPDFLoadResult.swift */; };
 		C0DE86520000000000000107 /* FilePreviewPDFPageRotationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000108 /* FilePreviewPDFPageRotationState.swift */; };
 		C769A75E303493BCB5EC9CCC /* FilePreviewPDFSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */; };
@@ -1893,6 +1894,7 @@
 		D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */; };
 		F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */; };
 		C0F15A000000000000000001 /* FishShellIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F15A000000000000000002 /* FishShellIntegrationTests.swift */; };
+		4EB256D3FE6507FFA3FEE90D /* FixedHeadContentReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E884712615403CFEE6EDE4EC /* FixedHeadContentReader.swift */; };
 		F17A5F010000000000000001 /* FocusedPanelFlashShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A5F020000000000000002 /* FocusedPanelFlashShortcutTests.swift */; };
 		F0C05170000000000000002 /* FocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C05170000000000000001 /* FocusHistory.swift */; };
 		FE00AA20C1B2C3D4E5F60718 /* FocusHistoryBracketShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00AA21C1B2C3D4E5F60718 /* FocusHistoryBracketShortcutRoutingTests.swift */; };
@@ -5871,6 +5873,7 @@
 		10200F1E000000000000000E /* FilePreviewObserverReloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewObserverReloadTests.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000004 /* FilePreviewPanel+Reload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FilePreviewPanel+Reload.swift"; sourceTree = "<group>"; };
 		A5001423 /* FilePreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPanel.swift; sourceTree = "<group>"; };
+		AC90480E4FDF5B555D78739A /* FilePreviewPanelGitTrackingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FilePreviewPanelGitTrackingTests.swift"; sourceTree = "<group>"; };
 		C0DE86520000000000000106 /* FilePreviewPDFLoadResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFLoadResult.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000108 /* FilePreviewPDFPageRotationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFPageRotationState.swift; sourceTree = "<group>"; };
 		D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFSession.swift; sourceTree = "<group>"; };
@@ -5913,6 +5916,7 @@
 		D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindSelectionShortcutUITests.swift; sourceTree = "<group>"; };
 		F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/FindTextFieldSupport.swift; sourceTree = "<group>"; };
 		C0F15A000000000000000002 /* FishShellIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FishShellIntegrationTests.swift; sourceTree = "<group>"; };
+		E884712615403CFEE6EDE4EC /* FixedHeadContentReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FixedHeadContentReader.swift"; sourceTree = "<group>"; };
 		F17A5F020000000000000002 /* FocusedPanelFlashShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusedPanelFlashShortcutTests.swift; sourceTree = "<group>"; };
 		F0C05170000000000000001 /* FocusHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistory.swift; sourceTree = "<group>"; };
 		FE00AA21C1B2C3D4E5F60718 /* FocusHistoryBracketShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistoryBracketShortcutRoutingTests.swift; sourceTree = "<group>"; };
@@ -12241,6 +12245,8 @@
 				AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */,
 				8E924EBE2A4B7D8798B993C1 /* SidebarSelectedRowScrollTests.swift */,
 				E1440E4C8B82D1DACD9AE13A /* CloudTreeHeaderActionsTests.swift */,
+				AC90480E4FDF5B555D78739A /* FilePreviewPanelGitTrackingTests.swift */,
+				E884712615403CFEE6EDE4EC /* FixedHeadContentReader.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16299,6 +16305,7 @@
 				C0DE49950000000000000001 /* FilePreviewKindResolverTests.swift in Sources */,
 				C0DE86520000000000000117 /* FilePreviewNativeRefreshStateTests.swift in Sources */,
 				10200F1E000000000000000D /* FilePreviewObserverReloadTests.swift in Sources */,
+				7EC3E7AFD3809F60AEA012F3 /* FilePreviewPanelGitTrackingTests.swift in Sources */,
 				A5001436A5001436A5001436 /* FilePreviewPDFThumbnailSidebarTests.swift in Sources */,
 				C0DE86520000000000000012 /* FilePreviewReloadCompletionTests.swift in Sources */,
 				C0DE86520000000000000001 /* FilePreviewReloadTests.swift in Sources */,
@@ -16308,6 +16315,7 @@
 				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
 				C35610000000000000000001 /* FinderFileDropRegressionTests.swift in Sources */,
 				C0F15A000000000000000001 /* FishShellIntegrationTests.swift in Sources */,
+				4EB256D3FE6507FFA3FEE90D /* FixedHeadContentReader.swift in Sources */,
 				F17A5F010000000000000001 /* FocusedPanelFlashShortcutTests.swift in Sources */,
 				FE00AA20C1B2C3D4E5F60718 /* FocusHistoryBracketShortcutRoutingTests.swift in Sources */,
 				C0DE86540000000000000002 /* FocusHistoryScopeTests.swift in Sources */,

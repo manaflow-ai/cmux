@@ -37,8 +37,9 @@ expires entries after 15 seconds by repository root.
 
 `SystemGitHeadContentReader` conforms to `GitHeadContentReading` and returns a
 file's bytes as committed at `HEAD`, plus the repository paths whose changes
-can move that content: `HEAD`, `index`, the checked-out branch's loose ref,
-`packed-refs`, and `reftable`. It reads `HEAD` rather than the merge base, which is what an
+can move that content: `HEAD`, `index`, the checked-out branch's ref (or, for
+a packed branch, the directory its loose ref would appear in), `packed-refs`,
+and `reftable`. It reads `HEAD` rather than the merge base, which is what an
 editor gutter needs, and returns bytes so the caller decodes them with the
 working copy's encoding. Symbolic links resolve to their target, then
 `git cat-file blob HEAD:./name` runs from the file's directory, so no

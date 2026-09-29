@@ -19,11 +19,13 @@ public protocol GitHeadContentReading: Sendable {
 
     /// Returns the repository paths whose changes can move HEAD content.
     ///
-    /// The list covers `HEAD`, `index`, the checked-out branch's loose ref,
-    /// `packed-refs`, and `reftable` when present. `HEAD` and the ref catch
-    /// commits and resets that leave the index alone, such as
-    /// `git reset --soft`. The branch ref changes on checkout, so callers
-    /// resolve the list again after any of these paths change.
+    /// The list covers `HEAD`, `index`, the checked-out branch's ref,
+    /// `packed-refs`, and `reftable` when present. A branch kept only in
+    /// `packed-refs` contributes the directory its loose ref would be created
+    /// in. `HEAD` and the ref catch commits and resets that leave the index
+    /// alone, such as `git reset --soft`. A checkout rewrites `HEAD` and can
+    /// point at another ref, so callers resolve the list again when `HEAD`
+    /// changes.
     ///
     /// - Parameter absolutePath: The file's absolute path.
     /// - Returns: Existing absolute paths, sorted, or `nil` outside a

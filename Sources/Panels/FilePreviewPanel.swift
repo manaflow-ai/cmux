@@ -1,4 +1,5 @@
 import CmuxFilePreviewCore
+import CmuxGit
 import CmuxFoundation
 import AppKit
 import Bonsplit
@@ -1269,6 +1270,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     /// Panels created without a file watcher also skip git lookups.
     private let tracksGitLineChanges: Bool
     private var isGitGutterVisible = true
+    /// The tracker must not diff the empty placeholder before the file loads.
+    private var hasLoadedTextContent = false
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -1302,6 +1305,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
     private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaveResult
     private let modeResolver: @Sendable (URL) async -> FilePreviewMode
+    private let gitHeadContentReader: any GitHeadContentReading
     private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
     private let modeLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewMode>()
 
@@ -1335,7 +1339,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         },
         modeResolver: @escaping @Sendable (URL) async -> FilePreviewMode = { url in
             await FilePreviewKindResolver.resolveMode(url: url)
-        }
+        },
+        gitHeadContentReader: any GitHeadContentReading = SystemGitHeadContentReader()
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -1346,6 +1351,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.textLoader = textLoader
         self.textSaver = textSaver
         self.modeResolver = modeResolver
+        self.gitHeadContentReader = gitHeadContentReader
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
@@ -1372,7 +1378,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private func startTrackingGitLineChanges() {
         guard tracksGitLineChanges, isGitGutterVisible, !isClosed, previewMode == .text else { return }
         guard gitDiffTracker == nil else { return }
-        let tracker = FilePreviewGitDiffTracker(filePath: filePath)
+        let tracker = FilePreviewGitDiffTracker(filePath: filePath, reader: gitHeadContentReader)
         gitDiffTracker = tracker
         let updates = tracker.updates
         gitGutterMarkersTask = Task { [weak self] in
@@ -1381,8 +1387,17 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             }
         }
         tracker.update(encoding: textEncoding)
-        tracker.update(currentText: textContent)
+        if hasLoadedTextContent {
+            tracker.update(currentText: textContent)
+        }
         tracker.startWatchingRepository(using: fileContentChangeCoordinator)
+    }
+
+    /// Stops the file watch and git tracking before a panel is discarded
+    /// without ``close()``.
+    func stopWatchingForFileChanges() {
+        stopFileContentObservation()
+        stopTrackingGitLineChanges()
     }
 
     private func stopTrackingGitLineChanges() {
@@ -1428,7 +1443,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         isClosed = true
         unbindTabMetadata()
         stopWatchingForFileChanges()
-        stopTrackingGitLineChanges()
         textLoadCoordinator.cancel()
         modeLoadCoordinator.cancel()
         selectionReader.close()
@@ -1457,17 +1471,21 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard let fileContentChangeCoordinator else {
             if fileContentObservationID == nil, !isClosed {
                 startWatchingForFileChanges()
+                startTrackingGitLineChanges()
             }
             return
         }
         guard self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
             if fileContentObservationID == nil, !isClosed {
                 startWatchingForFileChanges()
+                startTrackingGitLineChanges()
             }
             return
         }
         let wasWatching = fileContentObservationID != nil
-        stopWatchingForFileChanges()
+        // A transfer keeps the tracker and its markers, so only the file watch
+        // and the repository watch move to the new coordinator.
+        stopFileContentObservation()
         gitDiffTracker?.stopWatchingRepository()
         self.fileContentChangeCoordinator = fileContentChangeCoordinator
         if wasWatching, !isClosed {
@@ -1692,6 +1710,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             originalTextContent = ""
             setTabMetadataDirtyState(false)
             isFileUnavailable = true
+            markTextContentLoaded()
             return
         case .loaded(let content, let encoding):
             if !replacingDirtyContent && isDirty {
@@ -1700,6 +1719,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 gitDiffTracker?.update(encoding: encoding)
                 setTabMetadataDirtyState(textContent != originalTextContent)
                 isFileUnavailable = false
+                markTextContentLoaded()
                 return
             }
             _ = replaceTextContentIfChanged(content)
@@ -1708,7 +1728,18 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             gitDiffTracker?.update(encoding: encoding)
             setTabMetadataDirtyState(false)
             isFileUnavailable = false
+            markTextContentLoaded()
         }
+    }
+
+    /// Hands the loaded buffer to the git tracker.
+    ///
+    /// An unchanged load, such as an empty file, does not pass through
+    /// ``replaceTextContentIfChanged(_:)``, so the tracker learns here that
+    /// the buffer is real.
+    private func markTextContentLoaded() {
+        hasLoadedTextContent = true
+        gitDiffTracker?.update(currentText: textContent)
     }
 
     @discardableResult

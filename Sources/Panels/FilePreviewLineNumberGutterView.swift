@@ -208,6 +208,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             ? lineIndex.lineNumber(containingUTF16Offset: selected.location)
             : nil
         let lineCount = lineIndex.lineCount
+        let textLength = (textView.string as NSString).length
         var drewTrailingLine = false
 
         layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, fragmentGlyphRange, _ in
@@ -220,6 +221,10 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             )
             let fragmentY = usedRect.minY + textView.textContainerOrigin.y
             let startsLine = self.lineIndex.offset(forLine: lineNumber) == characterRange.location
+            let nextLineStart = lineNumber < lineCount
+                ? self.lineIndex.offset(forLine: lineNumber + 1)
+                : textLength
+            let endsLine = NSMaxRange(characterRange) >= nextLineStart
             // Paint every fragment of a wrapped line so the stripe stays continuous.
             self.drawGitChangeStripe(
                 for: lineNumber,
@@ -227,7 +232,8 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
                 height: usedRect.height,
                 in: textView,
                 font: font,
-                startsLine: startsLine
+                startsLine: startsLine,
+                endsLine: endsLine
             )
             guard startsLine else { return }
             self.drawLineNumber(
@@ -254,7 +260,8 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
                 height: emptyLineHeight,
                 in: textView,
                 font: font,
-                startsLine: true
+                startsLine: true,
+                endsLine: true
             )
             self.drawLineNumber(
                 1,
@@ -313,7 +320,8 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
                         height: max(trailingRect.height, fallbackHeight),
                         in: textView,
                         font: font,
-                        startsLine: true
+                        startsLine: true,
+                        endsLine: true
                     )
                     self.drawLineNumber(
                         lineCount,
@@ -375,14 +383,16 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     /// - Added and modified lines get a full-height stripe.
     /// - Removed draws a short marker across the line's top edge.
     /// - RemovedAtEnd draws it across the line's bottom edge.
-    /// - Edge markers draw only on the first fragment of a wrapped line.
+    /// - On a wrapped line, the top-edge marker draws on the first fragment and
+    ///   the bottom-edge marker on the last.
     private func drawGitChangeStripe(
         for lineNumber: Int,
         atTextViewY y: CGFloat,
         height: CGFloat,
         in textView: NSTextView,
         font: NSFont,
-        startsLine: Bool
+        startsLine: Bool,
+        endsLine: Bool
     ) {
         guard let change = gitMarkers.changes[lineNumber] else { return }
         let rulerPoint = convert(NSPoint(x: 0, y: y), from: textView)
@@ -401,7 +411,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
                 height: stripeHeight
             ).fill()
         case .removed, .removedAtEnd:
-            guard startsLine else { return }
+            guard change == .removed ? startsLine : endsLine else { return }
             tokenTheme.gitDeletedColor.setFill()
             let markerHeight = Self.changeStripeWidth
             let markerY = change == .removed

@@ -13,8 +13,8 @@ struct FilePreviewGitLineChangeAccumulator {
         self.currentLineCount = currentLineCount
     }
 
-    mutating func recordRemoval() {
-        removalCount += 1
+    mutating func recordRemovals(_ count: Int = 1) {
+        removalCount += count
     }
 
     /// Records an inserted line by its 0-based offset in the current buffer.
@@ -29,6 +29,8 @@ struct FilePreviewGitLineChangeAccumulator {
     /// - Insertions with removals mark every inserted line modified.
     /// - Removals only mark the anchor line removed, or the last line
     ///   removedAtEnd when the run ends the file.
+    /// - Removals that leave the buffer empty mark line 1 removed, because
+    ///   the gutter still numbers the empty document's single line.
     mutating func closeRun(beforeOffset anchorOffset: Int) {
         defer {
             removalCount = 0
@@ -44,6 +46,8 @@ struct FilePreviewGitLineChangeAccumulator {
                 changes[anchorOffset + 1] = .removed
             } else if currentLineCount > 0 {
                 changes[currentLineCount] = .removedAtEnd
+            } else {
+                changes[1] = .removed
             }
         }
     }

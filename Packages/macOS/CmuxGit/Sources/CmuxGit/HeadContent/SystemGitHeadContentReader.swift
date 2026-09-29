@@ -66,8 +66,8 @@ public struct SystemGitHeadContentReader: GitHeadContentReading {
     /// - Parameter absolutePath: The file's absolute path. Relative paths
     ///   return `nil`.
     /// - Returns: Existing absolute paths among `HEAD`, `index`, the
-    ///   checked-out branch's loose ref, `packed-refs`, and `reftable`,
-    ///   sorted, or `nil` outside a repository.
+    ///   checked-out branch's loose ref or its nearest existing directory,
+    ///   `packed-refs`, and `reftable`, sorted, or `nil` outside a repository.
     public func watchedPaths(forFile absolutePath: String) async -> [String]? {
         guard let location = Self.location(ofFile: absolutePath),
               let directories = await run(
@@ -97,10 +97,27 @@ public struct SystemGitHeadContentReader: GitHeadContentReading {
             commonDirectory.appendingPathComponent("reftable", isDirectory: true),
         ]
         if let branchRef, branchRef.hasPrefix("refs/") {
-            candidates.append(commonDirectory.appendingPathComponent(branchRef))
+            candidates.append(branchRefWatchTarget(
+                commonDirectory.appendingPathComponent(branchRef),
+                within: commonDirectory
+            ))
         }
         let existing = Set(candidates.map(\.path).filter(fileExists))
         return existing.sorted()
+    }
+
+    /// Returns the loose ref file when it exists, otherwise the nearest existing
+    /// directory above it.
+    ///
+    /// A branch kept only in `packed-refs` has no loose file to watch, but
+    /// moving it, as `git reset --soft` does, creates one. Watching the parent
+    /// directory catches that creation.
+    private func branchRefWatchTarget(_ refURL: URL, within commonDirectory: URL) -> URL {
+        var candidate = refURL
+        while !fileExists(candidate.path), candidate.path.count > commonDirectory.path.count {
+            candidate = candidate.deletingLastPathComponent()
+        }
+        return candidate
     }
 
     /// Standard output of a run that exited with status 0.

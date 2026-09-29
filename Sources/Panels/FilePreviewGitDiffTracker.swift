@@ -32,6 +32,7 @@ final class FilePreviewGitDiffTracker {
     private var baseContent: String?
     private var encoding: String.Encoding = .utf8
     private var latestText = ""
+    private var hasBufferText = false
     private var markers = FilePreviewGitGutterMarkers.untracked
     private var baseTask: Task<Void, Never>?
     private var recomputeTask: Task<Void, Never>?
@@ -165,10 +166,13 @@ final class FilePreviewGitDiffTracker {
 
     /// Records the latest buffer text and schedules a debounced diff.
     ///
-    /// Diffing waits for the first base so the initial load does not flash
-    /// every line as added.
+    /// Call it only with text loaded from the file or edited by the user.
+    /// Diffing waits until both the base and the buffer have arrived, so a
+    /// base read that finishes before the file loads does not flash markers
+    /// against an empty buffer.
     func update(currentText: String) {
         latestText = currentText
+        hasBufferText = true
         guard baseContent != nil else { return }
         recompute(debounced: true)
     }
@@ -197,6 +201,10 @@ final class FilePreviewGitDiffTracker {
         guard let baseContent else {
             recomputeTask = nil
             publish(.untracked)
+            return
+        }
+        guard hasBufferText else {
+            recomputeTask = nil
             return
         }
         let current = latestText

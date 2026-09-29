@@ -84,14 +84,16 @@ struct FilePreviewGitDiffTrackerTests {
         let initial = await updates.next()
         #expect(initial == Self.tracked([2: .added]))
 
+        // Each intermediate buffer has its own distinct result, so publishing
+        // any of them instead of the last would fail the expectation.
         tracker.update(currentText: "A\n")
         tracker.update(currentText: "a\nb\nc\n")
-        tracker.update(currentText: "x\n")
+        tracker.update(currentText: "a\nb\nc\nd\n")
         await clock.waitUntilSleeping()
         clock.advance(by: .seconds(1))
 
         let afterBurst = await updates.next()
-        #expect(afterBurst == Self.tracked([1: .modified]))
+        #expect(afterBurst == Self.tracked([2: .added, 3: .added, 4: .added]))
         tracker.cancel()
     }
 
@@ -186,6 +188,44 @@ struct FilePreviewGitDiffTrackerTests {
         tracker.cancel()
     }
 
+    @Test("A HEAD change re-resolves the watched set so a checkout follows the new branch ref")
+    func headChangeFollowsNewBranchRef() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-git-tracker-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let headPath = directory.appendingPathComponent("HEAD").path
+        let mainRef = directory.appendingPathComponent("main").path
+        let featureRef = directory.appendingPathComponent("feature").path
+        for path in [headPath, mainRef, featureRef] {
+            try Data("ref\n".utf8).write(to: URL(fileURLWithPath: path))
+        }
+        let reader = FixedHeadContentReader(content: "a\n", watchedPaths: [headPath, mainRef])
+        var headReads = reader.headReads.makeAsyncIterator()
+        let coordinator = FileContentChangeCoordinator()
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: SidebarTestManualClock())
+        var updates = tracker.updates.makeAsyncIterator()
+        tracker.update(currentText: "a\nb\n")
+        tracker.startWatchingRepository(using: coordinator)
+        let initial = await updates.next()
+        #expect(initial == Self.tracked([2: .added]))
+        _ = await headReads.next()
+
+        // A checkout rewrites HEAD and points it at another ref.
+        await reader.setWatchedPaths([headPath, featureRef])
+        coordinator.fileWriteCompleted(at: headPath)
+        // One read comes from the HEAD change and one from installing the new set.
+        _ = await headReads.next()
+        _ = await headReads.next()
+
+        await reader.setContent("a\nb\n")
+        coordinator.fileWriteCompleted(at: featureRef)
+
+        let afterRefMove = await updates.next()
+        #expect(afterRefMove == Self.tracked([:]))
+        tracker.cancel()
+    }
+
     @Test("Dropping the tracker without cancel finishes the update stream")
     func droppingTrackerFinishesUpdates() async throws {
         var tracker: FilePreviewGitDiffTracker? = FilePreviewGitDiffTracker(
@@ -215,32 +255,5 @@ struct FilePreviewGitDiffTrackerTests {
 
         let afterCancel = await updates.next()
         #expect(afterCancel == nil)
-    }
-}
-
-private actor FixedHeadContentReader: GitHeadContentReading {
-    private var bytes: Data?
-    private let paths: [String]?
-
-    init(content: String?, watchedPaths: [String]? = nil) {
-        bytes = content.map { Data($0.utf8) }
-        paths = watchedPaths
-    }
-
-    init(bytes: Data?) {
-        self.bytes = bytes
-        paths = nil
-    }
-
-    func setContent(_ content: String?) {
-        bytes = content.map { Data($0.utf8) }
-    }
-
-    func headContent(forFile absolutePath: String) async -> Data? {
-        bytes
-    }
-
-    func watchedPaths(forFile absolutePath: String) async -> [String]? {
-        paths
     }
 }
