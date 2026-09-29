@@ -559,7 +559,7 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
-        hasLoadedOnce = true
+        hasLoadedOnce = hasLoadedOnce || listProblem != .unreachable
         #if DEBUG
         cmuxDebugLog("cloud.machines.list settled count=\(machines.count) problem=\(String(describing: listProblem))")
         #endif

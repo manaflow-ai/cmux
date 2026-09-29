@@ -37,12 +37,13 @@ extension MachinesPanelViewModel {
     }
 
     /// Derived from the latest settled read, the coordinator's network state,
-    /// and whether a recovery read is in flight. Sign-in and plan gates keep
-    /// their meaning while a recovery read runs; only a transient failure
-    /// becomes "reconnecting", and it clears only when a read succeeds.
+    /// and whether a recovery read is in flight. An initial transient failure
+    /// stays quiet while the first fleet load retries; sign-in and plan gates
+    /// keep their meaning while a recovery read runs; only a transient failure
+    /// after a successful load becomes "reconnecting".
     var listStatus: MachineListStatus? {
         if isNetworkOffline { return .waitingForNetwork }
-        guard let listProblem else { return nil }
+        guard let listProblem, hasLoadedOnce || listProblem != .unreachable else { return nil }
         return isRecoveringList && listProblem == .unreachable ? .reconnecting : .failed(listProblem)
     }
 }
