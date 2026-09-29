@@ -5,6 +5,8 @@ public import Observation
 public final class PaneModel: Identifiable {
     public let id: String
     public internal(set) var handle: PaneID
+    /// Durable resource id (`pane_…`) on registry daemons.
+    public internal(set) var resourceID: ResourceID?
     public internal(set) var name: String?
     /// Daemon default tab; the window keeps its own selection.
     public internal(set) var defaultTabIndex: Int
@@ -17,6 +19,7 @@ public final class PaneModel: Identifiable {
     init(_ s: PaneSnapshot) {
         id = Self.identity(s)
         handle = s.id
+        resourceID = s.resourceID
         name = s.name
         defaultTabIndex = s.activeTab
         focusedAt = s.focusedAt
@@ -31,6 +34,7 @@ public final class PaneModel: Identifiable {
 
     func update(_ s: PaneSnapshot) {
         if handle != s.id { handle = s.id }
+        if resourceID != s.resourceID { resourceID = s.resourceID }
         if name != s.name { name = s.name }
         if defaultTabIndex != s.activeTab { defaultTabIndex = s.activeTab }
         if focusedAt != s.focusedAt { focusedAt = s.focusedAt }

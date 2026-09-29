@@ -65,15 +65,17 @@ extension PaneController {
     }
 
     /// New terminal tab in this pane. `typing` is sent to the new shell
-    /// once the tab exists (config command actions).
-    func newTerminalTab(cwd: String? = nil, typing text: String? = nil) {
+    /// once the tab exists (config command actions). `keep` makes the
+    /// terminal outlive the tab; by default the daemon ends it after the
+    /// reap grace period once its last tab closes.
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil) {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         services.registry.track(Task {
             do {
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
                 if let text { try await connection.send(created.surface, text: text) }
                 pendingSelectSurface = created.surface
                 apply(snapshot())
@@ -126,13 +128,7 @@ extension PaneController {
             }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
-            if tab.kind == .pty, let terminal = tab.terminalID {
-                let incarnation = tab.terminalIncarnation
-                commands.append(("close-terminal", { try await $0.closeTerminal(terminal, incarnation: incarnation) }))
-            } else {
-                let surface = tab.surface
-                commands.append(("close-surface", { try await $0.closeTab(surface) }))
-            }
+            commands.append(daemon.closeCommand(for: tab))
         }
         apply(snapshot())
         guard !commands.isEmpty else { return }

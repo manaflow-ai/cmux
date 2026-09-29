@@ -5,6 +5,8 @@ public import Observation
 public final class ScreenModel: Identifiable {
     public let id: String
     public internal(set) var handle: ScreenID
+    /// Durable resource id (`screen_…`) on registry daemons.
+    public internal(set) var resourceID: ResourceID?
     public internal(set) var name: String?
     public internal(set) var layout: LayoutNode
     /// Horizontal scrolling columns; empty for an ordinary split screen.
@@ -17,6 +19,7 @@ public final class ScreenModel: Identifiable {
     init(_ s: ScreenSnapshot) {
         id = Self.identity(s)
         handle = s.id
+        resourceID = s.resourceID
         name = s.name
         layout = s.layout
         columns = s.columns
@@ -32,6 +35,7 @@ public final class ScreenModel: Identifiable {
 
     func update(_ s: ScreenSnapshot) {
         if handle != s.id { handle = s.id }
+        if resourceID != s.resourceID { resourceID = s.resourceID }
         if name != s.name { name = s.name }
         if layout != s.layout { layout = s.layout }
         if columns != s.columns { columns = s.columns }

@@ -103,6 +103,10 @@ enum CatalogArgument {
         ActionArgument(name: "focus", title: String(localized: "argument.focus", defaultValue: "Focus", bundle: .module), kind: .bool)
     }
 
+    static var keepBool: ActionArgument {
+        ActionArgument(name: "keep", title: String(localized: "argument.keep", defaultValue: "Keep After Close", bundle: .module), kind: .bool)
+    }
+
     static var onBool: ActionArgument {
         ActionArgument(name: "on", title: String(localized: "argument.on", defaultValue: "On", bundle: .module), kind: .bool)
     }

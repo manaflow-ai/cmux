@@ -11,9 +11,12 @@ extension AppActions {
         registry.bind("newTab", invoke: { newWorkspace(services, $0) })
         registry.bind("closeWorkspace", invoke: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
-            // cmux-tui close-workspace keeps the workspace's terminal hosts
-            // (and PTYs) alive: end each terminal first, like closing its tabs.
-            let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
+            // close-workspace detaches the workspace's terminals. With
+            // terminal-reap-v1 the daemon ends the unkept ones after its grace
+            // period; older daemons keep them (and their PTYs) forever, so end
+            // each first, like closing its tabs.
+            let reaps = services.activeDaemon.supports(DaemonCapabilities.terminalReap)
+            let terminals = reaps ? [] : workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
                 tab.kind == .pty ? tab.terminalID.map { ($0, tab.terminalIncarnation) } : nil
             }
             services.activeDaemon.send("close-workspace") { connection in

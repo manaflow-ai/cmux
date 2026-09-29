@@ -2,9 +2,10 @@ import Foundation
 
 /// Fields shared by new-tab / split / new-pane / new-pane-right.
 ///
-/// `cwd` and `env` (`terminal-env-v1`) reach `new-tab` and `split` only;
-/// `new-pane` and `new-pane-right` ignore both. `argv`, `command`, and `name`
-/// are accepted by `create-terminal` only; these four commands ignore them.
+/// `cwd` and `env` (`terminal-env-v1`) reach `new-tab` and `split`; with
+/// `terminal-placement-env-v1` also `new-pane` and `new-pane-right`, which
+/// otherwise ignore both. `argv`, `command`, and `name` are accepted by
+/// `create-terminal` only; these four commands ignore them.
 public struct SpawnOptions: Sendable, Hashable {
     public var cwd: String?
     public var size: CellSize?
@@ -16,12 +17,19 @@ public struct SpawnOptions: Sendable, Hashable {
     /// nil lets `DaemonConnection` send `TerminalEnvironment`'s allowlist.
     public var env: [String: String]?
     /// The workspace of the pane the terminal opens in. Not sent: with it,
-    /// `newTab` and `split` reserve the terminal id first so the shell gets
-    /// `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` (DaemonConnection+Placement).
+    /// the new shell gets `CMUX_WORKSPACE_ID` (DaemonConnection+Placement).
     public var workspace: WorkspaceKey?
+    /// `true` keeps the terminal alive after its last tab closes
+    /// (`terminal-reap-v1`); nil or false lets the daemon end it after the
+    /// reap grace period. Only terminals created on purpose to outlive
+    /// their tab (a CLI `--keep` spawn) set it.
+    public var keep: Bool?
+    /// Caller-chosen host id (`terminal-placement-env-v1`). Set by
+    /// `DaemonConnection`, which also names it in `env`; callers leave it nil.
+    public var terminalID: TerminalID?
 
     public init(cwd: String? = nil, size: CellSize? = nil, argv: [String]? = nil, command: String? = nil, name: String? = nil,
-                env: [String: String]? = nil, workspace: WorkspaceKey? = nil) {
+                env: [String: String]? = nil, workspace: WorkspaceKey? = nil, keep: Bool? = nil) {
         self.workspace = workspace
         self.cwd = cwd
         self.size = size
@@ -29,18 +37,21 @@ public struct SpawnOptions: Sendable, Hashable {
         self.command = command
         self.name = name
         self.env = env
+        self.keep = keep
     }
 
-    enum CodingKeys: String, CodingKey { case cwd, cols, rows, argv, command, name, env }
-    func encode(to encoder: any Encoder, includeCwd: Bool = true) throws {
+    enum CodingKeys: String, CodingKey { case cwd, cols, rows, argv, command, name, env, keep, terminalID }
+    func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        if includeCwd { try c.encodeIfPresent(cwd, forKey: .cwd) }
+        try c.encodeIfPresent(cwd, forKey: .cwd)
         try c.encodeIfPresent(size?.cols, forKey: .cols)
         try c.encodeIfPresent(size?.rows, forKey: .rows)
         try c.encodeIfPresent(argv, forKey: .argv)
         try c.encodeIfPresent(command, forKey: .command)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(env, forKey: .env)
+        try c.encodeIfPresent(keep, forKey: .keep)
+        try c.encodeIfPresent(terminalID, forKey: .terminalID)
     }
 }
 

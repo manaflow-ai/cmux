@@ -40,10 +40,10 @@ extension ActionCatalog {
         [
             row("splitLeft", String(localized: "action.splitLeft", defaultValue: "Split Left", table: "LayoutActions", bundle: .module),
                 .pane, "rectangle.lefthalf.inset.filled", cli: "pane split-left", keywords: ["pane", "vertical"], targets: [.pane],
-                arguments: [CatalogArgument.cwdString.optional]),
+                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional]),
             row("splitUp", String(localized: "action.splitUp", defaultValue: "Split Up", table: "LayoutActions", bundle: .module),
                 .pane, "rectangle.tophalf.inset.filled", cli: "pane split-up", keywords: ["pane", "horizontal"], targets: [.pane],
-                arguments: [CatalogArgument.cwdString.optional]),
+                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional]),
             row("swapPaneLeft", String(localized: "action.swapPaneLeft", defaultValue: "Swap Pane Left", table: "LayoutActions", bundle: .module),
                 .pane, "arrow.left.arrow.right", cli: "pane swap-left", keywords: ["pane", "move"], targets: [.pane]),
             row("swapPaneRight", String(localized: "action.swapPaneRight", defaultValue: "Swap Pane Right", table: "LayoutActions", bundle: .module),

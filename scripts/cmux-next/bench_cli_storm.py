@@ -13,7 +13,9 @@ Teardown: every terminal the bench creates is closed through the app
 holders it can attribute to the app before it starts (cmux-tui terminal
 host processes for `next`, /dev/ptmx descriptors for `legacy`), kills any
 new host still alive after cleanup, and fails if the count is not back to
-the baseline.
+the baseline. Then (`next`, unless --keep-daemon) it ends every terminal of
+the tag's daemon with `shutdown-daemon end_terminals` (daemon_teardown.py)
+and fails if any of its terminal hosts outlives that.
 """
 import argparse
 import json
@@ -26,6 +28,9 @@ import sys
 import threading
 import time
 import zlib
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from daemon_teardown import daemon_env, end_terminals  # noqa: E402
 
 DEADLINE_S = 2.0
 CLIENT_TIMEOUT_S = DEADLINE_S + 3.0
@@ -361,9 +366,7 @@ class LegacyProfile:
 
 
 def daemon_socket(binary, tag):
-    state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")
-    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "CMUX_TUI_STATE_DIR": state}
-    out = run_env([binary, "--session", f"cmux-app-{tag}", "--json", "server", "ensure"], env)
+    out = run_env([binary, "--session", f"cmux-app-{tag}", "--json", "server", "ensure"], daemon_env(tag))
     data = json.loads(out.strip().splitlines()[-1])
     return data.get("socket") or data.get("data", {}).get("socket")
 
@@ -509,6 +512,8 @@ def main():
     parser.add_argument("--out")
     parser.add_argument("--label", default="cli-storm")
     parser.add_argument("--no-fail", action="store_true")
+    parser.add_argument("--keep-daemon", action="store_true",
+                        help="skip the final shutdown-daemon end_terminals teardown (next profile)")
     args = parser.parse_args()
 
     socket_path = args.socket or f"/tmp/cmux-debug-{args.tag}.sock"
@@ -590,6 +595,11 @@ def main():
             except ProcessLookupError:
                 pass
 
+    teardown = None
+    if profile.name == "next" and not args.keep_daemon:
+        teardown = end_terminals(profile.tui_binary, tag)
+        print(f"bench: teardown {json.dumps(teardown)}")
+
     report = summarize(storm.samples)
     lost = sum(n for c in report.values() if "outcomes" in c
                for o, n in c["outcomes"].items() if o == "client_timeout" or o.startswith("connection:"))
@@ -621,6 +631,13 @@ def main():
         failures.append(f"{closed_by_daemon} storm tabs did not close through the app and were closed on the daemon")
     if leaked:
         failures.append(f"{len(leaked)} PTY holders outlived cleanup" + (" (terminal hosts killed)" if profile.name == "next" else ""))
+    if teardown is not None:
+        criteria["teardown_ended_terminals"] = teardown["ended_terminals"]
+        criteria["teardown_hosts_leaked"] = len(teardown["hosts_leaked"])
+        if teardown["error"]:
+            failures.append(f"teardown: {teardown['error']}")
+        if teardown["hosts_leaked"]:
+            failures.append(f"{len(teardown['hosts_leaked'])} terminal hosts outlived shutdown-daemon end_terminals")
     if baseline_rss and after_rss > baseline_rss * 1.10:
         failures.append(f"RSS after {after_rss / 1024:.0f} MB > baseline {baseline_rss / 1024:.0f} MB + 10%")
 

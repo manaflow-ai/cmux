@@ -8,7 +8,7 @@ extension ActionCatalog {
                 title: String(localized: "action.splitRight", defaultValue: "Split Right", bundle: .module),
                 keywords: ["pane", "vertical"], defaultShortcut: Shortcut("d", modifiers: [.command]), category: .pane,
                 symbol: "rectangle.split.2x1", surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                arguments: [CatalogArgument.cwdString.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view
+                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-right", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "newColumn",
@@ -23,7 +23,7 @@ extension ActionCatalog {
                 title: String(localized: "action.splitDown", defaultValue: "Split Down", bundle: .module),
                 keywords: ["pane", "horizontal"], defaultShortcut: Shortcut("d", modifiers: [.command, .shift]),
                 category: .pane, symbol: "rectangle.split.1x2", surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                arguments: [CatalogArgument.cwdString.optional], targets: [.pane], cliName: "pane split-down", mainMenu: .view
+                arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.pane], cliName: "pane split-down", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "newPaneAutoLayout",

@@ -43,18 +43,39 @@ struct BranchDaemonHarness {
         try? FileManager.default.removeItem(at: root)
     }
 
-    /// Ends the daemon and every terminal it owns. Terminal hosts outlive
-    /// `shutdown-daemon` by design (session-owned terminals), and each holds
-    /// a PTY (the Mac allows 511): close every terminal first.
+    /// Ends the daemon and every terminal it owns, detached ones included,
+    /// and checks that no terminal host (one PTY each; the Mac allows 511)
+    /// outlives it. Daemons with `terminal-reap-v1` end them all in
+    /// `shutdown-daemon end_terminals`; older ones get `close-terminal` for
+    /// each terminal still in a tab (detached terminals then leak).
     static func shutDown(_ connection: DaemonConnection) async {
-        if let tree = try? await connection.listWorkspaces() {
-            for tab in tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
-                guard let terminal = tab.terminalID else { continue }
-                _ = try? await connection.closeTerminal(terminal, incarnation: tab.terminalIncarnation)
+        guard let identity = await connection.identity else { return await connection.close() }
+        let hosts = TerminalHosts.of(daemon: identity.pid)
+        if identity.supports(DaemonCapabilities.terminalReap) {
+            // Stop reconnecting first: on the daemon's EOF the connection
+            // would run `server ensure` and start a fresh daemon that outlives
+            // the test. The end-terminals shutdown uses its own socket.
+            await connection.close()
+            do {
+                let reply = try await connection.shutdownDaemon(endTerminals: true)
+                #expect(reply.accepted == true)
+            } catch {
+                Issue.record("shutdown-daemon end_terminals failed: \(error)")
             }
+            let leaked = await TerminalHosts.awaitExit(hosts)
+            #expect(leaked.isEmpty, "terminal hosts outlived shutdown-daemon end_terminals: \(leaked)")
+            let daemon = await TerminalHosts.awaitExit([identity.pid])
+            #expect(daemon.isEmpty, "the daemon outlived shutdown-daemon")
+        } else {
+            if let tree = try? await connection.listWorkspaces() {
+                for tab in tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
+                    guard let terminal = tab.terminalID else { continue }
+                    _ = try? await connection.closeTerminal(terminal, incarnation: tab.terminalIncarnation)
+                }
+            }
+            _ = try? await connection.shutdownDaemon()
+            await connection.close()
         }
-        try? await connection.shutdownDaemon()
-        await connection.close()
     }
 
     /// Runs `body`, then stops the daemon whether or not it threw.

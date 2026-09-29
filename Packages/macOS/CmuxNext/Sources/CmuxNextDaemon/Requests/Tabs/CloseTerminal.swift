@@ -1,6 +1,7 @@
 import Foundation
 
-/// Kills the PTY. Closing a tab/pane/screen never does; only this does.
+/// Kills the PTY at once. Closing a tab/pane/screen only detaches it; with
+/// `terminal-reap-v1` the daemon ends it after the reap grace period unless kept.
 public struct CloseTerminalRequest: DaemonRequest {
     public typealias Response = JSONValue
     public static let command = "close-terminal"

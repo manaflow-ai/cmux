@@ -6,8 +6,10 @@ Usage:
   scripts/cmux-next/cli-compat-e2e.py --socket /tmp/cmux-debug-<tag>.sock \
       --cli "<tagged app>/Contents/Resources/bin/cmux"
 
-Creates its own workspace and closes it at the end. Refuses the default
-socket. Runs every command in a clean environment (no inherited CMUX_*).
+Creates its own workspace and closes it at the end, then (unless
+--keep-daemon) ends every terminal of the tag's daemon with
+`shutdown-daemon end_terminals` and fails if a PTY outlives it. Refuses the
+default socket. Runs every command in a clean environment (no inherited CMUX_*).
 """
 from __future__ import annotations
 
@@ -55,10 +57,26 @@ class Runner:
         return json.loads(proc.stdout or "{}")
 
 
+def teardown(cli: str, socket_path: str) -> tuple[bool, str]:
+    """`shutdown-daemon end_terminals` on the tag's daemon (daemon_teardown.py);
+    fails when a terminal host (PTY) outlives it."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from daemon_teardown import end_terminals
+    name = os.path.basename(socket_path)
+    if not (name.startswith("cmux-debug-") and name.endswith(".sock")):
+        return False, f"cannot derive the tag from {socket_path}"
+    tag = name[len("cmux-debug-"):-len(".sock")]
+    binary = os.path.join(os.path.dirname(cli), "cmux-tui")
+    result = end_terminals(binary, tag)
+    ok = not result["error"] and not result["hosts_leaked"]
+    return ok, json.dumps(result)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--socket", required=True)
     parser.add_argument("--cli", required=True)
+    parser.add_argument("--keep-daemon", action="store_true", help="skip the shutdown-daemon end_terminals teardown")
     args = parser.parse_args()
     if os.path.realpath(args.socket) in {"/tmp/cmux-debug.sock", "/private/tmp/cmux-debug.sock"}:
         print("refusing the default socket", file=sys.stderr)
@@ -121,6 +139,10 @@ def main() -> int:
     r.check("browser url", ["browser", bref, "url"], lambda o: o.startswith("about:"))
     r.check("unsupported is typed", ["trigger-flash", "--workspace", ws], lambda o: "unsupported in cmux-next" in o, expect_fail=True)
     r.check("close-workspace", ["close-workspace", "--workspace", ws], lambda o: o.startswith("OK"))
+    if not args.keep_daemon:
+        ok, detail = teardown(args.cli, args.socket)
+        r.results.append(("teardown end_terminals", ok, detail))
+        print(f"{'PASS' if ok else 'FAIL'} teardown end_terminals: {detail}")
 
     passed = sum(1 for _, ok, _ in r.results if ok)
     print(f"\n{passed}/{len(r.results)} passed")

@@ -12,11 +12,13 @@ enum TabLifecycle {
     static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard let pane = ctx.daemonPane(invocation) else { return }
         let cwd = invocation["cwd"]?.stringValue
-        if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd) }
+        // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
+        let keep = invocation["keep"]?.boolValue == true ? true : nil
+        if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd, keep: keep) }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
-        ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace)) }
+        ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)) }
     }
 
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
@@ -52,13 +54,8 @@ enum TabLifecycle {
         }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) { return controller.close([StripTabID(tab.id)]) }
-        if tab.kind == .pty, let terminal = tab.terminalID {
-            let incarnation = tab.terminalIncarnation
-            ctx.send("close-terminal") { try await $0.closeTerminal(terminal, incarnation: incarnation) }
-        } else {
-            let surface = tab.surface
-            ctx.send("close-surface") { try await $0.closeTab(surface) }
-        }
+        let command = ctx.services.daemon(for: pane).closeCommand(for: tab)
+        ctx.send(command.label, command.run)
     }
 
     /// The explicitly targeted tab when no window shows it (rename and pin

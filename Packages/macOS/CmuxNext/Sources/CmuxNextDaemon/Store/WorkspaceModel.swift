@@ -7,6 +7,8 @@ public final class WorkspaceModel: Identifiable {
     public let id: String
     public internal(set) var key: WorkspaceKey?
     public internal(set) var handle: WorkspaceHandle
+    /// Durable resource id (`ws_…`) on registry daemons.
+    public internal(set) var resourceID: ResourceID?
     public internal(set) var name: String
     public internal(set) var screens: [ScreenModel]
     public internal(set) var group: WorkspaceGroupID?
@@ -33,6 +35,7 @@ public final class WorkspaceModel: Identifiable {
         id = Self.identity(s)
         key = s.key
         handle = s.id
+        resourceID = s.resourceID
         name = s.name
         screens = s.screens.map(ScreenModel.init)
         group = s.group
@@ -48,6 +51,7 @@ public final class WorkspaceModel: Identifiable {
 
     func update(_ s: WorkspaceSnapshot) {
         if key != s.key { key = s.key }
+        if resourceID != s.resourceID { resourceID = s.resourceID }
         if handle != s.id { handle = s.id }
         if name != s.name { name = s.name }
         if group != s.group { group = s.group }
