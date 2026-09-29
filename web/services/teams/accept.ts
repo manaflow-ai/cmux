@@ -13,6 +13,7 @@ import {
   type TeamStackApp,
 } from "./stack";
 import type { TeamRole } from "./types";
+import { memberAllowedAtUse, ownerPlanIdFromMetadata, TeamUpgradeRequiredError } from "./entitlementPolicy";
 
 export type AcceptDependencies = {
   readonly stack?: TeamStackApp;
@@ -68,6 +69,11 @@ export async function acceptTeamInvitationCode(
   ]);
   if (!members.some((member) => member.id === userId)) {
     throw new TeamServiceUnavailableError("accepted invitation did not add the member");
+  }
+  const memberIndex = Math.max(0, members.length - 2);
+  if (!memberAllowedAtUse({ ownerPlanId: ownerPlanIdFromMetadata(team.clientReadOnlyMetadata), memberIndex })) {
+    await withStackDeadline(() => team.removeUser(userId));
+    throw new TeamUpgradeRequiredError();
   }
   const consumedEmail = consumedInvitationEmail(before, after);
   const role = await applyStoredRole({ store, team, user, consumedEmail, remaining: after });

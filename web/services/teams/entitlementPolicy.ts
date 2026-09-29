@@ -1,9 +1,7 @@
-import { PRO_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
-
 export type TeamEntitlementConfig = { readonly inviteeLimit: number | null; readonly upgradePlanId: string };
 export const TEAM_ENTITLEMENTS: Readonly<Record<string, TeamEntitlementConfig>> = {
-  [PRO_PLAN_ID]: { inviteeLimit: 3, upgradePlanId: TEAM_PLAN_ID },
-  [TEAM_PLAN_ID]: { inviteeLimit: null, upgradePlanId: TEAM_PLAN_ID },
+  ["pro"]: { inviteeLimit: 3, upgradePlanId: "team" },
+  ["team"]: { inviteeLimit: null, upgradePlanId: "team" },
 };
 export class TeamUpgradeRequiredError extends Error {
   readonly code = "upgrade_required" as const; readonly status = 402 as const;
