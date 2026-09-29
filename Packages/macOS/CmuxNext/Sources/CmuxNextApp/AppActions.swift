@@ -23,7 +23,10 @@ enum AppActions {
 
     private static func bindApp(_ services: AppServices) {
         let registry = services.registry
-        registry.bind("quit") { NSApp.terminate(nil) }
+        // Terminate from a run-loop callout, not from inside the caller's
+        // main-queue job (control socket, palette): terminateLater spins a
+        // nested run loop, and the save Task could never get the main queue.
+        registry.bind("quit") { RunLoop.main.perform(inModes: [.common]) { NSApp.terminate(nil) } }
         registry.bind("newWindow") { services.windows.newWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
             services.windows.active?.window?.performClose(nil)
