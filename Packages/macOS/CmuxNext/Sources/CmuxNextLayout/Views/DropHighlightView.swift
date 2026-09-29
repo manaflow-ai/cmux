@@ -10,9 +10,9 @@ final class DropHighlightView: NSView {
 
     override init(frame frameRect: NSRect) {
         let content = NSView()
-        glass = Glass.makePanel(content: content, style: .clear, cornerRadius: 10)
+        glass = Glass.makePanel(content: content, style: .clear, cornerRadius: Metrics.panelCornerRadius)
         super.init(frame: frameRect)
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = Typography.bodyEmphasized
         label.textColor = Palette.textPrimary
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -25,7 +25,7 @@ final class DropHighlightView: NSView {
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
             label.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             label.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: 6),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: Metrics.space3),
         ])
         isHidden = true
         alphaValue = 0
@@ -40,9 +40,12 @@ final class DropHighlightView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// Moves the highlight to `rect` (superview coordinates). Returns true if
-    /// an animation frame is needed.
-    func show(_ rect: CGRect, text: String, animated: Bool) -> Bool {
-        let rect = rect.insetBy(dx: 4, dy: 4)
+    /// an animation frame is needed. Design tokens are re-read on every call
+    /// so a density change applies to the next drag without a rebuild.
+    func show(_ rect: CGRect, text: String, cornerRadius: CGFloat, animated: Bool) -> Bool {
+        let rect = rect.insetBy(dx: Metrics.space2, dy: Metrics.space2)
+        glass.cornerRadius = cornerRadius
+        label.font = Typography.bodyEmphasized
         label.stringValue = text
         label.isHidden = text.isEmpty || rect.width < 90
         if !isShowing {

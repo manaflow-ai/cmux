@@ -23,7 +23,19 @@ public final class LayoutModel {
     public var dimsInactivePanes = false
     /// How focus changes scroll columns into view.
     public var columnRevealMode: ColumnRevealMode = .minimal
-    public var style = LayoutStyle()
+    /// Layout knobs that are not design tokens (minimum pane extent, drop
+    /// zones, dimming). Its token fields are ignored while
+    /// `followsDesignMetrics` is on.
+    public var baseStyle = LayoutStyle()
+    /// Takes column gap, divider, and corner radius from the live `Metrics`
+    /// (density and cmux.json overrides). Turn off to pin `baseStyle` exactly.
+    public var followsDesignMetrics = true
+    /// The resolved style the views lay out with. Observation-tracked on both
+    /// this model and `DesignSettings.shared`, so a density or metric override
+    /// change relayouts every screen live.
+    public var style: LayoutStyle {
+        followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
+    }
 
     /// Panes whose frame currently intersects the visible viewport of the
     /// active screen. Hosted views stay alive while not visible; use this to
