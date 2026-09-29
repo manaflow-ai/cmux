@@ -6,8 +6,11 @@
 #   2. `cmux --help` exits 0 and lists core commands (it trapped on a missing
 #      SwiftPM resource bundle before bundle-cli-resources.sh existed).
 #   3. CLI localization: for every .lproj in the app, `AppleLanguages=(<lang>)
-#      cmux --help` prints that language's value of cli.help.topic.start,
-#      read from the compiled Localizable.strings of the same bundle.
+#      cmux --help` prints that language's values of cli.help.topic.start and
+#      cli.usage.targets.heading (the help body), read from the compiled
+#      Localizable.strings of the same bundle; `cmux canvas` prints that
+#      language's cli.removed.error prefix; and `LANG=de_DE.UTF-8 cmux canvas`
+#      (the POSIX locale, no AppleLanguages) prints the German one.
 #   4. `cmux action list --json` against the tagged app's socket returns
 #      actions. When no app answers on /tmp/cmux-debug-<tag>.sock, the script
 #      launches the tagged app in the background (clean environment,
@@ -26,7 +29,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag) tag="${2:?--tag needs a value}"; shift 2 ;;
     --app) app="${2:?--app needs a value}"; shift 2 ;;
-    -h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "error: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -98,6 +101,15 @@ echo "ok: --help"
 
 step="CLI localization"
 key="cli.help.topic.start"
+# compiled_value <lproj> <key>: that key's value in the .lproj's CLI table.
+compiled_value() {
+  plutil -convert json -o - "$1/Localizable.strings" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$2" 2>/dev/null
+}
+# The text before the first placeholder of cli.removed.error.
+removed_prefix() {
+  compiled_value "$1" cli.removed.error | python3 -c 'import sys; print(sys.stdin.read().split("%")[0].strip())'
+}
 langs=()
 for lproj in "$app/Contents/Resources/en.lproj" "$app/Contents/Resources/"*.lproj; do
   [[ "$lproj" == */en.lproj && " ${langs[*]:-} " == *" en "* ]] && continue
@@ -114,10 +126,21 @@ for lproj in "$app/Contents/Resources/en.lproj" "$app/Contents/Resources/"*.lpro
   fi
   out="$(cli env AppleLanguages="($lang)" "$cli_path" --help)"
   grep -Fq "  $expected:" <<<"$out" || fail "AppleLanguages=($lang) --help lacks '$expected'"
+  heading="$(compiled_value "$lproj" cli.usage.targets.heading)" || fail "$lang.lproj has no cli.usage.targets.heading"
+  grep -Fxq "$heading" <<<"$out" || fail "AppleLanguages=($lang) --help body lacks '$heading'"
+  prefix="$(removed_prefix "$lproj")" || fail "$lang.lproj has no cli.removed.error"
+  removed="$(cli env AppleLanguages="($lang)" "$cli_path" canvas 2>&1 || true)"
+  grep -Fq "$prefix" <<<"$removed" || fail "AppleLanguages=($lang) cmux canvas printed '$removed', expected '$prefix'"
   langs+=("$lang")
 done
 (( ${#langs[@]} >= 21 )) || fail "only ${#langs[@]} localizations bundled (${langs[*]}), expected 21"
 echo "ok: --help localized in ${#langs[@]} languages (${langs[*]})"
+
+step="POSIX locale"
+german="$(removed_prefix "$app/Contents/Resources/de.lproj")"
+removed="$(cli env LANG=de_DE.UTF-8 "$cli_path" canvas 2>&1 || true)"
+grep -Fq "$german" <<<"$removed" || fail "LANG=de_DE.UTF-8 cmux canvas printed '$removed', expected '$german'"
+echo "ok: LANG=de_DE.UTF-8 cmux canvas: $removed"
 
 step="cmux action list"
 if ! cli "$cli_path" --socket "$socket" ping >/dev/null 2>&1; then

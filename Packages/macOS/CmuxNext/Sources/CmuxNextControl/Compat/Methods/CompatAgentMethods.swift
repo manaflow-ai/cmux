@@ -11,12 +11,12 @@ enum CompatAgentMethods {
 
     static func resolveDeliveryTarget(_ call: CompatCall) async throws -> JSON {
         guard call.string("surface_id") != nil else {
-            throw ControlError(code: "not_found", message: "No live delivery target",
+            throw ControlError(code: "not_found", message: ControlStrings.text("control.error.noDeliveryTarget", "No live delivery target"),
                                data: ["reason": "cmux-next resolves delivery targets by surface_id only"])
         }
         let world = try await call.world()
         guard let surface = try? call.target(world).surface() else {
-            throw ControlError(code: "not_found", message: "No live delivery target")
+            throw ControlError(code: "not_found", message: ControlStrings.text("control.error.noDeliveryTarget", "No live delivery target"))
         }
         let workspace = world.workspace(surface.workspaceUUID)
         return ["source": "surface", "workspace_id": workspace.map { .string($0.uuid) } ?? .null,

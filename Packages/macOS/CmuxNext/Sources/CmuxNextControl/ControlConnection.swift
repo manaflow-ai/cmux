@@ -141,7 +141,7 @@ final class ControlConnection: @unchecked Sendable {
                 inbound.append(chunk, count: count)
                 emitLines()
                 if inbound.count > limits.maxLineBytes, inbound.firstIndex(of: 0x0A) == nil {
-                    let error = ControlError(code: "request_too_large", message: "Request line exceeds \(limits.maxLineBytes) bytes")
+                    let error = ControlError(code: "request_too_large", message: ControlStrings.format("control.error.requestTooLarge", "Request line exceeds %lld bytes", limits.maxLineBytes))
                     outbox.append(Data((ControlWire.encode(id: nil, error: error) + "\n").utf8))
                     flush()
                     finishInput()

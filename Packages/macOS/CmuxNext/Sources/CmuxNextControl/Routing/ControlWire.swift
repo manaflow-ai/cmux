@@ -34,13 +34,13 @@ public struct ControlError: Error, Sendable, Hashable {
     /// The request's deadline passed before it was answered. A main-actor
     /// request that times out while still queued never runs.
     public static func timeout(_ method: String, after duration: Duration) -> ControlError {
-        ControlError(code: "timeout", message: "\(method) did not finish within \(duration.formattedMilliseconds)",
+        ControlError(code: "timeout", message: ControlStrings.format("control.error.timeout", "%1$@ did not finish within %2$@", method, duration.formattedMilliseconds),
                      data: ["method": .string(method), "deadline_ms": JSONValue(duration.wholeMilliseconds)])
     }
 
     /// The main-actor work queue is full. The request did not run; retry later.
     public static func busy(pending: Int, limit: Int) -> ControlError {
-        ControlError(code: "busy", message: "cmux is busy (\(pending) queued requests, limit \(limit)); retry later",
+        ControlError(code: "busy", message: ControlStrings.format("control.error.busy", "cmux is busy (%1$lld queued requests, limit %2$lld); retry later", pending, limit),
                      data: ["pending": JSONValue(pending), "limit": JSONValue(limit)])
     }
 }
@@ -49,14 +49,14 @@ public struct ControlError: Error, Sendable, Hashable {
 enum ControlWire {
     static func decode(_ line: String) -> Result<ControlRequest, ControlError> {
         guard let value = try? JSONValue.parse(Data(line.utf8)) else {
-            return .failure(ControlError(code: "parse_error", message: "Invalid JSON"))
+            return .failure(ControlError(code: "parse_error", message: ControlStrings.text("control.error.invalidJSON", "Invalid JSON")))
         }
         guard case .object(let members) = value else {
-            return .failure(ControlError(code: "invalid_request", message: "Expected JSON object"))
+            return .failure(ControlError(code: "invalid_request", message: ControlStrings.text("control.error.expectedJSONObject", "Expected JSON object")))
         }
         let method = members["method"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
         guard !method.isEmpty else {
-            return .failure(ControlError(code: "invalid_request", message: "Missing method"))
+            return .failure(ControlError(code: "invalid_request", message: ControlStrings.text("control.error.missingMethod", "Missing method")))
         }
         return .success(ControlRequest(id: members["id"], method: method, params: members["params"]?.objectValue ?? [:]))
     }

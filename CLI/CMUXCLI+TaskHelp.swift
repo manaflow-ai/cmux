@@ -143,44 +143,45 @@ extension CMUXCLI {
                 return "  \(topic.title):\n\(commands)"
             }
             .joined(separator: "\n\n")
+        func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
+            String(localized: key, defaultValue: value, bundle: .cmuxCLI)
+        }
         return """
-        cmux - control cmux via Unix socket
+        \(text("cli.usage.title", "cmux - control cmux via Unix socket"))
 
-        Usage:
-          cmux <path>                Open a directory in a new workspace (launches cmux if needed)
+        \(text("cli.guide.usage", "Usage:"))
+          cmux <path>                \(text("cli.usage.openPath", "Open a directory in a new workspace (launches cmux if needed)"))
           cmux [global-options] <command> [options]
 
-        Targets:
-          Commands that accept a window, workspace, pane, or surface take a UUID, a short ref (window:1/workspace:2/pane:3/surface:4), or an index.
-          `tab-action` also accepts `tab:<n>` in addition to `surface:<n>`.
-          Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
+        \(text("cli.usage.targets.heading", "Targets:"))
+          \(text("cli.usage.targets.handles", "Commands that accept a window, workspace, pane, or surface take a UUID, a short ref (window:1/workspace:2/pane:3/surface:4), or an index."))
+          \(text("cli.usage.targets.tabRef", "`tab-action` also accepts `tab:<n>` in addition to `surface:<n>`."))
+          \(text("cli.usage.targets.idFormat", "Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs."))
 
-        Socket Auth:
-          --password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings.
+        \(text("cli.usage.socketAuth.heading", "Socket Auth:"))
+          \(text("cli.usage.socketAuth.precedence", "--password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings."))
 
-        Agent Help:
+        \(text("cli.usage.agentHelp.heading", "Agent Help:"))
           cmux guide | cmux --skill
           cmux cloud guide | cmux cloud --skill
-          Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`.
-          Before editing, back up any existing cmux.json file to a timestamped .bak copy.
-          Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports.
-          Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.).
-          `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
+          \(text("cli.usage.agentHelp.settings", "Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`."))
+          \(text("cli.usage.agentHelp.backup", "Before editing, back up any existing cmux.json file to a timestamped .bak copy."))
+          \(text("cli.usage.agentHelp.curl", "Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports."))
+          \(text("cli.usage.agentHelp.ghosttyConfig", "Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.)."))
+          \(text("cli.usage.agentHelp.reloadConfig", "`cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed."))
 
-        \(String(localized: "cli.help.taskHelp.heading", defaultValue: "Task Help:", bundle: .cmuxCLI))
+        \(text("cli.help.taskHelp.heading", "Task Help:"))
           cmux help <\(Self.taskHelpTopicNames)>
-          \(String(localized: "cli.help.taskHelp.description", defaultValue: "Show one command group without connecting to the cmux socket.", bundle: .cmuxCLI))
+          \(text("cli.help.taskHelp.description", "Show one command group without connecting to the cmux socket."))
 
-        Commands:
+        \(text("cli.usage.commands.heading", "Commands:"))
         \(commandGroups)
 
-        Environment:
-          CMUX_WORKSPACE_ID   Auto-set in cmux terminals. Used as default --workspace for
-                              ALL commands (send, list-panels, new-split, notify, etc.).
-          CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
-          CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
-          CMUX_SOCKET_PATH    Override the Unix socket path. Without this, the CLI defaults
-                              to ~/.local/state/cmux/cmux.sock and auto-discovers tagged/debug sockets.
+        \(text("cli.usage.environment.heading", "Environment:"))
+          CMUX_WORKSPACE_ID   \(text("cli.usage.environment.workspaceID", "Auto-set in cmux terminals. Used as default --workspace for ALL commands (send, list-panels, new-split, notify, etc.)."))
+          CMUX_TAB_ID         \(text("cli.usage.environment.tabID", "Optional alias used by `tab-action`/`rename-tab` as default --tab."))
+          CMUX_SURFACE_ID     \(text("cli.usage.environment.surfaceID", "Auto-set in cmux terminals. Used as default --surface."))
+          CMUX_SOCKET_PATH    \(text("cli.usage.environment.socketPath", "Override the Unix socket path. Without this, the CLI defaults to ~/.local/state/cmux/cmux.sock and auto-discovers tagged/debug sockets."))
         """
     }
 

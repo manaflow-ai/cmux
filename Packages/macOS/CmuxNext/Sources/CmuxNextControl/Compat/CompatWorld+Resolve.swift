@@ -10,7 +10,7 @@ extension CompatWorld {
         let text = raw.trimmingCharacters(in: .whitespaces)
         if let uuid = CompatUUID.canonical(text), let found = windows.first(where: { $0.uuid == uuid }) { return found }
         if let (kind, number) = CompatRefRegistry.parse(text) {
-            guard kind == .window else { throw CompatErrors.invalid("expected a window handle, got \(text)") }
+            guard kind == .window else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedWindowHandle", "expected a window handle, got %@", text)) }
             if let uuid = refs.uuid(.window, number: number), let found = window(uuid) { return found }
         } else if let index = Int(text), let found = windows.first(where: { $0.index == index }) {
             return found
@@ -24,7 +24,7 @@ extension CompatWorld {
         let text = raw.trimmingCharacters(in: .whitespaces)
         if let uuid = CompatUUID.canonical(text), let found = workspace(uuid) { return found }
         if let (kind, number) = CompatRefRegistry.parse(text) {
-            guard kind == .workspace else { throw CompatErrors.invalid("expected a workspace handle, got \(text)") }
+            guard kind == .workspace else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedWorkspaceHandle", "expected a workspace handle, got %@", text)) }
             if let uuid = refs.uuid(.workspace, number: number), let found = workspace(uuid) { return found }
         } else if let index = Int(text), let found = workspaces.first(where: { $0.index == index }) {
             return found
@@ -38,7 +38,7 @@ extension CompatWorld {
         let text = raw.trimmingCharacters(in: .whitespaces)
         if let uuid = CompatUUID.canonical(text), let found = panes[uuid] { return found }
         if let (kind, number) = CompatRefRegistry.parse(text) {
-            guard kind == .pane else { throw CompatErrors.invalid("expected a pane handle, got \(text)") }
+            guard kind == .pane else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedPaneHandle", "expected a pane handle, got %@", text)) }
             if let uuid = refs.uuid(.pane, number: number), let found = panes[uuid] { return found }
         } else if let index = Int(text) {
             let candidates = scope.map(orderedPanes(in:)) ?? []
@@ -57,7 +57,7 @@ extension CompatWorld {
             if let found = surfaces.values.first(where: { $0.tab.terminalID == hex }) { return found }
         }
         if let (kind, number) = CompatRefRegistry.parse(text) {
-            guard kind == .surface else { throw CompatErrors.invalid("expected a surface handle, got \(text)") }
+            guard kind == .surface else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedSurfaceHandle", "expected a surface handle, got %@", text)) }
             if let uuid = refs.uuid(.surface, number: number), let found = surfaces[uuid] { return found }
         } else if let index = Int(text) {
             let candidates = scope.map(orderedSurfaces(in:)) ?? []

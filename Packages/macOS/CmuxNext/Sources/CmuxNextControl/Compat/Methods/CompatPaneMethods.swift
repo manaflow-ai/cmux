@@ -35,7 +35,7 @@ enum CompatPaneMethods {
 
     static func focus(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
-        guard call.string("pane_id") != nil else { throw CompatErrors.invalid("Missing or invalid pane_id") }
+        guard call.string("pane_id") != nil else { throw CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", "pane_id")) }
         let target = call.target(world)
         let pane = try target.pane()
         guard let workspace = world.workspace(pane.workspaceUUID) else { throw CompatErrors.notFound("workspace", pane.workspaceUUID) }
@@ -47,7 +47,7 @@ enum CompatPaneMethods {
     /// New pane beside the source surface's pane (default: focused).
     static func create(_ call: CompatCall) async throws -> JSON {
         if call.string("placement")?.lowercased() == "dock" {
-            throw CompatErrors.unsupported("dock panes do not exist in cmux-next", method: call.method)
+            throw CompatErrors.unsupported(ControlStrings.text("control.error.noDockPanes", "dock panes do not exist in cmux-next"), method: call.method)
         }
         let world = try await call.world()
         let kind = try CompatCreate.kind(call)

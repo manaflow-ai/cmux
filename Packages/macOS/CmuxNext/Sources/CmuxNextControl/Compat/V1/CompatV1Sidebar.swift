@@ -52,10 +52,10 @@ enum CompatV1Sidebar {
     static func workspace(_ line: CompatV1Line, _ service: CompatService) async throws -> CompatWorld.Workspace {
         let world = try await service.world()
         if let tab = line.option("tab") ?? line.option("workspace") {
-            guard let found = try? world.resolveWorkspace(tab, refs: service.refs) else { throw CompatErrors.invalid("Tab not found") }
+            guard let found = try? world.resolveWorkspace(tab, refs: service.refs) else { throw CompatErrors.invalid(ControlStrings.text("control.error.tabNotFound", "Tab not found")) }
             return found
         }
-        guard let current = world.currentWorkspace(window: world.activeWindow) else { throw CompatErrors.invalid("No tab selected") }
+        guard let current = world.currentWorkspace(window: world.activeWindow) else { throw CompatErrors.invalid(ControlStrings.text("control.error.noTabSelected", "No tab selected")) }
         return current
     }
 

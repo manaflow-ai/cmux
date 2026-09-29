@@ -16,7 +16,7 @@ enum CompatTerminalMethods {
         let world = try await call.world()
         let target = call.target(world)
         let surface = try target.surface()
-        guard surface.isTerminal else { throw CompatErrors.invalid("Surface is not a terminal") }
+        guard surface.isTerminal else { throw CompatErrors.invalid(ControlStrings.text("control.error.surfaceNotTerminal", "Surface is not a terminal")) }
         return (world, surface, target)
     }
 
@@ -27,7 +27,7 @@ enum CompatTerminalMethods {
     static func sendText(_ call: CompatCall) async throws -> JSON { try await sendText(call, paste: false) }
 
     static func sendText(_ call: CompatCall, paste: Bool) async throws -> JSON {
-        guard let text = call.params["text"]?.stringValue else { throw CompatErrors.invalid("Missing text") }
+        guard let text = call.params["text"]?.stringValue else { throw CompatErrors.invalid(ControlStrings.text("control.error.missingText", "Missing text")) }
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle
         try await call.service.daemon("send") { try await $0.send(handle, text: text, paste: paste) }
@@ -42,9 +42,9 @@ enum CompatTerminalMethods {
     }
 
     static func sendKey(_ call: CompatCall) async throws -> JSON {
-        guard let raw = call.string("key"), !raw.isEmpty else { throw CompatErrors.invalid("Missing key") }
+        guard let raw = call.string("key"), !raw.isEmpty else { throw CompatErrors.invalid(ControlStrings.text("control.error.missingKey", "Missing key")) }
         guard let chord = CompatKeys.chord(raw) else {
-            throw ControlError(code: "invalid_params", message: "Unknown key", data: ["key": .string(raw)])
+            throw ControlError(code: "invalid_params", message: ControlStrings.text("control.error.unknownKey", "Unknown key"), data: ["key": .string(raw)])
         }
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle
@@ -58,7 +58,7 @@ enum CompatTerminalMethods {
     /// retained history comes first. `lines` keeps the last N lines.
     static func readText(_ call: CompatCall) async throws -> JSON {
         let lines = call.int("lines")
-        if let lines, lines <= 0 { throw CompatErrors.invalid("lines must be greater than 0") }
+        if let lines, lines <= 0 { throw CompatErrors.invalid(ControlStrings.text("control.error.linesPositive", "lines must be greater than 0")) }
         let scrollback = lines != nil || call.bool("scrollback") == true
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle

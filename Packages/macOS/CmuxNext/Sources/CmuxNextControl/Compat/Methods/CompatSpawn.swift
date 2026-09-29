@@ -8,7 +8,7 @@ enum CompatSpawn {
     static func workingDirectory(_ call: CompatCall) throws -> String? {
         for key in ["working_directory", "cwd"] {
             guard let value = call.params[key], !value.isNull else { continue }
-            guard let text = value.stringValue else { throw CompatErrors.invalid("\(key) must be a string") }
+            guard let text = value.stringValue else { throw CompatErrors.invalid(ControlStrings.format("control.error.mustBeString", "%@ must be a string", key)) }
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { continue }
             return (trimmed as NSString).expandingTildeInPath

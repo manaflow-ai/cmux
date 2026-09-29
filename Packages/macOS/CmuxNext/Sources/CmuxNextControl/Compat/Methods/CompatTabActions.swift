@@ -8,7 +8,7 @@ enum CompatTabActions {
 
     static func run(_ call: CompatCall) async throws -> JSON {
         guard let action = call.string("action")?.lowercased().replacingOccurrences(of: "-", with: "_"), !action.isEmpty else {
-            throw CompatErrors.invalid("Missing action")
+            throw CompatErrors.invalid(ControlStrings.text("control.error.missingAction", "Missing action"))
         }
         let world = try await call.world()
         let target = call.target(world)
@@ -19,7 +19,7 @@ enum CompatTabActions {
         switch action {
         case "rename":
             guard let text = call.string("title")?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
-                throw CompatErrors.invalid("Missing or invalid title")
+                throw CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", "title"))
             }
             try await service.runAction("renameTab", target: tab, arguments: ["name": .string(text)], call: call)
             title = .string(text)
@@ -42,7 +42,7 @@ enum CompatTabActions {
         case "move_to_new_workspace":
             try await service.runAction("palette.moveTabToNewWorkspace", target: tab, call: call)
         default:
-            throw CompatErrors.invalid("Unknown tab action \(action)")
+            throw CompatErrors.invalid(ControlStrings.format("control.error.unknownTabAction", "Unknown tab action %@", action))
         }
         let after = (try? await call.world()) ?? world
         let now = after.surfaces[surface.uuid] ?? surface
