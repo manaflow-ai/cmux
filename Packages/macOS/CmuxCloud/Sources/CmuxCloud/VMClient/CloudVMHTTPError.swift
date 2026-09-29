@@ -11,8 +11,14 @@ public struct CloudVMHTTPError: Error, Equatable, Sendable {
     public init(status: Int, body: String) {
         self.status = status
         let object = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
-        self.code = (object?["error"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 } ?? "http_\(status)"
+        if let rawCode = object?["error"] as? String {
+            let trimmedCode = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedCode.isEmpty {
+                self.code = trimmedCode
+                return
+            }
+        }
+        self.code = "http_\(status)"
     }
 
     /// Whether the server conclusively says that this machine no longer exists.
