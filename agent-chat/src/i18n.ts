@@ -29,7 +29,9 @@ export type AgentChatTextKey =
   | "continueElsewhere"
   | "transcriptViewRunning"
   | "transcriptViewIdle"
-  | "answerInTerminal";
+  | "answerInTerminal"
+  | "agentMessageFrom"
+  | "agentMessageQueued";
 
 const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
   en: {
@@ -40,6 +42,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Working in the terminal · Esc to interrupt",
     transcriptViewIdle: "Sends to the agent in this terminal",
     answerInTerminal: "Answer in terminal",
+    agentMessageFrom: "Message from {sender}",
+    agentMessageQueued: "Waiting for the agent to take it",
   },
   ja: {
     continuedNewChat: "新しいチャットで続行しました。以前のコンテキストはリンクされています。",
@@ -49,6 +53,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "ターミナルで作業中 · Esc で中断",
     transcriptViewIdle: "このターミナルのエージェントに送信します",
     answerInTerminal: "ターミナルで回答",
+    agentMessageFrom: "{sender} からのメッセージ",
+    agentMessageQueued: "エージェントが受け取るのを待っています",
   },
   "zh-CN": {
     continuedNewChat: "已在新聊天中继续。之前的上下文已关联。",
@@ -58,6 +64,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "正在终端中工作 · 按 Esc 中断",
     transcriptViewIdle: "发送给此终端中的代理",
     answerInTerminal: "在终端中回答",
+    agentMessageFrom: "来自 {sender} 的消息",
+    agentMessageQueued: "正在等待代理接收",
   },
   "zh-TW": {
     continuedNewChat: "已在新聊天中繼續。先前的內容已連結。",
@@ -67,6 +75,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "正在終端機中工作 · 按 Esc 中斷",
     transcriptViewIdle: "傳送給此終端機中的代理程式",
     answerInTerminal: "在終端機中回答",
+    agentMessageFrom: "來自 {sender} 的訊息",
+    agentMessageQueued: "正在等待代理程式接收",
   },
   ko: {
     continuedNewChat: "새 채팅에서 계속합니다. 이전 컨텍스트가 연결되어 있습니다.",
@@ -76,6 +86,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "터미널에서 작업 중 · Esc로 중단",
     transcriptViewIdle: "이 터미널의 에이전트에게 보냅니다",
     answerInTerminal: "터미널에서 답변",
+    agentMessageFrom: "{sender}의 메시지",
+    agentMessageQueued: "에이전트가 받기를 기다리는 중",
   },
   de: {
     continuedNewChat: "In einem neuen Chat fortgesetzt. Der vorherige Kontext ist verknüpft.",
@@ -85,6 +97,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Arbeitet im Terminal · Esc zum Unterbrechen",
     transcriptViewIdle: "Wird an den Agenten in diesem Terminal gesendet",
     answerInTerminal: "Im Terminal antworten",
+    agentMessageFrom: "Nachricht von {sender}",
+    agentMessageQueued: "Wartet darauf, dass der Agent sie abholt",
   },
   es: {
     continuedNewChat: "Se continuó en un chat nuevo. El contexto anterior está vinculado.",
@@ -94,6 +108,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Trabajando en la terminal · Esc para interrumpir",
     transcriptViewIdle: "Se envía al agente de esta terminal",
     answerInTerminal: "Responder en la terminal",
+    agentMessageFrom: "Mensaje de {sender}",
+    agentMessageQueued: "Esperando a que el agente lo reciba",
   },
   fr: {
     continuedNewChat: "La conversation continue dans un nouveau chat. Le contexte précédent est lié.",
@@ -103,6 +119,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Travaille dans le terminal · Échap pour interrompre",
     transcriptViewIdle: "Envoyé à l’agent de ce terminal",
     answerInTerminal: "Répondre dans le terminal",
+    agentMessageFrom: "Message de {sender}",
+    agentMessageQueued: "En attente de sa prise en charge par l’agent",
   },
   it: {
     continuedNewChat: "Continuazione in una nuova chat. Il contesto precedente è collegato.",
@@ -112,6 +130,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Al lavoro nel terminale · Esc per interrompere",
     transcriptViewIdle: "Inviato all’agente di questo terminale",
     answerInTerminal: "Rispondi nel terminale",
+    agentMessageFrom: "Messaggio da {sender}",
+    agentMessageQueued: "In attesa che l’agente lo riceva",
   },
   da: {
     continuedNewChat: "Fortsat i en ny chat. Den tidligere kontekst er knyttet til.",
@@ -121,6 +141,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Arbejder i terminalen · Esc for at afbryde",
     transcriptViewIdle: "Sendes til agenten i denne terminal",
     answerInTerminal: "Svar i terminalen",
+    agentMessageFrom: "Besked fra {sender}",
+    agentMessageQueued: "Venter på, at agenten tager imod den",
   },
   pl: {
     continuedNewChat: "Kontynuowano w nowym czacie. Poprzedni kontekst jest połączony.",
@@ -130,6 +152,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Pracuje w terminalu · Esc, aby przerwać",
     transcriptViewIdle: "Wysyłane do agenta w tym terminalu",
     answerInTerminal: "Odpowiedz w terminalu",
+    agentMessageFrom: "Wiadomość od {sender}",
+    agentMessageQueued: "Czeka, aż agent ją odbierze",
   },
   ru: {
     continuedNewChat: "Продолжено в новом чате. Предыдущий контекст связан.",
@@ -139,6 +163,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Работает в терминале · Esc для прерывания",
     transcriptViewIdle: "Отправляется агенту в этом терминале",
     answerInTerminal: "Ответить в терминале",
+    agentMessageFrom: "Сообщение от {sender}",
+    agentMessageQueued: "Ждёт, пока агент его заберёт",
   },
   bs: {
     continuedNewChat: "Nastavljeno u novom chatu. Prethodni kontekst je povezan.",
@@ -148,6 +174,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Radi u terminalu · Esc za prekid",
     transcriptViewIdle: "Šalje se agentu u ovom terminalu",
     answerInTerminal: "Odgovori u terminalu",
+    agentMessageFrom: "Poruka od {sender}",
+    agentMessageQueued: "Čeka da je agent preuzme",
   },
   ar: {
     continuedNewChat: "تمت المتابعة في محادثة جديدة. السياق السابق مرتبط.",
@@ -157,6 +185,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "يعمل في الطرفية · Esc للمقاطعة",
     transcriptViewIdle: "يُرسل إلى الوكيل في هذه الطرفية",
     answerInTerminal: "أجب في الطرفية",
+    agentMessageFrom: "رسالة من {sender}",
+    agentMessageQueued: "بانتظار أن يستلمها الوكيل",
   },
   no: {
     continuedNewChat: "Fortsatt i en ny chat. Tidligere kontekst er koblet til.",
@@ -166,6 +196,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Jobber i terminalen · Esc for å avbryte",
     transcriptViewIdle: "Sendes til agenten i denne terminalen",
     answerInTerminal: "Svar i terminalen",
+    agentMessageFrom: "Melding fra {sender}",
+    agentMessageQueued: "Venter på at agenten tar imot den",
   },
   "pt-BR": {
     continuedNewChat: "Continuado em um novo chat. O contexto anterior está vinculado.",
@@ -175,6 +207,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Trabalhando no terminal · Esc para interromper",
     transcriptViewIdle: "Enviado ao agente deste terminal",
     answerInTerminal: "Responder no terminal",
+    agentMessageFrom: "Mensagem de {sender}",
+    agentMessageQueued: "Aguardando o agente receber",
   },
   th: {
     continuedNewChat: "ดำเนินการต่อในแชทใหม่แล้ว โดยเชื่อมโยงบริบทก่อนหน้าไว้",
@@ -184,6 +218,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "กำลังทำงานในเทอร์มินัล · กด Esc เพื่อขัดจังหวะ",
     transcriptViewIdle: "ส่งถึงเอเจนต์ในเทอร์มินัลนี้",
     answerInTerminal: "ตอบในเทอร์มินัล",
+    agentMessageFrom: "ข้อความจาก {sender}",
+    agentMessageQueued: "กำลังรอให้เอเจนต์รับข้อความ",
   },
   tr: {
     continuedNewChat: "Yeni bir sohbette devam edildi. Önceki bağlam bağlantılı.",
@@ -193,6 +229,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Terminalde çalışıyor · Kesmek için Esc",
     transcriptViewIdle: "Bu terminaldeki ajana gönderilir",
     answerInTerminal: "Terminalde yanıtla",
+    agentMessageFrom: "{sender} tarafından gönderilen mesaj",
+    agentMessageQueued: "Aracının teslim alması bekleniyor",
   },
   km: {
     continuedNewChat: "បានបន្តនៅក្នុងការជជែកថ្មី។ បរិបទមុនត្រូវបានភ្ជាប់។",
@@ -202,6 +240,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "កំពុងធ្វើការនៅក្នុងទែមីណាល់ · Esc ដើម្បីរំខាន",
     transcriptViewIdle: "ផ្ញើទៅភ្នាក់ងារនៅក្នុងទែមីណាល់នេះ",
     answerInTerminal: "ឆ្លើយនៅក្នុងទែមីណាល់",
+    agentMessageFrom: "សារពី {sender}",
+    agentMessageQueued: "កំពុងរង់ចាំភ្នាក់ងារទទួលយក",
   },
   uk: {
     continuedNewChat: "Продовжено в новому чаті. Попередній контекст пов’язано.",
@@ -211,6 +251,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Працює в терміналі · Esc, щоб перервати",
     transcriptViewIdle: "Надсилається агентові в цьому терміналі",
     answerInTerminal: "Відповісти в терміналі",
+    agentMessageFrom: "Повідомлення від {sender}",
+    agentMessageQueued: "Чекає, доки агент його забере",
   },
 };
 

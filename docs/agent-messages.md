@@ -38,6 +38,8 @@ The relay fix is on main; rebase when free.
 --- end of message 3f2a... ---
 ```
 
+The terminal's chat view (Open terminal as chat) shows each delivered message as "Message from <sender>" in the turn it arrived in. Queued messages show above the composer until the agent takes them. The chat view reads delivered messages from the agent's transcript, so it shows them the same way after a restart.
+
 ## Limits
 
 - Bodies are text only: control characters other than newline and tab are rejected, so no escape sequence can ride along. The limit is 32 KiB.

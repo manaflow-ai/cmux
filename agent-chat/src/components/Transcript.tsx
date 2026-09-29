@@ -665,6 +665,21 @@ function ActivityCaret({ open, visible }: { open: boolean; visible: boolean }) {
   );
 }
 
+/** "Message from <sender>", with the name inserted as written. */
+export function agentMessageLabel(from: string, languages?: readonly string[]): string {
+  return agentChatText("agentMessageFrom", languages).replace("{sender}", () => from);
+}
+
+/** A cmux agent message the agent received, shown with its sender. */
+export function AgentMessageRow({ message }: { message: { from: string; body: string } }) {
+  return (
+    <div className="msg agent-message">
+      <div className="agent-message-from">{agentMessageLabel(message.from)}</div>
+      <div className="body selectable">{message.body}</div>
+    </div>
+  );
+}
+
 function activityBlockHasDetail(block: Block): boolean {
   switch (block.kind) {
     case "tool":
@@ -868,6 +883,7 @@ function TurnGroupView({
   return (
     <div className="turn-group">
       {group.user ? <div className="msg user"><div className="body selectable">{group.user.text}</div></div> : null}
+      {group.messages?.map((message) => <AgentMessageRow key={message.id} message={message} />)}
       {live
         ? group.activity.map((block, i) => (
           block.kind === "thinking" || block.kind === "assistant"
