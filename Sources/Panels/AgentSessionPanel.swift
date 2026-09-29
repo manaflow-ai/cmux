@@ -100,6 +100,18 @@ final class AgentSessionPanel: Panel {
         chatPane?.focusComposer()
     }
 
+    /// Types `text` into the composer; each newline sends the composed message, as Return does.
+    /// This is the `surface.send_text` path for agent chat surfaces.
+    func receiveComposerInput(_ text: String) {
+        if let chatPane {
+            chatPane.receiveComposerInput(text)
+            return
+        }
+        for line in text.split(omittingEmptySubsequences: true, whereSeparator: { $0.isNewline }) {
+            chatModel.send(String(line))
+        }
+    }
+
     func unfocus() {}
 
     func close() {

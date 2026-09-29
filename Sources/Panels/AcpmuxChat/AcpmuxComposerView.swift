@@ -109,6 +109,11 @@ final class AcpmuxComposerView: AcpmuxFlippedView {
         }
     }
 
+    /// Submits the current text, as Return does.
+    func submitCurrentText() {
+        submit()
+    }
+
     private func submit() {
         let text = textView.string
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

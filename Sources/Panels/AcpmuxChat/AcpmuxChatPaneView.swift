@@ -73,6 +73,23 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         window?.makeFirstResponder(composer.textView)
     }
 
+    /// Appends `text` to the composer. Each newline submits, exactly like pressing Return.
+    func receiveComposerInput(_ text: String) {
+        var pending = ""
+        for character in text {
+            if character.isNewline {
+                composer.textView.insertText(pending, replacementRange: NSRange(location: NSNotFound, length: 0))
+                pending = ""
+                composer.submitCurrentText()
+            } else {
+                pending.append(character)
+            }
+        }
+        if !pending.isEmpty {
+            composer.textView.insertText(pending, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+    }
+
     // MARK: - Model observation
 
     private func observeModel() {
