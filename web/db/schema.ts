@@ -1421,6 +1421,9 @@ export const stripeSubscriptions = pgTable(
 export const teamBillingOwners = pgTable("team_billing_owners", {
   stackTeamId: text("stack_team_id").primaryKey(),
   billingOwnerUserId: text("billing_owner_user_id").notNull(),
+  ownerSource: text("owner_source").notNull().default("creator"),
+  memberOrder: jsonb("member_order").$type<string[]>().notNull().default([]),
+  seatReservations: jsonb("seat_reservations").$type<Record<string, { userId?: string; email?: string; expiresAt: string }>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
