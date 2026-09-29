@@ -460,6 +460,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_delta_since_green.py
 
+      - name: Validate the package interface fingerprint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_interface_fingerprint.py
+
       - name: Validate late placement onto idle root runners
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py

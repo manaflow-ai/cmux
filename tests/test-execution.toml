@@ -1467,3 +1467,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_btop_agents_sidebar.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_interface_fingerprint.py"
+lane = "linux-guard"
