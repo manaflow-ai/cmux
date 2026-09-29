@@ -46,7 +46,8 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
                 columns: size.columns,
                 rows: size.rows,
                 bytes: bytes,
-                colors: CloudTuiRemoteColors(json: object["colors"])
+                colors: CloudTuiRemoteColors(json: object["colors"]),
+                pending: Self.bytes(from: object["pending"]) ?? Data()
             )
         case "output":
             guard let bytes = Self.bytes(from: object["data"]) else { return nil }
@@ -61,7 +62,8 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
                 columns: size.columns,
                 rows: size.rows,
                 bytes: bytes,
-                colors: CloudTuiRemoteColors(json: object["colors"])
+                colors: CloudTuiRemoteColors(json: object["colors"]),
+                pending: Self.bytes(from: object["pending"]) ?? Data()
             )
         case "colors-changed":
             // The daemon flattens the colors object into the event itself.

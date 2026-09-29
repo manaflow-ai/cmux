@@ -35,9 +35,18 @@ import Testing
         #expect(diagnostic.isForCmuxOwnedKey)
     }
 
-    @Test func keylessOrLocationlessDiagnosticsHaveNoKey() {
+    @Test func unrelatedKeylessOrLocationlessDiagnosticsHaveNoKey() {
         #expect(GhosttyConfigDiagnostic(message: "/u/config:4: invalid syntax: here").key == nil)
-        #expect(GhosttyConfigDiagnostic(message: "sidebar-font-size: unknown field").key == nil)
+        #expect(GhosttyConfigDiagnostic(message: "font-sise: unknown field").key == nil)
+    }
+
+    @Test func parsesPathlessCmuxOwnedKey() {
+        let diagnostic = GhosttyConfigDiagnostic(message: "sidebar-font-size: unknown field")
+
+        #expect(diagnostic.filePath == nil)
+        #expect(diagnostic.line == nil)
+        #expect(diagnostic.key == "sidebar-font-size")
+        #expect(diagnostic.isForCmuxOwnedKey)
     }
 
     @Test func recognizesCmuxInlineFragments() {
@@ -134,6 +143,16 @@ import Testing
         #expect(policy.decision(forMessages: messages) == .unchanged)
         _ = policy.decision(forMessages: [unknownField])
         #expect(policy.decision(forMessages: messages) == .dismiss)
+    }
+
+    @Test func pathlessCmuxOwnedKeyDiagnosticsShowNoNotice() {
+        var policy = GhosttyConfigDiagnosticsNoticePolicy()
+        let messages = [
+            "sidebar-font-size: unknown field",
+            "surface-tab-bar-font-size: unknown field",
+        ]
+
+        #expect(policy.decision(forMessages: messages) == .unchanged)
     }
 
     @Test func unlistedCountExcludesCmuxOwnedKeys() {
