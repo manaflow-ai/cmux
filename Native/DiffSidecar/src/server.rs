@@ -2324,6 +2324,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn generated_paths_follow_gitattributes_and_lockfiles() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-generated-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(repo.join("dist")).expect("create repo");
+        let run_git = |arguments: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&repo)
+                .args(arguments)
+                .output()
+                .expect("run git");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "cmux tests"]);
+        run_git(&["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(
+            repo.join(".gitattributes"),
+            "dist/** linguist-generated=true\n*.min.js -diff\n",
+        )
+        .expect("write gitattributes");
+        std::fs::write(repo.join("story.txt"), "one\n").expect("write story");
+        std::fs::write(repo.join("dist/bundle.js"), "x\n").expect("write bundle");
+        std::fs::write(repo.join("app.min.js"), "y\n").expect("write min");
+        run_git(&["add", "."]);
+        run_git(&["commit", "-m", "initial"]);
+        std::fs::write(repo.join("story.txt"), "one\ntwo\n").expect("change story");
+        std::fs::write(repo.join("dist/bundle.js"), "xx\n").expect("change bundle");
+        std::fs::write(repo.join("app.min.js"), "yy\n").expect("change min");
+        // Untracked files are part of the unstaged source and get attributes too.
+        std::fs::write(repo.join("dist/untracked.js"), "z\n").expect("write untracked");
+        let source = DiffSource::Unstaged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        };
+
+        let mut generated = git_generated_paths(&source, &repo).await;
+        generated.sort();
+        assert_eq!(
+            generated,
+            vec![
+                "app.min.js".to_owned(),
+                "dist/bundle.js".to_owned(),
+                "dist/untracked.js".to_owned()
+            ]
+        );
+
+        // Staged and branch sources only consult their own changed paths.
+        run_git(&["add", "story.txt"]);
+        let staged = DiffSource::Staged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        };
+        assert!(git_generated_paths(&staged, &repo).await.is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
     async fn git_patch_limit_removes_partial_output() {
         let root = std::env::temp_dir().join(format!(
             "cmux-diff-sidecar-size-limit-{}-{}",
