@@ -65,6 +65,52 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     @Test
+    func closeTabContextActionUsesTheSameGuardedClosePath() throws {
+        try withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            let tabId = fixture.tabIds[2]
+            var promptCount = 0
+            fixture.manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return true
+            }
+            let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+
+            fixture.workspace.splitTabBar(
+                fixture.workspace.bonsplitController,
+                didRequestTabContextAction: .close,
+                for: tab,
+                inPane: fixture.paneId
+            )
+            drainMainQueue()
+            drainMainQueue()
+
+            #expect(promptCount == 1)
+            #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
+        }
+    }
+
+    @Test
+    func activeProcessStillWarnsWhenShortcutWarningIsDisabled() throws {
+        try withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            fixture.manager.closeTabWarningDefaults.set(false, forKey: "warnBeforeClosingTabShortcut")
+            let tabId = fixture.tabIds[2]
+            var promptCount = 0
+            fixture.manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return true
+            }
+            #expect(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: false))
+            drainMainQueue()
+            drainMainQueue()
+
+            #expect(promptCount == 1)
+            #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
+        }
+    }
+
+    @Test
     func sharedCloseHistoryPathRecordsDirectTabActionCloses() throws {
         try withCleanClosedHistory {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()
