@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await settings.waitForLoad(atLeast: 1)
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+                control.registerCloudMethods(services)
                 if let router = control.service?.router { installCompat(on: router) }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
@@ -83,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         control.stop()
         services?.tabBarButtons.stop()
         settings?.stop()
+        services?.mobile.stop()
         services?.daemon.shutdownConnection()
     }
 

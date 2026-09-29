@@ -28,7 +28,21 @@ extension AppServices {
         cloud.start()
         let cloud = cloud!, machines = machines
         return Task { [weak self] in
-            for await _ in Observations({ (cloud.isSignedIn, machines.cloud.count) }) { self?.cloudContextDidChange() }
+            var account: String?
+            for await state in Observations({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
+                guard let self else { return }
+                self.cloudContextDidChange()
+                // Phone access follows the account: start after sign-in,
+                // restart on a user or team switch, stop on sign-out.
+                let current = state.0 ? state.2.flatMap { user in state.3.map { "\(user)/\($0)" } } : nil
+                guard current != account else { continue }
+                account = current
+                if let auth = CloudMobileAuth(auth: cloud.auth) {
+                    self.mobile.start(auth: auth, launch: self.environment.launch, daemon: self.daemon)
+                } else {
+                    self.mobile.stop()
+                }
+            }
         }
     }
 }

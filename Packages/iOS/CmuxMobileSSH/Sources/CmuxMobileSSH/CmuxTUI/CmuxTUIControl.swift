@@ -23,7 +23,7 @@ public actor CmuxTUIControl {
     /// The session name the caller asked for; `nil` when reached through a
     /// hashed socket, whose file name does not carry it.
     private let requestedSession: String?
-    private let channel: SSHSessionChannel
+    private let channel: any CmuxTUICarrier
     private let outbound: AsyncStream<Data>.Continuation
     private var serverInfo: CmuxTUIServerInfo?
     private var nextRequest = 0
@@ -37,7 +37,7 @@ public actor CmuxTUIControl {
     private var closed = false
     private var resourceScope: (machine: String, session: String)?
 
-    private init(channel: SSHSessionChannel, session: String?) {
+    private init(channel: any CmuxTUICarrier, session: String?) {
         self.channel = channel
         self.requestedSession = session
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
@@ -52,8 +52,19 @@ public actor CmuxTUIControl {
         }
     }
 
+    /// Opens a control connection over any line carrier: an SSH relay
+    /// channel, or an irx daemon lane spliced to a paired Mac's daemon.
+    public static func open(
+        carrier: any CmuxTUICarrier,
+        session: String?,
+        clientName: String,
+        handshakeTimeout: Duration
+    ) async throws -> CmuxTUIControl {
+        try await open(channel: carrier, session: session, clientName: clientName, handshakeTimeout: handshakeTimeout)
+    }
+
     static func open(
-        channel: SSHSessionChannel,
+        channel: any CmuxTUICarrier,
         session: String?,
         clientName: String,
         handshakeTimeout: Duration

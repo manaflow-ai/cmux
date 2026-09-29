@@ -1171,8 +1171,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     continue
                 }
                 await tunnelHost.accept(lane)
-            case .control, .events:
-                // control arrives only pre-admission; events is server-opened.
+            case .control, .events, .daemon:
+                // control arrives only pre-admission; events is server-opened;
+                // the daemon lane is served only by cmux-next.
                 await lane.writer.reset(errorCode: 2)
                 await lane.reader.stop(errorCode: 2)
             }

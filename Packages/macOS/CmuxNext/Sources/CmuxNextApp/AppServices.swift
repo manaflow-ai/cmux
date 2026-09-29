@@ -16,6 +16,8 @@ final class AppServices {
     let daemon = DaemonService()
     let machines: MachineRegistry
     private(set) var cloud: CloudService!
+    /// Phone access; started by the account layer once signed in.
+    let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
     /// cmux.json controller; set by `AppDelegate` once it starts.
     var settings: SettingsController?

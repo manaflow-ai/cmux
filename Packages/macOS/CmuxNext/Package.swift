@@ -18,6 +18,7 @@ import PackageDescription
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
+//   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -51,6 +52,12 @@ let package = Package(
         .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
+        .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxIrxTransport"),
+        // Test-only: the shipped iOS app's own RPC decoders verify the compat adapter.
+        .package(path: "../../iOS/CmuxMobileRPC"),
+        // Test-only: the iOS app's cmux-tui client drives the daemon lane end to end.
+        .package(path: "../../iOS/CmuxMobileSSH"),
     ],
     targets: [
         .target(
@@ -69,6 +76,7 @@ let package = Package(
                 "CmuxNextControl",
                 "CmuxNextSettings",
                 "CmuxNextCloud",
+                "CmuxNextMobile",
             ],
             resources: [
                 .process("Resources"),
@@ -220,6 +228,32 @@ let package = Package(
             dependencies: ["CmuxNextApp", "CmuxNextActions"],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
+        ),
+        // Phone access (plans/cmux-next/cloud-ios.md): irx host, the daemon
+        // lane splice, and the mobile.* compat adapter for shipped iOS builds.
+        // No UI; the App wires it to the daemon connection and auth.
+        .target(
+            name: "CmuxNextMobile",
+            dependencies: [
+                "CmuxNextDaemon",
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                .product(name: "CmuxIrxTransport", package: "CmuxIrxTransport"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextMobileTests",
+            dependencies: [
+                "CmuxNextMobile",
+                "CmuxNextDaemon",
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+            ],
+            resources: [
+                .copy("Fixtures"),
+            ],
+            swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
