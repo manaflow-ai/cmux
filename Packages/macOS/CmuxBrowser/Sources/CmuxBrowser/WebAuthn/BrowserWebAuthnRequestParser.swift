@@ -3,11 +3,14 @@ import Foundation
 enum BrowserWebAuthnRequestParser {
     static let maximumKindUTF8Bytes = 64
     static let maximumPayloadJSONUTF8Bytes = 512 * 1024
-    static let maximumInboundBinaryBytes = 1024
+    // WebAuthn sets no challenge maximum; Google's re-authentication sends ~11 KB.
+    static let maximumChallengeBytes = 64 * 1024
+    static let maximumInboundBinaryBytes = maximumChallengeBytes
     static let maximumInboundBase64URLCharacters = ((maximumInboundBinaryBytes + 2) / 3) * 4
-    static let challengeByteRange = 1 ... maximumInboundBinaryBytes
+    static let challengeByteRange = 1 ... maximumChallengeBytes
     static let userIDByteRange = 1 ... 64
-    static let credentialIDByteRange = 1 ... maximumInboundBinaryBytes
+    // WebAuthn caps credential IDs at 1023 bytes.
+    static let credentialIDByteRange = 1 ... 1023
     static let maximumCredentialDescriptors = 128
     static let maximumCredentialTransports = 8
     static let maximumCredentialParameters = 32
