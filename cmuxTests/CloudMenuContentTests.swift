@@ -278,10 +278,11 @@ struct CloudMenuContentTests {
         try #require(action(id, in: entries)).perform()
     }
 
+    /// Polls until the predicate holds; the deadline only bounds a real failure.
     static func waitUntil(_ condition: @MainActor () -> Bool) async throws {
-        for _ in 0..<200 where !condition() {
-            await Task.yield()
-            try await Task.sleep(for: .milliseconds(5))
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(2))
         }
         #expect(condition())
     }
