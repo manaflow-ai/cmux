@@ -194,6 +194,51 @@ struct MobileHostConnectionEventQueueTests {
         #expect(queue.dequeue(lane: .surface("SURFACE")) == nil)
     }
 
+    @Test("Surface lane generation and poison use one canonical identity")
+    func surfaceLaneStateCanonicalizesFocusAndRenderKeys() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        _ = queue.focusSurfaceLane("  ABC  ")
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "abc",
+            isFullRenderGridFrame: true,
+            frame: Data([1])
+        ).drainLane == .surface("abc"))
+        _ = queue.dequeue(lane: .surface("abc"))
+
+        let released = queue.focusSurfaceLane("other")
+        #expect(released["abc"] == 1)
+        #expect(queue.surfaceLaneGeneration(surfaceID: " ABC ") == 1)
+
+        // The eviction poison must catch another spelling of the same ID.
+        let staleDelta = queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: " ABC ",
+            isFullRenderGridFrame: false,
+            frame: Data([2])
+        )
+        #expect(!staleDelta.admitted)
+        #expect(staleDelta.renderGridResyncSurfaceIDs.isEmpty)
+
+        // A full frame on the shared route rebases the canonical chain.
+        let full = queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "abc",
+            isFullRenderGridFrame: true,
+            frame: Data([3])
+        )
+        #expect(full.admitted)
+        #expect(full.drainLane == .shared)
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: " ABC ",
+            isFullRenderGridFrame: false,
+            frame: Data([4])
+        ).admitted)
+    }
+
     @Test("A lane that stays backlogged keeps its order storage bounded")
     func backloggedLaneOrderStaysBounded() {
         let queue = MobileHostConnectionEventQueue(maximumEventCount: 1_000, maximumByteCount: 1_000_000)

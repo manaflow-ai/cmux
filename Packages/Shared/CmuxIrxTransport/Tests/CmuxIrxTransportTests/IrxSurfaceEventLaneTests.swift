@@ -9,7 +9,7 @@ import Testing
 /// releases it, like a QUIC stream out of flow credit. Like iroh-ffi, every
 /// other call on the stream (priority, finish, reset) waits for an in-flight
 /// write to finish, because the native stream sits behind one lock.
-private actor FakeEventLaneWriter: IrxEventLaneWriting {
+actor FakeEventLaneWriter: IrxEventLaneWriting {
     let descriptor: IrxLaneDescriptor
     private let blocked: Bool
     private var blocksNextPriority: Bool
@@ -83,7 +83,7 @@ private actor FakeEventLaneWriter: IrxEventLaneWriting {
     }
 }
 
-private actor FakeLaneOpener {
+actor FakeLaneOpener {
     private(set) var opened: [FakeEventLaneWriter] = []
     var blockedSurfaces: Set<String> = []
     var blockedPrioritySurfaces: Set<String> = []
@@ -112,7 +112,7 @@ private actor FakeLaneOpener {
 
 /// Keeps every open pending, like a native uni-stream open waiting for the
 /// phone to grant more stream credit.
-private actor PendingLaneOpener {
+actor PendingLaneOpener {
     private var pending: [CheckedContinuation<Void, Never>] = []
     private(set) var openCount = 0
     private(set) var opened: [FakeEventLaneWriter] = []
@@ -144,12 +144,12 @@ private actor SendOutcomes {
     }
 }
 
-private enum SurfaceLaneSendOutcome: Equatable {
+enum SurfaceLaneSendOutcome: Equatable {
     case completed
     case failed(IrxSurfaceEventLanes.LaneError)
 }
 
-private func frame(_ text: String) -> Data {
+func frame(_ text: String) -> Data {
     var length = UInt32(text.utf8.count).bigEndian
     var data = Data(bytes: &length, count: 4)
     data.append(Data(text.utf8))
@@ -168,7 +168,7 @@ private func decodeFrames(_ data: Data) -> [String] {
     return result
 }
 
-private func waitUntil(
+func waitUntil(
     _ condition: @escaping @Sendable () async -> Bool
 ) async throws -> Bool {
     let reached = try await withIrxDeadline(.seconds(2), onTimeout: {}) {
