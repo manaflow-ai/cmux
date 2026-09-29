@@ -747,6 +747,12 @@ import SwiftUI
             windowId = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
+            // Surface split behavior should not depend on AppKit having laid out
+            // a hidden test window yet.  Install deterministic geometry so the
+            // factory can allocate the new pane immediately on a cold runner.
+            workspace.bonsplitController.setContainerFrame(
+                CGRect(x: 0, y: 0, width: 1000, height: 1000)
+            )
         }
 
         func tearDown() {
