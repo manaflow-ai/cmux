@@ -10848,18 +10848,42 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             authorizations: userTailscalePairingAuthorizations
                         ) != nil
                     }
-                    let accepted = await persistPairedMacFromTicket(
-                        resolvedTicket,
-                        instanceTagUpdate: tagUpdate,
-                        displayNameOverride: reportedName,
-                        userAuthorizedTailscaleRoutes: userAuthorizedTailscaleRoutes,
-                        ifStillCurrent: isConnectCurrent
-                    )
-                    guard accepted else {
-                        await client.disconnect()
-                        lastError = MobileShellConnectionError.invalidResponse
-                        continue routeLoop
+                    // Host identity and build admission are already verified.
+                    // Persisting the pairing is local bookkeeping and can be
+                    // slower than publishing the authenticated workspace list
+                    // (SQLite migration, backup reconciliation, or a busy
+                    // serialized store). Start it now, then await its result
+                    // after the first workspace state is visible. The
+                    // ``preserveOnlyIfUnclaimed`` case remains synchronous at
+                    // the security boundary because a rejected ownership claim
+                    // must never be shown as an admitted connection.
+                    var pairedMacPersistenceTask: Task<Bool, Never>?
+                    if case .preserveOnlyIfUnclaimed = tagUpdate {
+                        let accepted = await persistPairedMacFromTicket(
+                            resolvedTicket,
+                            instanceTagUpdate: tagUpdate,
+                            displayNameOverride: reportedName,
+                            userAuthorizedTailscaleRoutes: userAuthorizedTailscaleRoutes,
+                            ifStillCurrent: isConnectCurrent
+                        )
+                        guard accepted else {
+                            await client.disconnect()
+                            lastError = MobileShellConnectionError.invalidResponse
+                            continue routeLoop
+                        }
+                    } else {
+                        pairedMacPersistenceTask = Task { @MainActor [weak self] in
+                            guard let self else { return false }
+                            return await self.persistPairedMacFromTicket(
+                                resolvedTicket,
+                                instanceTagUpdate: tagUpdate,
+                                displayNameOverride: reportedName,
+                                userAuthorizedTailscaleRoutes: userAuthorizedTailscaleRoutes,
+                                ifStillCurrent: isConnectCurrent
+                            )
+                        }
                     }
+                    defer { pairedMacPersistenceTask?.cancel() }
                     diagnosticLog?.record(DiagnosticEvent(
                         .hostAuthenticated,
                         surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
@@ -10989,6 +11013,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         // is authoritative for the device-local collapse store.
                         groupsAreAuthoritative: !workspaceListRequest.isScoped
                     )
+                    // Give UIKit a chance to render the authenticated response
+                    // before waiting on the persistence actor. A persistence
+                    // failure still fails this route and follows the existing
+                    // cleanup path, so this changes ordering only, not trust.
+                    if let pairedMacPersistenceTask {
+                        let accepted = await pairedMacPersistenceTask.value
+                        guard accepted else {
+                            await client.disconnect()
+                            lastError = MobileShellConnectionError.invalidResponse
+                            continue routeLoop
+                        }
+                    }
                     // Drop the now-stale previous-foreground/anonymous snapshot.
                     // A retained foreground is re-keyed to its stored control
                     // owner before the aggregate cleanup runs.
