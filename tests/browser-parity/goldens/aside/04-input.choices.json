@@ -1,0 +1,18 @@
+{
+  "hover-visible": {
+    "source": "playwright",
+    "reason": "Aside hover does not trigger :hover."
+  },
+  "ctx": {
+    "source": "playwright",
+    "reason": "Aside right click does not reach the page."
+  },
+  "scrolled": {
+    "source": "playwright",
+    "reason": "Aside mouse.wheel does not scroll."
+  },
+  "untrusted-events": {
+    "source": "playwright",
+    "reason": "Aside drags with synthetic events; target is trusted drag."
+  }
+}

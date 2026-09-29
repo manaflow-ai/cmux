@@ -1,0 +1,23 @@
+[
+  {
+    "k": "listed-keys",
+    "v": [
+      "active",
+      "faviconUrl",
+      "focusedWindow",
+      "id",
+      "targetId",
+      "title",
+      "url",
+      "windowId"
+    ]
+  },
+  {
+    "k": "listed-count",
+    "v": 1
+  },
+  {
+    "k": "__error__",
+    "v": "Timed out waiting for page event \"popup\""
+  }
+]

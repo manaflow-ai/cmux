@@ -1,0 +1,18 @@
+[
+  {
+    "k": "after-alert",
+    "v": "after alert"
+  },
+  {
+    "k": "after-confirm",
+    "v": "confirm true"
+  },
+  {
+    "k": "after-prompt",
+    "v": "prompt "
+  },
+  {
+    "k": "dialogs",
+    "v": []
+  }
+]

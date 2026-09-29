@@ -1,0 +1,6 @@
+{
+  "pushed-url": {
+    "source": "playwright",
+    "reason": "Aside page.url() misses history.pushState changes."
+  }
+}
