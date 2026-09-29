@@ -2851,19 +2851,113 @@ fn apply_effective_resource_patch(
 }
 
 /// Drop every change that would leave its row exactly as stored. An order
-/// change is dropped only when the stored live order already equals it, so a
-/// kept move, creation, or close still carries the order it requires.
+/// change is kept when the stored order differs, and also whenever a kept
+/// change under the same parent needs it: a create, move, or close of a
+/// child is validated against its parent's order in the same patch, and an
+/// earlier write in the transaction (the legacy workspace ledger) may
+/// already have stored the new order.
 pub(super) fn prune_unchanged_resource_changes(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
 ) -> anyhow::Result<ResourcePatch> {
-    let mut changes = Vec::with_capacity(patch.changes.len());
+    let is_order = |change: &ResourceChange| {
+        matches!(
+            change,
+            ResourceChange::SetWorkspaceOrder { .. }
+                | ResourceChange::SetScreenOrder { .. }
+                | ResourceChange::SetTabOrder { .. }
+        )
+    };
+    let mut kept = Vec::with_capacity(patch.changes.len());
     for change in &patch.changes {
-        if !resource_change_is_stored(transaction, change)? {
+        kept.push(!is_order(change) && !resource_change_is_stored(transaction, change)?);
+    }
+    let mut workspace_order = false;
+    let mut screen_parents = HashSet::<String>::new();
+    let mut tab_parents = HashSet::<String>::new();
+    for (change, kept) in patch.changes.iter().zip(&kept) {
+        if !kept {
+            continue;
+        }
+        match change {
+            ResourceChange::UpsertWorkspace { .. } | ResourceChange::TombstoneWorkspace { .. } => {
+                workspace_order = true;
+            }
+            ResourceChange::UpsertScreen(screen) => {
+                screen_parents.insert(screen.workspace_id.to_string());
+                screen_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_screens",
+                    "workspace_id",
+                    screen.public_id.as_str(),
+                )?);
+            }
+            ResourceChange::TombstoneScreen { screen_id } => {
+                screen_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_screens",
+                    "workspace_id",
+                    screen_id.as_str(),
+                )?);
+            }
+            ResourceChange::UpsertTab(tab) => {
+                tab_parents.insert(tab.pane_id.to_string());
+                tab_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_tabs",
+                    "pane_id",
+                    tab.public_id.as_str(),
+                )?);
+            }
+            ResourceChange::TombstoneTab { tab_id, .. } => {
+                tab_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_tabs",
+                    "pane_id",
+                    tab_id.as_str(),
+                )?);
+            }
+            ResourceChange::TombstoneTerminal { public_id, .. } => {
+                tab_parents.extend(content_tab_panes(transaction, public_id.as_str())?);
+            }
+            ResourceChange::TombstoneBrowser { public_id } => {
+                tab_parents.extend(content_tab_panes(transaction, public_id.as_str())?);
+            }
+            _ => {}
+        }
+    }
+    let mut changes = Vec::with_capacity(patch.changes.len());
+    for (change, kept) in patch.changes.iter().zip(kept) {
+        let keep = kept
+            || match change {
+                ResourceChange::SetWorkspaceOrder { .. } => {
+                    workspace_order || !resource_change_is_stored(transaction, change)?
+                }
+                ResourceChange::SetScreenOrder { workspace_id, .. } => {
+                    screen_parents.contains(workspace_id.as_str())
+                        || !resource_change_is_stored(transaction, change)?
+                }
+                ResourceChange::SetTabOrder { pane_id, .. } => {
+                    tab_parents.contains(pane_id.as_str())
+                        || !resource_change_is_stored(transaction, change)?
+                }
+                _ => false,
+            };
+        if keep {
             changes.push(change.clone());
         }
     }
     Ok(ResourcePatch { changes })
+}
+
+fn content_tab_panes(transaction: &Transaction<'_>, content_id: &str) -> anyhow::Result<Vec<String>> {
+    let mut statement = transaction.prepare(
+        "SELECT pane_id FROM resource_tabs
+         WHERE content_id = ?1 AND deleted_revision IS NULL",
+    )?;
+    Ok(statement
+        .query_map([content_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 fn resource_change_is_stored(
