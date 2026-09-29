@@ -3,7 +3,7 @@ import AppKit
 import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
-    func machineMenuItems(_ machine: MachineSnapshot, info: SurfaceMachineInfo? = nil) -> [NSMenuItem] {
+    func machineMenuItems(_ machine: MachineSnapshot, info: SurfaceMachineInfo?) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
         let actions = machineActions
         let nodeActions = nodeActions

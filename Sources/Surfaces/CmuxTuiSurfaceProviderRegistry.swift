@@ -271,11 +271,6 @@ final class CmuxTuiSurfaceProviderRegistry {
             pollTask = nil
             return
         }
-        guard !sessionRejected else {
-            pollTask?.cancel()
-            pollTask = nil
-            return
-        }
         guard isCloudEnabled() else {
             featureResumeTask?.cancel()
             featureResumeTask = nil
@@ -287,6 +282,11 @@ final class CmuxTuiSurfaceProviderRegistry {
             discoveryInFlight?.cancel()
             discoveryInFlight = nil
             suspendCloudTransportsIfNeeded()
+            return
+        }
+        guard !sessionRejected else {
+            pollTask?.cancel()
+            pollTask = nil
             return
         }
         if let pending = featureSuspensionTask {

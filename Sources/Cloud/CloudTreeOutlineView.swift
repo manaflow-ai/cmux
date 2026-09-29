@@ -566,7 +566,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             return nil
         }
-
+        func machineInfo(id: SurfaceMachineID) -> SurfaceMachineInfo? { CloudTreeNodeBuilder.flattened(nodes).compactMap { if case .machine(_, let info) = $0.kind, info?.id == id { info } else { nil } }.first }
         // MARK: Keyboard
 
         func moveSelection(by delta: Int) {
@@ -755,7 +755,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return []
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
-                return machineMenuItems(machine)
+                return machineMenuItems(machine, info: machineInfo(id: machineID))
             case .device(let row):
                 return deviceMenuItems(machine: row.machine, canCreate: row.canCreateWorkspacesAndTerminals)
             case .devicesSection(let section), .devicesEmpty(let section):

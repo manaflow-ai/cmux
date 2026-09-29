@@ -1733,8 +1733,7 @@ public actor VMClient {
                 "POST",
                 path: "/api/vm/\(encodedID)/attach-endpoint",
                 jsonBody: body,
-                timeoutSeconds: Self.attachTimeoutSeconds,
-                retryTransientServiceUnavailable: true
+                timeoutSeconds: Self.attachTimeoutSeconds
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
@@ -2207,19 +2206,17 @@ public actor VMClient {
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
-        retryTransientServiceUnavailable: Bool = false,
         allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         let work = {
             let isSharedRead = method == "GET"
                 && jsonBody == nil
                 && extraHeaders.isEmpty
-                && !retryTransientServiceUnavailable
                 && !allowedUnderManagedPolicy
                 && (path == "/api/vm" || path.hasSuffix("/stats"))
             if !isSharedRead {
                 return try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
-                    timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
+                    timeoutSeconds: timeoutSeconds,
                     allowedUnderManagedPolicy: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope)
             }
             try Task.checkCancellation()
@@ -2282,7 +2279,6 @@ public actor VMClient {
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
-        retryTransientServiceUnavailable: Bool = false,
         allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         try checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
@@ -2321,7 +2317,6 @@ public actor VMClient {
                 jsonBody: jsonBody,
                 extraHeaders: headers,
                 timeoutSeconds: timeoutSeconds,
-                retryTransientServiceUnavailable: retryTransientServiceUnavailable,
                 allowedWhenCloudDisabled: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
                 onRetry: { retryCount += 1 }
             )
@@ -2394,7 +2389,6 @@ public actor VMClient {
         jsonBody: [String: Any]?,
         extraHeaders: [String: String],
         timeoutSeconds: TimeInterval?,
-        retryTransientServiceUnavailable: Bool,
         allowedWhenCloudDisabled: Bool, expectedTeamScope: AuthenticatedTeamScope?,
         onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
@@ -2444,11 +2438,8 @@ public actor VMClient {
         for (key, value) in extraHeaders {
             req.setValue(value, forHTTPHeaderField: key)
         }
-        // HTTP 429 from the VM API is an upstream auth throttle rejected before any work
-        // happened (rate_limited in services/vms/authErrors.ts), so every verb is safe to
-        // retry. Waiting out Retry-After here turns a transient throttle into a short pause
-        // instead of a dead-end error dialog.
-        var retriesLeft = 2
+        let retryStartedAt = DispatchTime.now().uptimeNanoseconds
+        var retryAttempt = 0
         while true {
             try Task.checkCancellation()
             if let expectedTeamScope, !(await auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) { throw VMClientError.notSignedIn }
@@ -2458,7 +2449,7 @@ public actor VMClient {
             if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             let data: Data
             let response: URLResponse
-            let attempt = 3 - retriesLeft
+            let attempt = retryAttempt + 1
             let requestSpan: CloudOperationContext?
             if let context = CloudOperationContext.current {
                 requestSpan = await context.recorder.beginChild(of: context, phase: .request, attempt: attempt)
@@ -2496,23 +2487,29 @@ public actor VMClient {
                     response: .init(data: data, http: http))
                 if !canRetry { return (data, http) }
             }
-            if http.statusCode == 429, retriesLeft > 0 {
-                retriesLeft -= 1
-                onRetry()
-                let delaySeconds = Self.retryDelaySeconds(
-                    statusCode: http.statusCode,
+            if http.statusCode >= 400 {
+                let vmError = CloudVMHTTPError(
+                    status: http.statusCode,
+                    body: String(data: data, encoding: .utf8) ?? "<binary>",
                     retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
-                ) ?? 2
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds) }
-                continue
-            }
-            if retryTransientServiceUnavailable,
-               retriesLeft > 0,
-               let delaySeconds = Self.transientVMRetryDelay(http: http, data: data) {
-                retriesLeft -= 1
-                onRetry()
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
-                continue
+                )
+                let elapsedSeconds = Double(DispatchTime.now().uptimeNanoseconds - retryStartedAt) / 1_000_000_000
+                let decision = CloudVMRetryPolicy.automatic.decision(
+                    for: vmError,
+                    attempt: attempt,
+                    elapsedSeconds: elapsedSeconds,
+                    jitter: Double.random(in: 0...0.25)
+                )
+                if case .retry(let delay) = decision {
+                    retryAttempt += 1
+                    onRetry()
+                    let components = delay.components
+                    let delaySeconds = Double(components.seconds) + Double(components.attoseconds) / 1_000_000_000_000_000_000
+                    try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
+                        try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds)
+                    }
+                    continue
+                }
             }
             if let sessionIdentity {
                 guard await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity) else {
@@ -2561,23 +2558,6 @@ public actor VMClient {
             } catch { return }
             do { try await Task.sleep(for: .seconds(2)) } catch { return }
         }
-    }
-
-    /// Returns a bounded delay only for the VM API's explicitly retryable service failures.
-    /// Attach endpoint creation is idempotent for a machine/device pair, so repeating it
-    /// avoids surfacing a transient provider 502 as a dead Cloud sidebar row.
-    private static func transientVMRetryDelay(http: HTTPURLResponse, data: Data) -> Duration? {
-        let error = CloudVMHTTPError(
-            status: http.statusCode,
-            body: String(data: data, encoding: .utf8) ?? "<binary>",
-            retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
-        )
-        guard (502...504).contains(http.statusCode), error.admitsAutomaticRetry else { return nil }
-        return CloudVMRetryPolicy.automatic.delay(
-            afterAttempt: 1,
-            retryAfterSeconds: error.retryAfterSeconds,
-            jitter: Double.random(in: 0...0.25)
-        )
     }
 
     public nonisolated static func retryDelaySeconds(
