@@ -375,23 +375,23 @@ public final class CloudSystemVPNController {
         let attempts = cleanupRetryCount
         let creationScope = scope
         return { accessToken, refreshToken in
-            guard let accessToken, let refreshToken else { return }
             await controller.waitForPendingOperationAndGate()
-            let enrolled = await controller.browserTunnelsForTeardown()
+            var enrolled = await controller.browserTunnelsForTeardown()
             if enrolled.isEmpty {
                 let fallbackScope = await controller.currentScopeForTeardown() ?? creationScope
                 guard let scope = fallbackScope,
                       let fingerprint = try? await identityResolver.stored()?.fingerprint
                 else { return }
-                await controller.revokeForServerTeardown(
-                    (
-                        scope: scope,
-                        deviceFingerprint: fingerprint,
-                        credentials: nil
-                    ),
-                    fallbackCredentials: (accessToken: accessToken, refreshToken: refreshToken),
-                    attempts: attempts
-                )
+                enrolled = [(
+                    scope: scope,
+                    deviceFingerprint: fingerprint,
+                    credentials: nil
+                )]
+            }
+            guard let accessToken, let refreshToken else {
+                for tunnel in enrolled {
+                    await controller.rememberAndPersistPendingBrowserTunnelRevocation(tunnel)
+                }
                 return
             }
             for tunnel in enrolled {
@@ -581,6 +581,17 @@ public final class CloudSystemVPNController {
         var fingerprints = await pendingRevocationStore.load(scope: tunnel.scope)
         fingerprints.insert(tunnel.deviceFingerprint)
         await pendingRevocationStore.save(fingerprints, scope: tunnel.scope)
+    }
+
+    private func rememberAndPersistPendingBrowserTunnelRevocation(
+        _ tunnel: (
+            scope: String,
+            deviceFingerprint: String,
+            credentials: CloudAPITokenSource.TokenPair?
+        )
+    ) async {
+        rememberPendingBrowserTunnelRevocation(tunnel)
+        await persistPendingBrowserTunnelRevocation(tunnel)
     }
 
     private func clearPersistedBrowserTunnelRevocation(
@@ -807,10 +818,10 @@ public final class CloudSystemVPNController {
                 needsPlatformReconciliation = true
             }
             if reconcilePlatformOnTimeout, error is CloudSystemVPNTaskTimeout.Failure {
-                watchPlatformCompletion(completion)
+                watchPlatformCompletion(operation.result)
             }
             if reconcileCleanupOnTimeout, error is CloudSystemVPNTaskTimeout.Failure {
-                watchCleanupCompletion(completion)
+                watchCleanupCompletion(operation.result)
             }
             if timedOut {
                 let grace = operationTimeout + operationTimeout + operationTimeout
