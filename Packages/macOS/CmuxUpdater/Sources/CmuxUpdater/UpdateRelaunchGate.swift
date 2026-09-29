@@ -113,6 +113,7 @@ final class UpdateRelaunchGate {
 
     private final class Pending {
         var mode: Mode
+        let readiness: @MainActor () -> Readiness
         let relaunch: () -> Void
         let later: () -> Void
         var published: (UpdateRelaunchBlockers, Mode)?
@@ -121,8 +122,9 @@ final class UpdateRelaunchGate {
         var installNowRequested = false
         var prepareTask: Task<Void, Never>?
 
-        init(mode: Mode, relaunch: @escaping () -> Void, later: @escaping () -> Void) {
+        init(mode: Mode, readiness: @escaping @MainActor () -> Readiness, relaunch: @escaping () -> Void, later: @escaping () -> Void) {
             self.mode = mode
+            self.readiness = readiness
             self.relaunch = relaunch
             self.later = later
         }
@@ -181,7 +183,7 @@ final class UpdateRelaunchGate {
         if let previous = pending {
             finish(previous, relaunching: false)
         }
-        let request = Pending(mode: mode, relaunch: relaunch, later: later)
+        let request = Pending(mode: mode, readiness: readiness, relaunch: relaunch, later: later)
         pending = request
         log.append("update relaunch held (mode=\(mode))")
         let actions = Actions(publish: publish, prepare: prepare)
@@ -275,8 +277,9 @@ final class UpdateRelaunchGate {
     /// requested somewhere that does not show what is running, such as the menu. Returns
     /// whether the hold now asks; `false` means nothing risky holds it.
     func askUser() -> Bool {
-        guard let request = pending, let actions = request.actions,
-              let blockers = request.published?.0, blockers.needsConfirmation else { return false }
+        guard let request = pending, let actions = request.actions else { return false }
+        let blockers = request.readiness().blockers
+        guard blockers.needsConfirmation else { return false }
         guard request.mode != .askUser else { return true }
         log.append("update relaunch gate: install requested while risky; asking")
         request.mode = .askUser

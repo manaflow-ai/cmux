@@ -121,7 +121,15 @@ final class UpdateRelaunchContinuationNudges {
 
     /// Panels the session saves mark. Set only once the update relaunch is under way, and kept for
     /// the terminate-path save that follows it.
-    var midTaskPanelIds: Set<UUID> = []
+    var midTaskPanelIds: Set<UUID> = [] {
+        didSet { midTaskPanelIdsExpiresAt = .greatestFiniteMagnitude }
+    }
+    private var midTaskPanelIdsExpiresAt: TimeInterval = 0
+
+    func arm(panelIds: Set<UUID>, expiresAtUptime: TimeInterval) {
+        midTaskPanelIds = panelIds
+        midTaskPanelIdsExpiresAt = expiresAtUptime
+    }
 
     /// How long after the relaunch restore a nudge stays usable. The restore types the resume
     /// right away; a resume that never got through (the user interrupted it, or the session was
@@ -139,7 +147,8 @@ final class UpdateRelaunchContinuationNudges {
 
     /// Whether a session save should mark `panelId`.
     func marksPanel(_ panelId: UUID) -> Bool? {
-        midTaskPanelIds.contains(panelId) ? true : nil
+        guard ProcessInfo.processInfo.systemUptime <= midTaskPanelIdsExpiresAt else { return nil }
+        return midTaskPanelIds.contains(panelId) ? true : nil
     }
 
     /// Records a restored panel that auto-resumes its agent from a marked snapshot.
@@ -149,7 +158,10 @@ final class UpdateRelaunchContinuationNudges {
         resumesAgent: Bool,
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) {
-        guard resumesAgent, snapshot?.resumeWithContinuation == true else { return }
+        guard resumesAgent, snapshot?.resumeWithContinuation == true else {
+            pendingPanels[panelId] = nil
+            return
+        }
         let checkpointID = snapshot?.agent?.sessionId
             ?? snapshot?.managedAgentResumeBinding?.checkpointId
             ?? snapshot?.resumeBinding?.checkpointId
