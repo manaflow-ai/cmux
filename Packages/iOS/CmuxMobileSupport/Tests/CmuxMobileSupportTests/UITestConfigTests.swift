@@ -367,6 +367,15 @@ import Testing
         ) == false)
     }
 
+    @Test func notificationFeedPreviewTabSwitchFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_TAB_SWITCH": "1"]
+        #if DEBUG
+        #expect(UITestConfig.notificationFeedPreviewTabSwitchEnabled(from: env))
+        #else
+        #expect(!UITestConfig.notificationFeedPreviewTabSwitchEnabled(from: env))
+        #endif
+    }
+
     @Test func taskComposerPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
         #if DEBUG

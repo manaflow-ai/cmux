@@ -244,6 +244,7 @@ struct WorkspaceShellView: View {
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var isConfirmingNotificationFeedMarkAllRead = false
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
     @State private var pendingPrimarySearchNotificationNavigationID: MobileWorkspacePreview.ID?
     // A NavigationStack path write only reaches UIKit while the stack is in the
@@ -297,6 +298,19 @@ struct WorkspaceShellView: View {
         false
         #endif
     }
+
+    #if os(iOS)
+    private var compactRootToolbarVisible: Bool {
+        switch selectedPrimaryTab {
+        case .workspaces:
+            return compactNavigationPath.isEmpty
+        case .notifications:
+            return notificationNavigationPath.isEmpty
+        case .search:
+            return primarySearchNavigationPath.wrappedValue.isEmpty
+        }
+    }
+    #endif
 
     private var listConnectionStatus: MobileMacConnectionStatus {
         if isInitialConnectionLoading || initialConnectionTimedOut {
@@ -423,59 +437,70 @@ struct WorkspaceShellView: View {
     /// The compact (iPhone-style) shell: the primary destinations live in the
     /// system TabView with the transient search tab.
     private func compactScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
-        MobilePrimaryTabScaffold(
-            selection: $selectedPrimaryTab,
-            searchCoordinator: primarySearchCoordinator,
-            notificationUnreadCount: presentation.notificationUnreadCount,
-            taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
-                ? nil
-                : taskComposerAction
-        ) {
-            workspaceTabContent(
-                presentation: presentation
-            )
-        } notifications: {
-            NavigationStack(path: $notificationNavigationPath) {
-                NotificationFeedStoreView(
-                    store: store,
-                    items: presentation.notificationFeedItems,
-                    status: presentation.notificationFeedStatus,
-                    projection: notificationFeedProjection,
-                    selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
-                )
-                    .toolbar {
-                        if notificationNavigationPath.isEmpty {
-                            rootToolbarContent
-                        }
-                        ToolbarItem(id: "mobile-primary-toolbar-anchor", placement: .topBarTrailing) {
-                            Color.clear
-                                .frame(width: 1, height: 1)
-                                .accessibilityHidden(true)
+        MobilePrimaryTabNavigationHost(
+            toolbarVisibility: compactRootToolbarVisible ? .visible : .hidden,
+            toolbar: {
+                if compactRootToolbarVisible {
+                    rootToolbarContent
+                    if selectedPrimaryTab == .notifications
+                        || (selectedPrimaryTab == .search && primarySearchCoordinator.scope == .notifications) {
+                        NotificationFeedToolbarContent(
+                            projection: notificationFeedProjection,
+                            requestMarkAllRead: {
+                                isConfirmingNotificationFeedMarkAllRead = true
+                            }
+                        )
+                    }
+                }
+            },
+            content: {
+                MobilePrimaryTabScaffold(
+                    selection: $selectedPrimaryTab,
+                    searchCoordinator: primarySearchCoordinator,
+                    notificationUnreadCount: presentation.notificationUnreadCount,
+                    taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
+                        ? nil
+                        : taskComposerAction
+                ) {
+                    workspaceTabContent(
+                        presentation: presentation
+                    )
+                } notifications: {
+                    NavigationStack(path: $notificationNavigationPath) {
+                        NotificationFeedStoreView(
+                            store: store,
+                            isConfirmingMarkAllRead: $isConfirmingNotificationFeedMarkAllRead,
+                            items: presentation.notificationFeedItems,
+                            status: presentation.notificationFeedStatus,
+                            projection: notificationFeedProjection,
+                            selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs,
+                            showsNavigationToolbar: false
+                        )
+                            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                                workspaceDestination(
+                                    for: workspaceID,
+                                    createWorkspace: createWorkspaceInCompactStack,
+                                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                                )
+                                .toolbar(.visible, for: .navigationBar)
+                                .mobileToolbarVisibility(.hidden, for: .tabBar)
                         }
                     }
-                    .toolbar(.visible, for: .navigationBar)
-                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                        workspaceDestination(
-                            for: workspaceID,
-                            createWorkspace: createWorkspaceInCompactStack,
-                            canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
-                        )
-                        .mobileToolbarVisibility(.hidden, for: .tabBar)
+                    .onAppear {
+                        notificationsStackIsOnScreen = true
+                        consumePendingPrimarySearchNavigation(for: .notifications)
+                    }
+                    .onDisappear {
+                        notificationsStackIsOnScreen = false
+                    }
+                    .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
+                        consumePendingPrimarySearchNavigation(for: .notifications)
+                    }
+                } search: {
+                    primarySearchTabContent(presentation: presentation)
                 }
             }
-            .onAppear {
-                notificationsStackIsOnScreen = true
-                consumePendingPrimarySearchNavigation(for: .notifications)
-            }
-            .onDisappear {
-                notificationsStackIsOnScreen = false
-            }
-            .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
-                consumePendingPrimarySearchNavigation(for: .notifications)
-            }
-        } search: {
-            primarySearchTabContent(presentation: presentation)
-        }
+        )
     }
     #endif
 
@@ -530,16 +555,13 @@ struct WorkspaceShellView: View {
                     case .notifications:
                         NotificationFeedStoreView(
                             store: store,
+                            isConfirmingMarkAllRead: $isConfirmingNotificationFeedMarkAllRead,
                             items: presentation.notificationFeedItems,
                             status: presentation.notificationFeedStatus,
                             projection: notificationFeedProjection,
-                            selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs
+                            selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs,
+                            showsNavigationToolbar: false
                         )
-                    }
-                }
-                .toolbar {
-                    if primarySearchNavigationPath.wrappedValue.isEmpty {
-                        rootToolbarContent
                     }
                 }
             } destination: { workspaceID in
@@ -548,6 +570,7 @@ struct WorkspaceShellView: View {
                     createWorkspace: createWorkspaceInCompactStack,
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                 )
+                .toolbar(.visible, for: .navigationBar)
             }
         }
     }
@@ -780,17 +803,6 @@ struct WorkspaceShellView: View {
                     canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                 )
             }
-            .toolbar {
-                if compactNavigationPath.isEmpty {
-                    rootToolbarContent
-                }
-                ToolbarItem(id: "mobile-primary-toolbar-anchor", placement: .topBarTrailing) {
-                    Color.clear
-                        .frame(width: 1, height: 1)
-                        .accessibilityHidden(true)
-                }
-            }
-            .toolbar(.visible, for: .navigationBar)
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
@@ -805,6 +817,7 @@ struct WorkspaceShellView: View {
                     #if os(iOS)
                     .mobileToolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                     #endif
+                    .toolbar(.visible, for: .navigationBar)
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
                     // that folds the unread-workspace count INTO the same button
@@ -970,6 +983,7 @@ struct WorkspaceShellView: View {
             case .notifications:
                 NotificationFeedStoreView(
                     store: store,
+                    isConfirmingMarkAllRead: $isConfirmingNotificationFeedMarkAllRead,
                     items: notificationItems,
                     status: presentation.notificationFeedStatus,
                     projection: notificationFeedProjection,

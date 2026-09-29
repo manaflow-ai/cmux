@@ -15,6 +15,7 @@ public struct NotificationFeedPreviewView: View {
     @State private var referenceDate: Date
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()
+    @State private var isConfirmingMarkAllRead = false
     @State private var notificationRoute: NotificationWorkspaceRoute?
     @State private var searchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingSearchNotificationNavigationID: MobileWorkspacePreview.ID?
@@ -41,49 +42,94 @@ public struct NotificationFeedPreviewView: View {
     /// The preview fixture's production-style tab and feed body.
     public var body: some View {
         GeometryReader { geometry in
-            MobilePrimaryTabScaffold(
-                selection: $selectedTab,
-                searchCoordinator: primarySearchCoordinator,
-                notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
-            ) {
-                NavigationStack {
-                    NotificationFeedPreviewWorkspacesView()
-                }
-            } notifications: {
-                NavigationStack {
-                    ScrollViewReader { proxy in
-                        notificationsTabFeed(proxy: proxy)
-                    }
-                }
-                .onAppear {
-                    consumePendingSearchNavigation(for: .notifications)
-                }
-                .onChange(of: pendingSearchNotificationNavigationID) { _, _ in
-                    consumePendingSearchNavigation(for: .notifications)
-                }
-            } search: {
-                MobilePrimarySearchNavigationStack(
-                    path: $searchNavigationPath,
-                    selection: $selectedTab,
-                    searchCoordinator: primarySearchCoordinator
-                ) {
-                    switch primarySearchCoordinator.scope {
-                    case .workspaces:
-                        NotificationFeedPreviewWorkspacesView()
-                    case .notifications:
-                        NotificationFeedView(
-                            status: .ready,
-                            projection: projection,
-                            refreshesOnAppear: false,
-                            actions: actions
+            MobilePrimaryTabNavigationHost(
+                toolbarVisibility: previewRootToolbarVisible ? .visible : .hidden,
+                toolbar: {
+                    if previewRootToolbarVisible {
+                        WorkspaceRootToolbarContent(
+                            openSettings: {},
+                            openDevices: {},
+                            title: L10n.string(
+                                "mobile.workspaces.macPicker.allConnections",
+                                defaultValue: "All Computers"
+                            ),
+                            isLoading: false,
+                            selection: macSelection,
+                            select: { macSelection = $0 },
+                            machines: [],
+                            showAddDevice: nil
                         )
+                        if selectedTab == .notifications
+                            || (selectedTab == .search && primarySearchCoordinator.scope == .notifications) {
+                            NotificationFeedToolbarContent(
+                                projection: projection,
+                                requestMarkAllRead: { isConfirmingMarkAllRead = true }
+                            )
+                        }
                     }
-                } destination: { workspaceID in
-                    NotificationFeedPreviewWorkspaceDestination(
-                        workspaceName: workspaceName(for: workspaceID)
-                    )
+                },
+                content: {
+                    MobilePrimaryTabScaffold(
+                        selection: $selectedTab,
+                        searchCoordinator: primarySearchCoordinator,
+                        notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
+                    ) {
+                        NavigationStack {
+                            NotificationFeedPreviewWorkspacesView()
+                        }
+                    } notifications: {
+                        NavigationStack {
+                            ScrollViewReader { proxy in
+                                notificationsTabFeed(proxy: proxy)
+                            }
+                            .navigationDestination(isPresented: notificationRouteIsPresented) {
+                                NotificationFeedPreviewWorkspaceDestination(
+                                    workspaceName: notificationRoute.map { workspaceName(for: $0.id) }
+                                        ?? L10n.string(
+                                            "mobile.notificationFeed.workspaceFallback",
+                                            defaultValue: "Workspace"
+                                        )
+                                )
+                                .toolbar(.visible, for: .navigationBar)
+                                .mobileToolbarVisibility(.hidden, for: .tabBar)
+                            }
+                        }
+                        .onAppear {
+                            consumePendingSearchNavigation(for: .notifications)
+                        }
+                        .onChange(of: pendingSearchNotificationNavigationID) { _, _ in
+                            consumePendingSearchNavigation(for: .notifications)
+                        }
+                    } search: {
+                        MobilePrimarySearchNavigationStack(
+                            path: $searchNavigationPath,
+                            selection: $selectedTab,
+                            searchCoordinator: primarySearchCoordinator
+                        ) {
+                            Group {
+                                switch primarySearchCoordinator.scope {
+                                case .workspaces:
+                                    NotificationFeedPreviewWorkspacesView()
+                                case .notifications:
+                                    NotificationFeedView(
+                                        status: .ready,
+                                        projection: projection,
+                                        refreshesOnAppear: false,
+                                        actions: actions,
+                                        isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
+                                        showsNavigationToolbar: false
+                                    )
+                                }
+                            }
+                        } destination: { workspaceID in
+                            NotificationFeedPreviewWorkspaceDestination(
+                                workspaceName: workspaceName(for: workspaceID)
+                            )
+                            .toolbar(.visible, for: .navigationBar)
+                        }
+                    }
                 }
-            }
+            )
             .background {
                 NotificationFeedSearchProjectionSync(
                     searchCoordinator: primarySearchCoordinator,
@@ -104,6 +150,29 @@ public struct NotificationFeedPreviewView: View {
         .onChange(of: items, initial: true) { _, items in
             projection.update(items: items, referenceDate: referenceDate)
         }
+        .task {
+            guard UITestConfig.notificationFeedPreviewTabSwitchEnabled else { return }
+            let clock = ContinuousClock()
+            for _ in 0..<6 where !Task.isCancelled {
+                try? await clock.sleep(for: .milliseconds(700))
+                guard !Task.isCancelled else { return }
+                transitionPrimaryTab(to: .workspaces)
+                try? await clock.sleep(for: .milliseconds(700))
+                guard !Task.isCancelled else { return }
+                transitionPrimaryTab(to: .notifications)
+            }
+        }
+    }
+
+    private var previewRootToolbarVisible: Bool {
+        switch selectedTab {
+        case .workspaces:
+            true
+        case .notifications:
+            notificationRoute == nil
+        case .search:
+            searchNavigationPath.isEmpty
+        }
     }
 
     /// The notifications-tab feed with the optional profiling scroll driver.
@@ -112,35 +181,12 @@ public struct NotificationFeedPreviewView: View {
             status: .ready,
             projection: projection,
             refreshesOnAppear: true,
-            actions: actions
+            actions: actions,
+            isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
+            showsNavigationToolbar: false
         )
         .task {
             await runScrollStressIfEnabled(proxy: proxy)
-        }
-        .toolbar {
-            WorkspaceRootToolbarContent(
-                openSettings: {},
-                openDevices: {},
-                title: L10n.string(
-                    "mobile.workspaces.macPicker.allConnections",
-                    defaultValue: "All Computers"
-                ),
-                isLoading: false,
-                selection: macSelection,
-                select: { macSelection = $0 },
-                machines: [],
-                showAddDevice: nil
-            )
-        }
-        .navigationDestination(isPresented: notificationRouteIsPresented) {
-            NotificationFeedPreviewWorkspaceDestination(
-                workspaceName: notificationRoute.map { workspaceName(for: $0.id) }
-                    ?? L10n.string(
-                        "mobile.notificationFeed.workspaceFallback",
-                        defaultValue: "Workspace"
-                    )
-            )
-            .mobileToolbarVisibility(.hidden, for: .tabBar)
         }
     }
 

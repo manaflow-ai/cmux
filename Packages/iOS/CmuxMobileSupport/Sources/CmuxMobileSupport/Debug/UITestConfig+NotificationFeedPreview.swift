@@ -62,4 +62,18 @@ extension UITestConfig {
         return false
         #endif
     }
+
+    /// Whether the notification-feed fixture should drive repeated primary-tab
+    /// switches for visual transition verification.
+    public static var notificationFeedPreviewTabSwitchEnabled: Bool {
+        notificationFeedPreviewTabSwitchEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    static func notificationFeedPreviewTabSwitchEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        env["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_TAB_SWITCH"] == "1"
+        #else
+        false
+        #endif
+    }
 }

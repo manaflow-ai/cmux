@@ -21,14 +21,15 @@ struct NotificationFeedView: View {
     let projection: NotificationFeedProjection
     let refreshesOnAppear: Bool
     let actions: NotificationFeedActions
+    @Binding var isConfirmingMarkAllRead: Bool
+    let showsNavigationToolbar: Bool
     /// Mark-all-read cannot be undone in one gesture, so the toolbar button
     /// only arms this confirmation instead of mutating directly.
-    @State private var isConfirmingMarkAllRead = false
 
     var body: some View {
         @Bindable var projection = projection
 
-        VStack(spacing: 0) {
+        let feed = VStack(spacing: 0) {
             NotificationFeedList(
                 sections: projection.sections,
                 sourceItemCount: projection.sourceItemCount,
@@ -49,25 +50,17 @@ struct NotificationFeedView: View {
         // No title of its own (the tab names the screen), so collapse the
         // large-title zone or the list opens with a bar-height blank strip.
         .mobileInlineNavigationTitle()
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if projection.sourceUnreadCount > 0 {
-                    Button {
-                        isConfirmingMarkAllRead = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
-                            systemImage: "envelope.open"
-                        )
-                        .labelStyle(.iconOnly)
-                    }
-                    .accessibilityLabel(
-                        L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read")
-                    )
-                    .accessibilityIdentifier("MobileNotificationFeedMarkAllRead")
-                }
 
-                NotificationFeedFilterMenu(selection: $projection.filter)
+        Group {
+            if showsNavigationToolbar {
+                feed.toolbar {
+                    NotificationFeedToolbarContent(
+                        projection: projection,
+                        requestMarkAllRead: { isConfirmingMarkAllRead = true }
+                    )
+                }
+            } else {
+                feed
             }
         }
         .alert(
@@ -98,10 +91,38 @@ struct NotificationFeedView: View {
     }
 }
 
+/// Toolbar controls shared by the visible notification feed and the compact
+/// primary-tab parent. Keeping this preference in one toolbar hierarchy avoids
+/// inactive, opacity-hidden feed stacks contributing duplicate items.
+struct NotificationFeedToolbarContent: ToolbarContent {
+    @Bindable var projection: NotificationFeedProjection
+    let requestMarkAllRead: () -> Void
+
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if projection.sourceUnreadCount > 0 {
+                Button(action: requestMarkAllRead) {
+                    Label(
+                        L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
+                        systemImage: "envelope.open"
+                    )
+                    .labelStyle(.iconOnly)
+                }
+                .accessibilityLabel(
+                    L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read")
+                )
+                .accessibilityIdentifier("MobileNotificationFeedMarkAllRead")
+            }
+
+            NotificationFeedFilterMenu(selection: $projection.filter)
+        }
+    }
+}
+
 /// The feed twin of `WorkspaceListFilterMenu`: read state lives in a toolbar
 /// menu instead of a segmented bar above the list, and the icon fills while a
 /// narrowing filter is active, mirroring Mail.
-private struct NotificationFeedFilterMenu: View {
+struct NotificationFeedFilterMenu: View {
     @Binding var selection: MobileNotificationFeedFilter
 
     var body: some View {

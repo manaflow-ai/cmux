@@ -17,6 +17,35 @@ private struct TopContentHitRegion: Shape {
     }
 }
 
+/// Keeps the compact tab bar and its root navigation chrome in one hierarchy.
+/// The tab contents still keep their own navigation paths, but they no longer
+/// compete to install the root toolbar as selection changes.
+struct MobilePrimaryTabNavigationHost<Content: View, Toolbar: ToolbarContent>: View {
+    let content: Content
+    let toolbar: Toolbar
+    let toolbarVisibility: Visibility
+
+    init(
+        toolbarVisibility: Visibility,
+        @ToolbarContentBuilder toolbar: () -> Toolbar,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.content = content()
+        self.toolbar = toolbar()
+        self.toolbarVisibility = toolbarVisibility
+    }
+
+    var body: some View {
+        NavigationStack {
+            content
+                .toolbar {
+                    toolbar
+                }
+                .toolbar(toolbarVisibility, for: .navigationBar)
+        }
+    }
+}
+
 /// Native primary navigation shared by the live shell and deterministic UI
 /// fixtures. Keeping the tab construction here guarantees that previews exercise
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
