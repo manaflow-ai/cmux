@@ -7,10 +7,9 @@ import CmuxNextUpdater
 /// switch are disabled, with the reason, where they cannot run.
 enum UpdateHandlers {
     static func bind(into registry: ActionRegistry, updater: UpdaterService) {
-        registry.bind("palette.checkForUpdates", run: { [weak registry] _ in
-            // `action.run --wait` answers after a probe has its result.
-            if let work = updater.checkForUpdates() { registry?.track(work) }
-        })
+        // Not tracked for `action.run wait`: a feed fetch can outlast the 2 s
+        // control deadline. `updates.check` / `updates.status` carry the result.
+        registry.bind("palette.checkForUpdates", run: { _ in updater.checkForUpdates() })
         for id: ActionID in ["palette.applyUpdateIfAvailable", "palette.attemptUpdate"] {
             registry.bind(id, unavailable: { updater.installUnavailableReason }, invoke: { [weak registry] _ in
                 do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)) }

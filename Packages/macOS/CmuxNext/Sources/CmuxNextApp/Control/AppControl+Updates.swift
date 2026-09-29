@@ -5,23 +5,30 @@ import Foundation
 
 // `updates.status`: the updater's state (channel, feed, Sparkle phase,
 // automatic-check settings, last probe). `updates.check`: a read-only probe
-// of the build's real feed; answers with the typed result, never installs.
+// of the build's real feed; answers with the typed result (or `pending`
+// when the feed is slower than the control deadline), never installs.
 extension AppControl {
     func registerUpdateMethods(_ updater: UpdaterService) {
         service?.router.register([
             .mainActor("updates.status") { _ in .value(Self.json(updater.status, log: updater.log.recent)) },
-            .mainActor("updates.check") { _ in
+            .mainActor("updates.check") { call in
                 let probe = updater.probe()
+                // Answer inside the 2 s control deadline. A slower feed leaves
+                // the probe running: `pending: true`, then read `updates.status`.
+                let answerBy = call.deadline - .milliseconds(150)
                 return .followUp {
-                    let failure = await probe.value
+                    let outcome: (done: Bool, failure: String?)
+                    do {
+                        outcome = (true, try await ControlDeadline.run(method: call.method, deadline: answerBy) { await probe.value })
+                    } catch {
+                        outcome = (false, nil)
+                    }
                     return await MainActor.run {
-                        var status = Self.json(updater.status, log: [])
-                        if case .object(var fields) = status {
-                            fields["ok"] = .bool(failure == nil)
-                            if let failure { fields["error"] = .string(failure) }
-                            status = .object(fields)
-                        }
-                        return status
+                        guard case .object(var fields) = Self.json(updater.status, log: []) else { return .null }
+                        fields["pending"] = .bool(!outcome.done)
+                        fields["ok"] = outcome.done ? .bool(outcome.failure == nil) : .null
+                        if let failure = outcome.failure { fields["error"] = .string(failure) }
+                        return .object(fields)
                     }
                 }
             },
