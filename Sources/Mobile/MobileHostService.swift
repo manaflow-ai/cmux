@@ -2483,10 +2483,10 @@ actor MobileHostConnection {
             )
             eventQueue.noteSurfaceLaneDelivered(surfaceID: surfaceID)
         } catch {
-            let resync = eventQueue.retireSurfaceLane(
-                surfaceID: surfaceID,
-                generation: event.laneGeneration
-            )
+            let isLaneLimit = (error as? IrxSurfaceEventLanes.LaneError) == .laneLimit
+            let resync = isLaneLimit
+                ? eventQueue.pinSurfaceLaneToShared(surfaceID: surfaceID, generation: event.laneGeneration)
+                : eventQueue.retireSurfaceLane(surfaceID: surfaceID, generation: event.laneGeneration)
             mobileHostLog.info(
                 "mobile host retired surface event lane \(surfaceID, privacy: .public): \(String(describing: error), privacy: .public)"
             )

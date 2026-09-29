@@ -239,6 +239,32 @@ struct MobileHostConnectionEventQueueTests {
         ).admitted)
     }
 
+    @Test("A temporary native lane limit pins the surface to shared output")
+    func laneLimitFallsBackToSharedAndRequestsARebase() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        _ = queue.focusSurfaceLane("surface")
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "surface",
+            isFullRenderGridFrame: true, frame: Data([1])
+        ).admitted)
+
+        #expect(queue.pinSurfaceLaneToShared(surfaceID: " SURFACE ", generation: 0) == ["surface"])
+        #expect(queue.dequeue(lane: .surface("surface")) == nil)
+        #expect(queue.surfaceLaneGeneration(surfaceID: "surface") == 1)
+        #expect(!queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "surface",
+            isFullRenderGridFrame: false, frame: Data([2])
+        ).admitted)
+        let full = queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "surface",
+            isFullRenderGridFrame: true, frame: Data([3])
+        )
+        #expect(full.admitted)
+        #expect(full.drainLane == .shared)
+    }
+
     @Test("A lane that stays backlogged keeps its order storage bounded")
     func backloggedLaneOrderStaysBounded() {
         let queue = MobileHostConnectionEventQueue(maximumEventCount: 1_000, maximumByteCount: 1_000_000)

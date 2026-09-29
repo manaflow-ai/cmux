@@ -29,13 +29,29 @@ extension MobileHostConnectionEventQueue {
             let victim = focusedSurfaceKeys.removeFirst()
             guard let surfaceID = surfaceLaneCoalesceKeysByCanonicalKey
                 .removeValue(forKey: victim) else { continue }
-            let generation = surfaceLaneGenerations[surfaceID, default: 0] &+ 1
-            surfaceLaneGenerations[surfaceID] = generation
+            let generation = surfaceLaneGenerations[victim, default: 0] &+ 1
+            surfaceLaneGenerations[victim] = generation
             var dropped = MobileHostEventShedSummary()
-            removeRenderGridEventsLocked(surfaceIDs: [surfaceID], summary: &dropped)
-            poisonedRenderGridSurfaceIDs.insert(surfaceID)
+            removeRenderGridEventsLocked(surfaceIDs: [victim], summary: &dropped)
+            poisonedRenderGridSurfaceIDs.insert(victim)
             released[surfaceID] = generation
         }
         return released
+    }
+
+    /// Pins a surface to the shared lane when a native open cannot fit while
+    /// another stream is still retiring. The failed surface event is dropped
+    /// and a full frame re-bases the chain on the shared stream.
+    public func pinSurfaceLaneToShared(surfaceID rawSurfaceID: String, generation: UInt64) -> Set<String> {
+        let key = Self.canonicalSurfaceKey(rawSurfaceID)
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isClosed, surfaceLaneGenerations[key, default: 0] == generation else { return [] }
+        sharedLanePinnedSurfaceIDs.insert(key)
+        surfaceLaneGenerations[key] = generation &+ 1
+        var dropped = MobileHostEventShedSummary()
+        removeRenderGridEventsLocked(surfaceIDs: [key], summary: &dropped)
+        poisonedRenderGridSurfaceIDs.insert(key)
+        return [key]
     }
 }

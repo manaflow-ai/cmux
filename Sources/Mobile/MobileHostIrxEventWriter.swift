@@ -31,7 +31,14 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
         self.connection = connection
         self.journal = journal
         var boundedConfiguration = surfaceLaneConfiguration
-        boundedConfiguration.maximumLaneCount = Self.focusedSurfaceLaneCount
+        // The queue admits one logical focused lane. The native budget also
+        // covers streams still retiring after a focus switch, so keep the
+        // caller's bounded cleanup allowance instead of collapsing it to one
+        // and forcing every quick switch onto the shared lane.
+        boundedConfiguration.maximumLaneCount = max(
+            Self.focusedSurfaceLaneCount,
+            boundedConfiguration.maximumLaneCount
+        )
         surfaceLanes = IrxSurfaceEventLanes(
             configuration: boundedConfiguration,
             journal: journal,
