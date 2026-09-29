@@ -925,9 +925,8 @@ async fn stream_git_stdout(
 /// (`linguist-generated` set or `diff` unset). Best effort: any failure or an
 /// oversized listing yields an empty list so a session never fails over it.
 async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
-    let mut paths = match git_changed_paths(source, repo).await {
-        Ok(paths) => paths,
-        Err(_) => return Vec::new(),
+    let Ok(mut paths) = git_changed_paths(source, repo).await else {
+        return Vec::new();
     };
     if matches!(source, DiffSource::Unstaged { .. }) {
         if let Ok(untracked) = git_untracked_paths(repo).await {
@@ -961,7 +960,7 @@ async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
         let _ = stdin.write_all(&stdin_bytes).await;
         drop(stdin);
     };
-    let (_, output) = tokio::join!(write, child.wait_with_output());
+    let ((), output) = tokio::join!(write, child.wait_with_output());
     let Ok(output) = output else {
         return Vec::new();
     };
@@ -2164,7 +2163,7 @@ mod tests {
 
     use super::{
         AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
-        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
+        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, git_generated_paths, handle_protocol_request,
         prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
         reserve_session_owner, run_git_patch_with_limit, valid_group_id,
     };
