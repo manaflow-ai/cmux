@@ -1532,9 +1532,10 @@ PY
     -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
     "$MERGED_ENTITLEMENTS"
   if [[ "$LANE" == "appstore" ]]; then
-    # The production iOS App ID currently exposes profile capabilities used by
-    # the macOS VPN lane. They are valid profile metadata but are not valid
-    # entitlements for cmux's iOS main app, so keep them out of its signature.
+    # The production profile also carries the newer hotspot-provider value,
+    # which Apple rejects for this app's current iOS package. Remove only that
+    # value; packet-tunnel-provider and Personal VPN allow-vpn remain available
+    # for the upcoming VPN feature.
     python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
   fi
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
