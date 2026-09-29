@@ -49,14 +49,14 @@ public final class DevicesAccessCoordinator {
         guard canChange(preference) else { return }
         if preference == .incomingAccess, enabled {
             guard incomingConfirmation == nil else { return }
-            await writes[preference]?.task.value
-            guard incomingConfirmation == nil, !read(preference), canChange(preference),
-                  !Task.isCancelled else { return }
             let request = UUID()
             incomingConfirmation = request
             defer {
                 if incomingConfirmation == request { incomingConfirmation = nil }
             }
+            await writes[preference]?.task.value
+            guard incomingConfirmation == request, !read(preference), canChange(preference),
+                  !Task.isCancelled else { return }
             guard await confirmIncomingAccess(), incomingConfirmation == request,
                   !Task.isCancelled else { return }
             await persist(true, for: preference, confirmation: request)
