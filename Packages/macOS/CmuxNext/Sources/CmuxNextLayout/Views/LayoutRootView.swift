@@ -11,26 +11,19 @@ import Observation
 /// dominant axis of each gesture decides, and vertical gestures pass through.
 public final class LayoutRootView: NSView {
     public let model: LayoutModel
-    private let context: LayoutViewContext
-    private var screenViews: [ScreenID: ScreenContentView] = [:]
-    private var screenFrames: [ScreenID: AnimatedFrame] = [:]
-    private let highlight = DropHighlightView()
+    let context: LayoutViewContext
+    var screenViews: [ScreenID: ScreenContentView] = [:]
+    var screenFrames: [ScreenID: AnimatedFrame] = [:]
+    let highlight = DropHighlightView()
     private let switcher = ScreenSwitcherView()
-    private let driver = DisplayLinkDriver()
+    let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
     private var lastSnapshot: Snapshot?
     private var reportedVisible: Set<PaneID> = []
-    private var scrollLock: ScrollLock = .idle
-    private var consumeMomentum = false
-    private var dragTab: TabID?
-
-    private enum ScrollLock {
-        case idle
-        case undecided(ScreenContentView)
-        case horizontal(ScreenContentView)
-        case passthrough
-    }
+    var scrollLock: ScrollLock = .idle
+    var consumeMomentum = false
+    var dragTab: TabID?
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -97,44 +90,6 @@ public final class LayoutRootView: NSView {
         return rect.offsetBy(dx: view.frame.minX, dy: view.frame.minY)
     }
 
-    /// Updates the drop highlight for an in-process tab drag (for tab strips
-    /// that track the mouse themselves instead of using NSDraggingSession).
-    @discardableResult
-    public func updateTabDrag(_ tab: TabID, locationInWindow: NSPoint) -> DropTarget? {
-        dragTab = tab
-        guard let active = model.activeScreenID, let view = screenViews[active] else {
-            hideHighlight()
-            return nil
-        }
-        let local = view.convert(locationInWindow, from: nil)
-        guard let hit = view.dropTarget(at: local) else {
-            hideHighlight()
-            return nil
-        }
-        let rect = convert(hit.highlight, from: view)
-        if highlight.show(rect, text: LayoutStrings.label(for: hit.target), animated: canAnimate) { driver.start() }
-        return hit.target
-    }
-
-    /// Ends a tab drag. Emits `.dropTab` when over a target and returns it.
-    @discardableResult
-    public func endTabDrag(_ tab: TabID, locationInWindow: NSPoint) -> DropTarget? {
-        let target = updateTabDrag(tab, locationInWindow: locationInWindow)
-        hideHighlight()
-        dragTab = nil
-        if let target { model.dropTab(tab, on: target) }
-        return target
-    }
-
-    public func cancelTabDrag() {
-        dragTab = nil
-        hideHighlight()
-    }
-
-    private func hideHighlight() {
-        if highlight.hide(animated: canAnimate) { driver.start() }
-    }
-
     // MARK: Observation
 
     private func snapshot() -> Snapshot {
@@ -169,7 +124,7 @@ public final class LayoutRootView: NSView {
         }
     }
 
-    private var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
+    var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
     private func sync(_ snapshot: Snapshot) {
         let previous = lastSnapshot
@@ -225,56 +180,6 @@ public final class LayoutRootView: NSView {
         if needsFrames || snapshot.gestureActive { driver.start() }
     }
 
-    /// Same panes, splits, and columns in the same places; ratios and widths may differ.
-    private func sameStructure(_ a: ScreenLayout, _ b: ScreenLayout) -> Bool {
-        switch (a, b) {
-        case let (.splits(x), .splits(y)):
-            return x.panes == y.panes && x.splits == y.splits
-        case let (.columns(x), .columns(y)):
-            return x.map(\.id) == y.map(\.id) && x.map(\.root.panes) == y.map(\.root.panes)
-        default:
-            return false
-        }
-    }
-
-    private func switchScreens(from old: ScreenID?, to new: ScreenID?, order: [ScreenID], animated: Bool) -> Bool {
-        let oldIndex = old.flatMap { order.firstIndex(of: $0) } ?? -1
-        let newIndex = new.flatMap { order.firstIndex(of: $0) } ?? 0
-        let direction: CGFloat = newIndex >= oldIndex ? 1 : -1
-        let shift = bounds.width * 0.18
-        for (id, view) in screenViews {
-            guard var frame = screenFrames[id] else { continue }
-            if id == new {
-                if view.isHidden || frame.alpha.value < 0.01 {
-                    frame = AnimatedFrame(bounds.offsetBy(dx: direction * shift, dy: 0), alpha: 0)
-                }
-                view.isHidden = false
-                frame.setTarget(bounds, alpha: 1)
-            } else if id == old {
-                frame.setTarget(bounds.offsetBy(dx: -direction * shift, dy: 0), alpha: 0)
-            } else {
-                frame.setTarget(bounds, alpha: 0)
-                frame.snap()
-            }
-            if !animated { frame.snap() }
-            screenFrames[id] = frame
-        }
-        applyScreenFrames()
-        return animated
-    }
-
-    private func applyScreenFrames() {
-        for (id, frame) in screenFrames {
-            guard let view = screenViews[id] else { continue }
-            view.setFrameOrigin(frame.rect.origin)
-            if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
-            view.alphaValue = frame.alpha.value
-            if id != model.activeScreenID && frame.alpha.value <= 0.001 && frame.alpha.target == 0 {
-                view.isHidden = true
-            }
-        }
-    }
-
     // MARK: Frames
 
     private func frame(_ dt: Double) -> Bool {
@@ -292,7 +197,7 @@ public final class LayoutRootView: NSView {
         return moving || model.isGestureActive || model.hasPendingGestureIntents
     }
 
-    private func updateVisibility() {
+    func updateVisibility() {
         var visible: Set<PaneID> = []
         if window != nil, let active = model.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
@@ -341,119 +246,4 @@ public final class LayoutRootView: NSView {
         updateVisibility()
     }
 
-    // MARK: Event routing
-
-    private func handleMonitored(_ event: NSEvent) -> NSEvent? {
-        guard event.window === window, window != nil else { return event }
-        switch event.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            let point = convert(event.locationInWindow, from: nil)
-            guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return event }
-            if let pane = view.pane(at: view.convert(event.locationInWindow, from: nil)) {
-                model.focus(pane)
-            }
-            return event
-        case .scrollWheel:
-            return handleScroll(event)
-        default:
-            return event
-        }
-    }
-
-    private func activeColumnsView(at locationInWindow: NSPoint) -> ScreenContentView? {
-        guard bounds.contains(convert(locationInWindow, from: nil)),
-              let active = model.activeScreenID, let view = screenViews[active], view.acceptsHorizontalScroll else { return nil }
-        return view
-    }
-
-    private func handleScroll(_ event: NSEvent) -> NSEvent? {
-        // Momentum after a horizontal gesture we consumed: our spring owns the coast.
-        if !event.momentumPhase.isEmpty {
-            guard consumeMomentum else { return event }
-            if event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) { consumeMomentum = false }
-            return nil
-        }
-
-        let phase = event.phase
-        if phase.isEmpty {
-            // Discrete mouse wheel. Shift+wheel arrives as deltaX.
-            guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let view = activeColumnsView(at: event.locationInWindow) else { return event }
-            view.discreteScroll(direction: event.scrollingDeltaX < 0 ? 1 : -1)
-            driver.start()
-            return nil
-        }
-
-        if phase.contains(.mayBegin) || phase.contains(.began) {
-            consumeMomentum = false
-            if let view = activeColumnsView(at: event.locationInWindow) {
-                scrollLock = .undecided(view)
-            } else {
-                scrollLock = .passthrough
-            }
-        }
-
-        switch scrollLock {
-        case .idle, .passthrough:
-            if phase.contains(.ended) || phase.contains(.cancelled) { scrollLock = .idle }
-            return event
-        case let .undecided(view):
-            let dx = abs(event.scrollingDeltaX)
-            let dy = abs(event.scrollingDeltaY)
-            if phase.contains(.ended) || phase.contains(.cancelled) {
-                scrollLock = .idle
-                return event
-            }
-            guard dx + dy > 0 else { return event }
-            if dx > dy {
-                scrollLock = .horizontal(view)
-                view.beginUserScroll()
-                view.userScroll(deltaX: event.scrollingDeltaX, timestamp: event.timestamp)
-                return nil
-            }
-            scrollLock = .passthrough
-            return event
-        case let .horizontal(view):
-            if phase.contains(.ended) || phase.contains(.cancelled) {
-                view.endUserScroll(timestamp: event.timestamp)
-                scrollLock = .idle
-                consumeMomentum = true
-                driver.start()
-            } else {
-                view.userScroll(deltaX: event.scrollingDeltaX, timestamp: event.timestamp)
-                updateVisibility()
-            }
-            return nil
-        }
-    }
-
-    // MARK: NSDraggingDestination
-
-    private func tabID(from info: any NSDraggingInfo) -> TabID? {
-        info.draggingPasteboard.string(forType: LayoutTabDrag.pasteboardType).map(TabID.init(rawValue:))
-    }
-
-    override public func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        draggingUpdated(sender)
-    }
-
-    override public func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard let tab = tabID(from: sender), updateTabDrag(tab, locationInWindow: sender.draggingLocation) != nil else {
-            hideHighlight()
-            return []
-        }
-        return .move
-    }
-
-    override public func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        cancelTabDrag()
-    }
-
-    override public func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let tab = tabID(from: sender) else { return false }
-        return endTabDrag(tab, locationInWindow: sender.draggingLocation) != nil
-    }
-
-    override public func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-        cancelTabDrag()
-    }
 }
