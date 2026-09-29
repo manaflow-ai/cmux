@@ -1422,57 +1422,6 @@ extension CMUXCLI {
         return roundedDiffViewerMetric(size)
     }
 
-    private func resolveDiffViewerLayout(rawLayout: String?) throws -> (layout: String, source: String) {
-        if let rawLayout {
-            return (try parseDiffViewerLayout(rawLayout, errorMessage: "--layout must be split|unified"), "explicit")
-        }
-        return (diffViewerDefaultLayoutSetting() ?? "unified", "default")
-    }
-
-    private func parseDiffViewerLayout(_ rawValue: String, errorMessage: String) throws -> String {
-        let normalized = rawValue
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard normalized == "split" || normalized == "unified" else {
-            throw CLIError(message: errorMessage)
-        }
-        return normalized
-    }
-
-    private func diffViewerDefaultLayoutSetting() -> String? {
-        for path in diffViewerDefaultSettingsPaths() {
-            guard let root = diffViewerSettingsRoot(at: path),
-                  let section = root["diffViewer"] as? [String: Any],
-                  let rawLayout = section["defaultLayout"] as? String,
-                  let layout = try? parseDiffViewerLayout(
-                      rawLayout,
-                      errorMessage: "diffViewer.defaultLayout must be split|unified"
-                  ) else {
-                continue
-            }
-            return layout
-        }
-        return nil
-    }
-
-    private func diffViewerDefaultSettingsPaths() -> [String] {
-        [
-            Self.primarySettingsDisplayPath,
-            Self.legacySettingsDisplayPath,
-            Self.fallbackSettingsDisplayPath,
-        ].map(Self.absoluteDiffViewerSettingsPath)
-    }
-
-    private func diffViewerSettingsRoot(at path: String) -> [String: Any]? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              !data.isEmpty,
-              let sanitized = try? JSONCParser.preprocess(data: data),
-              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any] else {
-            return nil
-        }
-        return root
-    }
-
     private func resolveOpenTarget(_ raw: String) throws -> OpenTarget {
         if let url = URL(string: raw),
            let scheme = url.scheme?.lowercased(),
@@ -1583,7 +1532,7 @@ extension CMUXCLI {
         let sourceLabel: String
         switch source {
         case .unstaged:
-            patch = try gitStdout(gitDiffPatchArguments(["--"]), in: repoRoot)
+            patch = try gitUnstagedPatchIncludingUntracked(in: repoRoot)
             sourceLabel = "git unstaged"
         case .staged:
             patch = try gitStdout(gitDiffPatchArguments(["--cached", "--"]), in: repoRoot)
@@ -2549,7 +2498,7 @@ extension CMUXCLI {
         return line
     }
 
-    private func gitStdout(
+    func gitStdout(
         _ arguments: [String],
         in directory: String,
         timeout: TimeInterval = 60
@@ -2569,11 +2518,11 @@ extension CMUXCLI {
         return result.stdout
     }
 
-    private func gitDiffPatchArguments(_ tail: [String]) -> [String] {
+    func gitDiffPatchArguments(_ tail: [String]) -> [String] {
         ["diff", "--no-ext-diff", "--no-color", "--binary"] + tail
     }
 
-    private func gitStdout(
+    func gitStdout(
         _ arguments: [String],
         in directory: String,
         timeout: TimeInterval = 60,
@@ -2615,7 +2564,7 @@ extension CMUXCLI {
         return result.stdout
     }
 
-    private func gitUntrackedPaths(in repoRoot: String, collapsingDirectories: Bool = false) throws -> [String] {
+    func gitUntrackedPaths(in repoRoot: String, collapsingDirectories: Bool = false) throws -> [String] {
         var arguments = ["ls-files", "--others", "--exclude-standard", "-z"]
         if collapsingDirectories {
             arguments += ["--directory", "--no-empty-directory"]
@@ -2704,7 +2653,7 @@ extension CMUXCLI {
         return joinedGitDiffPatches(patches)
     }
 
-    private func gitAddedUntrackedPatch(path: String, in repoRoot: String) throws -> String {
+    func gitAddedUntrackedPatch(path: String, in repoRoot: String) throws -> String {
         try gitStdout(
             gitDiffPatchArguments(["--no-index", "--", "/dev/null", path]),
             in: repoRoot,
@@ -3163,7 +3112,7 @@ extension CMUXCLI {
         }
     }
 
-    private func joinedGitDiffPatches(_ patches: [String]) -> String {
+    func joinedGitDiffPatches(_ patches: [String]) -> String {
         let trimmed = patches.map { $0.trimmingCharacters(in: .newlines) }.filter { !$0.isEmpty }
         guard !trimmed.isEmpty else { return "" }
         return trimmed.joined(separator: "\n") + "\n"
@@ -4977,10 +4926,11 @@ extension CMUXCLI {
                     try? writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
                     completion.completedPageURLs.insert(page.url)
                     return completion
-                } catch is EmptyDiffSourceError {
+                } catch {
+                    // Unusable fallback candidates (empty, or last-turn without a
+                    // workspace/surface context) are skipped so the selected source
+                    // renders its friendly empty state, not a raw error (#5246).
                     continue
-                } catch let fallbackError {
-                    throw fallbackError
                 }
             }
             // No source has changes: render the selected source's friendly empty
@@ -7273,7 +7223,7 @@ extension CMUXCLI {
         }
     }
 
-    private static func absoluteDiffViewerSettingsPath(_ rawPath: String) -> String {
+    static func absoluteDiffViewerSettingsPath(_ rawPath: String) -> String {
         let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
         let expanded: String
         if rawPath == "~" {
@@ -7475,7 +7425,10 @@ extension CMUXCLI {
             "sourceOptions": sourceOptions.map(\.jsonObject),
             "repoOptions": repoOptions.map(\.jsonObject),
             "baseOptions": baseOptions.map(\.jsonObject),
-            "generatedAt": sharedPayload.generatedAt
+            "generatedAt": sharedPayload.generatedAt,
+            // Persisted display toggles seed the page so first paint matches the
+            // user's last session; the viewerPrefs bridge re-syncs them after boot.
+            "viewerOptions": persistedDiffViewerOptionsPayload()
         ]
         // Browser-hosted builds can select Fetch or WebSocket with the same
         // generated protocol. The macOS app uses its reply-capable WebKit bridge,
