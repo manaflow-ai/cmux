@@ -98,6 +98,29 @@ struct CloudPortsVPNAffordanceTests {
         #expect(!children.contains { $0.id.hasSuffix("/ports/vpn-guidance") })
     }
 
+    @Test("Loopback ports open in cmux without VPN onboarding or an explanatory paragraph")
+    func loopbackPortsWithoutVPN() throws {
+        let machine = SurfaceMachineID.cloud("no-vpn-needed")
+        let scan = try #require(CloudPortScanResult(socketListing: "LISTEN 0 128 127.0.0.1:33015 0.0.0.0:*"))
+        let info = SurfaceMachineInfo(id: machine, name: "Test VM", status: "running", image: nil,
+            hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
+            privateAddress: "10.16.170.164", portDiscoveryState: scan.state)
+        let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 33015,
+            directURL: "http://10.16.170.164:33015")
+        let children = CloudTreeNodeBuilder.portChildren(machine: machine, info: info, resources: [port],
+            projectionIndex: CloudTreeNodeBuilder.LocalProjectionIndex(
+                snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [port], projections: [])),
+            showsCloudVPNWarning: true)
+        #expect(children.count == 1)
+        let row = try #require(children.first)
+        #expect(row.searchableTitle == "Port 33015")
+        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        cell.configure(node: row, machineActions: machineActions(), nodeActions: nodeActions())
+        #expect(cell.toolTip == "Open in cmux. No VPN setup needed.")
+        #expect(cell.accessibilityLabel()?.contains("Open in cmux") == true)
+    }
+
     /// Each status row explains the whole Ports group, so a second one contradicts it:
     /// loopback-only services and VPN setup guidance cannot both describe the same ports.
     @Test("Ports show at most one status row, and VPN setup guidance only beside live ports",
