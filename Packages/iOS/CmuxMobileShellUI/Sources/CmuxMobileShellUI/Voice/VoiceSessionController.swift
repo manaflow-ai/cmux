@@ -877,7 +877,7 @@ public final class VoiceSessionController {
         switch frame.event {
         case .descriptorChanged(let session):
             recordOrchestratorSession(session)
-        case .appended(let messages):
+        case .appended(let messages), .updated(let messages):
             guard orchestratorWatchedSessionIDs.contains(frame.sessionID) else { return }
             for message in messages where message.role == .agent {
                 let filter = SpeakableTextFilter(
@@ -931,7 +931,7 @@ public final class VoiceSessionController {
             orchestratorSessionStates.removeValue(forKey: frame.sessionID)
             orchestratorSessionNames.removeValue(forKey: frame.sessionID)
             orchestratorSessionWorkspaceIDs.removeValue(forKey: frame.sessionID)
-        case .updated, .terminalBlocks, .streamingProse, .reset, .unknown:
+        case .terminalBlocks, .streamingProse, .reset, .unknown:
             break
         }
     }
