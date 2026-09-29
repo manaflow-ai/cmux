@@ -30,10 +30,11 @@ struct NotificationSoundOverridesView: View {
     /// Flexible columns keep every editor cell inside the Settings detail
     /// column while still giving the matrix all width the window offers.
     private let gridColumns = [
-        GridItem(.flexible(minimum: 150), spacing: 12, alignment: .leading),
-        GridItem(.flexible(minimum: 120), spacing: 12, alignment: .leading),
-        GridItem(.flexible(minimum: 120), spacing: 12, alignment: .leading),
-        GridItem(.flexible(minimum: 120), spacing: 12, alignment: .leading),
+        // Minimums sized so the matrix fits a narrow Settings pane.
+        GridItem(.flexible(minimum: 110), spacing: 12, alignment: .leading),
+        GridItem(.flexible(minimum: 96), spacing: 12, alignment: .leading),
+        GridItem(.flexible(minimum: 96), spacing: 12, alignment: .leading),
+        GridItem(.flexible(minimum: 96), spacing: 12, alignment: .leading),
     ]
     init(
         parsedOverrides: NotificationSoundOverrides,

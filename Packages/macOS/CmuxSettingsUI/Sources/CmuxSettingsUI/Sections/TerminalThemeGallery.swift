@@ -218,11 +218,11 @@ struct TerminalThemeCard: View, Equatable {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+                    .fill(isSelected ? SettingsSelectionStyle.selectedFill : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? SettingsSelectionStyle.selectedStroke : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(.plain)
