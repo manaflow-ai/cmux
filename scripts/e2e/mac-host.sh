@@ -103,6 +103,11 @@ CMUX_GHOSTTYKIT_PREPROVISIONED=1 \
 CMUX_SKIP_ZIG_BUILD=1 \
 ./scripts/reload.sh --tag "$TAG" --derived-data "$DERIVED_DATA" \
   --launch --no-global-cli-links --swift-frontend-workaround
+# Hosted macOS runners may not keep the launchd GUI submission attached to the
+# login session. LaunchServices is the fallback that presents the same tagged
+# bundle in the runner's WindowServer session; the bundle already contains the
+# tag-specific socket settings from reload.sh.
+open -n -g "$APP"
 APP_PID="$(pgrep -f "DerivedData/$(basename "$DERIVED_DATA")/.*/cmux DEV" | head -1 || true)"
 
 # Bounded readiness wait on the tagged debug socket, then capture the pid the
