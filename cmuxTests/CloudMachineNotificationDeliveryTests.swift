@@ -139,7 +139,6 @@ struct CloudMachineNotificationDeliveryTests {
     @Test func remoteOriginNeverConsultsProjectHooksInTheLocalDirectory() async throws {
         let harness = makeHarness()
         defer { harness.restore() }
-        let surfaceId = try #require(harness.workspace.focusedPanelId)
         let directory = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let marker = directory.appendingPathComponent("project-hook-ran")
@@ -164,7 +163,11 @@ struct CloudMachineNotificationDeliveryTests {
         harness.store.readTargetObserver = { readTargets.append(String(describing: $0)) }
         await harness.store.addDesktopNotificationResolvingHooks(
             tabId: harness.workspace.id,
-            surfaceId: surfaceId,
+            // This assertion covers workspace-level cloud delivery. A freshly
+            // created test workspace has no rendered surface owner yet, so a
+            // surface-scoped target would be correctly rejected by the live
+            // delivery resolver before hook policy is evaluated.
+            surfaceId: nil,
             hookDirectory: directory.path,
             title: "from the machine",
             body: "hello",
