@@ -351,6 +351,7 @@ extension CMUXCLI {
         browser url|get-url
         browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
         browser eval <script>
+        browser repl [--dialect aside|chatgpt] [--session <name>] [--eval <code>|-] [<code>]   (see: browser repl guide)
         browser wait [--selector <css>] [--text <text>] [--url-contains <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>]
         browser click|dblclick|hover|focus|check|uncheck|scroll-into-view <selector> [--snapshot-after]
         browser type <selector> <text> [--snapshot-after]
