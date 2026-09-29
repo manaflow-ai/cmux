@@ -14,6 +14,16 @@ struct SidebarMappingTests {
         #expect(sections[0].workspaces[0].unread == .count(1))
     }
 
+    @Test func hookStatusFillsTheSubtitleSlot() throws {
+        let store = try BridgeFixture.store()
+        let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
+        let beta = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
+        let sections = SidebarMapping.sections(store.sidebarSections, machine: machine) { $0 == beta.id ? "Running · 50%" : nil }
+        #expect(sections[0].workspaces.first { $0.title == "beta" }?.subtitle == "Running · 50%")
+        let plain = SidebarMapping.sections(store.sidebarSections, machine: machine)
+        #expect(plain[0].workspaces.first { $0.title == "gamma" }?.subtitle == sections[0].workspaces.first { $0.title == "gamma" }?.subtitle)
+    }
+
     @Test func dropPositionMapsToRootIndexAfterRemoval() {
         let rows = ["a", "b", "c", "d"].map { SidebarWorkspace(id: SidebarWorkspaceID($0), title: $0) }
         let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
