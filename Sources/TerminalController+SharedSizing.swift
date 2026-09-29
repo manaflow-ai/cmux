@@ -454,7 +454,7 @@ extension TerminalController {
         // Drop the phone's report so it no longer pins anything; the host
         // refuses its reports until it reattaches.
         _ = clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: "terminal.participant.disconnect")
-        applyLocalSizing(surfaceID: surfaceID, previous: previous, reason: "terminal.participant.disconnect")
+        applyLocalSizing(surfaceID: surfaceID, previous: previous, immediate: true, reason: "terminal.participant.disconnect")
         return true
     }
 
