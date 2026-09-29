@@ -25,6 +25,8 @@ SIGNATURES = (
     # scripts/select-ci-xcode.sh, before any build, on a Mac without the pinned Xcode.
     ("[cmux-ci machine: xcode-pin-missing]", "the Mac does not have the Xcode the job pins"),
     ("Pinned Xcode developer dir does not exist", "the Mac does not have the Xcode the job pins"),
+    ("Pinned Xcode developer dir has no usable macOS SDK", "the Mac does not have the Xcode the job pins"),
+    ("the version scripts/ci/xcode-pins.txt pins for its pool", "the Mac does not have the Xcode the job pins"),
 )
 
 # XCTest and Swift Testing lines for a test that began. One of these means the

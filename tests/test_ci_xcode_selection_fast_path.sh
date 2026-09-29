@@ -20,6 +20,9 @@ cat > "$bin_dir/xcrun" <<'EOF'
 set -euo pipefail
 case "$*" in
   "--sdk macosx --show-sdk-version")
+    if [[ -n "${CMUX_TEST_XCRUN_FAIL:-}" && "$DEVELOPER_DIR" == "$CMUX_TEST_XCRUN_FAIL" ]]; then
+      exit 1
+    fi
     cat "$DEVELOPER_DIR/sdk-version"
     ;;
   "--sdk macosx --show-sdk-path")
@@ -169,6 +172,16 @@ log="$tmp_dir/missing-pin-runner.log"
 run_select "$log" RUNNER_NAME=cmux99-glaeda-1 CMUX_CI_XCODE_APP="$apps_dir/Xcode_26.3.app" && fail "a missing app pin should fail" "$log"
 expect_one_error "$log" "Pinned Xcode developer dir does not exist: $apps_dir/Xcode_26.3.app/Contents/Developer on runner cmux99-glaeda-1."
 
+# 6a. A pinned Xcode with no usable SDK remains a machine failure and reports
+#     the installed inventory for fleet diagnosis.
+log="$tmp_dir/sdkless-pin.log"
+if run_select "$log" CMUX_TEST_XCRUN_FAIL="$current_developer" CMUX_CI_DEVELOPER_DIR="$current_developer"; then
+  fail "a pinned Xcode without a usable SDK should fail" "$log"
+fi
+expect_one_error "$log" "Pinned Xcode developer dir has no usable macOS SDK: $current_developer on runner "
+grep -Fq "[cmux-ci machine: xcode-pin-missing]" "$log" || fail "SDK-less pin lacks the machine marker" "$log"
+grep -Fq "Xcode_26.2.app=26.2" "$log" || fail "SDK-less pin should list the installed Xcodes" "$log"
+
 # 7. An explicit pin must still respect the SDK ceiling.
 log="$tmp_dir/pin-over-ceiling.log"
 if run_select "$log" CMUX_CI_DEVELOPER_DIR="$future_developer" CMUX_CI_MAX_MACOS_SDK_MAJOR=26; then
@@ -219,6 +232,17 @@ expect_one_error "$log" "This macOS 26 runner has no Xcode 26.2, the version scr
 grep -Fq "Xcode_16.4.app=16.4" "$log" || fail "the error should list the installed Xcodes" "$log"
 grep -Fq "[cmux-ci machine: xcode-pin-missing]" "$log" || fail "a missing pool pin lacks the machine marker" "$log"
 [[ ! -s "$env_file" ]] || fail "a failed pool selection must not export an Xcode" "$env_file"
+
+# 13b. A pool Xcode with no usable SDK reports the same machine evidence.
+mv "$tmp_dir/hidden-26.2.app" "$apps_dir/Xcode_26.2.app"
+log="$tmp_dir/pool-sdkless.log"
+if run_select "$log" CMUX_TEST_XCRUN_FAIL="$apps_dir/Xcode_26.2.app/Contents/Developer"; then
+  fail "a pool Xcode without a usable SDK should fail" "$log"
+fi
+expect_one_error "$log" "Pool Xcode developer dir has no usable macOS SDK: $apps_dir/Xcode_26.2.app/Contents/Developer on runner "
+grep -Fq "[cmux-ci machine: xcode-pin-missing]" "$log" || fail "SDK-less pool pin lacks the machine marker" "$log"
+grep -Fq "Xcode_26.2.app=26.2" "$log" || fail "SDK-less pool pin should list the installed Xcodes" "$log"
+mv "$apps_dir/Xcode_26.2.app" "$tmp_dir/hidden-26.2.app"
 
 # 13a. A fork's own CI on a hosted image without the pool's Xcode keeps working
 #      on the newest stable Xcode, with a warning instead of an error. The floor
