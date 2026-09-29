@@ -12,7 +12,7 @@ import { AuthoritySchema, objectName, readInternalRequest } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { TeamStore } from "./storage/team-store";
 import type { UsageOperation } from "./storage/user-usage";
-import { deviceObservability, observe, sessionObservability } from "./observability";
+import { observe, sessionObservability } from "./observability";
 import { DashboardControl } from "./dashboard-control";
 
 const SessionSchema = z.strictObject({
@@ -65,11 +65,11 @@ export class TeamControl extends DurableObject<Environment> {
     try {
       const incoming = await readInternalRequest(request);
       requestId = incoming.setup.requestId;
-      device = deviceObservability(incoming.setup.device);
       stage = incoming.path === "/request" ? "execute" : "open";
       const broker = this.broker(incoming.authority.teamId);
       if (incoming.path === "/request") {
         const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt, incoming.issueTicket);
+        device = sessionObservability(session);
         const result = await broker.execute(session, incoming.input);
         this.scheduleChanges(result, session.identity.teamId);
         observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200, ...device });
@@ -90,6 +90,7 @@ export class TeamControl extends DurableObject<Environment> {
       }
       const result = await broker.open(incoming.setup, incoming.authority, incoming.expiresAt, incoming.issueTicket);
       if (!result.session) throw new OperationError("internal_error", 500);
+      device = sessionObservability(result.session);
       this.scheduleChanges(result, incoming.authority.teamId);
       observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200, ...device });
       if (incoming.path === "/session") return this.json(result.response);

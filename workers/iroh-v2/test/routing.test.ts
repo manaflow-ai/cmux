@@ -116,4 +116,6 @@ test("control failures record the route, stage, operation and an unclassified ca
     method: "POST", headers: { "content-type": "application/json", authorization: "Bearer stack-token" }, body: JSON.stringify(setup),
   }), { ...dependencies, observe: event => events.push(event), stack: { verify: async () => { throw new Error("private upstream detail"); } } });
   expect(events).toEqual([expect.objectContaining({ route: "session", stage: "authenticate", operation: "none", cause: "Error" })]);
+  expect(events[0]).not.toHaveProperty("endpoint");
+  expect(events[0]).not.toHaveProperty("deviceId");
 });

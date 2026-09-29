@@ -64,7 +64,6 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
     let input: unknown;
     const setup = session ? parseSocketSetup(await readBoundedBody(request)) : readSetup(request);
     requestId = setup.requestId;
-    device = deviceObservability(setup.device);
     if (operation) {
       input = await readBoundedBody(request);
       if (inputRequestId(input) !== requestId) throw new OperationError("invalid_request", 400);
@@ -76,6 +75,7 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
     if (operation) operationName = inputOperation(input);
     stage = "authenticate";
     const authorization = await authenticate(request.headers.get("authorization"), setup, dependencies);
+    device = deviceObservability(setup.device);
     stage = "charge";
     if (!operation) await dependencies.chargeOpen(authorization.authority.userId);
     // A fresh Request deliberately copies no caller headers, cookies or credentials.
