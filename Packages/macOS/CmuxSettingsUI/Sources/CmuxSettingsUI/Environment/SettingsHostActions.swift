@@ -302,6 +302,10 @@ public protocol SettingsHostActions: AnyObject {
     /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
     func notifyShortcutSettingsDidChange()
 
+    /// Reloads cmux.json after Settings writes it, so its values apply to
+    /// UserDefaults and live chrome before the file watcher notices.
+    func reloadSettingsFile()
+
     /// Whether the host can register `shortcut` as its system-wide hotkey.
     ///
     /// The macOS host applies Carbon conversion and app-reservation checks that
@@ -531,6 +535,9 @@ public extension SettingsHostActions {
 
     /// Default no-op for hosts with no app-owned shortcut caches.
     func notifyShortcutSettingsDidChange() {}
+
+    /// Default no-op for hosts without a settings file store.
+    func reloadSettingsFile() {}
 
     /// Custom-sidebar defaults for package previews and tests without a live host.
     func customSidebarNames() -> [String] { [] }
