@@ -123,7 +123,9 @@ extension MobileIrxRuntimeComposition {
         controlTask = Task { [weak self] in
             for await snapshot in await service.events() {
                 guard !Task.isCancelled else { return }
-                await self?.apply(snapshot, scope: scope, epoch: currentEpoch)
+                guard let self else { return }
+                await self.apply(snapshot, scope: scope, epoch: currentEpoch)
+                await service.acknowledgeApplied(sequence: snapshot.sequence)
             }
         }
         await service.start()
