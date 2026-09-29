@@ -3002,10 +3002,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    @Published private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
-        didSet {
-            guard restoredUnreadPanelIndicators != oldValue else { return }
-            NotificationCenter.default.post(name: .workspacePaneUnreadStateDidChange, object: self)
+    private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] {
+        get { panelUnread.restoredIndicators }
+        set {
+            guard newValue != panelUnread.restoredIndicators else { return }
+            objectWillChange.send()
+            panelUnread.restoredIndicators = newValue
             syncPanelDerivedWorkspaceUnread()
         }
     }

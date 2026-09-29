@@ -6,14 +6,9 @@ import CmuxNotifications
 /// the attention flash and the active pane border) from the selected
 /// workspace, in the coordinate space of the overlay's canvas.
 ///
-/// ``TmuxWorkspacePaneOverlayRefresher`` calls ``refresh(in:)`` from
-/// `updateNSView`, where SwiftUI tracks every Observation read the build
-/// makes, so the overlay rebuilds when the selection, bonsplit geometry,
-/// focus, unread state or experiment target change. The inputs that aren't
-/// observable live in ``Settings`` and reach the refresher through its
-/// equality. `ContentView` calls the same methods for the triggers that
-/// aren't observable either: focus notifications, geometry callbacks, layout
-/// mode changes and glass root swaps.
+/// The SwiftUI leaf reads ``inputs`` to establish all model dependencies.
+/// The coordinator compares those inputs and AppKit geometry before calling
+/// ``state(for:)``; this type owns projection, not refresh scheduling.
 @MainActor
 struct TmuxWorkspacePaneOverlayStateBuilder {
     let tabManager: TabManager
@@ -22,40 +17,49 @@ struct TmuxWorkspacePaneOverlayStateBuilder {
     let notificationStore: TerminalNotificationStore
     let settings: TmuxWorkspacePaneOverlaySettings
 
-    /// Builds the overlay for `window` and hands it to the window's overlay
-    /// controller, which skips a state equal to the one it last rendered.
-    func refresh(in window: NSWindow?) {
-        guard let window else { return }
-        let state = state(for: window)
-        WindowTmuxWorkspacePaneOverlayController.controller(
-            for: window,
-            createIfNeeded: state != nil
-        )?.update(state: state)
-    }
-
-    /// Coalesces geometry-driven rebuilds into one per main-actor turn while
-    /// the overlay is shown or may need to be.
-    func scheduleGeometryRefresh(in window: NSWindow?) {
-        guard let window,
-              shouldScheduleGeometryRefresh(in: window),
-              let controller = WindowTmuxWorkspacePaneOverlayController.controller(
-                  for: window,
-                  createIfNeeded: true
-              ) else { return }
-        controller.scheduleGeometryRefresh { [weak window] in
-            guard let window else { return nil }
-            return state(for: window)
+    /// Captures render dependencies without defaults I/O or AppKit mutation.
+    var inputs: TmuxWorkspacePaneOverlayInputs {
+        var result = TmuxWorkspacePaneOverlayInputs(target: experiment.target, settings: settings)
+        guard let workspace = tabManager.selectedWorkspace else { return result }
+        result.workspaceId = workspace.id
+        result.workspaceIdentity = ObjectIdentifier(workspace)
+        result.isCanvas = workspace.layoutMode == .canvas
+        guard result.target.usesWorkspacePaneOverlay || shouldShowActivePaneBorder(for: workspace) else {
+            return result
         }
-    }
-
-    private func shouldScheduleGeometryRefresh(in window: NSWindow) -> Bool {
-        if experiment.target.usesWorkspacePaneOverlay { return true }
-        if WindowTmuxWorkspacePaneOverlayController.controller(
-            for: window,
-            createIfNeeded: false
-        )?.hasRenderedState == true { return true }
-        guard let workspace = tabManager.selectedWorkspace else { return false }
-        return shouldShowActivePaneBorder(for: workspace)
+        let layout = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
+            cachedSnapshot: workspace.tmuxLayoutSnapshot,
+            liveSnapshot: workspace.bonsplitController.layoutSnapshot()
+        )
+        // Snapshot timestamps are sampling metadata, not rendering inputs.
+        result.layout = layout.map {
+            LayoutSnapshot(containerFrame: $0.containerFrame, panes: $0.panes,
+                           focusedPaneId: $0.focusedPaneId, timestamp: 0)
+        }
+        result.isZoomed = workspace.bonsplitController.isSplitZoomed
+        result.focusedPanelId = workspace.focusedPanelId
+        result.flashPanelId = workspace.tmuxWorkspaceFlashPanelId
+        result.flashToken = workspace.tmuxWorkspaceFlashToken
+        result.flashReason = workspace.tmuxWorkspaceFlashReason
+        var visiblePanelIds = Set(layout?.panes.compactMap { pane -> UUID? in
+            guard let tab = pane.selectedTabId.flatMap(UUID.init(uuidString:)) else { return nil }
+            return workspace.panelIdFromSurfaceId(TabID(uuid: tab))
+        } ?? [])
+        if let id = result.focusedPanelId { visiblePanelIds.insert(id) }
+        if let id = result.flashPanelId { visiblePanelIds.insert(id) }
+        for id in visiblePanelIds {
+            if let panel = workspace.panels[id] { result.panelIdentities[id] = ObjectIdentifier(panel) }
+        }
+        if result.target.usesWorkspacePaneOverlay {
+            let unread = sidebarUnread.snapshot
+            result.unreadPanelIds = workspace.manualUnreadPanelIds.union(workspace.restoredUnreadPanelIds)
+            result.notificationPanelIds = Set(visiblePanelIds.filter {
+                unread.hasVisibleNotificationIndicator(forWorkspaceId: workspace.id, surfaceId: $0)
+            })
+            result.isWorkspaceManuallyUnread = unread.hasManualUnread(forWorkspaceId: workspace.id)
+            result.manualUnreadRepresentative = workspace.representativePanelIdForWorkspaceManualUnread()
+        }
+        return result
     }
 
     private func shouldShowActivePaneBorder(for workspace: Workspace) -> Bool {

@@ -1,51 +1,40 @@
 import SwiftUI
 
-/// Refreshes the AppKit pane overlay from the small set of inputs that can
-/// change its render state.
-///
-/// This is a SwiftUI observation leaf rather than a `WindowAccessor` refresh
-/// closure on `ContentView`. Its revision changes only for overlay inputs, so
-/// unrelated parent updates never call the overlay builder.
-struct TmuxWorkspacePaneOverlayRefresher: View {
+/// Observes all overlay inputs in one leaf, separate from ContentView.
+/// WindowAccessor only forwards changed value snapshots or window attachments.
+struct TmuxWorkspacePaneOverlayRefresher: View, Equatable {
     let builder: TmuxWorkspacePaneOverlayStateBuilder
+    let coordinator: TmuxWorkspacePaneOverlayCoordinator
+    private let dependencyIdentity: [ObjectIdentifier]
+    private let settings: TmuxWorkspacePaneOverlaySettings
 
-    @State private var refreshRevision: UInt64 = 0
+    init(builder: TmuxWorkspacePaneOverlayStateBuilder, coordinator: TmuxWorkspacePaneOverlayCoordinator) {
+        self.builder = builder
+        self.coordinator = coordinator
+        settings = builder.settings
+        dependencyIdentity = [ObjectIdentifier(builder.tabManager), ObjectIdentifier(builder.sidebarUnread),
+                              ObjectIdentifier(builder.experiment), ObjectIdentifier(coordinator)]
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.dependencyIdentity == rhs.dependencyIdentity && lhs.settings == rhs.settings
+    }
 
     var body: some View {
+        let inputs = builder.inputs
         Color.clear
             .frame(width: 0, height: 0)
-            .background(
-                WindowAccessor(refreshID: refreshRevision) { window in
-                    builder.refresh(in: window)
-                }
-            )
-            .onChange(of: builder.tabManager.selectedTabId) { _, _ in
-                refreshRevision &+= 1
-            }
-            .onChange(of: builder.sidebarUnread.snapshot) { _, _ in
-                refreshRevision &+= 1
-            }
-            .onChange(of: builder.experiment.target) { _, _ in
-                refreshRevision &+= 1
-            }
-            .onChange(of: builder.settings) { _, _ in
-                refreshRevision &+= 1
-            }
-            .onChange(of: builder.tabManager.selectedWorkspace?.tmuxWorkspaceFlashToken) { _, _ in
-                refreshRevision &+= 1
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
-                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                      tabId == builder.tabManager.selectedTabId else { return }
-                refreshRevision &+= 1
+            .background(WindowAccessor(refreshID: inputs) { window in
+                coordinator.refresh(builder: builder, in: window)
+            })
+            .onReceive(NotificationCenter.default.publisher(for: .workspacePaneGeometryDidChange)) { notification in
+                guard (notification.object as? Workspace)?.id == inputs.workspaceId else { return }
+                coordinator.refresh(builder: builder)
             }
             .onReceive(NotificationCenter.default.publisher(for: .workspaceLayoutModeDidChange)) { notification in
-                guard (notification.object as? Workspace)?.id == builder.tabManager.selectedTabId else { return }
-                refreshRevision &+= 1
+                guard (notification.object as? Workspace)?.id == inputs.workspaceId else { return }
+                coordinator.refresh(builder: builder)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .workspacePaneUnreadStateDidChange)) { notification in
-                guard (notification.object as? Workspace)?.id == builder.tabManager.selectedTabId else { return }
-                refreshRevision &+= 1
-            }
+            .onDisappear { coordinator.detach() }
     }
 }

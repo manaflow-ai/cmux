@@ -943,6 +943,7 @@ struct ContentView: View {
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var tmuxOverlayExperiment = TmuxOverlayExperimentTargetObserver()
+    @State private var tmuxOverlayCoordinator = TmuxWorkspacePaneOverlayCoordinator()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
     @State private var fileExplorerWidth: CGFloat = 220
@@ -2776,18 +2777,13 @@ struct ContentView: View {
         view = AnyView(view.background {
             // Update the AppKit-owned pane overlay from a dedicated Observation
             // leaf, without making ContentView itself an overlay input observer.
-            TmuxWorkspacePaneOverlayRefresher(builder: tmuxWorkspacePaneOverlayStateBuilder)
+            TmuxWorkspacePaneOverlayRefresher(builder: tmuxWorkspacePaneOverlayStateBuilder, coordinator: tmuxOverlayCoordinator).equatable()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspacePaneGeometryDidChange)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            tmuxWorkspacePaneOverlayStateBuilder.scheduleGeometryRefresh(in: observedWindow)
             noteSelectedTerminalPortalPresentedIfReady()
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceLayoutModeDidChange)) { notification in
-            guard (notification.object as? Workspace)?.id == tabManager.selectedTabId else { return }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: CmuxAccentColor.didChangeNotification)) { notification in
@@ -3429,7 +3425,7 @@ struct ContentView: View {
 #endif
         let backdropResult = windowChrome.backdropController.apply(plan: backdropPlan, to: window)
         if backdropResult.didChangeGlassRoot {
-            tmuxWorkspacePaneOverlayStateBuilder.refresh(in: window)
+            tmuxOverlayCoordinator.refresh(builder: tmuxWorkspacePaneOverlayStateBuilder, in: window)
             commandPaletteWindowOverlayController(for: window)
                 .update(
                     isVisible: isCommandPalettePresented,

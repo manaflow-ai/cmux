@@ -51,6 +51,36 @@ struct TmuxWorkspacePaneOverlayModelTests {
     }
 
     @Test @MainActor
+    func overlayCoordinatorRendersOnceForEqualSnapshots() {
+        let coordinator = TmuxWorkspacePaneOverlayCoordinator()
+        let inputs = TmuxWorkspacePaneOverlayInputs(
+            target: .surface,
+            settings: TmuxWorkspacePaneOverlaySettings(
+                activePaneBorderColorHex: nil,
+                rightSidebarOwnsInputFocus: false,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
+            )
+        )
+        let snapshot = TmuxWorkspacePaneOverlayRefreshSnapshot(
+            inputs: inputs,
+            window: ObjectIdentifier(NSWindow(
+                contentRect: .zero,
+                styleMask: [],
+                backing: .buffered,
+                defer: true
+            )),
+            referenceView: nil,
+            referenceBounds: nil,
+            exactRects: [:]
+        )
+        var renderCount = 0
+
+        #expect(coordinator.update(snapshot: snapshot) { renderCount += 1 })
+        #expect(!coordinator.update(snapshot: snapshot) { renderCount += 1 })
+        #expect(renderCount == 1)
+    }
+
+    @Test @MainActor
     func tracksActivePaneBorder() {
         let model = TmuxWorkspacePaneOverlayModel()
         let borderRect = CGRect(x: 8, y: 12, width: 320, height: 180)

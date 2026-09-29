@@ -9,7 +9,6 @@ import Observation
 /// for each flash. The flash used to be three `@Published` properties on
 /// `Workspace`, which invalidated every view observing the workspace while
 /// the overlay itself only picked the flash up on the window's next update.
-@MainActor
 @Observable
 final class WorkspacePaneFlashModel {
     /// The panel whose pane flashes, or `nil` before the first flash.
