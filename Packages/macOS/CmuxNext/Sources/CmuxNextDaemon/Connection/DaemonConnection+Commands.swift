@@ -97,19 +97,32 @@ extension DaemonConnection {
         return env.isEmpty ? nil : env
     }
 
-    /// Spawns a terminal in a workspace; creates its first screen/pane when empty.
+    /// Spawns a terminal in a workspace; creates its first screen/pane when
+    /// empty. Its reserved id and workspace are named in `env`
+    /// (`CMUX_SURFACE_ID`, `CMUX_WORKSPACE_ID`) with `terminal-env-v1`.
+    /// `keep` (`terminal-reap-v1`) keeps it after its last tab closes.
     @discardableResult
     public func createTerminal(in key: WorkspaceKey, cwd: String? = nil, argv: [String]? = nil, name: String? = nil,
-                               size: CellSize? = nil, env: [String: String]? = nil) async throws -> CreateTerminalResult {
-        let env = await terminalEnvironment(env)
+                               size: CellSize? = nil, env: [String: String]? = nil, keep: Bool? = nil) async throws -> CreateTerminalResult {
+        let terminal = TerminalID.generate()
+        var env = await terminalEnvironment(env)
+        if identity?.supports(DaemonCapabilities.terminalEnv) == true {
+            env = (env ?? [:]).merging(Self.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
+        }
+        let keep = identity?.supports(DaemonCapabilities.terminalReap) == true ? keep : nil
         return try await request(CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
-                                                       terminalID: .generate(), env: env, mutation: mutation()))
+                                                       terminalID: terminal, env: env, keep: keep, mutation: mutation()))
     }
 
+    /// New terminal tab in `pane` (the daemon's focused pane when nil).
     @discardableResult
     public func newTab(in pane: PaneID?, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
-        if let pane, let placed = try await spawnPlaced(options, into: .tab(pane)) { return placed }
-        var options = options
+        if supportsPlacementEnv {
+            let options = await placed(options)
+            return Self.created(try await request(NewTabRequest(pane: pane, options: options)), options: options)
+        }
+        if let pane, let placed = try await spawnPlacedByMove(options, into: .tab(pane)) { return placed }
+        var options = served(options)
         options.env = await terminalEnvironment(options.env)
         return try await request(NewTabRequest(pane: pane, options: options))
     }
@@ -124,20 +137,32 @@ extension DaemonConnection {
             let moved = try await moveTabToSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom)
             return SurfaceCreated(surface: moved.surface ?? tab)
         }
-        if let placed = try await spawnPlaced(options, into: .split(pane, direction)) { return placed }
-        var options = options
+        if supportsPlacementEnv {
+            let options = await placed(options)
+            return Self.created(try await request(SplitRequest(pane: pane, direction: direction, options: options)), options: options)
+        }
+        if let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
+        var options = served(options)
         options.env = await terminalEnvironment(options.env)
         return try await request(SplitRequest(pane: pane, direction: direction, options: options))
     }
 
+    /// New pane in `pane`'s column. `cwd`, `env`, and `keep` reach the
+    /// daemon only with `terminal-placement-env-v1`.
     @discardableResult
     public func newPaneInColumn(of pane: PaneID, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
-        try await request(NewPaneRequest(pane: pane, options: options))
+        guard supportsPlacementEnv else { return try await request(NewPaneRequest(pane: pane, options: served(options))) }
+        let options = await placed(options)
+        return Self.created(try await request(NewPaneRequest(pane: pane, options: options)), options: options)
     }
 
+    /// New scrolling column right of `pane`'s. `cwd`, `env`, and `keep`
+    /// reach the daemon only with `terminal-placement-env-v1`.
     @discardableResult
     public func newColumn(rightOf pane: PaneID, width: Double? = nil, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
-        try await request(NewColumnRequest(pane: pane, width: width, options: options))
+        guard supportsPlacementEnv else { return try await request(NewColumnRequest(pane: pane, width: width, options: served(options))) }
+        let options = await placed(options)
+        return Self.created(try await request(NewColumnRequest(pane: pane, width: width, options: options)), options: options)
     }
 
     @discardableResult
@@ -252,8 +277,30 @@ extension DaemonConnection {
         try await requestNew(ListNotificationsRequest(limit: limit)).notifications
     }
 
-    public func shutdownDaemon() async throws {
+    /// Hands the session off (the daemon exits). With `endTerminals`
+    /// (`terminal-reap-v1`) it first ends every terminal and waits for their
+    /// hosts, so no PTY outlives it; returns the ended count then.
+    ///
+    /// The end-terminals form runs on its own short-lived socket: it takes
+    /// seconds (each host is awaited), and on the subscribed control socket
+    /// the daemon closed the connection before replying (cmux-tui d1aa608).
+    @discardableResult
+    public func shutdownDaemon(endTerminals: Bool = false) async throws -> ShutdownDaemonRequest.Response {
         guard let identity else { throw DaemonError.notConnected }
-        _ = try await request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
+        guard endTerminals else {
+            return try await request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
+        }
+        guard identity.supports(DaemonCapabilities.terminalReap) else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.terminalReap])
+        }
+        guard let endpoint else { throw DaemonError.notConnected }
+        let transport = try LineTransport(path: endpoint.socketPath)
+        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        defer { transport.close() }
+        return try await Self.perform(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                      on: transport, timeout: Self.endTerminalsTimeout)
     }
+
+    /// Deadline for `shutdown-daemon end_terminals`, which awaits every host.
+    public static let endTerminalsTimeout: Duration = .seconds(60)
 }

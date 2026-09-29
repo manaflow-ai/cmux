@@ -97,18 +97,30 @@ def main():
                 out.write("\n")
             request(f, sock, {"id": 50 + index, "cmd": "close-terminal", "terminal_id": created["terminal_id"]})
         sock.close()
-        subprocess.run([binary, "server", "stop", "--session", session], env=env, timeout=10, check=False)
     finally:
+        # Terminal hosts are the daemon's children and outlive a plain stop;
+        # `--end-terminals` ends every one (cmux-tui terminal-reap-v1). Their
+        # args do not name the session, so check the daemon's children.
+        hosts = subprocess.run(["pgrep", "-P", str(server.pid), "-f", "__terminal-host"],
+                               capture_output=True, text=True).stdout.split()
+        subprocess.run([binary, "server", "stop", "--session", session, "--end-terminals"], env=env, timeout=90, check=False)
         try:
             server.wait(timeout=5)
         except subprocess.TimeoutExpired:
             os.killpg(server.pid, signal.SIGTERM)
             server.wait(timeout=5)
-        # Terminal hosts outlive the daemon by design; end this session's hosts.
-        subprocess.run(["pkill", "-f", f"__terminal-host.*{session}"], check=False)
-        leftover = subprocess.run(["pgrep", "-f", session], capture_output=True, text=True).stdout.strip()
-        if leftover:
-            print(f"warning: processes still reference {session}: {leftover}", file=sys.stderr)
+        def running(pid):
+            stat = subprocess.run(["ps", "-o", "stat=", "-p", pid], capture_output=True, text=True).stdout.strip()
+            return stat[:1] not in ("", "Z")
+        leaked = [pid for pid in hosts if running(pid)]
+        for _ in range(100):  # host exits trail the stop reply by milliseconds
+            if not leaked:
+                break
+            time.sleep(0.05)
+            leaked = [pid for pid in leaked if running(pid)]
+        if leaked:
+            print(f"error: terminal hosts outlived server stop --end-terminals: {leaked}", file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":

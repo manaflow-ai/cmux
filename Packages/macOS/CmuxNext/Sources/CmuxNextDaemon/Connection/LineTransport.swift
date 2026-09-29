@@ -261,6 +261,9 @@ final class LineTransport: Sendable {
         }
     }
 
+    /// Routing fields of a raw protocol line or a `cmux.protocol/2`
+    /// response. Resource responses carry the request id as a decimal
+    /// string and a structured `error` object.
     private struct Envelope: Decodable {
         var id: UInt64?
         var ok: Bool?
@@ -271,6 +274,29 @@ final class LineTransport: Sendable {
         enum CodingKeys: String, CodingKey {
             case id, ok, event, error
             case errorCode = "error_code"
+        }
+
+        private struct ResourceError: Decodable {
+            var code: String?
+            var message: String?
+        }
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            if let number = try? c.decodeIfPresent(UInt64.self, forKey: .id) {
+                id = number
+            } else if let text = try? c.decodeIfPresent(String.self, forKey: .id) {
+                id = UInt64(text)
+            }
+            ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
+            event = try? c.decodeIfPresent(String.self, forKey: .event)
+            errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
+            if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
+                error = text
+            } else if let structured = try? c.decodeIfPresent(ResourceError.self, forKey: .error) {
+                error = structured.message ?? structured.code
+                errorCode = errorCode ?? structured.code
+            }
         }
     }
 

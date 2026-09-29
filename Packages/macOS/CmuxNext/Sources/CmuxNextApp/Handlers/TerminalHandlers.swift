@@ -13,6 +13,7 @@ enum TerminalHandlers {
         bindSurfaceBindings(registry, ctx)
         TerminalHandlers.bindFind(into: registry, context: ctx)
         TerminalHandlers.bindInput(into: registry, context: ctx)
+        bindKeep(registry, ctx)
         bindUnported(registry)
     }
 
@@ -63,6 +64,18 @@ enum TerminalHandlers {
             ctx.services.cache.release(key)
             pane.showSelected()
             pane.focusContent()
+        })
+    }
+
+    /// `terminal keep [--on false]`: the tab's terminal outlives its last
+    /// tab (`terminal-reap-v1`); off lets the daemon end it after the reap
+    /// grace period once no tab shows it.
+    private static func bindKeep(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bind("terminal.keep", unavailable: ctx.needs(DaemonCapabilities.terminalReap), invoke: { invocation in
+            guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+            guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
+            let keep = invocation["on"]?.boolValue ?? true, surface = tab.surface
+            ctx.send("set-terminal-keep") { _ = try await $0.setTerminalKeep(.surface(surface), keep: keep) }
         })
     }
 

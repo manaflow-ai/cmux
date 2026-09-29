@@ -75,7 +75,7 @@ extension SidebarBridge {
         case .closeGroup(let group):
             let members = (model.group(group)?.workspaces.map(\.id) ?? []).compactMap { id in
                 services.machines.workspace(id: id.rawValue).flatMap { workspace, daemon in
-                    workspace.key.map { (daemon, $0, WorkspaceClose.terminals(of: workspace)) }
+                    workspace.key.map { (daemon, $0, WorkspaceClose.terminals(of: workspace, on: daemon)) }
                 }
             }
             model.apply(intent)

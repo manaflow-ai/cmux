@@ -67,7 +67,7 @@ import Testing
         .workspace: 79,
         .pane: 72,
         .tab: 69,
-        .terminal: 32,
+        .terminal: 33,
         .browser: 51,
         .sidebar: 30,
         .notifications: 10,

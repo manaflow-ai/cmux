@@ -11,7 +11,7 @@ extension AppActions {
         registry.bind("newTab", invoke: { newWorkspace(services, $0) })
         registry.bind("closeWorkspace", invoke: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
-            let terminals = WorkspaceClose.terminals(of: workspace)
+            let terminals = WorkspaceClose.terminals(of: workspace, on: services.activeDaemon)
             services.activeDaemon.send("close-workspace") { connection in
                 try await WorkspaceClose.close(key, terminals: terminals, on: connection)
             }

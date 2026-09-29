@@ -51,27 +51,35 @@ final class FakeDaemonServer: Sendable {
         listenFD = fd
         let box = clientFD
         let thread = Thread {
-            let client = accept(fd, nil, nil)
-            guard client >= 0 else { return }
-            box.fd.withLock { $0 = client }
-            var buffer = Data()
-            var chunk = [UInt8](repeating: 0, count: 65536)
+            // One reader thread per client; `push` and `disconnectClient`
+            // act on the first (the control connection).
             while true {
-                let count = chunk.withUnsafeMutableBytes { read(client, $0.baseAddress, $0.count) }
-                if count <= 0 { break }
-                buffer.append(contentsOf: chunk[0..<count])
-                while let newline = buffer.firstIndex(of: 0x0A) {
-                    let line = buffer[buffer.startIndex..<newline]
-                    buffer.removeSubrange(buffer.startIndex...newline)
-                    guard case .object(let request)? = try? JSONDecoder().decode(JSONValue.self, from: Data(line)) else { continue }
-                    for reply in handler(request) {
-                        let bytes = Array((reply + "\n").utf8)
-                        _ = bytes.withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
-                    }
-                }
+                let client = accept(fd, nil, nil)
+                guard client >= 0 else { return }
+                box.fd.withLock { if $0 < 0 { $0 = client } }
+                Thread { Self.serve(client, handler: handler) }.start()
             }
         }
         thread.start()
+    }
+
+    private static func serve(_ client: Int32, handler: @Sendable ([String: JSONValue]) -> [String]) {
+        var buffer = Data()
+        var chunk = [UInt8](repeating: 0, count: 65536)
+        while true {
+            let count = chunk.withUnsafeMutableBytes { read(client, $0.baseAddress, $0.count) }
+            if count <= 0 { break }
+            buffer.append(contentsOf: chunk[0..<count])
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<newline]
+                buffer.removeSubrange(buffer.startIndex...newline)
+                guard case .object(let request)? = try? JSONDecoder().decode(JSONValue.self, from: Data(line)) else { continue }
+                for reply in handler(request) {
+                    let bytes = Array((reply + "\n").utf8)
+                    _ = bytes.withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
+                }
+            }
+        }
     }
 
     /// Pushes an unsolicited line (an event) to the connected client.

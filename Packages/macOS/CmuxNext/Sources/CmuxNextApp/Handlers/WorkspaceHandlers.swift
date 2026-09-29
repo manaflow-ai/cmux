@@ -133,7 +133,7 @@ enum WorkspaceHandlers {
     static func close(_ workspaces: [WorkspaceModel], _ context: AppActionContext) {
         for workspace in workspaces {
             guard let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.terminals(of: workspace)
+            let terminals = WorkspaceClose.terminals(of: workspace, on: context.services.activeDaemon)
             context.services.activeDaemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
         }
     }

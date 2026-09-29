@@ -9,7 +9,7 @@ extension ActionCatalog {
                 category: .workspace, symbol: "plus.rectangle.on.rectangle",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.cwdString.optional, CatalogArgument.commandString.optional,
-                            CatalogArgument.envString.optional, CatalogArgument.focusBool.optional],
+                            CatalogArgument.envString.optional, CatalogArgument.focusBool.optional, CatalogArgument.keepBool.optional],
                 targets: [.workspace], cliName: "workspace new",
                 mainMenu: .file
             ),

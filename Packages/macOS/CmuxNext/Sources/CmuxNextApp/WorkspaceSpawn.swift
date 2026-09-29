@@ -10,19 +10,24 @@ struct WorkspaceSpawn: Sendable {
     var name: String?
     var command: String?
     var env: [String: String] = [:]
+    /// The first terminal outlives its tab (`--keep`; `terminal-reap-v1`).
+    var keep = false
 
-    init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:]) {
+    init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false) {
         self.cwd = cwd
         self.name = name
         self.command = command
         self.env = env
+        self.keep = keep
     }
 
-    /// `newTab` arguments: `cwd`, `name`, `command`, `env` (a JSON object of strings).
+    /// `newTab` arguments: `cwd`, `name`, `command`, `env` (a JSON object of
+    /// strings), `keep`.
     init(_ invocation: ActionInvocation) {
         cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
         name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         command = invocation["command"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        keep = invocation["keep"]?.boolValue == true
         if let text = invocation["env"]?.stringValue, let data = text.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             env = object.compactMapValues { $0 as? String }
@@ -49,13 +54,14 @@ extension WindowManager {
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
         let env: [String: String]? = daemon.supports(DaemonCapabilities.terminalEnv) ? vars : nil
+        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
         let cwd = spawn.cwd ?? daemon.defaultCwd
         return try await repair.populating(key) {
             let result = try await connection.request(CreateWorkspaceRequest(name: spawn.name, key: key, mutation: connection.mutation()))
             _ = try await connection.request(CreateTerminalRequest(
                 workspace: .key(result.key), command: spawn.command, cwd: cwd,
-                terminalID: terminal, env: env, mutation: connection.mutation()))
+                terminalID: terminal, env: env, keep: keep, mutation: connection.mutation()))
             return result.key.rawValue
         }
     }

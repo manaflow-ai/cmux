@@ -39,6 +39,7 @@ enum CompatCreate {
         case .terminal:
             var arguments: [String: ControlValue] = [:]
             if let cwd = try CompatSpawn.workingDirectory(call) { arguments["cwd"] = .string(cwd) }
+            if call.bool("keep") == true { arguments["keep"] = .bool(true) }
             try await call.service.runAction("newSurface", target: CompatTargets.pane(pane), arguments: arguments, call: call)
         }
         let surface = try await created(since: before, in: pane.workspaceUUID, call: call)
@@ -68,6 +69,7 @@ enum CompatCreate {
         let before = try await call.world()
         var arguments: [String: ControlValue] = [:]
         if let cwd = try CompatSpawn.workingDirectory(call) { arguments["cwd"] = .string(cwd) }
+        if call.bool("keep") == true { arguments["keep"] = .bool(true) }
         let action = "split" + direction.prefix(1).uppercased() + direction.dropFirst()
         try await call.service.runAction(action, target: CompatTargets.pane(pane), arguments: arguments, call: call)
         let surface = try await created(since: before, in: pane.workspaceUUID, call: call)

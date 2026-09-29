@@ -40,11 +40,19 @@ public enum DaemonCapabilities {
     public static let savedTabGroups = "saved-tab-groups-v1"
     /// Per-terminal `env` on `new-tab`, `split`, `create-terminal`; `cwd` on `split`.
     public static let terminalEnv = "terminal-env-v1"
+    /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
+    /// `new-pane-right`; `cwd`/`env` on the last two (cmux-tui PR 15600).
+    public static let terminalPlacementEnv = "terminal-placement-env-v1"
+    /// The owner ends a terminal with no tab after a grace period unless it
+    /// is kept: `keep` on creation, `set-terminal-keep`, and
+    /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
+    public static let terminalReap = "terminal-reap-v1"
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
     public static let batchClose = "batch-close-v1"
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
-                                            notificationAck, tabGroups, savedTabGroups, terminalEnv, batchClose]
+                                            notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
+                                            terminalReap, batchClose]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + [

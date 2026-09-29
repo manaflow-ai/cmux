@@ -11,9 +11,13 @@ public nonisolated struct ClosedTabHistory: Sendable {
         public var index: Int
         public var cwd: String?
         public var url: String?
+        /// The closed tab's terminal (`term_…`). Closing a tab only detaches
+        /// it; the daemon ends it after its reap grace period, so reopening
+        /// within that window shows the same live terminal.
+        public var terminalResourceID: String?
 
         public init(kind: Kind, tabID: String, paneID: String, workspaceID: String, index: Int,
-                    cwd: String? = nil, url: String? = nil) {
+                    cwd: String? = nil, url: String? = nil, terminalResourceID: String? = nil) {
             self.kind = kind
             self.tabID = tabID
             self.paneID = paneID
@@ -21,6 +25,7 @@ public nonisolated struct ClosedTabHistory: Sendable {
             self.index = index
             self.cwd = cwd
             self.url = url
+            self.terminalResourceID = terminalResourceID
         }
     }
 
@@ -34,7 +39,7 @@ public nonisolated struct ClosedTabHistory: Sendable {
     }
 
     /// Diffs `current` (every open tab) against the last call. `latest`
-    /// refreshes a closed tab's details (cwd, url) from the App's last view
+    /// refreshes a closed tab's details (cwd, url, terminal) from the App's last view
     /// of it, since those change without a structural update.
     public mutating func observe(_ current: [Record], liveWorkspaces: Set<String>,
                                  latest: (Record) -> Record = { $0 }) {

@@ -39,6 +39,8 @@ final class AppServices {
     /// Hook statuses shown in sidebar rows (`set_status`).
     let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
+    /// Reopen Closed Tab history; set when the tab handlers bind.
+    var closedTabs: ClosedTabTracker?
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     private let terminalDelegate = TerminalHostDelegate()
@@ -96,6 +98,15 @@ final class AppServices {
     /// terminal there gets `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
     func workspaceKey(of pane: PaneModel) -> WorkspaceKey? {
         daemon(for: pane).store.workspace(containing: pane.handle)?.key
+    }
+
+    /// Durable resource ids of `pane` and its screen and workspace
+    /// (`terminal.project` destinations); nil on pre-registry daemons.
+    func resourcePath(of pane: PaneModel) -> PaneResourcePath? {
+        guard let workspace = daemon(for: pane).store.workspace(containing: pane.handle),
+              let screen = workspace.screens.first(where: { $0.panes.contains { $0 === pane } }),
+              let workspaceID = workspace.resourceID, let screenID = screen.resourceID, let paneID = pane.resourceID else { return nil }
+        return PaneResourcePath(workspace: workspaceID, screen: screenID, pane: paneID)
     }
 
     /// Ends a detached tab drag whose move failed: the tab reappears.

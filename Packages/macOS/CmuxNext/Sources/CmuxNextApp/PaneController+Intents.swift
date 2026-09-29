@@ -65,15 +65,17 @@ extension PaneController {
     }
 
     /// New terminal tab in this pane. `typing` is sent to the new shell
-    /// once the tab exists (config command actions).
-    func newTerminalTab(cwd: String? = nil, typing text: String? = nil) {
+    /// once the tab exists (config command actions). `keep` makes the
+    /// terminal outlive the tab; by default the daemon ends it after the
+    /// reap grace period once its last tab closes.
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil) {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         services.registry.track(Task {
             do {
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
                 if let text { try await connection.send(created.surface, text: text) }
                 pendingSelectSurface = created.surface
                 apply(snapshot())
@@ -116,9 +118,10 @@ extension PaneController {
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
-    /// daemon commit with `batch-close-v1`: `close-tabs` ends each terminal
-    /// left with no tab unless it is kept. One tab, or an older daemon, takes
-    /// one command per tab.
+    /// daemon commit with `batch-close-v1` (`close-tabs`). Like a single
+    /// close (`closeCommand`), it only detaches their terminals, so the daemon
+    /// reaps them after its grace period and Reopen Closed Tab can show them
+    /// again meanwhile. One tab, or an older daemon, takes one command per tab.
     func close(_ ids: [StripTabID]) {
         guard !ids.isEmpty else { return }
         var commands: [(label: String, run: @Sendable (DaemonConnection) async throws -> Void)] = []
@@ -132,24 +135,17 @@ extension PaneController {
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
-            if tab.kind == .pty, let terminal = tab.terminalID {
-                let incarnation = tab.terminalIncarnation
-                commands.append(("close-terminal", { try await $0.closeTerminal(terminal, incarnation: incarnation) }))
-            } else {
-                let surface = tab.surface
-                commands.append(("close-surface", { try await $0.closeTab(surface) }))
-            }
+            commands.append(daemon.closeCommand(for: tab))
         }
         apply(snapshot())
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
-        let batchSurfaces = surfaces
+        let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.batchClose)
+            ? [("close-tabs", { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) })]
+            : commands
         services.registry.track(Task {
             var failed = false
             var unknown = false
-            var batch = false
-            if batchSurfaces.count > 1, let connection = daemon.connection { batch = await connection.supportsBatchClose }
-            let runs = batch ? [("close-tabs", { @Sendable connection in _ = try await connection.closeTabs(batchSurfaces) })] : commands
             for command in runs {
                 switch await daemon.runReportingTimeout(command.0, command.1) {
                 case .succeeded: break
