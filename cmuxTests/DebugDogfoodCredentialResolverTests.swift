@@ -346,6 +346,36 @@ import Testing
 /// file" bug, so these tests drive the wrapper directly with injected file
 /// fakes.
 @Suite struct MacAuthCompositionDogfoodAutoSignInTests {
+    @MainActor
+    @Test(arguments: ["", " ", "\n\t"])
+    func productionAuthRejectsBlankCredentialPaths(path: String) {
+        let environment = MacAuthComposition.environmentWithDogfoodAutoSignIn(
+            [
+                "CMUX_AUTH_CREDENTIALS_FILE": path,
+                "CMUX_UITEST_STACK_EMAIL": "ambient@example.com",
+                "CMUX_UITEST_STACK_PASSWORD": "test-password",
+            ],
+            secretFilePaths: [],
+            readFile: { _ in nil }
+        )
+        #expect(!MacAuthComposition.includesDevAuth(
+            resolvedAuthEnvironment: .production,
+            environment: environment
+        ))
+    }
+
+    @MainActor
+    @Test func productionAuthAcceptsAnExplicitCredentialPath() {
+        #expect(MacAuthComposition.includesDevAuth(
+            resolvedAuthEnvironment: .production,
+            environment: ["CMUX_AUTH_CREDENTIALS_FILE": "/private/monitor.env"]
+        ))
+        #expect(!MacAuthComposition.includesDevAuth(
+            resolvedAuthEnvironment: .production,
+            environment: [:]
+        ))
+    }
+
     @Test func authProjectSwitchIsDetectedAndThenStabilizes() throws {
         let suiteName = "cmuxTests.macAuthProjectSwitch.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

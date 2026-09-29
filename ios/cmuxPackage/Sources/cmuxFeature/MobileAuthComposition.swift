@@ -143,7 +143,8 @@ public struct MobileAuthComposition {
         )
         let includesDevAuth = Self.includesDevAuth(
             policy: policy,
-            resolvedEnvironment: resolvedEnvironment
+            resolvedEnvironment: resolvedEnvironment,
+            environment: environment
         )
         let launch = AuthLaunchOptions(
             clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1",
@@ -318,17 +319,22 @@ public struct MobileAuthComposition {
         return safe
     }
 
-    /// Whether launch enables the `42` debug sign-in shortcut. It signs in
-    /// with fixed development-project credentials, so it exists only where
-    /// those credentials belong: builds whose RESOLVED auth environment is
-    /// development. A `--prod-auth` build still compiles the shortcut (DEBUG
-    /// policy) but must not expose a known-credential sign-in path against
-    /// the production Stack project.
+    /// Whether launch enables the debug credential path. The `42` shortcut
+    /// still exists only for development auth. A production-auth DEBUG bundle
+    /// may opt into the same coordinator path only when the launcher supplies
+    /// an explicit replacement marker and credentials. This keeps the
+    /// production channel deterministic for the monitor without making normal
+    /// production launches discover ambient credentials.
     nonisolated static func includesDevAuth(
         policy: MobileAuthBuildPolicy,
-        resolvedEnvironment: CMUXAuthEnvironment
+        resolvedEnvironment: CMUXAuthEnvironment,
+        environment: [String: String] = [:]
     ) -> Bool {
-        policy.includesFortyTwoShortcut && resolvedEnvironment == .development
+        guard policy.includesFortyTwoShortcut else { return false }
+        if resolvedEnvironment == .development { return true }
+        return environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
+            && !(environment["CMUX_UITEST_STACK_EMAIL"] ?? "").isEmpty
+            && !(environment["CMUX_UITEST_STACK_PASSWORD"] ?? "").isEmpty
     }
 
     /// Whether an explicit resolved development-auth profile may replace a
