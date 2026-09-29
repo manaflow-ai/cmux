@@ -5,8 +5,8 @@ import Foundation
 /// Cancelling a caller must not release the slot while Network Extension or
 /// Cloud work is still running. The next operation waits for the actual call
 /// to return, so replacement intents cannot overlap an older one. A timed-out
-/// owner gets a bounded grace period to finish after its platform cancellation
-/// hook runs, then its queue turn is released.
+/// owner gets a bounded grace period before its platform cancellation hook runs,
+/// and its queue turn is released only when the underlying call returns.
 @MainActor
 final class CloudSystemVPNOperationGate {
     private var tail: Task<Void, Never>?
@@ -31,7 +31,6 @@ final class CloudSystemVPNOperationGate {
         let acquired: Task<Void, Never>
         let result: Task<T, any Error>
         private let current: Task<T, any Error>
-        private let gate: CloudSystemVPNOperationGate
         private let state: State
         private let turn: Turn
 
@@ -39,14 +38,12 @@ final class CloudSystemVPNOperationGate {
             acquired: Task<Void, Never>,
             result: Task<T, any Error>,
             current: Task<T, any Error>,
-            gate: CloudSystemVPNOperationGate,
             state: State,
             turn: Turn
         ) {
             self.acquired = acquired
             self.result = result
             self.current = current
-            self.gate = gate
             self.state = state
             self.turn = turn
         }
@@ -60,19 +57,18 @@ final class CloudSystemVPNOperationGate {
         @discardableResult
         func abandonIfAcquired(
             after grace: Duration,
-            onForcedRelease: @escaping @MainActor () -> Void
+            onCancellation: @escaping @MainActor () -> Void
         ) -> Bool {
             guard state.acquired, !state.finished else { return false }
-            state.abandonmentTask = Task { @MainActor [weak gate] in
+            state.abandonmentTask = Task { @MainActor in
                 do {
                     try await ContinuousClock().sleep(for: grace)
                 } catch {
                     return
                 }
                 guard !state.finished else { return }
-                onForcedRelease()
+                onCancellation()
                 current.cancel()
-                gate?.forceFinish(state: state, turn: turn)
             }
             return true
         }
@@ -131,7 +127,6 @@ final class CloudSystemVPNOperationGate {
             acquired: acquired,
             result: result,
             current: current,
-            gate: self,
             state: state,
             turn: turn
         )
@@ -141,13 +136,6 @@ final class CloudSystemVPNOperationGate {
         guard !state.finished else { return }
         state.finished = true
         state.abandonmentTask?.cancel()
-        pendingCount -= 1
-        turn.release()
-    }
-
-    private func forceFinish(state: State, turn: Turn) {
-        guard !state.finished else { return }
-        state.finished = true
         pendingCount -= 1
         turn.release()
     }

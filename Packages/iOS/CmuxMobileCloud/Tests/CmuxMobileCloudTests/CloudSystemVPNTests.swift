@@ -62,6 +62,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         cancelPendingOperationCount += 1
         installWasCancelled = true
         installDelayTask?.cancel()
+        installDelay = nil
         phase = .off
         Task { await cancellation.signal() }
     }
@@ -260,11 +261,54 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         rig.controller.enable()
         await rig.manager.waitForCancellation()
+        await rig.manager.waitForInstallCompletion()
         await rig.controller.waitForPendingOperation()
 
         #expect(rig.manager.cancelPendingOperationCount == 1)
         #expect(rig.service.calls.enroll.count == 2)
         #expect(rig.manager.maxConcurrentOperations == 1)
+    }
+
+    @Test func anAbandonedGateWaitsForTheUnderlyingCallBeforeReplacement() async throws {
+        let gate = CloudSystemVPNOperationGate()
+        let firstStarted = TestSignal()
+        let releaseFirst = TestSignal()
+        let cancellationRequested = TestSignal()
+        var activeOperations = 0
+        var maxConcurrentOperations = 0
+        var secondStarted = false
+
+        let first = gate.start {
+            activeOperations += 1
+            maxConcurrentOperations = max(maxConcurrentOperations, activeOperations)
+            await firstStarted.signal()
+            await releaseFirst.wait()
+            activeOperations -= 1
+        }
+        await firstStarted.wait()
+
+        let abandoned = first.abandonIfAcquired(after: .milliseconds(1)) {
+            Task { await cancellationRequested.signal() }
+        }
+        #expect(abandoned)
+
+        let second = gate.start {
+            secondStarted = true
+            activeOperations += 1
+            maxConcurrentOperations = max(maxConcurrentOperations, activeOperations)
+            activeOperations -= 1
+        }
+
+        await cancellationRequested.wait()
+        #expect(!secondStarted)
+        #expect(gate.hasPendingOperation)
+
+        await releaseFirst.signal()
+        try await first.result.value
+        try await second.result.value
+
+        #expect(secondStarted)
+        #expect(maxConcurrentOperations == 1)
     }
 
     @Test func aLateInstallReconcilesAndDoesNotEnrollAgain() async {
