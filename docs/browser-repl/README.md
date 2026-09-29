@@ -39,7 +39,7 @@ to a written exclusion.
 | `fetch` | Standard `fetch` that sends the current tab's cookies. |
 | `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd) and the system temp directory. `import("node:fs")` and friends return the same modules. |
 | `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
-| `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends. |
+| `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). |
 
 ### Page additions beyond Playwright
 
@@ -83,30 +83,43 @@ Rules, and how they improve on the references:
 - **Refs** go on interactive elements, iframes, scrollable regions and named
   landmarks, dialogs and lists (so a region can be scoped with
   `snapshot("e1")`). A ref is bound to its DOM node for the node's life and is
-  never reused in that document. Aside renumbers a ref when its name changes;
-  ChatGPT reuses indices after removals.
+  never reused in that frame, even after the frame loads a new document. A
+  removed node's ref fails at once (`ref e5 is stale`); a ref never issued
+  fails with `ref e9 does not exist`. Aside renumbers a ref when its name
+  changes; ChatGPT reuses indices after removals.
+- **Roles** are Playwright's (`getByRole` finds them), except controls HTML
+  has no ARIA role for: `summary` prints as `button`, an editable element as
+  `textbox`, `canvas` as `canvas`. Their refs work; `getByRole` does not find
+  them.
 - **Frames**, including cross-origin, inline under their iframe with `fN`
   prefixes in DOM order. Shadow roots are pierced.
 - **States** print as `[checked]`, `[checked=mixed]`, `[disabled]`,
   `[expanded]`, `[expanded=false]`, `[pressed]`, `[selected]`, `[focused]`,
-  `[required]`, `[invalid]`, `[readonly]`, `[level=N]`. Aside drops expanded and
-  pressed.
+  `[required]`, `[invalid]`, `[readonly]`, `[level=N]`, `[scrollable]` (why a
+  plain region has a ref) and, with `showHidden`, `[hidden]`. Aside drops
+  expanded and pressed. `[focused]` inside an iframe prints only when that
+  iframe holds the page's focus.
 - **Values** print after a colon; combobox shows its selected value and lists
   options only with `{ options: true }` or when expanded. Links show `[url=…]`,
   relative when same-origin, so agents do not guess URLs.
 - **Text** collapses whitespace to single spaces (Aside doubles spaces around
   inline elements). Tables print one `row` per table row with cells joined by
   `|` (Aside drops table structure).
-- **Open dialogs and file choosers** print first, before the tree, with a ref
-  each, so an agent sees why the page is blocked.
+- **Open dialogs and file choosers** print first, under the header, so an
+  agent sees why the page is blocked. A file chooser line carries its input's
+  ref. A JavaScript dialog line has none, because no element owns the dialog
+  and a ref must work as a selector; it names `page.dialog()` instead, and the
+  tree is replaced by a note while the dialog blocks the page.
 - **Options**: `interactive` (interactive nodes and their named ancestors),
   `showHidden`, `maxChars` (truncates with a note), `options`.
 - **Printing** a snapshot prints its diff against the previous snapshot of the
   same tab when the diff is at least 30% smaller than the tree, else the tree.
   `.tree` and `.diff` are always available.
-- **Diff** lines are `+` added and `-` removed, each hunk preceded by its
-  unchanged ancestor lines as context so the change is locatable. ChatGPT omits
-  ancestors; Aside prints bare `@@` hunks.
+- **Diff** lines are `+ ` added and `- ` removed, each change preceded by its
+  unchanged ancestor lines (two-space prefix) as context so the change is
+  locatable. A changed line's old version prints right before its new one
+  (matched by ref, else role and name). ChatGPT omits ancestors; Aside prints
+  bare `@@` hunks.
 
 ## Sessions and tabs
 

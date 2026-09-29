@@ -1,5 +1,7 @@
 # ChatGPT browser-use agent text formats
 
+> Reference study, kept for the record. cmux does not implement this format; the tools it cites were removed with the dialects and remain in git history.
+
 Behavioral spec of the text that the ChatGPT for Chrome / Codex browser-use
 runtime (plugin `openai-bundled/chrome` 26.917.71314) shows the model:
 `tab.ax.get()` / `tab.ax.write()` state and diffs, `tab.dom_cua.get_visible_dom()`,

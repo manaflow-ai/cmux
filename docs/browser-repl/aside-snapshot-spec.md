@@ -1,5 +1,7 @@
 # Aside `snapshot()` behavioral spec
 
+> Reference study, kept for the record. cmux does not implement this format; the goldens it cites were removed with the dialects and remain in git history.
+
 Clean-room behavioral description of the text tree that Aside's REPL `snapshot(page, options)` returns, written so cmux can reproduce it byte for byte. It describes rules and algorithms, not Aside's source.
 
 Evidence: the per-frame page script (`globalThis.__aside`, Aside daemon 1.0.928.1), the host-side frame stitching and header code in the same daemon, the goldens in `tests/browser-parity/goldens/aside/`, and live `aside repl` probes against local pages (2026-09-28). A statement marked **(observed)** was confirmed live. A statement marked **(bug)** is Aside behavior that looks unintended. Reproduce it only when strict parity matters, and keep the decision explicit in cmux code.
