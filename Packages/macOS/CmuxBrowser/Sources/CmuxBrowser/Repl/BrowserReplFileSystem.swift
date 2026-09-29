@@ -10,8 +10,16 @@ public struct BrowserReplFileSystem: Sendable {
     /// The sandbox that authorizes every path.
     public var sandbox: BrowserReplFileSandbox
 
-    public init(sandbox: BrowserReplFileSandbox) {
+    /// Canonical temporary directory, an extra root for `scope: "chatgpt"` calls.
+    public let temporaryRoot: String
+
+    /// - Parameter temporaryDirectory: The user's temporary directory;
+    ///   `nil` uses `NSTemporaryDirectory()`.
+    public init(sandbox: BrowserReplFileSandbox, temporaryDirectory: String? = nil) {
         self.sandbox = sandbox
+        self.temporaryRoot = BrowserReplFileSandbox.canonicalize(
+            BrowserReplFileSandbox.lexicallyNormalized(temporaryDirectory ?? NSTemporaryDirectory())
+        )
     }
 
     /// Runs one operation. See `docs/browser-repl/driver-protocol.md` for ops.
@@ -27,11 +35,14 @@ public struct BrowserReplFileSystem: Sendable {
 
     private func run(_ operation: String, _ arguments: [String: Any]) throws -> Any {
         let fileManager = FileManager.default
+        // The ChatGPT dialect's `node:fs` may also use the temporary directory;
+        // Aside's `fs` is confined to the working directory.
+        let extraRoots = arguments["scope"] as? String == "chatgpt" ? [temporaryRoot] : []
         func path(_ access: BrowserReplFileSandbox.Access, key: String = "path") throws -> String {
             guard let raw = arguments[key] as? String else {
                 throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: missing '\(key)'")
             }
-            return try sandbox.resolve(raw, for: access)
+            return try sandbox.resolve(raw, for: access, additionalRoots: extraRoots)
         }
 
         switch operation {
@@ -92,7 +103,7 @@ public struct BrowserReplFileSystem: Sendable {
             ] as [String: Any]
         case "rm":
             let resolved = try path(.write)
-            guard resolved != sandbox.root else {
+            guard resolved != sandbox.root, resolved != temporaryRoot else {
                 throw BrowserReplFileSystemError(code: "EACCES", message: "EACCES: refusing to remove the REPL working directory")
             }
             let force = arguments["force"] as? Bool ?? false

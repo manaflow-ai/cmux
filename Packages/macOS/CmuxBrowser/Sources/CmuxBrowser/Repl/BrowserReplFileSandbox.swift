@@ -54,13 +54,17 @@ public struct BrowserReplFileSandbox: Sendable {
     /// Resolves `path` for `access`.
     /// - Returns: Canonical absolute path.
     /// - Throws: `EINVAL` for an empty path, `EACCES` when the path leaves the root.
-    public func resolve(_ path: String, for access: Access) throws -> String {
+    /// - Parameter additionalRoots: Extra canonical roots that count as inside
+    ///   for this call (the ChatGPT dialect's `node:fs` also reaches the
+    ///   user's temporary directory).
+    public func resolve(_ path: String, for access: Access, additionalRoots: [String] = []) throws -> String {
         guard !path.isEmpty, !path.contains("\u{0}") else {
             throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: invalid path '\(path)'")
         }
         let joined = path.hasPrefix("/") ? path : root + "/" + path
         let canonical = Self.canonicalize(Self.lexicallyNormalized(joined))
-        if canonical == root || canonical.hasPrefix(root == "/" ? "/" : root + "/") {
+        for candidate in [root] + additionalRoots
+        where canonical == candidate || canonical.hasPrefix(candidate == "/" ? "/" : candidate + "/") {
             return canonical
         }
         if access == .read, readableFiles.contains(canonical) {

@@ -332,6 +332,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         native.setObject(id, forKeyedSubscript: "sessionId" as NSString)
         native.setObject(fileSystem.sandbox.root, forKeyedSubscript: "cwd" as NSString)
         native.setObject(driver.capabilities, forKeyedSubscript: "capabilities" as NSString)
+        native.setObject(fileSystem.temporaryRoot, forKeyedSubscript: "tmpdir" as NSString)
+        native.setObject(NSHomeDirectory(), forKeyedSubscript: "homedir" as NSString)
 
         let print: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] level, text in
             guard let self, let state = self.currentEval else { return }

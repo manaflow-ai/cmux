@@ -17,7 +17,14 @@ public struct BrowserReplRuntimeBundle: Sendable {
     /// The resource directory, for `readResource`.
     public let directory: URL?
 
-    static let defaultReplOrder = ["runtime-core.js", "dialect-aside.js", "dialect-chatgpt.js", "repl-host.js"]
+    static let defaultReplOrder = [
+        "vendor/acorn.js",
+        "vendor/playwright-locator-utils.js",
+        "runtime-core.js",
+        "dialect-aside.js",
+        "dialect-chatgpt.js",
+        "repl-host.js",
+    ]
     static let defaultAgentOrder = ["vendor/playwright-injected.js", "page-agent.js"]
 
     public init(replScripts: [Script], agentScripts: [Script], directory: URL? = nil) {
@@ -61,9 +68,30 @@ public struct BrowserReplRuntimeBundle: Sendable {
         return try? String(contentsOfFile: target, encoding: .utf8)
     }
 
-    /// Marks a frame's agent world as installed; evaluated after the agent scripts.
-    public static let agentInstalledMarkerSource = "globalThis.__cmuxAgentInstalled = true;"
+    /// Key under which the page agent stores itself on `globalThis`.
+    public static let agentGlobalKeyExpression = #"Symbol.for("cmux.browserRepl.agent")"#
 
     /// Evaluates to `true` in a frame whose agent world is installed.
-    public static let agentInstalledProbeSource = "globalThis.__cmuxAgentInstalled === true"
+    public static let agentInstalledProbeSource = "globalThis[\(agentGlobalKeyExpression)] !== undefined"
+
+    /// One script that installs the agent in a frame, following the recipe in
+    /// `page-agent.js`: Playwright's injected-script bundle runs with a local
+    /// `module` binding, and its factory is handed to the page agent. The
+    /// agent itself refuses to install twice, so re-running is harmless.
+    public var agentInstallSource: String? {
+        guard !agentScripts.isEmpty else { return nil }
+        var parts = ["(() => {", "const module = { exports: {} };"]
+        var rest = agentScripts[...]
+        if let first = agentScripts.first, first.name.contains("playwright-injected") {
+            parts.append(first.source)
+            parts.append("const __cmuxInjectedScriptFactory = module.exports.InjectedScript;")
+            rest = agentScripts.dropFirst()
+        }
+        for script in rest {
+            parts.append(";")
+            parts.append(script.source)
+        }
+        parts.append("})();")
+        return parts.joined(separator: "\n")
+    }
 }

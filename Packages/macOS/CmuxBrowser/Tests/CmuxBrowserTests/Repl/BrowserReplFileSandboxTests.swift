@@ -116,6 +116,29 @@ struct BrowserReplFileSandboxTests {
     }
 }
 
+extension BrowserReplFileSandboxTests {
+    @Test("The ChatGPT scope also reaches the temporary directory; the Aside scope does not")
+    func chatgptScopeAddsTemporaryDirectory() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        // `outside/` plays the user's temporary directory.
+        let fs = BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: scratch.root),
+            temporaryDirectory: scratch.outside
+        )
+        let secret = scratch.outside + "/secret.txt"
+
+        #expect(fs.perform("readFile", arguments: ["path": secret]).failureCode == "EACCES")
+        let read = try fs.perform("readFile", arguments: ["path": secret, "scope": "chatgpt"]).get() as? String
+        #expect(read == Data("secret".utf8).base64EncodedString())
+        #expect(throws: Never.self) {
+            try fs.perform("writeFile", arguments: ["path": scratch.outside + "/new.txt", "base64": "", "scope": "chatgpt"]).get()
+        }
+        #expect(fs.perform("rm", arguments: ["path": scratch.outside, "recursive": true, "scope": "chatgpt"]).failureCode == "EACCES")
+        #expect(fs.perform("readFile", arguments: ["path": scratch.base + "/elsewhere.txt", "scope": "chatgpt"]).failureCode == "EACCES")
+    }
+}
+
 private extension Result where Success == Any, Failure == BrowserReplFileSystemError {
     var failureCode: String? {
         if case .failure(let error) = self { return error.code }

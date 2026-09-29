@@ -5,15 +5,20 @@ import Foundation
 public struct BrowserReplDriverError: Error, Equatable, Sendable {
     public let code: String
     public let message: String
+    /// `Error.name` of a page exception (`TypeError`, ...), when there was one.
+    public let errorName: String?
 
-    public init(code: String, message: String) {
+    public init(code: String, message: String, errorName: String? = nil) {
         self.code = code
         self.message = message
+        self.errorName = errorName
     }
 
-    /// The JSON object sent to the runtime.
+    /// The JSON object sent to the runtime: `{ code, message, errorName? }`.
     public var json: String {
-        BrowserReplJSON.encode(["code": code, "message": message]) ?? #"{"code":"invalid","message":"error"}"#
+        var object: [String: Any] = ["code": code, "message": message]
+        if let errorName { object["errorName"] = errorName }
+        return BrowserReplJSON.encode(object) ?? #"{"code":"invalid","message":"error"}"#
     }
 }
 
