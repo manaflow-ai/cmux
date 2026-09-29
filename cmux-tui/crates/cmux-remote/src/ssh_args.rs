@@ -119,7 +119,7 @@ impl CallerOptions {
                     master_flag |= flag == 'M';
                     continue;
                 }
-                let attached = &flags[index + 1..];
+                let attached = &flags[index + flag.len_utf8()..];
                 let value = if attached.is_empty() {
                     arguments.next().map(String::as_str)
                 } else {
