@@ -519,6 +519,19 @@ struct MachinesPanelView: View {
                 // Say the true thing instead of pretending the fleet is empty:
                 // offline, reconnecting, or the failure with its real fix.
                 MachinesListStatusEmptyState(status: status, perform: performListStatusAction)
+            } else if viewModel.awaitingCatalogScope {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(
+                        localized: "cloud.teamPicker.switching",
+                        defaultValue: "Switching teams…"
+                    ))
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("CloudMachinesTeamLoading")
             } else if viewModel.hasLoadedOnce {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))
