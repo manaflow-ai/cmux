@@ -189,7 +189,7 @@ struct MobileHostSurfaceEventLaneTests {
         ))
 
         let first = Task { await session.noteInteractiveSurface("surface-a") }
-        #expect(try await waitUntil { await writer.isReleaseBlocked })
+        await writer.waitForReleaseStart()
         let second = Task { await session.noteInteractiveSurface("surface-b") }
         await writer.releaseBlockedOperation()
         await first.value
@@ -401,6 +401,7 @@ actor SurfaceGatedIndependentEventWriter: MobileHostIndependentEventWriting {
 actor FocusOrderingIndependentEventWriter: MobileHostIndependentEventWriting {
     nonisolated let maximumSurfaceEventLaneCount = 1
     private var blockNextRelease = true
+    private var releaseStartedWaiter: CheckedContinuation<Void, Never>?
     private var releaseWaiter: CheckedContinuation<Void, Never>?
     private var recordedNotes: [String] = []
 
@@ -418,6 +419,8 @@ actor FocusOrderingIndependentEventWriter: MobileHostIndependentEventWriting {
     func releaseSurfaceLanes(_ generationsBySurfaceID: [String: UInt64]) async {
         guard blockNextRelease, !generationsBySurfaceID.isEmpty else { return }
         blockNextRelease = false
+        releaseStartedWaiter?.resume()
+        releaseStartedWaiter = nil
         await withCheckedContinuation { releaseWaiter = $0 }
     }
 
@@ -425,7 +428,11 @@ actor FocusOrderingIndependentEventWriter: MobileHostIndependentEventWriting {
         recordedNotes.append(surfaceID)
     }
 
-    var isReleaseBlocked: Bool { releaseWaiter != nil }
+    func waitForReleaseStart() async {
+        guard releaseWaiter == nil else { return }
+        await withCheckedContinuation { releaseStartedWaiter = $0 }
+    }
+
     func releaseBlockedOperation() { releaseWaiter?.resume(); releaseWaiter = nil }
     func notes() -> [String] { recordedNotes }
 }
