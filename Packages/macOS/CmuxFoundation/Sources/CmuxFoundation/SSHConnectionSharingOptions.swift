@@ -20,6 +20,15 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// no connections because no private directory is available.
     public let controlSocketDirectoryPath: String?
     private let authenticationLockDirectory: URL
+    private static let routeSensitiveMarker = "__cmux_route_sensitive=true"
+    private static let routeSensitiveKeys: Set<String> = [
+        "proxycommand", "proxyjump", "identityfile", "certificatefile",
+        "hostkeyalias", "hostkeyalgorithms", "hostbasedacceptedalgorithms",
+        "pubkeyacceptedalgorithms", "userknownhostsfile", "globalknownhostsfile",
+        "preferredauthentications", "canonicalizehostname", "canonicalizemaxdots",
+        "canonicalizepermittedcnames", "remotecommand", "localcommand",
+        "permitlocalcommand", "matchfinal", "sendenv", "setenv",
+    ]
 
     /// Creates an option merger for the current local user, creating
     /// `~/.cmux/ssh` if needed.
@@ -107,9 +116,12 @@ public struct SSHConnectionSharingOptions: Sendable {
         userConfiguredControlOptions: [String]?
     ) -> [String] {
         let resolver = SSHAgentSocketResolver()
+        let routeSensitive = options.contains { SSHAgentSocketResolver().optionKey($0) == Self.routeSensitiveMarker.split(separator: "=").first.map(String.init) }
+            || userConfiguredControlOptions?.contains(where: { SSHAgentSocketResolver().optionKey($0) == Self.routeSensitiveMarker.split(separator: "=").first.map(String.init) }) == true
         var merged = options.compactMap { option -> String? in
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            guard !trimmed.isEmpty, SSHAgentSocketResolver().optionKey(trimmed) != Self.routeSensitiveMarker.split(separator: "=").first.map(String.init) else { return nil }
+            return trimmed
         }
         let controlKeys = ["ControlMaster", "ControlPath", "ControlPersist"]
         if let userConfiguredControlOptions {
@@ -132,6 +144,14 @@ public struct SSHConnectionSharingOptions: Sendable {
             }
         }
         guard let defaultControlPath else { return merged }
+        // `%C` distinguishes only user, host and port. A route with a custom
+        // proxy, identity, host-key alias/policy or remote command must not
+        // share cmux's default master with another route to the same endpoint.
+        let hasCustomControlPath = resolver.hasOptionKey(merged, key: "ControlPath")
+            || userConfiguredControlOptions?.contains(where: { resolver.optionKey($0) == "controlpath" }) == true
+        if routeSensitive && !hasCustomControlPath {
+            return merged
+        }
         let controlMaster = resolver.optionValue(
             named: "ControlMaster",
             in: merged
@@ -220,12 +240,20 @@ public struct SSHConnectionSharingOptions: Sendable {
             guard !resolver.hasOptionKey(explicitOptions, key: key) else { return false }
             return values[key]?.lowercased() != baselineValues[key]?.lowercased()
         }
-        guard hasCustomValue else { return nil }
-        return [
-            "ControlMaster=\(values["controlmaster"] ?? "false")",
-            "ControlPath=\(values["controlpath"] ?? "none")",
-            "ControlPersist=\(values["controlpersist"] ?? "no")",
-        ]
+        let routeSensitive = Self.routeSensitiveKeys.contains { key in
+            values[key]?.lowercased() != baselineValues[key]?.lowercased()
+        }
+        guard hasCustomValue || routeSensitive else { return nil }
+        var result: [String] = []
+        if hasCustomValue {
+            result += [
+                "ControlMaster=\(values["controlmaster"] ?? "false")",
+                "ControlPath=\(values["controlpath"] ?? "none")",
+                "ControlPersist=\(values["controlpersist"] ?? "no")",
+            ]
+        }
+        if routeSensitive { result.append(Self.routeSensitiveMarker) }
+        return result
     }
 
     private func controlConfigurationValues(fromSSHConfigOutput output: String) -> [String: String] {
@@ -234,7 +262,8 @@ public struct SSHConnectionSharingOptions: Sendable {
             let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
             guard parts.count == 2 else { continue }
             let key = parts[0].lowercased()
-            guard ["controlmaster", "controlpath", "controlpersist"].contains(key) else {
+            guard ["controlmaster", "controlpath", "controlpersist"].contains(key)
+                || Self.routeSensitiveKeys.contains(key) else {
                 continue
             }
             values[key] = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)

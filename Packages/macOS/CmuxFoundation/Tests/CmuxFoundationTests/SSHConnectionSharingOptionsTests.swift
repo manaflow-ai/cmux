@@ -135,6 +135,33 @@ struct SSHConnectionSharingOptionsTests {
         #expect(options.cmuxOwnedControlPath(in: merged) == nil)
     }
 
+    @Test("Route-specific ssh_config settings disable cmux default sharing")
+    func routeSpecificConfigurationDoesNotShareAHostStableSocket() {
+        let baseline = """
+        controlmaster false
+        controlpersist no
+        proxycommand none
+        identityfile none
+        hostkeyalias none
+        """
+        let configured = """
+        controlmaster false
+        controlpersist no
+        proxycommand /usr/local/bin/broker %h %p
+        identityfile /Users/alice/.ssh/route-key
+        hostkeyalias production
+        """
+        let resolved = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: configured,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        )
+        #expect(resolved?.contains("__cmux_route_sensitive=true") == true)
+        let merged = options.mergingDefaults(into: [], userConfiguredControlOptions: resolved)
+        #expect(!merged.contains(where: { $0.hasPrefix("ControlPath=") }))
+        #expect(!merged.contains("ControlMaster=auto"))
+    }
+
     @Test("OpenSSH's default ssh_config output still enables cmux sharing")
     func ignoresResolvedOpenSSHDefaults() {
         let output = """
