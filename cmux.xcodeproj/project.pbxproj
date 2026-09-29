@@ -2463,6 +2463,7 @@
 		D0B752900000000000000004 /* PaneDropRoutingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B752900000000000000003 /* PaneDropRoutingSession.swift */; };
 		D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */; };
 		42A979F1902C488385061842 /* PaneDropTargetRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8547681AB5A4448E8A52345D /* PaneDropTargetRepresentable.swift */; };
+		96B4F71E4B75DDDE94C654B1 /* PaneDropZoneOverlayAnimationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7397F125636B9695FDFD4CE0 /* PaneDropZoneOverlayAnimationTests.swift */; };
 		29694FC4AD416A43C96FED5B /* PaneFocusFindResponderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E960400B0C66CA43D219BC5B /* PaneFocusFindResponderTests.swift */; };
 		C2921FC48AE4BDA2BF67A845 /* PaneFocusTestWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC905DADF2BA91C8C865D37B /* PaneFocusTestWindow.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
@@ -6528,6 +6529,7 @@
 		D0B752900000000000000003 /* PaneDropRoutingSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingSession.swift; sourceTree = "<group>"; };
 		D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingSupport.swift; sourceTree = "<group>"; };
 		8547681AB5A4448E8A52345D /* PaneDropTargetRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropTargetRepresentable.swift; sourceTree = "<group>"; };
+		7397F125636B9695FDFD4CE0 /* PaneDropZoneOverlayAnimationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaneDropZoneOverlayAnimationTests.swift"; sourceTree = "<group>"; };
 		E960400B0C66CA43D219BC5B /* PaneFocusFindResponderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PaneFocusFindResponderTests.swift; sourceTree = "<group>"; };
 		EC905DADF2BA91C8C865D37B /* PaneFocusTestWindow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PaneFocusTestWindow.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
@@ -12386,6 +12388,7 @@
 				3D5E43A566AB0B441162EC5A /* CloudTreeNodeCacheTests.swift */,
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
+				7397F125636B9695FDFD4CE0 /* PaneDropZoneOverlayAnimationTests.swift */,
 				5DEADB23282C5C0D06630294 /* CloudMachineDeleteOptimismTests.swift */,
 				B66A94F226BD05E5B9262ED5 /* MachineDeleteCoordinatorTests.swift */,
 				311C986A1E7430418708AAA6 /* MachinesListStatusToolbarRowTests.swift */,
@@ -16674,6 +16677,7 @@
 				0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */,
 				A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
 				B11371000000000000000011 /* OwnedAgentDescendantLifecycleTests.swift in Sources */,
+				96B4F71E4B75DDDE94C654B1 /* PaneDropZoneOverlayAnimationTests.swift in Sources */,
 				29694FC4AD416A43C96FED5B /* PaneFocusFindResponderTests.swift in Sources */,
 				C2921FC48AE4BDA2BF67A845 /* PaneFocusTestWindow.swift in Sources */,
 					C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */,
