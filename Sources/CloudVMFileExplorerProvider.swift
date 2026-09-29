@@ -1,3 +1,4 @@
+import CmuxFileSearch
 import Foundation
 
 /// An immutable Cloud filesystem identity with I/O owned by its service actor.
@@ -61,9 +62,10 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
         return try await service.listDirectory(vmID: vmID, path: path, showHidden: showHidden)
     }
 
-    nonisolated func search(query: String, rootPath: String) async throws -> FileSearchSnapshot {
+    /// Searches the Cloud machine with ripgrep.
+    nonisolated func search(query: FileSearchQuery, rootPath: String, matchLimit: Int) async throws -> CloudFileSearchResult {
         guard isAvailable else { throw FileExplorerError.providerUnavailable }
-        return try await service.search(vmID: vmID, query: query, rootPath: rootPath)
+        return try await service.search(vmID: vmID, query: query, rootPath: rootPath, matchLimit: matchLimit)
     }
 
     /// Downloads a remote file into the local preview cache.

@@ -636,7 +636,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return result.stdout
     }
 
-    private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
+    static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
         var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
         if let port = connection.port {
             args += ["-p", String(port)]
@@ -795,6 +795,8 @@ final class FileExplorerStore: ObservableObject {
     var remoteHomeResolutionTask: Task<Void, Never>?
     var remoteHomeResolutionKey: String?
     let cloudPreviewCache = CloudFilePreviewCache()
+    /// Find mode state per workspace; outlives the Find view itself.
+    let fileSearchSessions = FileSearchSessionCache()
     private(set) var resourceContextID = UUID()
 
     private let gitStatusProvider: GitStatusProvider

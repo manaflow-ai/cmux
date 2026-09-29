@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxFileSearch
 import AppKit
 import CmuxAuthRuntime
 import Testing
@@ -111,43 +112,74 @@ struct CloudFileExplorerBehaviorTests {
         #expect(FileSearchScope(provider: local) != .remoteCloud(cloud))
     }
 
+    private static func matchLine(path: String, text: String, line: Int, start: Int, end: Int) -> String {
+        let payload: [String: Any] = [
+            "path": ["text": path],
+            "lines": ["text": text],
+            "line_number": line,
+            "submatches": [["start": start, "end": end]],
+        ]
+        let data = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
+        return #"{"type":"match","data":"# + String(decoding: data, as: UTF8.self) + "}"
+    }
+
     @Test
     func cloudFindUsesTheBoundVmTransport() async throws {
         let runner = CloudFileExplorerCommandRunnerFixture()
-        let line = try JSONSerialization.data(withJSONObject: [
-            "type": "match",
-            "data": [
-                "path": ["text": "/home/cmux/cloud.txt"],
-                "lines": ["text": "cloud needle\\n"],
-                "line_number": 3,
-                "submatches": [["start": 0]],
-            ],
-        ] as [String: Any])
+        let line = Self.matchLine(path: "/home/cmux/cloud.txt", text: "cloud needle\n", line: 3, start: 6, end: 12)
         runner.responses = [{ command in
             guard command.contains("rg") else { return nil }
-            return VMExecResult(exitCode: 0, stdout: String(decoding: line, as: UTF8.self) + "\n", stderr: "")
+            return VMExecResult(exitCode: 0, stdout: line + "\n", stderr: "")
         }]
         let provider = CloudVMFileExplorerProvider(vmID: "vivid-newt", displayTarget: "vivid-newt",
             isAvailable: true, commandRunner: runner)
-        let controller = FileSearchController()
-        var snapshots: [FileSearchSnapshot] = []
-        controller.onSnapshotChanged = { snapshots.append($0) }
-        controller.search(query: "needle", rootPath: "/home/cmux", scope: .remoteCloud(provider))
+        let scope = FileSearchScope.remoteCloud(provider)
+        let engine = FileSearchEngine(debounceInterval: .zero, frameInterval: .zero) { path in
+            FileExplorerTerminalPathInsertion.relativePath(for: path, rootPath: "/home/cmux")
+        }
+        engine.start(FileSearchRequest(
+            query: FileSearchQuery(pattern: "needle", isCaseSensitive: true),
+            rootPath: "/home/cmux",
+            scopeIdentity: scope.identity,
+            backend: try #require(scope.backend)
+        ))
 
-        try await waitFor("Cloud search settled") { snapshots.last?.isSearching == false }
-        let snapshot = try #require(snapshots.last)
-        #expect(snapshot.status == .matches)
-        #expect(snapshot.results.map(\.relativePath) == ["cloud.txt"])
+        try await waitFor("Cloud search settled") { !engine.isSearching }
+        #expect(engine.phase == .finished(.completed))
+        #expect(engine.tree.files.map(\.relativePath) == ["cloud.txt"])
+        #expect(engine.tree.files.first?.matches.first?.column == 7)
         #expect(runner.calls.count == 1)
         #expect(runner.calls[0].vmID == "vivid-newt")
+        // The toggles travel to the guest as ripgrep flags.
+        #expect(runner.calls[0].command.contains("'--case-sensitive'"))
+        #expect(runner.calls[0].command.contains("'--fixed-strings'"))
+    }
+
+    @Test
+    func cloudFindReportsMissingRipgrepAndLimits() async throws {
+        let runner = CloudFileExplorerCommandRunnerFixture()
+        let provider = CloudVMFileExplorerProvider(vmID: "vivid-newt", displayTarget: "vivid-newt",
+            isAvailable: true, commandRunner: runner)
+
+        runner.responses = [{ _ in VMExecResult(exitCode: 75, stdout: "", stderr: "") }]
+        let missing = try await provider.search(query: FileSearchQuery(pattern: "x"), rootPath: "/home/cmux", matchLimit: 100)
+        #expect(missing.completion == .failed(.ripgrepNotFound))
+        #expect(FileSearchStatusText.message(for: .ripgrepNotFound, scope: .remoteCloud(provider))
+            .contains("Cloud"))
+
+        let line = Self.matchLine(path: "/home/cmux/a.txt", text: "x\n", line: 1, start: 0, end: 1)
+        runner.responses = [{ _ in VMExecResult(exitCode: 0, stdout: line + "\n__CMUX_LIMIT__\n", stderr: "") }]
+        let limited = try await provider.search(query: FileSearchQuery(pattern: "x"), rootPath: "/home/cmux", matchLimit: 100)
+        #expect(limited.completion == .limited(1))
+        #expect(limited.groups.map(\.path) == ["/home/cmux/a.txt"])
     }
 
     @Test
     func cloudSearchesSerializeGuestExecWhenQueriesReplaceOneAnother() async throws {
         let runner = SerialCloudSearchRunner()
         let service = CloudFileExplorerService(commandRunner: runner)
-        async let first = service.search(vmID: "vivid-newt", query: "first", rootPath: "/home/cmux")
-        async let second = service.search(vmID: "vivid-newt", query: "second", rootPath: "/home/cmux")
+        async let first = service.search(vmID: "vivid-newt", query: FileSearchQuery(pattern: "first"), rootPath: "/home/cmux", matchLimit: 10)
+        async let second = service.search(vmID: "vivid-newt", query: FileSearchQuery(pattern: "second"), rootPath: "/home/cmux", matchLimit: 10)
         _ = try await (first, second)
         #expect(await runner.maximumActiveRequests == 1)
     }

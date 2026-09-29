@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileSearch
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,9 +11,8 @@ import Testing
 @MainActor
 @Suite("File explorer native drag ownership", .serialized)
 struct FileExplorerNativeDragOwnershipTests {
-    @Test("Search results retain their container through dismantle and endedAt")
-    func searchResultsContainerSurvivesDismantleUntilNativeEndedAt() throws {
-        let searchController = SearchResultsDragTestSearchController()
+    @Test("Search results retain the Find panel through dismantle and endedAt")
+    func searchResultsPanelSurvivesDismantleUntilNativeEndedAt() throws {
         let store = FileExplorerStore()
         store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         let state = FileExplorerState()
@@ -23,24 +23,11 @@ struct FileExplorerNativeDragOwnershipTests {
         )
         var container: FileExplorerContainerView? = FileExplorerContainerView(
             coordinator: coordinator,
-            presentation: .find,
-            searchController: searchController
+            presentation: .find
         )
-        weak var weakContainer: FileExplorerContainerView?
-        weakContainer = container
-
-        searchController.publish(FileSearchSnapshot(
-            query: "needle",
-            results: [FileSearchResult(
-                path: "/tmp/search-result.txt",
-                relativePath: "search-result.txt",
-                lineNumber: 1,
-                columnNumber: 1,
-                preview: "needle"
-            )],
-            status: .matches,
-            isSearching: false
-        ))
+        weak var weakPanel: FileSearchPanelView?
+        weakPanel = container?.findPanel
+        showResults([("/tmp/search-result.txt", 1)], in: container)
 
         var writer: (any NSPasteboardWriting)?
         let sessionPasteboard = NSPasteboard(
@@ -53,52 +40,39 @@ struct FileExplorerNativeDragOwnershipTests {
 
         do {
             let activeContainer = try #require(container)
+            let panel = activeContainer.findPanel
             writer = try #require(
-                activeContainer.tableView(
-                    activeContainer.searchResultsView,
-                    pasteboardWriterForRow: 0
-                )
+                panel.outlineView(panel.resultsView, pasteboardWriterForItem: resultItem(0, in: activeContainer))
             )
-            activeContainer.tableView(
-                activeContainer.searchResultsView,
-                draggingSession: session,
-                willBeginAt: .zero,
-                forRowIndexes: IndexSet(integer: 0)
-            )
-            #expect(activeContainer.searchResultsView.activeNativeDragDelegateMarker === activeContainer)
-            #expect(activeContainer.searchResultsView.activeNativeDragSession === session)
+            panel.outlineView(panel.resultsView, draggingSession: session, willBeginAt: .zero, forItems: [])
+            #expect(panel.resultsView.activeNativeDragDelegateMarker === panel)
+            #expect(panel.resultsView.activeNativeDragSession === session)
 
             // This is the SwiftUI representable's dismantle boundary. The
-            // writer must retain the container because NSTableView's delegate
+            // writer must retain the panel because NSOutlineView's delegate
             // is weak.
             FileExplorerPanelView.dismantleNSView(activeContainer, coordinator: coordinator)
         }
         container = nil
 
         try withExtendedLifetime(writer) {
-            let retainedContainer = try #require(
-                weakContainer,
-                "The native writer must retain FileExplorerContainerView after dismantle."
+            let retainedPanel = try #require(
+                weakPanel,
+                "The native writer must retain FileSearchPanelView after dismantle."
             )
-            #expect(retainedContainer.searchResultsView.delegate === retainedContainer)
+            #expect(retainedPanel.resultsView.delegate === retainedPanel)
 
             // AppKit's terminal callback is the cleanup authority. It must
             // still run after dismantle and release only this session's owner
             // graph.
-            retainedContainer.tableView(
-                retainedContainer.searchResultsView,
-                draggingSession: session,
-                endedAt: .zero,
-                operation: []
-            )
-            #expect(retainedContainer.searchResultsView.activeNativeDragDelegateMarker == nil)
-            #expect(retainedContainer.searchResultsView.activeNativeDragSession == nil)
+            retainedPanel.outlineView(retainedPanel.resultsView, draggingSession: session, endedAt: .zero, operation: [])
+            #expect(retainedPanel.resultsView.activeNativeDragDelegateMarker == nil)
+            #expect(retainedPanel.resultsView.activeNativeDragSession == nil)
         }
     }
 
     @Test("A newer search drag fences a source whose endedAt was lost")
     func newerSearchDragReclaimsSupersededSource() throws {
-        let searchController = SearchResultsDragTestSearchController()
         let store = FileExplorerStore()
         store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         let state = FileExplorerState()
@@ -109,27 +83,12 @@ struct FileExplorerNativeDragOwnershipTests {
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,
-            presentation: .find,
-            searchController: searchController
+            presentation: .find
         )
-        searchController.publish(FileSearchSnapshot(
-            query: "needle",
-            results: [FileSearchResult(
-                path: "/tmp/search-result.txt",
-                relativePath: "search-result.txt",
-                lineNumber: 1,
-                columnNumber: 1,
-                preview: "needle"
-            )],
-            status: .matches,
-            isSearching: false
-        ))
+        showResults([("/tmp/search-result.txt", 1)], in: container)
 
         let firstWriter = try #require(
-            container.tableView(
-                container.searchResultsView,
-                pasteboardWriterForRow: 0
-            ) as? FilePreviewDragPasteboardWriter
+            container.findPanel.outlineView(container.searchResultsView, pasteboardWriterForItem: resultItem(0, in: container)) as? FilePreviewDragPasteboardWriter
         )
         let sharedPasteboard = NSPasteboard(
             name: NSPasteboard.Name("file-explorer-shared-drag-\(UUID().uuidString)")
@@ -139,18 +98,15 @@ struct FileExplorerNativeDragOwnershipTests {
             sequence: 1,
             pasteboard: sharedPasteboard
         )
-        container.tableView(
+        container.findPanel.outlineView(
             container.searchResultsView,
             draggingSession: firstSession,
             willBeginAt: .zero,
-            forRowIndexes: IndexSet(integer: 0)
+            forItems: []
         )
 
         let secondWriter = try #require(
-            container.tableView(
-                container.searchResultsView,
-                pasteboardWriterForRow: 0
-            ) as? FilePreviewDragPasteboardWriter
+            container.findPanel.outlineView(container.searchResultsView, pasteboardWriterForItem: resultItem(0, in: container)) as? FilePreviewDragPasteboardWriter
         )
         sharedPasteboard.clearContents()
         #expect(sharedPasteboard.writeObjects([secondWriter]))
@@ -158,14 +114,14 @@ struct FileExplorerNativeDragOwnershipTests {
             sequence: 2,
             pasteboard: sharedPasteboard
         )
-        container.tableView(
+        container.findPanel.outlineView(
             container.searchResultsView,
             draggingSession: secondSession,
             willBeginAt: .zero,
-            forRowIndexes: IndexSet(integer: 0)
+            forItems: []
         )
 
-        #expect(container.searchResultsView.activeNativeDragDelegateMarker === container)
+        #expect(container.searchResultsView.activeNativeDragDelegateMarker === container.findPanel)
         #expect(container.searchResultsView.activeNativeDragSession === secondSession)
         #expect(
             sharedPasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType) != nil,
@@ -174,17 +130,17 @@ struct FileExplorerNativeDragOwnershipTests {
 
         // A duplicate callback repeats the same native session; sequence
         // numbers may be reused by genuinely distinct AppKit sessions.
-        container.tableView(
+        container.findPanel.outlineView(
             container.searchResultsView,
             draggingSession: secondSession,
             willBeginAt: .zero,
-            forRowIndexes: IndexSet(integer: 0)
+            forItems: []
         )
         #expect(container.searchResultsView.activeNativeDragSession === secondSession)
 
         // A late callback from the superseded source must not clear the new
         // owner/session pair.
-        container.tableView(
+        container.findPanel.outlineView(
             container.searchResultsView,
             draggingSession: firstSession,
             endedAt: .zero,
@@ -192,7 +148,7 @@ struct FileExplorerNativeDragOwnershipTests {
         )
         #expect(container.searchResultsView.activeNativeDragSession === secondSession)
 
-        container.tableView(
+        container.findPanel.outlineView(
             container.searchResultsView,
             draggingSession: secondSession,
             endedAt: .zero,
@@ -204,7 +160,6 @@ struct FileExplorerNativeDragOwnershipTests {
 
     @Test("A multi-row search drag revokes sibling provisional capabilities")
     func multiRowSearchDragRevokesSiblingProvisionalCapabilities() throws {
-        let searchController = SearchResultsDragTestSearchController()
         let store = FileExplorerStore()
         store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         let coordinator = FileExplorerPanelView.Coordinator(
@@ -214,37 +169,16 @@ struct FileExplorerNativeDragOwnershipTests {
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,
-            presentation: .find,
-            searchController: searchController
+            presentation: .find
         )
-        searchController.publish(FileSearchSnapshot(
-            query: "needle",
-            results: [
-                FileSearchResult(
-                    path: "/tmp/search-first.txt",
-                    relativePath: "search-first.txt",
-                    lineNumber: 1,
-                    columnNumber: 1,
-                    preview: "needle"
-                ),
-                FileSearchResult(
-                    path: "/tmp/search-second.txt",
-                    relativePath: "search-second.txt",
-                    lineNumber: 2,
-                    columnNumber: 1,
-                    preview: "needle"
-                ),
-            ],
-            status: .matches,
-            isSearching: false
-        ))
+        showResults([("/tmp/search-first.txt", 1), ("/tmp/search-second.txt", 2)], in: container)
 
         let firstWriter = try #require(
-            container.tableView(container.searchResultsView, pasteboardWriterForRow: 0)
+            container.findPanel.outlineView(container.searchResultsView, pasteboardWriterForItem: resultItem(0, in: container))
                 as? FilePreviewDragPasteboardWriter
         )
         let secondWriter = try #require(
-            container.tableView(container.searchResultsView, pasteboardWriterForRow: 1)
+            container.findPanel.outlineView(container.searchResultsView, pasteboardWriterForItem: resultItem(1, in: container))
                 as? FilePreviewDragPasteboardWriter
         )
         let firstOwnership = try #require(firstWriter.nativeDragOwnership())
@@ -255,11 +189,11 @@ struct FileExplorerNativeDragOwnershipTests {
         #expect(pasteboard.writeObjects([firstWriter, secondWriter]))
 
         let session = SearchResultsDragTestSession(sequence: 31, pasteboard: pasteboard)
-        container.tableView(
+        container.findPanel.outlineView(
             container.searchResultsView,
             draggingSession: session,
             willBeginAt: .zero,
-            forRowIndexes: IndexSet(integersIn: 0..<2)
+            forItems: []
         )
 
         // AppKit places every selected writer on the native pasteboard. Keep
@@ -268,7 +202,7 @@ struct FileExplorerNativeDragOwnershipTests {
         #expect(FilePreviewDragRegistry.shared.contains(id: firstOwnership.dragID))
         #expect(FilePreviewDragRegistry.shared.contains(id: secondOwnership.dragID))
 
-        container.tableView(
+        container.findPanel.outlineView(
             container.searchResultsView,
             draggingSession: session,
             endedAt: .zero,
@@ -280,7 +214,6 @@ struct FileExplorerNativeDragOwnershipTests {
 
     @Test("A pointer boundary reclaims a search drag that lost endedAt")
     func pointerBoundaryReclaimsSearchDragAfterDismantle() async throws {
-        let searchController = SearchResultsDragTestSearchController()
         let store = FileExplorerStore()
         store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         let coordinator = FileExplorerPanelView.Coordinator(
@@ -290,31 +223,16 @@ struct FileExplorerNativeDragOwnershipTests {
         )
         var container: FileExplorerContainerView? = FileExplorerContainerView(
             coordinator: coordinator,
-            presentation: .find,
-            searchController: searchController
+            presentation: .find
         )
         weak var weakContainer = container
-        searchController.publish(FileSearchSnapshot(
-            query: "needle",
-            results: [FileSearchResult(
-                path: "/tmp/search-result.txt",
-                relativePath: "search-result.txt",
-                lineNumber: 1,
-                columnNumber: 1,
-                preview: "needle"
-            )],
-            status: .matches,
-            isSearching: false
-        ))
+        showResults([("/tmp/search-result.txt", 1)], in: container)
 
         var writer: (any NSPasteboardWriting)?
         do {
             let activeContainer = try #require(container)
             writer = try #require(
-                activeContainer.tableView(
-                    activeContainer.searchResultsView,
-                    pasteboardWriterForRow: 0
-                )
+                activeContainer.findPanel.outlineView(activeContainer.searchResultsView, pasteboardWriterForItem: resultItem(0, in: activeContainer))
             )
             let session = SearchResultsDragTestSession(
                 sequence: 11,
@@ -322,12 +240,12 @@ struct FileExplorerNativeDragOwnershipTests {
                     name: NSPasteboard.Name("file-explorer-boundary-\(UUID().uuidString)")
                 )
             )
-            activeContainer.tableView(
-                activeContainer.searchResultsView,
-                draggingSession: session,
-                willBeginAt: .zero,
-                forRowIndexes: IndexSet(integer: 0)
-            )
+            activeContainer.findPanel.outlineView(
+            activeContainer.searchResultsView,
+            draggingSession: session,
+            willBeginAt: .zero,
+            forItems: []
+        )
             FileExplorerPanelView.dismantleNSView(activeContainer, coordinator: coordinator)
 
             // A subsequent pointer gesture is the first safe boundary after a
@@ -336,8 +254,7 @@ struct FileExplorerNativeDragOwnershipTests {
             // coordinator's tracked ownership record.
             let rebuiltContainer = FileExplorerContainerView(
                 coordinator: coordinator,
-                presentation: .find,
-                searchController: searchController
+                presentation: .find
             )
             rebuiltContainer.prepareForNativeDragBoundary()
             #expect(activeContainer.searchResultsView.activeNativeDragDelegateMarker == nil)
@@ -425,16 +342,20 @@ struct FileExplorerNativeDragOwnershipTests {
         override var draggingSequenceNumber: Int { sequence }
     }
 
-    @MainActor
-    private final class SearchResultsDragTestSearchController: FileSearchControlling {
-        var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+    /// Shows results in the Find panel as a finished search would.
+    private func showResults(_ files: [(String, Int)], in container: FileExplorerContainerView?) {
+        guard let panel = container?.findPanel else { return }
+        panel.session.engine.tree.apply(files.map { path, line in
+            FileSearchFileMatches(path: path, matches: [
+                FileSearchMatch(lineNumber: line, column: 1, length: 6, preview: "needle", previewMatchRange: 0..<6),
+            ])
+        })
+        panel.resultsView.reloadData()
+        panel.restoreExpansion()
+    }
 
-        func search(query: String, rootPath: String, isLocal: Bool, contentRevision: Int) {}
-
-        func cancel(clear: Bool) {}
-
-        func publish(_ snapshot: FileSearchSnapshot) {
-            onSnapshotChanged?(snapshot)
-        }
+    /// The first match row of the `index`th file.
+    private func resultItem(_ index: Int, in container: FileExplorerContainerView) -> Any {
+        container.findPanel.session.engine.tree.files[index].matchNode(at: 0)
     }
 }
