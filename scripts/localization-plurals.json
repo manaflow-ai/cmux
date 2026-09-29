@@ -715,5 +715,17 @@
     "arguments": [
       1
     ]
+  },
+  "acpmuxChat.jump.unread": {
+    "source": "%lld new messages",
+    "arguments": [
+      1
+    ]
+  },
+  "acpmuxChat.toolCallCount": {
+    "source": "%lld tool calls",
+    "arguments": [
+      1
+    ]
   }
 }

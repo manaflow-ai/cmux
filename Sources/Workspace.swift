@@ -831,7 +831,8 @@ extension Workspace {
             agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
                 rendererKind: agentPanel.rendererKind,
                 providerID: agentPanel.currentProviderID,
-                workingDirectory: directory
+                workingDirectory: directory,
+                acpmuxSessionId: agentPanel.acpmuxSessionId
             )
             projectSnapshot = nil
         case .project:
@@ -2310,6 +2311,7 @@ extension Workspace {
                     providerID: agentSession.providerID,
                     rendererKind: agentSession.rendererKind,
                     workingDirectory: restoresUntrustedSavedDirectory ? nil : (agentSession.workingDirectory ?? snapshot.directory),
+                    acpmuxSessionId: agentSession.acpmuxSessionId,
                     focus: false
                   ) else {
                 return nil
@@ -10554,6 +10556,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         providerID: AgentSessionProviderID = .codex,
         rendererKind: AgentSessionRendererKind,
         workingDirectory: String? = nil,
+        acpmuxSessionId: String? = nil,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> AgentSessionPanel? {
@@ -10574,7 +10577,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             workspaceId: id,
             rendererKind: rendererKind,
             initialProviderID: providerID,
-            workingDirectory: directory
+            workingDirectory: directory,
+            acpmuxSessionId: acpmuxSessionId
         )
         panels[agentPanel.id] = agentPanel
         panelTitles[agentPanel.id] = agentPanel.displayTitle
