@@ -93,9 +93,9 @@ export function Callout({
 
   return (
     <div
-      className={`${style.frame} not-prose mb-5 flex gap-3 rounded-2xl border px-5 py-4 text-[14px] leading-relaxed text-foreground/85`}
+      className={`${style.frame} not-prose my-5 flex gap-3 rounded-2xl border px-5 py-4 text-[14px] leading-6 text-foreground/85`}
     >
-      <span className={`${style.icon} mt-[3px] shrink-0`}>
+      <span className={`${style.icon} mt-1 shrink-0`}>
         <CalloutIcon type={type} />
       </span>
       <div className="min-w-0 [&>p:last-child]:mb-0 [&>p]:mb-2">{children}</div>

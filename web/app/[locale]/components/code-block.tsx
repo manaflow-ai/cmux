@@ -2,7 +2,7 @@ import { codeToHtml } from "shiki";
 import { CodeCopyButton } from "./code-copy-button";
 
 const frameClass =
-  "not-prose group relative mb-5 overflow-hidden rounded-2xl border border-border bg-code-bg";
+  "not-prose group relative mb-8 mt-5 overflow-hidden rounded-2xl border border-border bg-code-bg";
 
 function CodeHeader({ label }: { label: string }) {
   return (
@@ -30,10 +30,11 @@ export async function CodeBlock({
     variant === "ascii" ? "leading-[1.15]" : "leading-6";
   const shikiLineHeightClass =
     variant === "ascii" ? "[&_pre]:leading-[1.15]" : "[&_pre]:leading-6";
-  const headerLabel = title ?? (variant === "ascii" ? undefined : lang);
+  // Like Mintlify, only a titled block (a file name) gets a header bar.
+  const headerLabel = title;
   // Without a header the copy button floats over the code and appears on hover.
   const floatingCopy = headerLabel ? null : (
-    <CodeCopyButton className="absolute right-2 top-2 bg-code-bg opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
+    <CodeCopyButton className="absolute right-2.5 top-2.5 bg-code-bg opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
   );
 
   if (lang && variant !== "ascii") {

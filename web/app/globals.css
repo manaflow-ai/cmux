@@ -116,12 +116,19 @@ body {
 
 /* Docs prose styles — in @layer base so Tailwind utilities can override */
 @layer base {
+  /* Vertical rhythm follows Mintlify: block spacing lives in margins so
+     adjacent blocks collapse to the larger gap (36px before h2, 32px before
+     h3, 20px between body blocks) instead of adding up. */
+  .docs-content > :first-child {
+    margin-top: 0;
+  }
+
   .docs-content h1 {
     font-size: 2.25rem;
     line-height: 2.5rem;
     font-weight: 600;
     letter-spacing: -0.025em;
-    padding-bottom: 0.5rem;
+    margin-bottom: 0.5rem;
   }
 
   /* Leave room for the Copy page button that sits on the title line. */
@@ -132,37 +139,37 @@ body {
   }
 
   /* The paragraph right after the title is the page description, shown
-     larger like a subtitle. */
+     larger like a subtitle, with Mintlify's 32px gap before the body. */
   .docs-content > h1 + p {
     font-size: 1.125rem;
     line-height: 1.75rem;
-    padding-bottom: 1rem;
+    margin-bottom: 2rem;
   }
 
   .docs-content h2 {
     font-size: 1.5rem;
     line-height: 2rem;
     font-weight: 600;
-    padding-top: 2.25rem;
-    padding-bottom: 1rem;
-    letter-spacing: -0.025em;
+    margin-top: 2.25rem;
+    margin-bottom: 1.125rem;
+    letter-spacing: -0.6px;
   }
 
   .docs-content h3 {
     font-size: 1.25rem;
     line-height: 1.75rem;
     font-weight: 600;
-    padding-top: 2rem;
-    padding-bottom: 0.5rem;
-    letter-spacing: -0.01em;
+    margin-top: 2rem;
+    margin-bottom: 0.875rem;
+    letter-spacing: -0.5px;
   }
 
   .docs-content h4 {
-    font-size: 0.9375rem;
+    font-size: 1rem;
+    line-height: 1.5rem;
     font-weight: 600;
-    padding-top: 1.25rem;
-    padding-bottom: 0.375rem;
-    font-family: var(--font-geist-mono);
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
   }
 
   .docs-content .docs-heading {
@@ -171,8 +178,7 @@ body {
   }
 
   .docs-content .docs-heading-compact {
-    margin: 0;
-    padding: 0 0 8px;
+    margin: 0 0 8px;
   }
 
   .docs-content .docs-heading-anchor {
@@ -214,14 +220,20 @@ body {
 
   .docs-content > p {
     line-height: 1.75rem;
-    padding-bottom: 1.25rem;
-    color: color-mix(in srgb, var(--foreground) 78%, var(--background));
+    margin-bottom: 1.25rem;
+    color: color-mix(in srgb, var(--foreground) 80%, var(--background));
   }
 
   .docs-content ul,
   .docs-content ol {
     padding-left: 1.5rem;
-    padding-bottom: 1rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .docs-content li > ul,
+  .docs-content li > ol {
+    margin-top: 0.5rem;
+    margin-bottom: 0;
   }
 
   .docs-content ul {
@@ -234,8 +246,12 @@ body {
 
   .docs-content li {
     line-height: 1.75rem;
-    padding-bottom: 0.25rem;
-    color: color-mix(in srgb, var(--foreground) 78%, var(--background));
+    padding-left: 0.25rem;
+    color: color-mix(in srgb, var(--foreground) 80%, var(--background));
+  }
+
+  .docs-content li + li {
+    margin-top: 0.5rem;
   }
 
   .docs-content code {
@@ -311,7 +327,8 @@ body {
     border-spacing: 0;
     border: 1px solid var(--border);
     border-radius: 0.75rem;
-    margin-bottom: 1.5rem;
+    margin-top: 1.25rem;
+    margin-bottom: 2rem;
     overflow: hidden;
     font-size: 0.875rem;
     line-height: 1.5rem;
@@ -328,7 +345,7 @@ body {
   .docs-content td {
     padding: 0.625rem 0.875rem;
     border-bottom: 1px solid var(--border);
-    color: color-mix(in srgb, var(--foreground) 78%, var(--background));
+    color: color-mix(in srgb, var(--foreground) 80%, var(--background));
   }
 
   .docs-content tr:last-child > td {

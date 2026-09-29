@@ -118,7 +118,7 @@ export function DocsNav({
         <main className="min-w-0 flex-1">
           <div className="mx-auto w-full max-w-[44rem] px-6 pb-16 pt-8 lg:pt-10">
             <div className="relative" data-pagefind-ignore="all">
-              <div className="mb-2.5 h-5 truncate text-[13px] font-medium text-muted">
+              <div className="mb-2.5 h-5 truncate text-[14px] font-medium leading-5 text-muted">
                 {eyebrow}
               </div>
               {/* Sits on the title line, like Mintlify; the title reserves room for it. */}
@@ -128,7 +128,7 @@ export function DocsNav({
             </div>
             <div
               ref={contentRef}
-              className="docs-content text-[16px] leading-7 tracking-[-0.2px]"
+              className="docs-content text-[16px]"
               data-docs-page-body
               data-pagefind-body
               data-pagefind-meta="section:Docs"
