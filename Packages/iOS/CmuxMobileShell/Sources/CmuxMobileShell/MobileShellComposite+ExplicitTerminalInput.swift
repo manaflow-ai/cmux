@@ -45,6 +45,14 @@ extension MobileShellComposite {
         if locallyServedOwnsSurface(terminalID.rawValue) {
             return handleLocallyServedTerminalInput(text, surfaceID: terminalID.rawValue)
         }
+        if let settlement = await deliverExactlyOnce(
+            .keys(text),
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            byteCount: text.utf8.count
+        ) {
+            return settlement == .delivered
+        }
         let target = workspaceMutationTarget(for: workspaceID)
         guard let client = target.client else { return false }
         let tracksInputSequence = supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)
