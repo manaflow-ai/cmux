@@ -69,7 +69,12 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             biased;
             ev = events.next() => {
                 match ev {
-                    Some(Ok(Event::Key(k))) if k.kind != crossterm::event::KeyEventKind::Release => { app.on_key(k); frames.request(); }
+                    // `as_key_event` also unwraps the cmux crossterm patch's
+                    // `EnhancedKey`, which carries Alt+letter and layout keys.
+                    Some(Ok(e)) if e.as_key_event().is_some_and(|k| k.kind != crossterm::event::KeyEventKind::Release) => {
+                        if let Some(k) = e.as_key_event() { app.on_key(k); }
+                        frames.request();
+                    }
                     Some(Ok(Event::Mouse(m))) => { app.on_mouse(m); frames.request(); }
                     Some(Ok(Event::Resize(..))) | Some(Ok(Event::FocusGained)) => frames.request(),
                     Some(Ok(Event::Paste(s))) => {
