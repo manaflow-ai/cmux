@@ -6,9 +6,6 @@ import CmuxFoundation
 
 @Suite("Reverse relay SSH transport selection")
 struct RemoteSessionReverseRelayTransportTests {
-    private static let sharedControlPath =
-        SSHConnectionSharingOptions().defaultControlPath ?? "none"
-
     @Test("An authenticated shared ControlMaster carries the relay")
     func sharedControlMasterIsPreferred() async throws {
         let runner = RecordingProcessRunner()
@@ -33,7 +30,7 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(forwardRequest.arguments.contains("BatchMode=yes"))
         #expect(
             forwardRequest.arguments.contains {
-                $0 == "ControlPath=\(Self.sharedControlPath)"
+                $0 == "ControlPath=\(fixture.identity.controlPath)"
             }
         )
         #expect(launcher.launchCount == 0)
@@ -47,7 +44,7 @@ struct RemoteSessionReverseRelayTransportTests {
         }))
         #expect(
             cancelRequest.arguments.contains {
-                $0 == "ControlPath=\(Self.sharedControlPath)"
+                $0 == "ControlPath=\(fixture.identity.controlPath)"
             }
         )
         #expect(
@@ -69,7 +66,7 @@ struct RemoteSessionReverseRelayTransportTests {
             coordinator.daemonReady = true
             coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
             coordinator.reverseRelayControlMasterForwardSpec =
-                "127.0.0.1:64044:127.0.0.1:55001"
+                "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55001"
             coordinator.reverseRelayReady = true
             coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
         }
@@ -95,7 +92,7 @@ struct RemoteSessionReverseRelayTransportTests {
                 "StrictHostKeyChecking=accept-new",
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=\(ResolvedControlPathFixture.path)",
+                "ControlPath=\(fixture.identity.controlPath)",
             ]
         }
         #expect(registry.retainedControlPaths.isEmpty)
@@ -108,11 +105,11 @@ struct RemoteSessionReverseRelayTransportTests {
         }
 
         #expect(options?.contains(
-            "ControlPath=\(ResolvedControlPathFixture.path)"
+            "ControlPath=\(fixture.identity.controlPath)"
         ) == true)
         #expect(
             registry.retainedControlPaths ==
-                [ResolvedControlPathFixture.path]
+                [fixture.identity.controlPath]
         )
         #expect(runner.requests.isEmpty)
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
@@ -142,8 +139,8 @@ struct RemoteSessionReverseRelayTransportTests {
 
         let outcome = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
-                relayPort: 64_044
+                forwardSpec: "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55001",
+                relayPort: fixture.identity.relayPort
             )
         }
 
@@ -223,22 +220,25 @@ struct RemoteSessionReverseRelayTransportTests {
     @Test("Repeated shared-master relays do not repeat ControlPath resolution")
     func repeatedSharedMasterRelaysDoNotRepeatControlPathResolution() async throws {
         let baseRunner = RecordingProcessRunner()
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
         let runner = FlakyResolvedControlPathProcessRunner(
             base: baseRunner,
-            failureCount: 1
+            failureCount: 1,
+            controlPath: identity.controlPath
         )
         let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
+            identity: identity,
             providesResolvedControlPath: false
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
-        let forwardSpec = "127.0.0.1:64044:127.0.0.1:55001"
+        let forwardSpec = "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55001"
 
         let first = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
                 forwardSpec: forwardSpec,
-                relayPort: 64_044
+                relayPort: fixture.identity.relayPort
             )
         }
         guard case .started = first else {
@@ -251,7 +251,7 @@ struct RemoteSessionReverseRelayTransportTests {
         let second = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
                 forwardSpec: forwardSpec,
-                relayPort: 64_044
+                relayPort: fixture.identity.relayPort
             )
         }
 
@@ -288,8 +288,8 @@ struct RemoteSessionReverseRelayTransportTests {
 
         let first = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
-                relayPort: 64_044
+                forwardSpec: "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55001",
+                relayPort: fixture.identity.relayPort
             )
         }
         coordinator.queue.sync {
@@ -297,8 +297,8 @@ struct RemoteSessionReverseRelayTransportTests {
         }
         let second = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: "127.0.0.1:64044:127.0.0.1:55002",
-                relayPort: 64_044
+                forwardSpec: "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55002",
+                relayPort: fixture.identity.relayPort
             )
         }
 
