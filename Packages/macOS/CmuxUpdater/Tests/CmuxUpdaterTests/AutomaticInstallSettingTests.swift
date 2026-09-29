@@ -105,4 +105,35 @@ import Testing
             #expect(!managedUpdater.automaticallyDownloadsUpdates)
         }
     }
+
+    @Test func disablingAutomaticInstallsDefersOnlyTheAutomaticHold() throws {
+        for mode in [UpdateRelaunchGate.Mode.quietMoment, .askUser, .whenClear] {
+            try withDefaults { defaults in
+                defaults.set(true, forKey: UpdateSettings.installAutomaticallyKey)
+                let updater = FakeUpdater()
+                let controller = makeController(defaults: defaults, updater: updater)
+                var restarts = 0
+                var deferred = 0
+                controller.driver.relaunchGate.hold(
+                    mode: mode,
+                    readiness: { .init(blockers: .empty, idle: .zero) },
+                    isShown: { true },
+                    publish: { _ in },
+                    prepare: {},
+                    relaunch: { restarts += 1 },
+                    later: { deferred += 1 }
+                )
+
+                defaults.set(false, forKey: UpdateSettings.installAutomaticallyKey)
+                controller.installAutomaticallyDidChange()
+                controller.installAutomaticallyDidChange()
+
+                #expect(restarts == 0)
+                #expect(deferred == (mode == .quietMoment ? 1 : 0))
+                #expect(controller.driver.relaunchGate.isWaiting == (mode != .quietMoment))
+                #expect(!updater.automaticallyDownloadsUpdates)
+                controller.driver.relaunchGate.cancel()
+            }
+        }
+    }
 }
