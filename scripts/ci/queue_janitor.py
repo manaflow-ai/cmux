@@ -163,12 +163,10 @@ DOOMED_GRACE = dt.timedelta(minutes=10)
 # waiting for. Sources/ is deliberately absent: the suite exercises it, but
 # nearly every pull request changes it, and a set matching every pull request
 # is not a rule. JANITOR_OPT_OUT_LABEL covers a fix that lives only there.
-DOOMED_INPUT_PREFIXES = ("cmuxTests/", "scripts/ci/workloads/")
+DOOMED_INPUT_PREFIXES = ("scripts/ci/workloads/",)
 DOOMED_INPUT_MARKERS = ("app-host", "app_host")
 DOOMED_INPUT_FILES = (
     ".github/workflows/ci-macos.yml",
-    "scripts/ci/cmux_unit_test_shard.py",
-    "scripts/ci/enable-xctest-automation-mode.sh",
 )
 JANITOR_OPT_OUT_LABEL = "no-janitor"
 

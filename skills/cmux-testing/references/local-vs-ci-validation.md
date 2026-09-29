@@ -27,52 +27,24 @@ or the existing CI lane. Team members: shared build fleet rules are in cmuxterm-
 
 ## Native app versus test compilation
 
-A tagged `reload.sh` build proves the app target built. It says nothing about
-whether `cmuxTests`, `cmuxUITests`, package tests or test-only imports compile.
-For authorized local native test compilation, the existing wrapper is:
+A tagged `reload.sh` build proves the `cmux` scheme (the `cmux-next` target) built.
+It says nothing about whether package tests or test-only imports compile.
+Compile and run the app package tests with SwiftPM:
 
 ```sh
-./scripts/test-unit.sh -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>-tests" build-for-testing
+cd Packages/macOS/CmuxNext
+swift build --build-tests
+swift test --filter <Module>Tests
 ```
 
-Use `build-for-testing`, not `build`: the latter skips the test target. Like
-CI, the wrapper builds `cmuxTests` without a Swift module, so a one-test-file
-edit skips a serial ~26 s emit-module step; set `CMUX_TEST_EMIT_MODULE=1` to
-keep the module, for example to inspect test frames in lldb. This
-still does not execute tests. Execute the focused selection through the supported
-test lane and record how many ran; a zero-test invocation is not verification.
-Keep test DerivedData separate from the app tag's directory: a failed test build
-can leave an unsigned test bundle that breaks the next app CodeSign step.
-For `cmuxApp`/`AppDelegate` changes, retain the current GlobalISel workaround
-when required by project instructions.
-
-## UI and socket checks
-
-## E2E and UI tests
-
-Run through GitHub Actions or the VM. Never launch an untagged app locally to satisfy socket or UI tests.
-
-Dispatch through the wrapper. It pins the exact pushed commit, carries a `dispatch_id` so the run is resolvable, and returns the run URL:
-
-```bash
-./scripts/run-e2e.sh cmuxTests/YourTestClass --ref <pushed-commit-sha> --wait
-```
-
-`gh workflow run test-e2e.yml` on its own is always rejected: `test_filter` is a required input, and without `--ref` the dispatch lands on whatever ref happens to be current rather than the commit you meant to test.
-
-**Compile the test target locally before dispatching.** One focused run costs 10-20 macOS runner-minutes, and it compiles the whole tree before it runs anything, so the most common red result on a feature branch is a Swift compile error rather than a test failure. The `cmux-unit` command above catches those in a fraction of the time and without a runner.
-
-**The wrapper picks the runner; leave `--runner` off.** `auto` goes through `scripts/ci/e2e_runner_pool.py`, the rule pull request CI uses: an owned Mac with a free slot first, then `blacksmith-12vcpu-macos-26` while it has headroom, then `blacksmith-6vcpu-macos-26`, then the shorter queue. A dispatch that names a Blacksmith pool skips idle owned Macs and waits in that pool's queue, which can run to an hour or more when many branches are testing at once (76 minutes on 6vcpu macOS 26 on 2026-09-25). Leaving it off also lets the wrapper attach to an identical run already in flight at that commit on any of those pools; a named `--runner` only reuses a run on that pool. Pass `--runner blacksmith-6vcpu-macos-15` only when the question is specifically about macOS 15 behavior, and expect to wait for it.
-
-**Do not dispatch `test-macos-suite.yml` for one test.** It runs a whole test target, compiles cold every time, and has none of the wrapper's reuse or refusal. A single-test dispatch there costs about 20 macOS runner-minutes for an answer the wrapper would share.
-
-**Do not re-dispatch the same selector at the same commit.** A focused run's result is a property of the commit; repeating it reprints the same failure at full cost. The wrapper now refuses a selector that already failed at that commit and points at the earlier run; read that run, fix the branch, push, and dispatch the new commit. A run the Mac failed before any test started (the UI test runner never initialized, no GUI session, screen capture never started; the list is `scripts/ci/machine_failure.py`) is not an answer, so the wrapper dispatches it again on its own, up to twice per commit, and prints which run and why. Add a signature there when you meet a new one; `--force` is for anything else you know was infrastructure.
-
-If a run fails with `selected test filter matched zero tests`, the selector is wrong or the test file is not wired into `project.pbxproj` (see the test wiring section of SKILL.md). Fix the selector; retrying an unmatched filter costs another full build and matches nothing again.
+`swift test` does not launch `cmux DEV`. Record how many tests ran; a zero-test
+invocation is not verification. CLI tests run in the `cmux-cli-tests` scheme
+(host-free) on CI. Never run `xcodebuild test` locally.
 
 ## Python socket tests
 
 `tests_v2/` connects to a running cmux instance socket. Locally, point it at a tagged build with `CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock`. Never target an untagged `cmux DEV.app`; it conflicts with the user's running debug instance.
+`scripts/cmux-next/cli-compat-tests-v2.py` runs the suite against a tagged build; many files still call legacy `debug.*` methods, so compare with the baseline in `plans/cmux-next/cli-compat.md`.
 
 For CLI dogfood use `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh ...`, not the global
 `/tmp/cmux-cli` symlink. Confirm the tested artifact is the one you launched.

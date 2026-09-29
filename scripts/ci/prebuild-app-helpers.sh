@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Build the Rust helpers that the cmux app target's late script phases bundle
-# (diff sidecar and command palette Nucleo FFI) while xcodebuild compiles
-# Swift.
+# Build the Rust helper that the cmux app target's late script phase bundles
+# (the diff sidecar) while xcodebuild compiles Swift.
 #
 # Those phases run after the cmux Swift compile although they do not read its
 # output, so on CI their cargo builds (about 100 s) were the serial tail of the
-# nightly build. This script overlaps the two local-source helpers and runs the same build scripts with the same Cargo
+# nightly build. This script overlaps the local-source helper and runs the same build script with the same Cargo
 # target directories and the same toolchain-visible environment that Xcode gives
 # the phases. When the phases then run, Cargo finds every unit fresh and the
 # phases only copy, lipo, and sign.
@@ -82,16 +81,10 @@ run_helper diff-sidecar env \
   CMUX_DIFF_SIDECAR_MIN_MACOS="$MACOSX_DEPLOYMENT_TARGET" \
   "$ROOT/scripts/build-diff-sidecar.sh" &
 sidecar_pid=$!
-run_helper nucleo-ffi env \
-  CMUX_NUCLEO_FFI_ARCHS="$archs" \
-  CMUX_NUCLEO_FFI_REQUIRE_CARGO=1 \
-  "$ROOT/scripts/build-command-palette-nucleo-ffi.sh" &
-nucleo_pid=$!
 # cmux-cua remains in the authoritative Xcode phase. Its source checkout
 # mutates a shared Git cache; cancelling an optional prebuild during checkout
 # could leave a Git index lock that poisons the subsequent required build.
 
 status=0
 wait "$sidecar_pid" || status=1
-wait "$nucleo_pid" || status=1
 exit "$status"

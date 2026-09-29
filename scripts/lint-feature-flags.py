@@ -4,7 +4,7 @@ https://posthog.com/newsletter/feature-flag-mistakes.
 
 Registries:
   - web/app/lib/feature-flags.ts   (FEATURE_FLAGS object literals)
-  - Sources/FeatureFlags.swift     (FLAG(...) comments)
+  - any Swift file under Packages/, CLI/ or ios/ (FLAG(key: ...) comments)
 
 Enforced rules:
   1. Naming: kebab-case, a type suffix (-release / -experiment /
@@ -36,7 +36,7 @@ RETIRED = REPO / "scripts/retired-feature-flags.txt"
 # Discovery and parsing must agree on what counts as a declaration, or a file is
 # found by one and misread by the other. A declaration is literally `FLAG(key:`.
 # A prose reference such as `// FLAG(sidebar-appkit-list-experiment): ...`
-# (Sources/ContentView.swift:1771) is not one, and matching it would report
+# is not one, and matching it would report
 # "flag entry without a key" against an untouched comment instead of against the
 # flag someone just declared beside the code that reads it.
 FLAG_DECLARATION = "FLAG(key:"
@@ -75,7 +75,7 @@ def swift_registry_files() -> list[str]:
     """
     out = subprocess.run(
         ["git", "grep", "-l", "--untracked", "--fixed-strings", FLAG_DECLARATION, "--",
-         "Sources", "Packages", "CLI", "ios", ":!*node_modules*"],
+         "Packages", "CLI", "ios", ":!*node_modules*"],
         cwd=REPO, capture_output=True, text=True,
     )
     return sorted({line.strip() for line in out.stdout.splitlines() if line.strip()})
@@ -102,7 +102,7 @@ def parse_swift_registry(text: str, source: str) -> list[dict]:
 def grep_key_files(key: str) -> set[str]:
     out = subprocess.run(
         ["git", "grep", "-l", "--untracked", "--fixed-strings", key, "--",
-         "web", "Sources", "Packages", "ios", "CLI",
+         "web", "Packages", "ios", "CLI",
          ":!*node_modules*"],
         cwd=REPO, capture_output=True, text=True,
     )

@@ -61,26 +61,16 @@ MAX_CANDIDATES = 6
 # compiling it again. Only reviewed main code ran that build, so it is at least
 # as trusted as the same-repository pull request that adopts it. `push` is not a
 # consumer event, so nothing a pull request compiled can reach main.
-#
-# A dispatch consumer is at least as trusted as a merge group, because starting
-# one requires write access, so it may adopt any exact product CI compiled,
-# including main's seeder product, as well as the ones earlier dispatches of
-# its own lane compiled. A dispatch of a main commit that no pull request
-# compiled then adopts the seeder's product. Nothing adopts a dispatch product
-# in the other direction: CI's trust surface is unchanged.
 PERMITTED_PRODUCERS = {
     "pull_request": {"pull_request", "push"},
     "merge_group": {"pull_request", "merge_group"},
-    "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch", "push"},
 }
 
 # The workflow each event is trusted to run from, keyed by event so a future
-# dispatchable ci.yml or pull-request-triggered E2E lane cannot inherit the
-# other one's trust by accident.
+# dispatchable lane cannot inherit another one's trust by accident.
 TRUSTED_WORKFLOWS = {
     "pull_request": ".github/workflows/ci.yml",
     "merge_group": ".github/workflows/ci.yml",
-    "workflow_dispatch": ".github/workflows/test-e2e.yml",
     "push": ".github/workflows/seed-derived-data.yml",
 }
 
@@ -95,9 +85,6 @@ TRUSTED_BRANCHES = {
 COMPILE_JOBS = {
     ".github/workflows/ci.yml": (
         "macOS compile admission", "Compile app-host test product",
-    ),
-    ".github/workflows/test-e2e.yml": (
-        "build", "Build the app-host and UI test product",
     ),
     ".github/workflows/seed-derived-data.yml": (
         "seed", "Build",
@@ -118,16 +105,8 @@ def names_compile_job(name: object, compile_name: str) -> bool:
 GATE_DECLINE_STEP = "Hold consumers behind the fast Linux gate"
 
 
-# test-e2e.yml's build job uploads its product with one of these steps: the
-# first before it runs the tests on the same runner, the second after them on
-# an owned Mac. Once either has succeeded the product is complete, so a later
-# dispatch may adopt it while those tests still run, or after they fail.
-PUBLISH_STEPS = {
-    ".github/workflows/test-e2e.yml": (
-        "Upload the compiled test product",
-        "Upload the compiled test product after the tests",
-    ),
-}
+# No trusted producer publishes its product before its compile job ends.
+PUBLISH_STEPS: dict[str, tuple[str, ...]] = {}
 
 
 def compile_job_admitted(job: object, publish_step: str | tuple[str, ...] | None = None) -> bool:
@@ -379,11 +358,9 @@ def github_product_identity(api, revision):
         return base64.b64decode(blob["content"]).decode("utf-8")
 
     workflow = workflow_text(product_inputs.CI_WORKFLOW)
-    e2e_workflow = workflow_text(product_inputs.E2E_WORKFLOW)
     value = product_inputs.identity_from_tree_lines(
         product_inputs.github_tree_lines(entries),
         workflow,
-        e2e_workflow,
     )
     cache[cache_key] = value
     return value
@@ -475,17 +452,6 @@ def attested_producer_revision(api, run, revision, product_inputs):
     not just the head it names -- has to carry these product inputs.
     """
     head = run.get("head_sha")
-    if run.get("event") == "workflow_dispatch":
-        # A dispatch's head names the workflow definition, while its sealed
-        # revision names the checkout it compiled. Bind both: the actual E2E
-        # build recipe GitHub ran must equal the recipe in the product identity,
-        # and the sealed checkout must still re-fingerprint to that identity.
-        if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
-            return False
-        actual_workflow = github_product_identity(api, head)
-        if actual_workflow.get("e2e_recipe") != product_inputs.get("e2e_recipe"):
-            return False
-        return github_product_identity(api, revision) == product_inputs
     if run.get("event") != "pull_request":
         # Checked against these product inputs before download.
         return revision == head
@@ -684,15 +650,7 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
                 record_reason(reasons, "producer_revision_invalid")
                 continue
-            if run.get("event") == "workflow_dispatch":
-                # The dispatch head attests the workflow recipe, not the checkout.
-                # Reject a product before download when that actual recipe differs
-                # from the E2E recipe sealed into this contract.
-                actual_workflow = github_product_identity(api, head)
-                if actual_workflow.get("e2e_recipe") != value["product_inputs"].get("e2e_recipe"):
-                    record_reason(reasons, "producer_recipe_mismatch")
-                    continue
-            elif (run.get("event") != "pull_request"
+            if (run.get("event") != "pull_request"
                     and github_product_identity(api, head) != value["product_inputs"]):
                 # A pull request producer compiled the merge of its head into
                 # the base, which this listing does not name, so its head alone
@@ -713,9 +671,8 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 jobs.extend(batch)
                 if len(batch) < 100:
                     break
-            # The compile job must finish successfully, be declined by the
-            # fast Linux gate after publishing, or (test-e2e.yml) have
-            # published before running its tests; unrelated producer tests may
+            # The compile job must finish successfully or be declined by the
+            # fast Linux gate after publishing; unrelated producer tests may
             # still be running because no test result is reused here.
             # A reusable workflow reports "<caller job> / <job name>", so this
             # is "macos / macOS compile admission" when ci.yml reaches the job

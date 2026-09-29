@@ -37,7 +37,6 @@ GROUPS = (
     "ci",
     "app-host-execution",
     "app-host-watchdog",
-    "app-host-process",
     "app-host-cache",
     "release-ios",
     "release-notary",
@@ -51,8 +50,6 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
-    ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
-
     # test_ci_runner_capability_resolver.py reads the capability map, the
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
@@ -86,17 +83,10 @@ PATH_OWNERS = {
     "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
-    "scripts/ci/main_full_suite.py": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
-    # test_ci_merge_receipt.py and test_ci_main_regression_attribution.py load
-    # these by path; the receipt test also reads its workflow and fixtures.
-    "scripts/ci/main_regression_attribution.py": frozenset(("ci",)),
-    # ...and the attribution imports these: the restart marker, the paths
-    # outside the app, and the suites a changed string reaches.
-    "scripts/ci/app_host_result_accounting.py": frozenset(("ci",)),
-    "scripts/ci/app_host_test_rerun.py": frozenset(("ci",)),
-    "scripts/ci/reverse_test_impact.py": frozenset(("ci",)),
+    # test_ci_merge_receipt.py loads it by path and also reads its workflow
+    # and fixtures.
     "scripts/ci/merge_receipt.py": frozenset(("ci",)),
     ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
@@ -153,13 +143,6 @@ PATH_OWNERS = {
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
-    # tests/test_ci_ui_tests_dispatch.py imports the script and reads the
-    # workflow; owned_pool_rescue.py and classify_failures.py import it too.
-    "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),
-    ".github/workflows/ci-ui-tests.yml": frozenset(("app-host-execution", "ci")),
-    # tests/test_ci_pr_media.py imports the script and reads the workflow.
-    "scripts/ci/pr_media.py": frozenset(("app-host-execution",)),
-    ".github/workflows/pr-media.yml": frozenset(("app-host-execution",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.
@@ -201,8 +184,7 @@ def _python_syntax_scan(path: str) -> bool:
 def _determinism_scan(path: str) -> bool:
     if not path.endswith(DETERMINISM_SUFFIXES):
         return False
-    if path.startswith(("cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/",
-                        "cmuxUITests/", "ios/cmuxUITests/",
+    if path.startswith(("cmuxCLITests/", "cmuxCLITestSupport/", "ios/cmuxUITests/",
                         "tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
     return path.startswith("Packages/") and "/Tests/" in path

@@ -63,4 +63,3 @@ namespace-type	Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIr
 namespace-type	Packages/Shared/CmuxSentryTelemetry/Sources/CmuxSentryScrubbing/ScrubberDenylists.swift	ScrubberDenylists
 namespace-type	Packages/iOS/CmuxMobileDiagnostics/Sources/CmuxMobileDiagnostics/MobileLatencyTrace.swift	MobileLatencyTrace
 namespace-type	Packages/iOS/CmuxMobileToast/Sources/CmuxMobileToast/ToastDemo.swift	ToastDemo
-namespace-type	Packages/macOS/CmuxAppKitSupportUI/Sources/CmuxAppKitSupportUI/Popover/CmuxPopoverMutation.swift	CmuxPopoverMutation

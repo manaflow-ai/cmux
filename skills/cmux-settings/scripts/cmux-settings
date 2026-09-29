@@ -683,27 +683,6 @@ def flatten(prefix: str, value: Any) -> list[str]:
     return [prefix]
 
 
-def supported_paths_from_source(source: Path) -> list[str]:
-    text = source.read_text()
-    known_sections = (
-        "app.",
-        "terminal.",
-        "notifications.",
-        "sidebar.",
-        "workspaceColors.",
-        "sidebarAppearance.",
-        "automation.",
-        "browser.",
-        "markdown.",
-        "fileEditor.",
-        "fileExplorer.",
-        "diffViewer.",
-        "shortcuts.",
-    )
-    candidates = re.findall(r'"([a-zA-Z]+\.[a-zA-Z0-9_.]+)"', text)
-    return sorted({p for p in candidates if p.startswith(known_sections)})
-
-
 def supported_paths_from_reference(skill_root: Path | None) -> list[str]:
     if skill_root is None:
         return []
@@ -712,18 +691,6 @@ def supported_paths_from_reference(skill_root: Path | None) -> list[str]:
         return []
     text = reference.read_text()
     return sorted(set(re.findall(r"^\| `([^`]+)` \|", text, re.MULTILINE)))
-
-
-def find_source_file() -> Path | None:
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        direct = parent / "Sources" / "CmuxSettingsJSONPathSupport.swift"
-        if direct.exists():
-            return direct
-        hq_checkout = parent / "repo" / "Sources" / "CmuxSettingsJSONPathSupport.swift"
-        if hq_checkout.exists():
-            return hq_checkout
-    return None
 
 
 def find_skill_root() -> Path | None:
@@ -737,16 +704,9 @@ def find_skill_root() -> Path | None:
 
 
 def supported_paths() -> list[str]:
-    # The schema-generated reference covers catalog-owned settings whose paths
-    # are no longer string literals in CmuxSettingsJSONPathSupport.swift. Use
-    # the same complete list in a checkout and in an installed skill.
-    reference_paths = supported_paths_from_reference(find_skill_root())
-    if reference_paths:
-        return reference_paths
-    source = find_source_file()
-    if source is not None:
-        return supported_paths_from_source(source)
-    return []
+    # The schema-generated reference is the one list, in a checkout and in an
+    # installed skill alike.
+    return supported_paths_from_reference(find_skill_root())
 
 
 def cmd_path(args: argparse.Namespace) -> int:
@@ -950,7 +910,7 @@ def cmd_list_supported(args: argparse.Namespace) -> int:
     if not paths:
         print(
             "error: could not load the supported-paths list; "
-            "run from a cmux checkout or reinstall the cmux-settings skill",
+            "reinstall the cmux-settings skill (references/all-keys.md is missing)",
             file=sys.stderr,
         )
         return 1

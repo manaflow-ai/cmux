@@ -45,13 +45,9 @@ class CLIProductRoutingTests(unittest.TestCase):
         cls.jobs = cls.workflow["jobs"]
 
     def test_actual_conditions_keep_targeted_route_alive_after_prior_admission(self):
-        for macos, cli, full_suite, unit_suite, admitted, packages, in_admission in product(("false", "true"), repeat=7):
-            if unit_suite == "true" and admitted == "true":
-                continue  # changes never admits a prior build for a unit-ci run
-            if in_admission == "true" and unit_suite != "true":
-                continue  # choose_ci_suite only runs suites in admission for a unit run
-            routes = dict(macos=macos, cli=cli, full_suite=full_suite, unit_suite=unit_suite,
-                          compile_admitted=admitted, swift_packages=packages, unit_in_admission=in_admission)
+        for macos, cli, full_suite, admitted, packages in product(("false", "true"), repeat=5):
+            routes = dict(macos=macos, cli=cli, full_suite=full_suite,
+                          compile_admitted=admitted, swift_packages=packages)
             compile_needed = (macos == "true" or cli == "true") and (
                 full_suite == "true" or cli == "true" or admitted != "true")
             cli_needed = cli == "true" or (macos == "true" and full_suite == "true")
@@ -62,19 +58,12 @@ class CLIProductRoutingTests(unittest.TestCase):
                 self.assertEqual(gate(self.jobs["cli-product-tests"]["if"], **routes), cli_needed)
                 self.assertEqual(gate(self.jobs["swift-package-tests"]["if"], **routes),
                                  (macos == "true" and full_suite == "true") or packages == "true")
-                self.assertEqual(gate(self.jobs["app-host-unit-tests"]["if"], **routes),
-                                 macos == "true" and (full_suite == "true" or unit_suite == "true")
-                                 and in_admission != "true")
-                self.assertEqual(gate(self.jobs["tests-build-and-lag"]["if"], **routes),
-                                 macos == "true" and full_suite == "true")
-                # A cli-profile product has no app or app-host bundles, so no
-                # job that consumes them may run beside it.
+                # The app-host profile adds the app build to the CLI product.
+                # A macOS route builds it while it still has to prove the app
+                # compiles; a CLI-only route needs only the CLI product.
                 profile = gate(self.workflow["env"]["CMUX_PRODUCT_PROFILE"], **routes)
-                app_host_consumer = any(
-                    gate(self.jobs[name]["if"], **routes)
-                    for name in ("app-host-unit-tests", "tests-build-and-lag"))
-                self.assertEqual(profile, "app-host" if app_host_consumer or (
-                    macos == "true" and admitted != "true") else "cli")
+                self.assertEqual(profile, "app-host" if macos == "true" and (
+                    full_suite == "true" or admitted != "true") else "cli")
 
     def test_required_status_rejects_missing_targeted_cli_work(self):
         job = self.jobs["macos-status"]
