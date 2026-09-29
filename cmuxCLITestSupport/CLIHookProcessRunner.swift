@@ -61,36 +61,41 @@ enum CLIHookProcessRunner {
         var stderrData = Data()
         let ioGroup = DispatchGroup()
 
+        // Use dedicated reader threads rather than the shared libdispatch pool.
+        // The product lane runs several subprocess tests concurrently, and a
+        // pool saturated by blocking pipe reads can otherwise leave a child
+        // that already exited with its output unread until the two-second
+        // drain grace period expires.
         ioGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
+        Thread {
             let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
             outputLock.lock()
             stdoutData = data
             outputLock.unlock()
             ioGroup.leave()
-        }
+        }.start()
 
         ioGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
+        Thread {
             let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
             outputLock.lock()
             stderrData = data
             outputLock.unlock()
             ioGroup.leave()
-        }
+        }.start()
 
         // Start input only after both drains exist: a child can fill either
         // output pipe before it reads a large input. The writer shares the
         // lifecycle group so timeout termination also releases blocked writes.
         if let standardInput, let stdinPipe {
             ioGroup.enter()
-            DispatchQueue.global(qos: .utility).async {
+            Thread {
                 defer {
                     try? stdinPipe.fileHandleForWriting.close()
                     ioGroup.leave()
                 }
                 try? stdinPipe.fileHandleForWriting.write(contentsOf: Data(standardInput.utf8))
-            }
+            }.start()
         }
 
         // Termination callbacks may lag behind the actual process exit.

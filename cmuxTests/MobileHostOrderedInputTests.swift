@@ -108,8 +108,8 @@ struct MobileHostOrderedInputTests {
                 ("input-2", "terminal.input"),
             ],
             surfaceIDsByRequestID: [
-                "input-1": "surface-1",
-                "input-2": "surface-2",
+                "input-1": "11111111-1111-1111-1111-111111111111",
+                "input-2": "22222222-2222-2222-2222-222222222222",
             ]
         )
 

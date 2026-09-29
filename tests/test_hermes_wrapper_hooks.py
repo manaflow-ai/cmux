@@ -21,8 +21,12 @@ SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-agent-wrapper"
 SOURCE_TUI_PYTHON_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-python-wrapper"
 SOURCE_TUI_SITECUSTOMIZE = ROOT / "Resources" / "bin" / "cmux-hermes-sitecustomize.py"
 SESSION_ID = "01JZ123456789ABCDEFGHJKMNP"
-# How long run_wrapper lets the wrapper run before it reports a hang.
-WRAPPER_HANG_GUARD_SECONDS = 5
+# How long run_wrapper lets the wrapper run before it reports a hang. The CI
+# product lane runs several copies of this fixture concurrently; process start
+# and interpreter cold-start time can be much higher there than on a quiet
+# developer machine. Keep the guard bounded, but leave enough room for the
+# wrapper's deliberately best-effort installer and TUI lifecycle checks.
+WRAPPER_HANG_GUARD_SECONDS = 30
 
 
 @dataclass
