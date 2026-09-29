@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let services = AppServices(environment: environment)
         self.services = services
         AppActions.bind(services)
+        HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
         startSettingsAndControl(registry: services.registry)
         NSApp.mainMenu = MainMenu.make(registry: services.registry)

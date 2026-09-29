@@ -37,6 +37,7 @@ public enum ActionCatalog {
         all += agentsActions()
         all += cloudActions()
         all += settingsActions()
+        all += layoutActions()
         return all
     }
 }

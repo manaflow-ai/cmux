@@ -54,40 +54,4 @@ extension AppActions {
             }
         }
     }
-
-    static func bindLayout(_ services: AppServices) {
-        let registry = services.registry
-        func content() -> WorkspaceContentController? { services.windows.active?.content }
-        func focus(_ pane: PaneController?) { if let pane { content()?.layoutModel.focus(pane.layoutPaneID) } }
-        registry.bind("splitRight", invoke: { invocation in
-            focus(scope(services, invocation).pane)
-            content()?.layoutModel.splitFocusedPane(axis: .horizontal)
-        })
-        registry.bind("splitDown", invoke: { invocation in
-            focus(scope(services, invocation).pane)
-            content()?.layoutModel.splitFocusedPane(axis: .vertical)
-        })
-        registry.bind("newColumn", invoke: { invocation in
-            focus(scope(services, invocation).pane)
-            content()?.layoutModel.newColumn()
-        })
-        for (id, direction) in [("focusLeft", LayoutDirection.left), ("focusRight", .right), ("focusUp", .up), ("focusDown", .down)] {
-            registry.bind(ActionID(rawValue: id)) {
-                guard let content = content(), let pane = content.layoutView.moveFocus(direction) else { return }
-                content.panes[pane]?.focusContent()
-            }
-        }
-        registry.bind("toggleSplitZoom", invoke: { invocation in
-            guard let handle = scope(services, invocation).pane?.pane.handle else { return }
-            services.daemon.send("zoom-pane") { _ = try await $0.zoomPane(handle) }
-        })
-        registry.bind("equalizeSplits") {
-            guard let model = content()?.layoutModel, let screen = model.activeScreen else { return }
-            let trees: [SplitNode] = switch screen.layout {
-            case .splits(let root): [root]
-            case .columns(let columns): columns.map(\.root)
-            }
-            for split in trees.flatMap(\.splits) { model.equalizeSplit(split) }
-        }
-    }
 }

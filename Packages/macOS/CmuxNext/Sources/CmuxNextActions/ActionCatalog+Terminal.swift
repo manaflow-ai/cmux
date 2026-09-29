@@ -62,7 +62,8 @@ extension ActionCatalog {
             ActionDescriptor(
                 id: "find", title: String(localized: "action.find", defaultValue: "Find…", bundle: .module),
                 keywords: ["search"], defaultShortcut: Shortcut("f", modifiers: [.command]), category: .terminal,
-                symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
+                symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu],
+                arguments: [CatalogArgument.textString.optional], targets: [.pane],
                 cliName: "terminal find", mainMenu: .edit
             ),
             ActionDescriptor(
