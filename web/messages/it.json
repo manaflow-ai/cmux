@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni.",
           "warnBeforeClosingTabXButton": "Mostra una conferma prima di chiudere una scheda con il pulsante di chiusura scheda.",
           "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
+          "tabBarVisibility": "Stabilisce quando un riquadro disegna la propria barra delle schede. \"always\" la disegna anche per un riquadro con una sola scheda; \"multiple-tabs\" la nasconde finché il riquadro ha una sola scheda e la disegna appena se ne apre una seconda. La modalità minimale (app.minimalMode) la disegna sempre, perché lì la barra delle schede del riquadro superiore fa anche da barra del titolo della finestra.",
           "forkConversationDefaultDestination": "Destinazione predefinita per l'azione principale Fork Conversation nel menu contestuale della scheda. Il sottomenu mostra comunque tutte le destinazioni.",
           "globalFontMagnification": "Zoom percentuale per tutto ciò che cmux disegna da sé: testo del terminale, titoli dei tab, barre laterali, Settings, overlay e cornice della finestra. Le pagine web nelle superfici browser mantengono la propria dimensione."
         },
@@ -1372,6 +1373,7 @@
         "notifications": {
           "soundWhenFocused": "Riproduci il suono di notifica anche quando il pannello che ha inviato la notifica è già a fuoco. Disattivato per impostazione predefinita, quindi un pannello a fuoco mostra solo l’anello e il lampeggio.",
           "suppressOnlyFocusedSurface": "Quando è attivo, un banner di notifica viene ritirato automaticamente solo quando la sua superficie è esattamente la superficie con il focus. Un banner mostrato per una superficie senza focus nel workspace attualmente visibile resta visibile finché non porti il focus su quella superficie (o ci fai clic/la chiudi), invece di essere ritirato quando il workspace diventa visibile. Disattivato mantiene il vecchio ritiro basato sulla visibilità del workspace.",
+          "suppressWhenAppFocused": "Quando è attivo, cmux salta il banner sul desktop per ogni notifica mentre cmux è l'app attiva, non solo per il pannello con il focus. Le notifiche compaiono comunque nella barra laterale, il suono e il comando personalizzato vengono comunque eseguiti e l'inoltro al telefono non cambia. Disattivato continua a mostrare i banner per altri workspace e pannelli mentre cmux ha il focus.",
           "agentIdleReminder": "Notifica quando un agente è inattivo in attesa del tuo input (circa 60 secondi dopo la fine di un turno). La notifica è soppressa finché resta del lavoro in background del turno precedente, così una build o un watcher in esecuzione non attivano un falso avviso di attesa.",
           "soundOverrides": "Override sparsi del suono di notifica per agente e tipo di avviso. Le celle mancanti usano notifications.sound.",
           "soundOverride": "Un override del suono di notifica. default usa notifications.sound, none disabilita la riproduzione e gli altri valori selezionano un suono integrato o personalizzato."
@@ -1394,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Mostra ogni workspace su una sola riga: un’icona colorata prima del titolo indica lo stato dell’agente, dei non letti e della pull request e sostituisce le righe di stato degli agenti (per esempio In esecuzione o Input richiesto), la riga di branch e directory e le righe delle pull request, i cui dettagli passano nel tooltip dell’icona. Le altre voci di stato mantengono le proprie righe.",
+          "compactStatusIcons": "Nomi di SF Symbol che sostituiscono il glifo di compactAgentStatus per ogni stato, per esempio {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Gli stati non impostati mantengono il simbolo integrato, e un nome che non viene visualizzato torna a quello.",
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },
@@ -2072,7 +2076,7 @@
       "data3": "I metadati di abbinamento e del dispositivo, per collegare il telefono al Mac.",
       "dataNot": "La tua sessione interattiva del terminale, i suoi contenuti e le digitazioni passano direttamente tra il telefono e il Mac sulla tua rete, e non vengono inoltrati né memorizzati sui server di cmux. L'unica eccezione è il testo delle notifiche inoltrate, che transita attraverso cmux e il servizio di notifiche di Apple per raggiungere il telefono, a meno che non attivi Hide content (vedi Notifiche più sopra).",
       "enterpriseTitle": "Aziende e self-hosting",
-      "enterpriseDesc": "Per un deployment self-hosted o air-gapped, contatta <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "Per un deployment self-hosted o air-gapped, contatta <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4321,7 +4325,7 @@
         "description": "Segnala bug e richiedi funzionalità pubblicamente."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Preferisci l'email? Scrivici direttamente."
       }
     },
@@ -4343,8 +4347,8 @@
       "privacy": "Utilizziamo il tuo indirizzo email solo per rispondere alla tua richiesta di supporto. Non vendiamo le informazioni di contatto.",
       "submit": "Invia messaggio",
       "submitting": "Invio in corso...",
-      "success": "Grazie. Abbiamo ricevuto il tuo messaggio e ti risponderemo via email da founders@manaflow.com.",
-      "error": "Si è verificato un errore. Riprova oppure scrivi a founders@manaflow.com."
+      "success": "Grazie. Abbiamo ricevuto il tuo messaggio e ti risponderemo via email da founders@cmux.com.",
+      "error": "Si è verificato un errore. Riprova oppure scrivi a founders@cmux.com."
     }
   },
   "emails": {

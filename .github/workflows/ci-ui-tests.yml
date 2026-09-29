@@ -12,8 +12,9 @@ run-name: ${{ format('UI tests for CI run {0} attempt {1}', inputs.run_id, input
 # (cmuxterm-hq build-fleet/cmd/controller/ui_tests.go, keyed on the job name
 # `ui-tests` of workflow `CI`), so no runner waits here for a request that
 # never comes. It returns at once for anything but a same-repository pull
-# request that changes cmuxUITests/, and cancels the dispatched run when the CI
-# attempt finishes first. The bots that re-run CI (owned_pool_rescue.py,
+# request that changes cmuxUITests/ or a path the UI fuzzer's regression replays cover
+# (FUZZ_REGRESSION_PATHS), and cancels the dispatched run when the CI attempt
+# finishes first. The bots that re-run CI (owned_pool_rescue.py,
 # classify_failures.py) still dispatch it for the new attempt; a duplicate
 # joins the same concurrency group. scripts/ci/ui_tests_dispatch.py has the
 # rules. The run-name is how `ui-tests` finds its run; keep it in step with

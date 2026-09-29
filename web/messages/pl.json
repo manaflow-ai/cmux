@@ -1358,6 +1358,7 @@
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
+          "tabBarVisibility": "Określa, kiedy panel rysuje swój pasek kart. \"always\" rysuje go nawet w panelu z jedną kartą; \"multiple-tabs\" ukrywa go, dopóki panel ma jedną kartę, i rysuje, gdy otworzy się druga. Tryb minimalny (app.minimalMode) rysuje go zawsze, ponieważ pasek kart górnego panelu pełni tam także rolę paska tytułu okna.",
           "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",
           "globalFontMagnification": "Procentowe powiększenie wszystkiego, co cmux rysuje samodzielnie: tekstu terminala, tytułów kart, pasków bocznych, Settings, nakładek i obramowania okna. Strony internetowe w powierzchniach przeglądarki zachowują własny rozmiar."
         },
@@ -1373,6 +1374,7 @@
         "notifications": {
           "soundWhenFocused": "Odtwarzaj dźwięk powiadomienia nawet wtedy, gdy panel, który je wysłał, jest już aktywny. Domyślnie wyłączone, więc aktywny panel pokazuje tylko obwódkę i błysk.",
           "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace.",
+          "suppressWhenAppFocused": "Po włączeniu cmux pomija baner na pulpicie dla każdego powiadomienia, gdy cmux jest aktywną aplikacją, a nie tylko dla panelu z fokusem. Powiadomienia nadal pojawiają się na pasku bocznym, dźwięk i niestandardowe polecenie nadal są uruchamiane, a przekazywanie na telefon się nie zmienia. Po wyłączeniu banery dla innych workspace'ów i paneli są nadal wyświetlane, gdy cmux ma fokus.",
           "agentIdleReminder": "Powiadamiaj, gdy agent jest bezczynny i czeka na dane wejściowe (około 60 sekund po zakończeniu tury). Powiadomienie jest wstrzymywane, dopóki trwa praca w tle z poprzedniej tury, aby uruchomiony build lub obserwator nie wywołał fałszywego alertu oczekiwania.",
           "soundOverrides": "Rzadkie zastąpienia dźwięku powiadomień dla agenta i typu alertu. Brakujące komórki używają notifications.sound.",
           "soundOverride": "Zastąpienie dźwięku powiadomienia. default używa notifications.sound, none wyłącza odtwarzanie, a pozostałe wartości wybierają dźwięk wbudowany lub niestandardowy."
@@ -1395,6 +1397,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Pokazuj każdy obszar roboczy w jednym wierszu: jedna kolorowa ikona przed tytułem pokazuje stan agenta, nieprzeczytanych i pull requesta oraz zastępuje wiersze stanu agentów (na przykład Działa lub Wymaga danych), wiersz gałęzi i katalogu oraz wiersze pull requestów, których szczegóły trafiają do podpowiedzi ikony. Pozostałe wpisy stanu zachowują własne wiersze.",
+          "compactStatusIcons": "Nazwy SF Symbols zastępujące glif compactAgentStatus dla każdego stanu, na przykład {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Nieustawione stany zachowują wbudowany symbol, a nazwa, której nie da się wyświetlić, wraca do niego.",
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
@@ -2072,7 +2076,7 @@
       "data3": "Metadane parowania i urządzenia, aby połączyć twój telefon z Makiem.",
       "dataNot": "Twoja interaktywna sesja terminala, jej zawartość i naciśnięcia klawiszy, płynie bezpośrednio między telefonem a Makiem przez twoją własną sieć i nie jest przekazywana przez serwery cmux ani na nich przechowywana. Jedynym wyjątkiem jest przekazywany tekst powiadomień, który przechodzi przez cmux i usługę push firmy Apple, aby dotrzeć do twojego telefonu, chyba że włączysz Hide content (zobacz Powiadomienia powyżej).",
       "enterpriseTitle": "Wdrożenia korporacyjne i własne",
-      "enterpriseDesc": "W przypadku wdrożenia własnego lub odizolowanego od sieci skontaktuj się z <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "W przypadku wdrożenia własnego lub odizolowanego od sieci skontaktuj się z <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4321,7 +4325,7 @@
         "description": "Zgłaszaj błędy i proponuj nowe funkcje publicznie."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Wolisz e-mail? Napisz do nas bezpośrednio."
       }
     },
@@ -4343,8 +4347,8 @@
       "privacy": "Twojego adresu e-mail używamy wyłącznie po to, aby odpowiedzieć na Twoje zgłoszenie. Nie sprzedajemy danych kontaktowych.",
       "submit": "Wyślij wiadomość",
       "submitting": "Wysyłanie…",
-      "success": "Dziękujemy. Otrzymaliśmy Twoją wiadomość i odpowiemy na Twój e-mail z adresu founders@manaflow.com.",
-      "error": "Coś poszło nie tak. Spróbuj ponownie lub napisz na founders@manaflow.com."
+      "success": "Dziękujemy. Otrzymaliśmy Twoją wiadomość i odpowiemy na Twój e-mail z adresu founders@cmux.com.",
+      "error": "Coś poszło nie tak. Spróbuj ponownie lub napisz na founders@cmux.com."
     }
   },
   "emails": {

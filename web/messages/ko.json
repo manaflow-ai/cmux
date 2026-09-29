@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "종료 확인을 위한 기존 boolean 대체값입니다. 새 구성에는 app.confirmQuit을 사용하세요.",
           "warnBeforeClosingTabXButton": "탭 닫기 버튼으로 탭을 닫기 전에 확인을 표시합니다.",
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다.",
+          "tabBarVisibility": "창 영역이 탭 막대를 그리는 시점을 정합니다. \"always\"는 탭이 하나뿐인 창 영역에서도 그리고, \"multiple-tabs\"는 탭이 하나인 동안에는 숨겼다가 두 번째 탭이 열리면 그립니다. 미니멀 모드(app.minimalMode)에서는 항상 그립니다. 그곳에서는 맨 위 창 영역의 탭 막대가 창 제목 표시줄을 겸하기 때문입니다.",
           "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다.",
           "globalFontMagnification": "cmux가 직접 그리는 모든 요소(터미널 텍스트, 탭 제목, 사이드바, 설정, 오버레이, 창 테두리)의 확대 비율을 퍼센트로 지정합니다. 브라우저 서피스 안의 웹 페이지는 자체 크기를 유지합니다."
         },
@@ -1372,6 +1373,7 @@
         "notifications": {
           "soundWhenFocused": "알림을 보낸 패널이 이미 포커스된 상태여도 알림음을 재생합니다. 기본값은 꺼짐이며, 포커스된 패널은 링과 깜박임만 표시합니다.",
           "suppressOnlyFocusedSurface": "활성화하면 알림 배너는 해당 서피스가 정확히 포커스된 서피스일 때만 자동으로 철회됩니다. 현재 표시 중인 workspace에서 포커스되지 않은 서피스로 전달된 배너는 workspace가 표시될 때 철회되지 않고, 해당 서피스에 포커스할 때까지(또는 클릭/해제할 때까지) 계속 표시됩니다. 끄면 기존의 workspace 표시 여부 기반 철회 동작이 유지됩니다.",
+          "suppressWhenAppFocused": "활성화하면 cmux가 활성 앱인 동안 포커스된 패널뿐 아니라 모든 알림에 대해 데스크톱 배너를 건너뜁니다. 알림은 계속 사이드바에 표시되고, 사운드와 사용자 지정 명령도 계속 실행되며, 휴대폰 전달은 바뀌지 않습니다. 끄면 cmux에 포커스가 있어도 다른 workspace와 패널의 배너가 계속 표시됩니다.",
           "agentIdleReminder": "에이전트가 유휴 상태로 입력을 기다릴 때(턴 종료 후 약 60초) 알림을 보냅니다. 이전 턴의 백그라운드 작업이 아직 남아 있는 동안에는 억제되므로 실행 중인 빌드나 감시자가 잘못된 대기 알림을 만들지 않습니다.",
           "soundOverrides": "에이전트 및 알림 유형별 알림 소리 재정의입니다. 비어 있는 셀은 notifications.sound를 사용합니다.",
           "soundOverride": "알림 소리 재정의입니다. default는 notifications.sound를 사용하고, none은 재생을 끄며, 나머지 값은 내장 또는 사용자 지정 소리를 선택합니다."
@@ -1394,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "각 워크스페이스를 한 줄로 표시합니다. 제목 앞의 색상 아이콘 하나가 에이전트, 읽지 않음, 풀 리퀘스트 상태를 나타내며 에이전트 상태 행(예: 실행 중, 입력 필요), 브랜치 및 디렉터리 행, 풀 리퀘스트 행을 대신하고, 그 세부 정보는 아이콘의 도움말로 옮겨집니다. 다른 상태 항목은 자체 행을 유지합니다.",
+          "compactStatusIcons": "상태별로 compactAgentStatus 글리프를 대체하는 SF Symbol 이름입니다(예: {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}). 설정하지 않은 상태는 기본 기호를 사용하며, 표시할 수 없는 이름도 기본 기호로 돌아갑니다.",
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
         },
@@ -2069,7 +2073,7 @@
       "data3": "페어링 및 기기 메타데이터, 휴대폰을 Mac에 연결하기 위함.",
       "dataNot": "사용자의 대화형 터미널 세션과 그 내용 및 키 입력은 사용자 자신의 네트워크를 통해 휴대폰과 Mac 사이에서 직접 흐르며, cmux 서버를 거쳐 중계되거나 거기에 저장되지 않습니다. 유일한 예외는 전달된 알림 텍스트로, Hide content를 켜지 않는 한 휴대폰에 도달하기 위해 cmux와 Apple의 푸시 서비스를 거칩니다(위의 알림 참조).",
       "enterpriseTitle": "기업 및 자체 호스팅",
-      "enterpriseDesc": "자체 호스팅 또는 에어갭 배포는 <link>founders@manaflow.com</link>으로 문의하세요."
+      "enterpriseDesc": "자체 호스팅 또는 에어갭 배포는 <link>founders@cmux.com</link>으로 문의하세요."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4318,7 +4322,7 @@
         "description": "버그를 신고하고 기능을 공개적으로 요청해 보세요."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "이메일이 더 편하신가요? 직접 보내 주세요."
       }
     },
@@ -4340,8 +4344,8 @@
       "privacy": "이메일 주소는 지원 요청에 답변하는 용도로만 사용하며, 연락처 정보를 판매하지 않습니다.",
       "submit": "메시지 보내기",
       "submitting": "보내는 중...",
-      "success": "감사합니다. 메시지를 잘 받았으며 founders@manaflow.com에서 이메일로 답변해 드리겠습니다.",
-      "error": "문제가 발생했습니다. 다시 시도하시거나 founders@manaflow.com으로 이메일을 보내 주세요."
+      "success": "감사합니다. 메시지를 잘 받았으며 founders@cmux.com에서 이메일로 답변해 드리겠습니다.",
+      "error": "문제가 발생했습니다. 다시 시도하시거나 founders@cmux.com으로 이메일을 보내 주세요."
     }
   },
   "emails": {

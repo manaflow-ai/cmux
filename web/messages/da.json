@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
+          "tabBarVisibility": "Bestemmer, hvornår en rude tegner sin fanelinje. \"always\" tegner den også for en rude med kun én fane; \"multiple-tabs\" skjuler den, så længe ruden har én fane, og tegner den, så snart der åbnes en fane nummer to. Minimal tilstand (app.minimalMode) tegner den altid, fordi den øverste rudes fanelinje der også fungerer som vinduets titellinje.",
           "forkConversationDefaultDestination": "Standarddestinationen for fanens primære Fork Conversation-handling i genvejsmenuen. Undermenuen viser stadig alle destinationer.",
           "globalFontMagnification": "Procentvis zoom for alt, hvad cmux selv tegner: terminaltekst, fanetitler, sidebjælker, Settings, overlays og vinduesrammer. Websider i browserflader beholder deres egen størrelse."
         },
@@ -1372,6 +1373,7 @@
         "notifications": {
           "soundWhenFocused": "Afspil notifikationslyden, selv når ruden, der sendte notifikationen, allerede har fokus. Slået fra som standard, så en rude med fokus kun viser sin ring og sit blink.",
           "suppressOnlyFocusedSurface": "Når dette er slået til, trækkes et notifikationsbanner kun automatisk tilbage, når dets surface er præcis den fokuserede surface. Et banner leveret til en ikke-fokuseret surface i det aktuelt synlige workspace bliver vist, indtil du fokuserer på den surface (eller klikker/afviser det), i stedet for at blive trukket tilbage, når workspacet bliver synligt. Fra bevarer den ældre tilbagetrækning baseret på workspace-synlighed.",
+          "suppressWhenAppFocused": "Når dette er slået til, springer cmux skrivebordsbanneret over for alle notifikationer, mens cmux er den aktive app, ikke kun for det fokuserede panel. Notifikationer vises stadig i sidebjælken, lyden og den brugerdefinerede kommando kører stadig, og videresendelse til telefonen er uændret. Fra bliver ved med at vise bannere for andre workspaces og paneler, mens cmux er i fokus.",
           "agentIdleReminder": "Send en notifikation, når en agent har været inaktiv og venter på dit input (ca. 60 sekunder efter en tur slutter). Undertrykkes, mens baggrundsarbejde fra den seneste tur stadig kører, så en igangværende build eller overvågning ikke udløser en falsk vente-notifikation.",
           "soundOverrides": "Sparsomme tilsidesættelser af notifikationslyd pr. agent og alarmtype. Manglende felter bruger notifications.sound.",
           "soundOverride": "En tilsidesættelse af notifikationslyden. default bruger notifications.sound, none deaktiverer afspilning, og de øvrige værdier vælger en indbygget eller brugerdefineret lyd."
@@ -1394,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Vis hvert workspace på én linje: ét farvet ikon før titlen viser agent-, ulæst- og pull request-status og erstatter agentstatuslinjerne (for eksempel Kører eller Kræver input), gren- og mappelinjen og pull request-linjerne, hvis detaljer flytter til ikonets værktøjstip. Andre statusposter beholder deres egne linjer.",
+          "compactStatusIcons": "SF Symbol-navne, der erstatter compactAgentStatus-glyffen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstande uden værdi beholder det indbyggede symbol, og et navn, der ikke kan vises, falder tilbage til det.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },
@@ -2069,7 +2073,7 @@
       "data3": "Parrings- og enhedsmetadata for at forbinde din telefon med din Mac.",
       "dataNot": "Din interaktive terminalsession, dens indhold og tastetryk går direkte mellem din telefon og din Mac over dit eget netværk og videresendes ikke gennem eller gemmes på cmux-serverne. Den eneste undtagelse er videresendt notifikationstekst, som passerer gennem cmux og Apple's push service for at nå din telefon, medmindre du aktiverer Hide content (se Notifikationer ovenfor).",
       "enterpriseTitle": "Enterprise og selvhostet",
-      "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4318,7 +4322,7 @@
         "description": "Rapportér fejl, og ønsk nye funktioner i fuld åbenhed."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Foretrækker du e-mail? Skriv direkte til os."
       }
     },
@@ -4340,8 +4344,8 @@
       "privacy": "Vi bruger kun din e-mailadresse til at svare på din supporthenvendelse. Vi sælger ikke kontaktoplysninger.",
       "submit": "Send besked",
       "submitting": "Sender…",
-      "success": "Tak. Vi har modtaget din besked og svarer på din e-mail fra founders@manaflow.com.",
-      "error": "Noget gik galt. Prøv igen, eller skriv til founders@manaflow.com."
+      "success": "Tak. Vi har modtaget din besked og svarer på din e-mail fra founders@cmux.com.",
+      "error": "Noget gik galt. Prøv igen, eller skriv til founders@cmux.com."
     }
   },
   "emails": {

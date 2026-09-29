@@ -8,12 +8,14 @@ import {
   VmBillingGateway,
   noOpVmBillingGateway,
   type VmBillingGatewayShape,
+  type VmCreateCreditReservation,
 } from "../services/vms/billingGateway";
 import type { AttachEndpoint, SSHEndpoint, VMHandle } from "../services/vms/drivers";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   FAILED_CREATE_RETRY_WINDOW_MS,
+  PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
   VmRepositoryLive,
   type CloudVmIdentityLeaseRow,
@@ -53,6 +55,7 @@ import {
   destroyVm,
   execVm,
   forkVm,
+  getVm,
   homeVolumeNameForUser,
   listUserVms,
   approveVmCmuxRemoteEnrollment,
@@ -3848,6 +3851,266 @@ describe("VM Effect workflows", () => {
     expect(secondBegin).toBeGreaterThan(firstBegin);
   });
 
+  test("a Base create refused for credits releases the Base generation", async () => {
+    // reserveCreateCredit is shared with createVm and forkVm, whose rows own no
+    // Base. When the Base flow borrows it, a refused reservation has to roll the
+    // Base back too: markCreateFailed only fails the cloud_vms row, so the base
+    // row keeps state "resetting" and its generation keeps state "creating".
+    // Every later open and reset then trips the in-flight guard and 409s, and
+    // the abandonment sweeper cannot recover it because that sweeper matches
+    // only status "provisioning" rows with a null failure_code, both of which
+    // marking the row failed has already overwritten.
+    const now = new Date();
+    const requested = testCloudVmRow({
+      id: "00000000-0000-4000-8000-0000000001a1",
+      userId: "user-workflow-base-credit",
+      billingTeamId: "team-workflow-base-credit",
+      billingPlanId: "pro",
+      status: "provisioning",
+      providerVmId: null,
+    });
+    const base = {
+      id: "00000000-0000-4000-8000-0000000001a2",
+      scopeType: "team",
+      scopeId: requested.billingTeamId!,
+      name: "default",
+      activeGeneration: 2,
+      activeVmId: requested.id,
+      activeProvider: "freestyle",
+      activeProviderVmId: null,
+      state: "resetting",
+      createdByUserId: requested.userId,
+      lastOpenedByUserId: requested.userId,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseRow;
+    const generation = {
+      id: "00000000-0000-4000-8000-0000000001a3",
+      baseId: base.id,
+      generation: 2,
+      vmId: requested.id,
+      provider: "freestyle",
+      providerVmId: null,
+      state: "creating",
+      createdByUserId: requested.userId,
+      retainedAt: null,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseGenerationRow;
+
+    const adHocMarks: unknown[] = [];
+    const baseMarks: unknown[] = [];
+    const repo = {
+      ...testWorkflowRepo({ vm: requested }),
+      beginBaseOpen: () => Effect.succeed({
+        kind: "create" as const,
+        base,
+        generation,
+        vm: requested,
+        previousGeneration: null,
+        previousVm: null,
+      }),
+      markCreateFailed: (mark: unknown) => Effect.sync(() => {
+        adHocMarks.push(mark);
+        return true;
+      }),
+      markBaseCreateFailed: (mark: unknown) => Effect.sync(() => {
+        baseMarks.push(mark);
+        return true;
+      }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: () => Effect.sync(() => {
+        throw new Error("provider must not be called once credits are refused");
+      }),
+    };
+    const billing: VmBillingGatewayShape = {
+      ...noOpVmBillingGateway(),
+      reserveCreate: () => Effect.fail(new VmCreateCreditsInsufficientError({
+        itemId: "cmux-vm-create-credit",
+        billingCustomerId: requested.billingTeamId!,
+        amount: 1,
+      })),
+      refundCreate: () => Effect.void,
+    };
+
+    const error = await Effect.runPromise(
+      openBaseVm({
+        userId: requested.userId,
+        billingCustomerType: "team",
+        billingTeamId: requested.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: requested.imageId,
+        baseName: "default",
+      }).pipe(Effect.provide(workflowLayer(repo, provider, billing)), Effect.flip),
+    );
+
+    expect(error).toBeInstanceOf(VmCreateCreditsInsufficientError);
+    // The Base-aware mark is the only one that also runs
+    // restoreBaseAfterCreateFailure, which fails the generation row and
+    // releases the base, promoting a retained generation back onto it when
+    // there is one. This scenario has no earlier generation to promote, so it
+    // asserts the mark rather than the promotion; the database-backed case
+    // below covers the promotion.
+    // Exhaustive rather than toMatchObject, so an extra field on the mark is a
+    // failure too. The message is empty on purpose: it is errorMessage(err) of
+    // a VmCreateCreditsInsufficientError, and that tagged error sets no Error
+    // message, so production stores "" here as well. The reason is carried by
+    // `code`, which is what the routes and the sweeper read.
+    expect(baseMarks).toEqual([{
+      baseId: base.id,
+      generation: generation.generation,
+      vmId: requested.id,
+      userId: requested.userId,
+      code: "billing_credits_insufficient",
+      message: "",
+    }]);
+    expect(adHocMarks).toEqual([]);
+  });
+
+  test("a Base create whose network resolve fails refunds the credit and releases the Base generation", async () => {
+    // finishBaseCreate reserves the create credit and records the requested
+    // events before it resolves the owner network, and the resolve step had no
+    // failure handler at all. So the credit stayed spent for a machine that was
+    // never created, and because markBaseCreateFailed is the mark on this path
+    // that also runs restoreBaseAfterCreateFailure, the base row kept state
+    // "resetting" and its generation kept state "creating".
+    //
+    // Reset then tripped the existingOperationInFlight guard in beginBaseReset
+    // and got VmCreateInProgressError. Open has no such guard, but it could not
+    // finish either: finishBaseCreate returns the same 409 when the existing row
+    // has no providerVmId, which the stuck row does not. Both cleared only when
+    // markCreateAbandoned reclaimed the row, which needs the staleness threshold
+    // plus a run of the ten-minutely vm-reconcile cron.
+    const now = new Date();
+    const requested = testCloudVmRow({
+      id: "00000000-0000-4000-8000-0000000001b1",
+      userId: "user-workflow-base-network",
+      billingTeamId: "team-workflow-base-network",
+      billingPlanId: "pro",
+      status: "provisioning",
+      providerVmId: null,
+    });
+    const base = {
+      id: "00000000-0000-4000-8000-0000000001b2",
+      scopeType: "team",
+      scopeId: requested.billingTeamId!,
+      name: "default",
+      activeGeneration: 3,
+      activeVmId: requested.id,
+      activeProvider: "freestyle",
+      activeProviderVmId: null,
+      state: "resetting",
+      createdByUserId: requested.userId,
+      lastOpenedByUserId: requested.userId,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseRow;
+    const generation = {
+      id: "00000000-0000-4000-8000-0000000001b3",
+      baseId: base.id,
+      generation: 3,
+      vmId: requested.id,
+      provider: "freestyle",
+      providerVmId: null,
+      state: "creating",
+      createdByUserId: requested.userId,
+      retainedAt: null,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseGenerationRow;
+
+    const usageEvents: RecordedUsageEvent[] = [];
+    const adHocMarks: unknown[] = [];
+    const baseMarks: unknown[] = [];
+    const repo = {
+      ...testWorkflowRepo({ vm: requested, usageEvents }),
+      beginBaseOpen: () => Effect.succeed({
+        kind: "create" as const,
+        base,
+        generation,
+        vm: requested,
+        previousGeneration: null,
+        previousVm: null,
+      }),
+      markCreateFailed: (mark: unknown) => Effect.sync(() => {
+        adHocMarks.push(mark);
+        return true;
+      }),
+      markBaseCreateFailed: (mark: unknown) => Effect.sync(() => {
+        baseMarks.push(mark);
+        return true;
+      }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      // The account owns no network row yet, so the resolve provisions one and
+      // the provider's network API is what fails.
+      ensureNetwork: () => Effect.fail(
+        providerOperationError("ensureNetwork", "network API unavailable"),
+      ),
+      create: () => Effect.sync(() => {
+        throw new Error("provider create must not run after the network resolve fails");
+      }),
+    };
+    const reservation: VmCreateCreditReservation = {
+      kind: "stack_item",
+      itemId: "cmux-vm-create-credit",
+      customerType: "team",
+      customerId: requested.billingTeamId!,
+      amount: 1,
+    };
+    const refunds: VmCreateCreditReservation[] = [];
+    const billing: VmBillingGatewayShape = {
+      ...noOpVmBillingGateway(),
+      reserveCreate: () => Effect.succeed(reservation),
+      refundCreate: (refunded) => Effect.sync(() => {
+        refunds.push(refunded);
+      }),
+    };
+
+    const error = await Effect.runPromise(
+      openBaseVm({
+        userId: requested.userId,
+        billingCustomerType: "team",
+        billingTeamId: requested.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: requested.imageId,
+        baseName: "default",
+      }).pipe(Effect.provide(workflowLayer(repo, provider, billing)), Effect.flip),
+    );
+
+    // The caller still sees the network failure, not an error from the rollback.
+    expect(error).toBeInstanceOf(VmProviderOperationError);
+    expect(error).toMatchObject({ operation: "ensureNetwork" });
+    // The reserved credit goes back to the customer.
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0]).toMatchObject({ itemId: "cmux-vm-create-credit", amount: 1 });
+    // Only the Base-aware mark fails the generation and promotes the retained
+    // one back onto the base, so the ad-hoc mark is the wrong call here.
+    expect(baseMarks).toHaveLength(1);
+    expect(baseMarks[0]).toMatchObject({
+      baseId: base.id,
+      generation: generation.generation,
+      vmId: requested.id,
+      userId: requested.userId,
+      code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+    });
+    expect(adHocMarks).toEqual([]);
+    // The ledger gets a terminal event for the open-ended vm.create.requested.
+    const failureEvents = usageEvents.filter((event) => event.eventType === "vm.base.create.failed");
+    expect(failureEvents).toHaveLength(1);
+    expect(failureEvents[0]).toMatchObject({ metadata: { operation: "resolve_network" } });
+  });
+
+
   dbTest("does not stamp an unmeasured reservation on a free VM row", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -4844,6 +5107,82 @@ describe("VM Effect workflows", () => {
     expect(generations).toEqual([
       { generation: 1, state: "active", providerVmId: first.providerVmId },
       { generation: 2, state: "failed", providerVmId: null },
+    ]);
+  });
+
+  dbTest("resets Base again after a reset was refused for credits", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    let createCalls = 0;
+    let refuseCredit = false;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: `provider-vm-base-credit-retry-${createCalls}`,
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const noOpBilling = noOpVmBillingGateway();
+    const billing: VmBillingGatewayShape = {
+      ...noOpBilling,
+      reserveCreate: (input) =>
+        refuseCredit
+          ? Effect.fail(new VmCreateCreditsInsufficientError({
+            itemId: "cmux-vm-create-credit",
+            billingCustomerId: "team-base-credit-retry",
+            amount: 1,
+          }))
+          : noOpBilling.reserveCreate(input),
+      refundCreate: () => Effect.void,
+    };
+    const layer = providerLayer(provider, billing);
+    const request = {
+      userId: "user-base-credit-retry",
+      billingCustomerType: "team" as const,
+      billingTeamId: "team-base-credit-retry",
+      billingPlanId: "free",
+      maxActiveVms: 3,
+      provider: "freestyle" as const,
+      image: "snapshot-test",
+      imageVersion: "test-version",
+    };
+
+    const first = await Effect.runPromise(openBaseVm(request).pipe(Effect.provide(layer)));
+
+    refuseCredit = true;
+    const refused = await Effect.runPromise(resetBaseVm({ ...request, reason: "credit refusal" })
+      .pipe(Effect.flip, Effect.provide(layer)));
+    expect(refused).toBeInstanceOf(VmCreateCreditsInsufficientError);
+
+    // The refused reset released the generation it had claimed, so the user is
+    // back on the machine they started with and may reset again once they have
+    // credits. Nothing in the refusal is supposed to cost them the ability to
+    // reset: the generation it burned must not be handed out a second time.
+    refuseCredit = false;
+    const reset = await Effect.runPromise(resetBaseVm({ ...request, reason: "after credits returned" })
+      .pipe(Effect.provide(layer)));
+
+    expect(reset.providerVmId).not.toBe(first.providerVmId);
+
+    const generations = await sql<{ generation: number; state: string }[]>`
+      select generation, state from cloud_vm_base_generations order by generation
+    `;
+    expect(generations).toEqual([
+      { generation: 1, state: "retained" },
+      { generation: 2, state: "failed" },
+      { generation: 3, state: "active" },
     ]);
   });
 
@@ -7506,6 +7845,114 @@ describe("destroyVm home volume cleanup", () => {
   });
 });
 
+describe("status read that observes a gone machine", () => {
+  // `resume` has to exist or the access preflight returns before it probes.
+  const providerGone: VmProviderGatewayShape = {
+    ...unusedProviderGateway(),
+    getStatus: () => Effect.succeed("destroyed" as const),
+    resume: () => Effect.succeed(testVmHandle({ providerVmId: "noble-wren" })),
+  };
+
+  function goneMachine(userId: string, id: string): CloudVmRow {
+    // No `homeVolume`, so observedDbStatus maps a provider 404 straight to the
+    // terminal status. A row with a durable home maps to `paused` instead, on
+    // every entrypoint: see the stats case in vm-stats-not-found.test.ts.
+    return testCloudVmRow({
+      id,
+      userId,
+      provider: "freestyle",
+      providerVmId: "noble-wren",
+      status: "running",
+      providerMetadata: {},
+    });
+  }
+
+  test("revokes the model plane and records vm.destroyed, like the cron reconcile does", async () => {
+    const userId = "user-status-read-gone";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000150");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const revokedVmIds: string[] = [];
+
+    const entry = await Effect.runPromise(
+      getVm({
+        userId,
+        providerVmId: "noble-wren",
+        modelPlane: {
+          revoke: async (cloudVmId: string) => {
+            revokedVmIds.push(cloudVmId);
+          },
+        },
+      }).pipe(Effect.provide(workflowLayer(repo, providerGone))),
+    );
+
+    expect(entry.status).toBe("destroyed");
+    expect(observedStatuses.map((update) => update.status)).toEqual(["destroyed"]);
+    // The row is terminal now, so `destroyVm` can never reach it again and the
+    // cron's candidate query skips it. Both of these have to happen here.
+    expect(revokedVmIds).toEqual([vm.id]);
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.destroyed"]);
+    expect(usageEvents[0]).toMatchObject({
+      vmId: vm.id,
+      provider: vm.provider,
+      metadata: { source: "provider_status_read" },
+    });
+  });
+
+  test("does not revoke or record when another writer already finalized the row", async () => {
+    const userId = "user-status-read-lost-race";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000151");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      usageEvents,
+      markProviderObservedStatus: () => Effect.succeed(false),
+    });
+    const revokedVmIds: string[] = [];
+
+    const entry = await Effect.runPromise(
+      getVm({
+        userId,
+        providerVmId: "noble-wren",
+        modelPlane: {
+          revoke: async (cloudVmId: string) => {
+            revokedVmIds.push(cloudVmId);
+          },
+        },
+      }).pipe(Effect.provide(workflowLayer(repo, providerGone))),
+    );
+
+    expect(entry.status).toBe("running");
+    expect(revokedVmIds).toEqual([]);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("an access preflight that retires the row records vm.destroyed too", async () => {
+    const userId = "user-access-preflight-gone";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000152");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+
+    const error = await Effect.runPromise(
+      openVmCmuxRemote({ userId, providerVmId: "noble-wren" }).pipe(
+        Effect.flip,
+        Effect.provide(workflowLayer(repo, {
+          ...providerGone,
+          openCmuxRemote: () => {
+            throw new Error("must not attach to a machine the provider has dropped");
+          },
+        })),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(observedStatuses.map((update) => update.status)).toEqual(["destroyed"]);
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.destroyed"]);
+    expect(usageEvents[0]).toMatchObject({ metadata: { source: "provider_status_access" } });
+  });
+});
 
 describe("private SCP workflow", () => {
   test("returns the private endpoint without revoking another transfer or recording a bearer lease", async () => {

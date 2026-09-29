@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas.",
           "warnBeforeClosingTabXButton": "Mostrar una confirmación antes de cerrar una pestaña con el botón de cerrar pestaña.",
           "hideTabCloseButton": "Ocultar los botones de cerrar pestaña en la barra de pestañas del panel.",
+          "tabBarVisibility": "Determina cuándo un panel dibuja su barra de pestañas. \"always\" la dibuja incluso en un panel con una sola pestaña; \"multiple-tabs\" la oculta mientras el panel tenga una sola pestaña y la dibuja en cuanto se abre una segunda. El modo mínimo (app.minimalMode) la dibuja siempre, porque allí la barra de pestañas del panel superior hace también de barra de título de la ventana.",
           "forkConversationDefaultDestination": "Destino predeterminado de la acción principal Fork Conversation en el menú contextual de la pestaña. El submenú sigue mostrando todos los destinos.",
           "globalFontMagnification": "Zoom porcentual para todo lo que cmux dibuja por sí mismo: texto del terminal, títulos de pestañas, barras laterales, Settings, superposiciones y marco de la ventana. Las páginas web dentro de las superficies de navegador conservan su propio tamaño."
         },
@@ -1372,6 +1373,7 @@
         "notifications": {
           "soundWhenFocused": "Reproduce el sonido de notificación incluso cuando el panel que notificó ya tiene el foco. Desactivado de forma predeterminada, así que un panel con foco solo muestra su anillo y destello.",
           "suppressOnlyFocusedSurface": "Cuando está activado, un banner de notificación se retira automáticamente solo cuando su superficie es exactamente la superficie enfocada. Un banner entregado para una superficie no enfocada en el workspace actualmente visible permanece visible hasta que enfoques esa superficie (o hagas clic en él/lo descartes), en lugar de retirarse cuando el workspace se vuelve visible. Desactivado conserva el comportamiento heredado de retirada según la visibilidad del workspace.",
+          "suppressWhenAppFocused": "Cuando está activado, cmux omite el banner de escritorio para todas las notificaciones mientras cmux es la app activa, no solo para el panel enfocado. Las notificaciones siguen apareciendo en la barra lateral, el sonido y el comando personalizado se siguen ejecutando, y el reenvío al teléfono no cambia. Desactivado sigue mostrando banners de otros workspaces y paneles mientras cmux tiene el foco.",
           "agentIdleReminder": "Notifica cuando un agente ha estado inactivo esperando tu entrada (unos 60 segundos después de terminar un turno). Se suprime mientras siga pendiente el trabajo en segundo plano del turno anterior, para que una compilación o un monitor en ejecución no active una alerta de espera falsa.",
           "soundOverrides": "Anulaciones dispersas del sonido de notificación por agente y tipo de alerta. Las celdas ausentes usan notifications.sound.",
           "soundOverride": "Una anulación del sonido de notificación. default usa notifications.sound, none desactiva la reproducción y los demás valores seleccionan un sonido integrado o personalizado."
@@ -1394,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Mostrar cada espacio de trabajo en una sola línea: un icono de color antes del título indica el estado del agente, lo no leído y la pull request, y reemplaza las filas de estado del agente (por ejemplo, En ejecución o Necesita entrada), la línea de rama y directorio y las filas de pull request, cuyos detalles pasan a la descripción emergente del icono. Las demás entradas de estado conservan sus filas.",
+          "compactStatusIcons": "Nombres de SF Symbol que sustituyen el glifo de compactAgentStatus para cada estado, por ejemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Los estados sin definir conservan el símbolo integrado, y un nombre que no se puede mostrar vuelve a él.",
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
@@ -2071,7 +2075,7 @@
       "data3": "Metadatos de emparejamiento y del dispositivo, para conectar tu teléfono con tu Mac.",
       "dataNot": "Tu sesión interactiva de terminal, su contenido y las pulsaciones de teclas fluyen directamente entre tu teléfono y tu Mac a través de tu propia red, y no se retransmiten ni se almacenan en los servidores de cmux. La única excepción es el texto de las notificaciones reenviadas, que transita por cmux y el servicio de notificaciones de Apple para llegar a tu teléfono, a menos que actives Hide content (consulta Notificaciones más arriba).",
       "enterpriseTitle": "Empresas y autoalojamiento",
-      "enterpriseDesc": "Para un despliegue autoalojado o aislado de red, contacta con <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "Para un despliegue autoalojado o aislado de red, contacta con <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4320,7 +4324,7 @@
         "description": "Informa de errores y sugiere funciones de forma pública."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "¿Prefieres el correo? Escríbenos directamente."
       }
     },
@@ -4342,8 +4346,8 @@
       "privacy": "Usamos tu correo electrónico solo para responder a tu solicitud de soporte. No vendemos datos de contacto.",
       "submit": "Enviar mensaje",
       "submitting": "Enviando…",
-      "success": "Gracias. Hemos recibido tu mensaje y te responderemos por correo desde founders@manaflow.com.",
-      "error": "Algo salió mal. Inténtalo de nuevo o escribe a founders@manaflow.com."
+      "success": "Gracias. Hemos recibido tu mensaje y te responderemos por correo desde founders@cmux.com.",
+      "error": "Algo salió mal. Inténtalo de nuevo o escribe a founders@cmux.com."
     }
   },
   "emails": {

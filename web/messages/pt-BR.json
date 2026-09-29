@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
+          "tabBarVisibility": "Determina quando um painel desenha sua barra de abas. \"always\" a desenha mesmo em um painel com uma única aba; \"multiple-tabs\" a oculta enquanto o painel tiver uma única aba e a desenha assim que uma segunda for aberta. O modo mínimo (app.minimalMode) a desenha sempre, porque nele a barra de abas do painel superior também serve de barra de título da janela.",
           "forkConversationDefaultDestination": "Destino padrão da ação principal Fork Conversation no menu de contexto da aba. O submenu ainda mostra todos os destinos.",
           "globalFontMagnification": "Zoom percentual para tudo o que o próprio cmux desenha: texto do terminal, títulos das abas, barras laterais, Settings, sobreposições e moldura da janela. Páginas web dentro de superfícies de navegador mantêm o próprio tamanho."
         },
@@ -1372,6 +1373,7 @@
         "notifications": {
           "soundWhenFocused": "Reproduz o som de notificação mesmo quando o painel que notificou já está em foco. Desativado por padrão, então um painel em foco mostra apenas o anel e o destaque.",
           "suppressOnlyFocusedSurface": "Quando ativado, um banner de notificação é retirado automaticamente apenas quando sua superfície é exatamente a superfície focada. Um banner entregue para uma superfície não focada no workspace atualmente visível permanece visível até você focar essa superfície (ou clicar nele/dispensá-lo), em vez de ser retirado quando o workspace se torna visível. Desativado preserva a retirada antiga baseada na visibilidade do workspace.",
+          "suppressWhenAppFocused": "Quando ativado, o cmux ignora o banner da área de trabalho em todas as notificações enquanto o cmux é o app ativo, não apenas no painel em foco. As notificações continuam aparecendo na barra lateral, o som e o comando personalizado continuam sendo executados, e o encaminhamento para o celular não muda. Desativado continua mostrando banners de outros workspaces e painéis enquanto o cmux está em foco.",
           "agentIdleReminder": "Notifique quando um agente estiver ocioso aguardando sua entrada (cerca de 60 segundos após o fim de um turno). A notificação é suprimida enquanto ainda houver trabalho em segundo plano do turno anterior, para que um build ou monitor em execução não gere um falso alerta de espera.",
           "soundOverrides": "Substituições esparsas do som de notificação por agente e tipo de alerta. Células ausentes usam notifications.sound.",
           "soundOverride": "Uma substituição do som de notificação. default usa notifications.sound, none desativa a reprodução e os demais valores selecionam um som integrado ou personalizado."
@@ -1394,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Mostrar cada workspace em uma única linha: um ícone colorido antes do título indica o estado do agente, dos não lidos e da pull request e substitui as linhas de status dos agentes (por exemplo, Em execução ou Precisa de entrada), a linha de branch e diretório e as linhas de pull request, cujos detalhes passam para a dica do ícone. As outras entradas de status mantêm suas linhas.",
+          "compactStatusIcons": "Nomes de SF Symbols que substituem o glifo de compactAgentStatus para cada estado, por exemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Estados não definidos mantêm o símbolo integrado, e um nome que não pode ser exibido volta para ele.",
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
           "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica."
         },
@@ -2072,7 +2076,7 @@
       "data3": "Metadados de pareamento e do dispositivo, para conectar seu celular ao seu Mac.",
       "dataNot": "Sua sessão interativa de terminal, seu conteúdo e suas teclas digitadas fluem diretamente entre o seu celular e o seu Mac pela sua própria rede, e não são retransmitidos por nem armazenados nos servidores do cmux. A única exceção é o texto de notificação encaminhado, que transita pelo cmux e pelo serviço de push da Apple para chegar ao seu celular, a menos que você ative Hide content (consulte Notificações acima).",
       "enterpriseTitle": "Empresarial e auto-hospedado",
-      "enterpriseDesc": "Para uma implantação auto-hospedada ou isolada da internet, entre em contato com <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "Para uma implantação auto-hospedada ou isolada da internet, entre em contato com <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4321,7 +4325,7 @@
         "description": "Relate bugs e sugira recursos abertamente."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Prefere e-mail? Escreva diretamente para nós."
       }
     },
@@ -4343,8 +4347,8 @@
       "privacy": "Usamos seu endereço de e-mail apenas para responder à sua solicitação de suporte. Não vendemos informações de contato.",
       "submit": "Enviar mensagem",
       "submitting": "Enviando…",
-      "success": "Obrigado. Recebemos sua mensagem e responderemos ao seu e-mail pelo endereço founders@manaflow.com.",
-      "error": "Algo deu errado. Tente novamente ou escreva para founders@manaflow.com."
+      "success": "Obrigado. Recebemos sua mensagem e responderemos ao seu e-mail pelo endereço founders@cmux.com.",
+      "error": "Algo deu errado. Tente novamente ou escreva para founders@cmux.com."
     }
   },
   "emails": {

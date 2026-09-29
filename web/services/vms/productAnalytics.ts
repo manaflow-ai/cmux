@@ -49,13 +49,19 @@ export const VM_PRODUCT_EVENT_NAMES: readonly VmProductEventName[] = Object.valu
 /**
  * Why a machine row became destroyed. `destroyVm` stamps the caller's reason
  * into the ledger metadata (`source`); the reconcile cron and base reset
- * stamp theirs at their own write sites.
+ * stamp theirs at their own write sites. The `provider_status_*` reasons all
+ * mean the same thing, and differ only in which request or job was the one to
+ * notice: the cron sweep, the create path's limit refresh, a status read, an
+ * access operation's preflight, or a stats read.
  */
 export const VM_DESTROY_SOURCES = [
   "user_request",
   "account_deletion",
   "provider_status_cron",
   "provider_status_refresh",
+  "provider_status_read",
+  "provider_status_access",
+  "provider_status_stats",
   "base_open_provider_missing",
 ] as const;
 export type VmDestroySource = (typeof VM_DESTROY_SOURCES)[number];

@@ -11,6 +11,8 @@ import SwiftUI
 /// drag whose drop projects the row as a pane in the main view.
 struct CloudTreeOutlineView: NSViewRepresentable {
     let machines: [MachineSnapshot]
+    /// Cloud machines whose delete is in flight; their rows keep expansion and selection for a rollback.
+    var pendingMachineDeletions: Set<String> = []
     /// Creates still running or failed, shown as pending rows above the fleet.
     var pendingCreates: [MachineCreateOperation] = []
     var adoptedOperationIDs: [String: UUID] = [:]
@@ -34,6 +36,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// Shows the Cloud Machines header's New Machine "+".
     var canCreateCloudMachine: Bool = false
     var reveal: CloudTreeRevealRequest? = nil
+    var creationReveal: CloudWorkspaceCreationReveal? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
@@ -59,6 +62,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
         context.coordinator.pendingWorkspaceDeletions = snapshot.pendingWorkspaceDeletions ?? [:]
+        context.coordinator.pendingMachineDeletions = pendingMachineDeletions
         context.coordinator.apply(style: style)
         context.coordinator.update(inputs: CloudTreeBuildInputs(
             machines: machines,
@@ -71,6 +75,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             canCreateCloudMachine: canCreateCloudMachine
         ))
         context.coordinator.reveal(reveal)
+        context.coordinator.reveal(creation: creationReveal)
     }
     // MARK: - Coordinator
     @MainActor
@@ -91,8 +96,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var selectedNodeID: String?
         /// Workspaces the catalog has admitted for deletion but not confirmed.
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
+        var pendingMachineDeletions: Set<String> = []
         private let deletionPresentation = CloudTreeDeletionPresentation()
-        private var lastRevealToken: UUID?
+        var lastRevealToken: UUID?
+        var creationRevealPresentation = CloudTreeCreationRevealPresentation()
         private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -271,10 +278,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return
             }
             let nodes = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: organization.state)
-            // An optimistically hidden workspace keeps its expansion state and
-            // hands its selection to its machine; a rollback restores both.
+            // An optimistically hidden workspace or machine keeps its expansion
+            // state and gives up its selection; a rollback restores both.
             let deletion = deletionPresentation.update(
-                previous: self.nodes, next: nodes, pending: pendingWorkspaceDeletions, selectedNodeID: selectedNodeID
+                previous: self.nodes, next: nodes, pending: pendingWorkspaceDeletions,
+                pendingMachines: pendingMachineDeletions, selectedNodeID: selectedNodeID
             )
             selectedNodeID = deletion.selectedNodeID
             expansionStore.reconcile(nodes: deletion.expansionNodes)
@@ -337,50 +345,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         private func reloadDataAndRestoreState(in outlineView: NSOutlineView) { withProgrammaticUpdate { outlineView.reloadData(); restoreExpansion(in: outlineView); restoreSelection(in: outlineView) } }
-        private func restoreExpansion(in outlineView: NSOutlineView) {
-            var row = 0
-            while row < outlineView.numberOfRows {
-                if let node = outlineView.item(atRow: row) as? CloudTreeNode,
-                   node.isExpandable,
-                   expansionStore.isExpanded(node) {
-                    outlineView.expandItem(node)
-                }
-                row += 1
-            }
-        }
-        private func restoreSelection(in outlineView: NSOutlineView) {
-            outlineView.deselectAll(nil)
-            guard let selectedNodeID else { return }
-            for row in 0..<outlineView.numberOfRows {
-                if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
-                    outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                    return
-                }
-            }
-        }
-        private func withProgrammaticUpdate(_ body: () -> Void) {
+        func withProgrammaticUpdate(_ body: () -> Void) {
             isUpdatingProgrammatically = true
             body()
             isUpdatingProgrammatically = false
         }
 
-        func reveal(_ request: CloudTreeRevealRequest?) {
-            guard let request, request.token != lastRevealToken, let outlineView,
-                  let path = request.path(in: nodes), let node = path.last else { return }
-            for ancestor in path.dropLast() where !outlineView.isItemExpanded(ancestor) {
-                expansionStore.setExpanded(true, node: ancestor)
-                outlineView.expandItem(ancestor)
-            }
-            if node.isExpandable, !outlineView.isItemExpanded(node) {
-                expansionStore.setExpanded(true, node: node)
-                outlineView.expandItem(node)
-            }
-            let row = outlineView.row(forItem: node)
-            guard row >= 0 else { return }
-            lastRevealToken = request.token
-            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            outlineView.scrollRowToVisible(row)
-        }
         // MARK: NSOutlineViewDataSource
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -428,6 +398,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
+            creationRevealPresentation.noteSelectionChange()
             selectedNodeID = outlineView.selectedRow >= 0
                 ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
                 : nil

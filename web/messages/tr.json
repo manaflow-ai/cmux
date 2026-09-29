@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
+          "tabBarVisibility": "Bir bölmenin sekme çubuğunu ne zaman çizeceğini belirler. \"always\", tek sekmesi olan bir bölmede bile çizer; \"multiple-tabs\", bölmede tek sekme varken gizler ve ikinci sekme açılır açılmaz çizer. Minimal mod (app.minimalMode) her zaman çizer, çünkü orada en üstteki bölmenin sekme çubuğu aynı zamanda pencerenin başlık çubuğudur.",
           "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder.",
           "globalFontMagnification": "cmux'un kendi çizdiği her şey için yüzde cinsinden yakınlaştırma: terminal metni, sekme başlıkları, kenar çubukları, Settings, katmanlar ve pencere çerçevesi. Tarayıcı yüzeylerindeki web sayfaları kendi boyutlarını korur."
         },
@@ -1372,6 +1373,7 @@
         "notifications": {
           "soundWhenFocused": "Bildirimi gönderen bölme zaten odaktayken bile bildirim sesini çal. Varsayılan olarak kapalıdır; odaktaki bölme yalnızca halkasını ve parlamasını gösterir.",
           "suppressOnlyFocusedSurface": "Etkinleştirildiğinde, bir bildirim banner'ı yalnızca yüzeyi tam olarak odaklanmış yüzey olduğunda otomatik olarak geri çekilir. Şu anda görünür olan workspace içinde odaklanmamış bir yüzey için gönderilen bir banner, workspace görünür olduğunda geri çekilmek yerine, siz o yüzeye odaklanana (ya da tıklayana/kapatana) kadar görünür kalır. Kapalı, eski workspace görünürlüğüne dayalı geri çekme davranışını korur.",
+          "suppressWhenAppFocused": "Etkinleştirildiğinde cmux, etkin uygulama olduğu sürece yalnızca odaklanılan bölme için değil tüm bildirimler için masaüstü başlığını atlar. Bildirimler kenar çubuğunda görünmeye devam eder, ses ve özel komut çalışmaya devam eder ve telefona yönlendirme değişmez. Kapalıyken cmux odaktayken diğer workspace'ler ve bölmeler için başlıklar gösterilmeye devam eder.",
           "agentIdleReminder": "Bir ajan boşta olup girişinizi beklediğinde (tur sona erdikten yaklaşık 60 saniye sonra) bildirim gönderin. Önceki turdan kalan arka plan işi devam ederken bastırılır; böylece çalışan bir derleme veya izleyici yanlış bir bekleme uyarısı oluşturmaz.",
           "soundOverrides": "Ajan ve uyarı türüne göre seyrek bildirim sesi geçersiz kılmaları. Eksik hücreler notifications.sound kullanır.",
           "soundOverride": "Bir bildirim sesi geçersiz kılması. default, notifications.sound kullanır; none oynatmayı devre dışı bırakır; diğer değerler yerleşik veya özel bir ses seçer."
@@ -1394,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Her çalışma alanını tek satırda göster: başlığın önündeki tek bir renkli simge ajan, okunmamış ve pull request durumunu gösterir; ajan durum satırlarının (örneğin Çalışıyor veya Girdi gerekiyor), dal ve dizin satırının ve pull request satırlarının yerini alır, ayrıntılar simgenin ipucuna taşınır. Diğer durum girdileri kendi satırlarını korur.",
+          "compactStatusIcons": "Her durum için compactAgentStatus glifinin yerine geçen SF Symbol adları, örneğin {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Ayarlanmamış durumlar yerleşik sembolü korur ve görüntülenemeyen bir ad da ona geri döner.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
@@ -2070,7 +2074,7 @@
       "data3": "Telefonunuzu Mac'inize bağlamak için eşleştirme ve cihaz meta verileri.",
       "dataNot": "Etkileşimli terminal oturumunuz, içeriği ve tuş vuruşları doğrudan telefonunuz ile Mac'iniz arasında kendi ağınız üzerinden akar; cmux sunucuları aracılığıyla aktarılmaz ya da bunlarda saklanmaz. Tek istisna, telefonunuza ulaşmak için cmux ve Apple'ın push hizmeti üzerinden geçen iletilmiş bildirim metnidir; ancak Hide content seçeneğini etkinleştirirseniz bu da geçerli olmaz (yukarıdaki Bildirimler bölümüne bakın).",
       "enterpriseTitle": "Kurumsal ve kendi sunucunuzda barındırma",
-      "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@manaflow.com</link> ile iletişime geçin."
+      "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@cmux.com</link> ile iletişime geçin."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4319,7 +4323,7 @@
         "description": "Hataları bildirin, özellik isteklerinizi herkese açık şekilde iletin."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "E-postayı mı tercih ediyorsunuz? Doğrudan bize yazın."
       }
     },
@@ -4341,8 +4345,8 @@
       "privacy": "E-posta adresinizi yalnızca destek talebinize yanıt vermek için kullanırız. İletişim bilgilerini satmayız.",
       "submit": "Mesaj gönder",
       "submitting": "Gönderiliyor…",
-      "success": "Teşekkürler. Mesajınızı aldık; founders@manaflow.com adresinden e-postanıza yanıt vereceğiz.",
-      "error": "Bir şeyler ters gitti. Lütfen tekrar deneyin veya founders@manaflow.com adresine e-posta gönderin."
+      "success": "Teşekkürler. Mesajınızı aldık; founders@cmux.com adresinden e-postanıza yanıt vereceğiz.",
+      "error": "Bir şeyler ters gitti. Lütfen tekrar deneyin veya founders@cmux.com adresine e-posta gönderin."
     }
   },
   "emails": {

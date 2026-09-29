@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
           "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
           "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
+          "tabBarVisibility": "Détermine quand un volet dessine sa barre d’onglets. \"always\" la dessine même pour un volet ne contenant qu’un onglet ; \"multiple-tabs\" la masque tant qu’un volet n’a qu’un onglet et la dessine dès qu’un deuxième onglet s’ouvre. Le mode minimal (app.minimalMode) la dessine toujours, car la barre d’onglets du volet supérieur y fait aussi office de barre de titre de la fenêtre.",
           "forkConversationDefaultDestination": "Destination par défaut de l'action principale Fork Conversation dans le menu contextuel de l'onglet. Le sous-menu affiche toujours toutes les destinations.",
           "globalFontMagnification": "Zoom en pourcentage appliqué à tout ce que cmux dessine lui-même : texte du terminal, titres d’onglets, barres latérales, Settings, superpositions et cadre de fenêtre. Les pages web affichées dans les surfaces de navigateur conservent leur propre taille."
         },
@@ -1372,6 +1373,7 @@
         "notifications": {
           "soundWhenFocused": "Jouer le son de notification même lorsque le panneau à l’origine de la notification a déjà le focus. Désactivé par défaut : un panneau qui a le focus affiche seulement son anneau et son clignotement.",
           "suppressOnlyFocusedSurface": "Lorsque cette option est activée, une bannière de notification n'est retirée automatiquement que lorsque sa surface est exactement la surface ayant le focus. Une bannière affichée pour une surface sans focus dans le workspace actuellement visible reste affichée jusqu'à ce que vous donniez le focus à cette surface (ou que vous cliquiez dessus / la fermiez), au lieu d'être retirée lorsque le workspace devient visible. Désactivée, cette option conserve l'ancien retrait basé sur la visibilité du workspace.",
+          "suppressWhenAppFocused": "Lorsque cette option est activée, cmux ignore la bannière du bureau pour chaque notification tant que cmux est l'app active, et pas seulement pour le panneau ayant le focus. Les notifications apparaissent toujours dans la barre latérale, le son et la commande personnalisée sont toujours exécutés, et le transfert vers le téléphone reste inchangé. Désactivée, les bannières restent affichées pour les autres workspaces et panneaux lorsque cmux a le focus.",
           "agentIdleReminder": "Notifier lorsqu’un agent est inactif et attend votre saisie (environ 60 secondes après la fin d’un tour). La notification est supprimée tant qu’un travail en arrière-plan du tour précédent est encore en attente, afin qu’un build ou un watcher en cours ne déclenche pas une fausse alerte d’attente.",
           "soundOverrides": "Remplacements ponctuels du son de notification par agent et par type d’alerte. Les cellules absentes utilisent notifications.sound.",
           "soundOverride": "Un remplacement du son de notification. default utilise notifications.sound, none désactive la lecture et les autres valeurs sélectionnent un son intégré ou personnalisé."
@@ -1394,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Afficher chaque espace de travail sur une seule ligne : une icône colorée avant le titre indique l’état de l’agent, des éléments non lus et de la pull request, et remplace les lignes de statut des agents (par exemple En cours ou Saisie requise), la ligne de branche et de dossier et les lignes de pull request, dont les détails passent dans l’infobulle de l’icône. Les autres entrées de statut gardent leurs lignes.",
+          "compactStatusIcons": "Noms de SF Symbols qui remplacent le glyphe compactAgentStatus pour chaque état, par exemple {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Les états non définis gardent le symbole intégré, et un nom qui ne s’affiche pas revient à celui-ci.",
           "notificationMessageLineLimit": "Nombre maximal de lignes affichées pour la notification la plus récente sous le titre de chaque espace de travail.",
           "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
         },
@@ -2074,7 +2078,7 @@
       "data3": "Les métadonnées d'appairage et d'appareil, pour relier votre téléphone à votre Mac.",
       "dataNot": "Votre session de terminal interactive, son contenu et vos frappes circulent directement entre votre téléphone et votre Mac via votre propre réseau, et ne sont ni relayés ni stockés sur les serveurs de cmux. La seule exception est le texte des notifications transférées, qui transite par cmux et le service de notifications d'Apple pour atteindre votre téléphone, sauf si vous activez Hide content (voir Notifications ci-dessus).",
       "enterpriseTitle": "Entreprise et auto-hébergement",
-      "enterpriseDesc": "Pour un déploiement auto-hébergé ou isolé du réseau, contactez <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "Pour un déploiement auto-hébergé ou isolé du réseau, contactez <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4323,7 +4327,7 @@
         "description": "Signalez des bugs et proposez des fonctionnalités publiquement."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Vous préférez l'e-mail ? Écrivez-nous directement."
       }
     },
@@ -4345,8 +4349,8 @@
       "privacy": "Nous utilisons votre adresse e-mail uniquement pour répondre à votre demande de support. Nous ne vendons pas vos coordonnées.",
       "submit": "Envoyer le message",
       "submitting": "Envoi en cours…",
-      "success": "Merci. Nous avons bien reçu votre message et vous répondrons par e-mail depuis founders@manaflow.com.",
-      "error": "Une erreur s'est produite. Veuillez réessayer ou écrire à founders@manaflow.com."
+      "success": "Merci. Nous avons bien reçu votre message et vous répondrons par e-mail depuis founders@cmux.com.",
+      "error": "Une erreur s'est produite. Veuillez réessayer ou écrire à founders@cmux.com."
     }
   },
   "emails": {
