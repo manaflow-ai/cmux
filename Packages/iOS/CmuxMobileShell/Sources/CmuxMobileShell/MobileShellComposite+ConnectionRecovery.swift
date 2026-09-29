@@ -945,7 +945,6 @@ extension MobileShellComposite {
             // Direct fails closed, but the copy must send the user to this
             // Computer's address list, not to the pairing-code errors.
             applyPairingFailure(.directAddressesUnavailable, phase: "reconnect")
-            return .failed(.unsupportedRoute)
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         var pinnedRoutes = Self.storedReconnectRoutes(
