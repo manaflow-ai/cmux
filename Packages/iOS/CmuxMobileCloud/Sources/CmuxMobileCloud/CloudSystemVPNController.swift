@@ -270,7 +270,11 @@ public final class CloudSystemVPNController {
                     }
                 }
                 let keyPair = WireGuardKeyPair()
-                try await performBounded(reconcilePlatformOnTimeout: true) {
+                let attempt = EnableAttempt()
+                try await performBounded(
+                    reconcilePlatformOnTimeout: true,
+                    onTimeout: { attempt.invalidate() }
+                ) {
                     let credentials = await self.credentials()
                     let identity: CloudDeviceIdentity
                     do {
@@ -293,7 +297,7 @@ public final class CloudSystemVPNController {
                     } catch {
                         throw CloudSystemVPNError.enrollment
                     }
-                    guard self.isCurrent(generation), self.scope == scope else {
+                    guard attempt.isValid, self.isCurrent(generation), self.scope == scope else {
                         await self.revokeEnrollmentIfOwned(
                             enrollment,
                             scope: scope,
@@ -307,7 +311,8 @@ public final class CloudSystemVPNController {
                         scope: scope,
                         credentials: credentials
                     )
-                    guard self.isCurrent(generation), self.scope == scope else {
+                    guard attempt.isValid, self.isCurrent(generation), self.scope == scope else {
+                        self.manager.cancelPendingOperation()
                         await self.revokeEnrollmentIfOwned(
                             enrollment,
                             scope: scope,
@@ -818,6 +823,7 @@ public final class CloudSystemVPNController {
         reconcilePlatformOnTimeout: Bool = false,
         reconcileCleanupOnTimeout: Bool = false,
         retainPendingOperationOnTimeout: Bool = false,
+        onTimeout: @escaping @MainActor () -> Void = {},
         _ action: @escaping @MainActor () async throws -> T
     ) async throws -> T {
         let operation = operationGate.start(action)
@@ -829,6 +835,9 @@ public final class CloudSystemVPNController {
             return try await timeout.value(completion)
         } catch {
             let timedOut = error is CloudSystemVPNTaskTimeout.Failure
+            if timedOut {
+                onTimeout()
+            }
             if timedOut, reconcilePlatformOnTimeout || reconcileCleanupOnTimeout {
                 needsPlatformReconciliation = true
             }
@@ -894,6 +903,15 @@ public final class CloudSystemVPNController {
 
     private func isCurrent(_ generation: UInt64) -> Bool {
         self.generation == generation && !Task.isCancelled
+    }
+
+    @MainActor
+    private final class EnableAttempt {
+        private(set) var isValid = true
+
+        func invalidate() {
+            isValid = false
+        }
     }
 
     private func enqueue(_ action: @escaping @MainActor (UInt64) async -> Void) {

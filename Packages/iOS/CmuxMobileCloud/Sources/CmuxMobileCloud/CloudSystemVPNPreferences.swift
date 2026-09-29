@@ -70,33 +70,52 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
                 let manager = try await load() ?? NETunnelProviderManager()
                 try Task.checkCancellation()
                 self.manager = manager
-                if manager.connection.status == .connected {
-                    let saved = manager.protocolConfiguration as? NETunnelProviderProtocol
-                    if saved?.providerConfiguration?["scope"] as? String == scope {
-                        publishStatus()
-                        return
-                    }
-                    throw CloudSystemVPNError.configuration
+                switch manager.connection.status {
+                case .connecting, .connected, .reasserting:
+                    // The controller may have observed `.off` just before
+                    // Settings or iOS connected this profile. Stop that
+                    // instance before installing the newly enrolled peer,
+                    // whose private key may have rotated on the server.
+                    manager.connection.stopVPNTunnel()
+                default:
+                    break
                 }
                 let proto = NETunnelProviderProtocol()
                 proto.providerBundleIdentifier = providerBundleIdentifier
                 proto.serverAddress = "cmux Cloud"
-                proto.passwordReference = try keychain.store(configuration)
-                proto.providerConfiguration = ["schemaVersion": Self.schemaVersion, "scope": scope]
-                proto.disconnectOnSleep = false
-                proto.includeAllNetworks = false
-                manager.protocolConfiguration = proto
-                manager.localizedDescription = "cmux Cloud"
-                manager.isEnabled = true
-                manager.isOnDemandEnabled = false
-                manager.onDemandRules = nil
-                // The first save is what asks the user for VPN consent.
-                try await manager.saveToPreferences()
-                try Task.checkCancellation()
-                try await manager.loadFromPreferences()
-                try Task.checkCancellation()
-                try manager.connection.startVPNTunnel()
-                publishStatus()
+                let previousProtocol = manager.protocolConfiguration
+                let previousReference = (previousProtocol as? NETunnelProviderProtocol)?.passwordReference
+                let newReference = try keychain.store(configuration)
+                var preferencesSaved = false
+                do {
+                    proto.passwordReference = newReference
+                    proto.providerConfiguration = ["schemaVersion": Self.schemaVersion, "scope": scope]
+                    proto.disconnectOnSleep = false
+                    proto.includeAllNetworks = false
+                    manager.protocolConfiguration = proto
+                    manager.localizedDescription = "cmux Cloud"
+                    manager.isEnabled = true
+                    manager.isOnDemandEnabled = false
+                    manager.onDemandRules = nil
+                    // The first save is what asks the user for VPN consent.
+                    try await manager.saveToPreferences()
+                    preferencesSaved = true
+                    if let previousReference, previousReference != newReference {
+                        try? keychain.remove(reference: previousReference)
+                    }
+                    try Task.checkCancellation()
+                    try await manager.loadFromPreferences()
+                    try Task.checkCancellation()
+                    try manager.connection.startVPNTunnel()
+                    publishStatus()
+                } catch {
+                    if !preferencesSaved {
+                        manager.protocolConfiguration = previousProtocol
+                        try? await manager.saveToPreferences()
+                        try? keychain.remove(reference: newReference)
+                    }
+                    throw error
+                }
             }
         } catch let error as CloudSystemVPNError {
             throw error
@@ -143,6 +162,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
             publishStatus()
             return
         }
+        let savedReference = (manager.protocolConfiguration as? NETunnelProviderProtocol)?.passwordReference
         manager.connection.stopVPNTunnel()
         // A disabled profile cannot be restarted from Settings after sign-out.
         manager.isEnabled = false
@@ -157,6 +177,9 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
             }
             self.manager = nil
             do {
+                if let savedReference {
+                    try keychain.remove(reference: savedReference)
+                }
                 try keychain.remove()
             } catch {
                 if removalError == nil { removalError = error }
