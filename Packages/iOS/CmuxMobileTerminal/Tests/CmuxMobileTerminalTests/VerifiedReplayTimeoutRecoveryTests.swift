@@ -46,41 +46,40 @@ struct VerifiedReplayTimeoutRecoveryTests {
         view.verifiedReplayFrozenPresentationLayer = frozenLayer
         view.verifiedReplayRenderSuppressed = true
 
-        let waiter = Task { @MainActor in
-            await withCheckedContinuation { continuation in
-                view.pendingVerifiedReplayPresentation = PendingVerifiedReplayPresentation(
-                    id: 7,
-                    startedAt: CACurrentMediaTime() - GhosttySurfaceView.outputApplyTimeout,
-                    surface: surface,
-                    generation: view.surfaceGeneration,
-                    read: nil,
-                    fence: VerifiedReplayPresentationFence(
-                        expectedToken: 7,
-                        expectedGeometryRevision: 1,
-                        expectedGeometry: VerifiedReplayPresentationGeometry(
-                            rendererFrame: view.bounds,
-                            rendererBounds: view.bounds,
-                            rendererPosition: CGPoint(x: view.bounds.midX, y: view.bounds.midY),
-                            rendererAnchorPoint: CGPoint(x: 0.5, y: 0.5),
-                            rendererContentsScale: 3,
-                            rendererTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-                            hostBounds: view.bounds,
-                            hostPosition: CGPoint(x: view.bounds.midX, y: view.bounds.midY),
-                            hostAnchorPoint: CGPoint(x: 0.5, y: 0.5),
-                            hostTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-                            viewportRect: view.bounds
-                        )
-                    ),
-                    observedFrame: nil,
-                    continuation: continuation
-                )
-            }
+        let result = await withCheckedContinuation { continuation in
+            view.pendingVerifiedReplayPresentation = PendingVerifiedReplayPresentation(
+                id: 7,
+                startedAt: CACurrentMediaTime() - GhosttySurfaceView.outputApplyTimeout,
+                surface: surface,
+                generation: view.surfaceGeneration,
+                read: nil,
+                fence: VerifiedReplayPresentationFence(
+                    expectedToken: 7,
+                    expectedGeometryRevision: 1,
+                    expectedGeometry: VerifiedReplayPresentationGeometry(
+                        rendererFrame: view.bounds,
+                        rendererBounds: view.bounds,
+                        rendererPosition: CGPoint(x: view.bounds.midX, y: view.bounds.midY),
+                        rendererAnchorPoint: CGPoint(x: 0.5, y: 0.5),
+                        rendererContentsScale: 3,
+                        rendererTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+                        hostBounds: view.bounds,
+                        hostPosition: CGPoint(x: view.bounds.midX, y: view.bounds.midY),
+                        hostAnchorPoint: CGPoint(x: 0.5, y: 0.5),
+                        hostTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+                        viewportRect: view.bounds
+                    )
+                ),
+                observedFrame: nil,
+                continuation: continuation
+            )
+            // Install and expire in one actor turn. Yielding here lets the
+            // display-link deadline pump legitimately recover it first.
+            #expect(view.pendingVerifiedReplayPresentation != nil)
+            #expect(view.checkSurfaceOperationDeadlines(now: CACurrentMediaTime()))
         }
 
-        await Task.yield()
-        #expect(view.pendingVerifiedReplayPresentation != nil)
-        #expect(view.checkSurfaceOperationDeadlines(now: CACurrentMediaTime()))
-        #expect(await waiter.value == nil)
+        #expect(result == nil)
         #expect(view.verifiedReplayFrozenPresentationLayer == nil)
         #expect(!view.verifiedReplayRenderSuppressed)
         #expect(frozenLayer.superlayer == nil)

@@ -172,7 +172,7 @@ import Testing
         #expect(try await transport.sentRequests().map(\.id) == ["second-after-connect-cancellation"])
     }
 
-    @Test func repeatedConnectTimeoutsDoNotFanOutWhileCleanupIsStuck() async throws {
+    @Test func connectTimeoutsAllowOneRecoveryThenCapCleanupDebt() async throws {
         let transport = CancellationIgnoringConnectTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59127)
         let runtime = TestMobileSyncRuntime(
@@ -208,19 +208,21 @@ import Testing
             do {
                 _ = try await client.sendRequest(request)
                 Issue.record("Expected \(id) to fail")
-            } catch MobileShellConnectionError.requestTimedOut where index == 0 {
-            } catch MobileShellConnectionError.routeCleanupBlocked where index > 0 {
+            } catch MobileShellConnectionError.requestTimedOut where index < 2 {
+            } catch MobileShellConnectionError.routeCleanupBlocked where index == 2 {
             } catch {
                 Issue.record("Expected bounded admission failure for \(id), got \(error)")
             }
         }
 
-        #expect(await transport.connectCount() == 1)
-        #expect(await transport.waitUntilCloseCount(1))
+        #expect(await transport.connectCount() == 2)
+        #expect(await transport.waitUntilCloseCount(2))
         #expect(try await transport.sentRequests().isEmpty)
+        await transport.releaseConnects()
+        await client.disconnect()
     }
 
-    @Test func repeatedConnectCancellationsDoNotFanOutWhileCleanupIsStuck() async throws {
+    @Test func connectCancellationsAllowOneRecoveryThenCapCleanupDebt() async throws {
         let transport = CancellationIgnoringConnectTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59128)
         let runtime = TestMobileSyncRuntime(
@@ -243,30 +245,23 @@ import Testing
             allowsStackAuthFallback: true
         )
 
-        let cancelledRequest = try MobileCoreRPCClient.requestData(
-            method: "terminal.input",
-            params: [
-                "workspace_id": "workspace-main",
-                "terminal_id": "terminal-main",
-                "text": "cancelled-connect-1",
-            ],
-            id: "cancelled-connect-1"
-        )
-        let task = Task {
-            try await client.sendRequest(cancelledRequest)
+        for index in 1...2 {
+            let id = "cancelled-connect-\(index)"
+            let request = try MobileCoreRPCClient.requestData(
+                method: "terminal.input", params: ["text": id], id: id)
+            let task = Task { try await client.sendRequest(request) }
+            #expect(await transport.waitUntilConnectCount(index))
+            task.cancel()
+            do {
+                _ = try await task.value
+                Issue.record("Expected \(id) to throw CancellationError")
+            } catch is CancellationError {
+            } catch {
+                Issue.record("Expected CancellationError for \(id), got \(error)")
+            }
         }
 
-        #expect(await transport.waitUntilConnectCount(1))
-        task.cancel()
-        do {
-            _ = try await task.value
-            Issue.record("Expected cancelled-connect-1 to throw CancellationError")
-        } catch is CancellationError {
-        } catch {
-            Issue.record("Expected CancellationError for cancelled-connect-1, got \(error)")
-        }
-
-        for id in ["cancelled-connect-2", "cancelled-connect-3"] {
+        for id in ["cancelled-connect-3"] {
             let retryRequest = try MobileCoreRPCClient.requestData(
                 method: "terminal.input",
                 params: [
@@ -285,9 +280,11 @@ import Testing
             }
         }
 
-        #expect(await transport.connectCount() == 1)
-        #expect(await transport.waitUntilCloseCount(1))
+        #expect(await transport.connectCount() == 2)
+        #expect(await transport.waitUntilCloseCount(2))
         #expect(try await transport.sentRequests().isEmpty)
+        await transport.releaseConnects()
+        await client.disconnect()
     }
 
     @Test func lateSuccessfulAbandonedConnectIsClosedAfterCleanupTimeout() async throws {

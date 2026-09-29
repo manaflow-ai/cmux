@@ -636,7 +636,7 @@ jobs:
           fi
           reports="$RUNNER_TEMP/ios-package-test-crashes"
           mkdir -p "$reports"
-          for attempt in 1 2 3 4 5; do
+          for _ in 1 2 3 4 5; do
             for directory in "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports; do
               [ -d "$directory" ] || continue
               while IFS= read -r report; do

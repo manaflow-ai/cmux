@@ -111,7 +111,7 @@ import Testing
         let first = Task { await shell.reconnectActiveMacOutcome(stackUserID: "user-1") }
         await pairedStore.waitUntilLoadStarted(teamID: nil)
         let owner = try #require(shell.storedMacReconnectAttempt)
-        if signOut { shell.isSignedIn = false } else { shell.currentTeamDidChange() }
+        if signOut { shell.signOut() } else { shell.currentTeamDidChange() }
         #expect(owner.retirement == .superseded)
         let returned = Task<StoredMacReconnectOutcome, any Error> { await first.value }
         let result = try? await RPCTaskTimeout().value(returned, timeoutNanoseconds: 2_000_000_000)

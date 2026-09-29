@@ -1141,7 +1141,6 @@ extension MobileShellComposite {
               failure != .authorizationFailed, failure != .accountMismatch,
               !connectionRequiresReauth else { return }
         guard isSignedIn, connectionState != .connected else { return }
-        guard shouldScheduleReconnectBackoff() else { return }
         guard let accountID = stackUserID ?? identityProvider?.currentUserID else {
             return
         }
@@ -1149,6 +1148,7 @@ extension MobileShellComposite {
     }
 
     func recordTransientAutomaticReconnectBackoff(accountID: String) {
+        guard shouldScheduleReconnectBackoff() else { return }
         let now = runtime?.now() ?? Date()
         let retryAt = automaticReconnectBackoffOwner.recordTransientFailure(
             accountID: accountID,

@@ -2165,6 +2165,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Pending input settles as abandoned so no awaiting submitter stays
         // suspended past the store that owned it.
         exactlyOnceSenderStorage?.abandon { _ in true }
+        connectionReadinessTask?.cancel()
+        storedMacReconnectAttempt?.retire(with: .failed(.cancelled))
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
@@ -3308,8 +3310,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "storedMacReconnect deadline expired generation=\(generation)"
         )
         retireStoredMacReconnect(attempt, outcome: .failed(.timedOut))
-        if shouldScheduleReconnectBackoff(),
-           let accountID = stackUserID ?? identityProvider?.currentUserID {
+        if let accountID = stackUserID ?? identityProvider?.currentUserID {
             recordTransientAutomaticReconnectBackoff(accountID: accountID)
         }
         return .failed(.timedOut)
@@ -3684,9 +3685,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 lastDialOutcome = .failed(.unsupportedRoute)
             }
         }
-        if connectionState != .connected,
-           !connectionRequiresReauth,
-           attemptedAutomaticIroh {
+        guard reconnectAttemptIsCurrent(generation: generation, scope: scope) else { return .superseded }
+        if connectionState != .connected, !connectionRequiresReauth, attemptedAutomaticIroh {
             recordTransientAutomaticReconnectBackoff(accountID: scope.userID)
         }
         return connectionState == .connected ? .connected : lastDialOutcome
