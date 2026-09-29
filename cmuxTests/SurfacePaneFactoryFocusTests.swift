@@ -413,7 +413,7 @@ import SwiftUI
         defer { coordinator.removeCard() }
         let failure = CloudPaneCreationFailure(machine: .cloud("fixture"), error: URLError(.timedOut))
         coordinator.update(failure: failure, layoutDirection: .leftToRight, colorScheme: .light,
-                           sourceView: source, style: .compact, onRetry: nil, onDismiss: { _ in })
+                           sourceView: source, style: .compact, onRetry: nil, onRecreate: { _ in }, onDismiss: { _ in })
         func card() -> NSView? {
             root.subviews.first { $0.identifier?.rawValue == "cmux.cloudPaneCreationFailure.card" }
         }
