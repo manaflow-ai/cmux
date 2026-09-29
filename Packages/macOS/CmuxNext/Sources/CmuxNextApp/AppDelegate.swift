@@ -8,10 +8,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment = AppEnvironment.current()
     private var services: AppServices!
     private var settings: SettingsController?
-    private var control: ControlService?
+    private let control = AppControl()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        control.startWatchdog()
         let services = AppServices(environment: environment)
         self.services = services
         AppActions.bind(services)
@@ -35,10 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {
-                let control = try ControlService.start(registry: registry, settings: settings, launch: environment.launch)
-                self.control = control
-                installCompat(on: control)
-                logger.info("control socket \(self.control?.socketPath ?? "", privacy: .public)")
+                try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+                if let router = control.service?.router { installCompat(on: router) }
+                logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
@@ -46,12 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The old `cmux` CLI's v2/v1 verbs (plans/cmux-next/cli-compat.md).
-    private func installCompat(on control: ControlService) {
+    private func installCompat(on router: ControlRouter) {
         let frontend = services.compat!
         let compat = CompatService(frontend: frontend, terminalEnvironment: environment.launch.terminalEnvironment) {
             frontend.currentConnection()
         }
-        compat.install(on: control.router)
+        compat.install(on: router)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -64,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        control?.stop()
+        control.stop()
         settings?.stop()
         services?.daemon.shutdownConnection()
     }
