@@ -19,18 +19,31 @@ public struct TerminalSizingChipContent: Equatable, Sendable {
 /// The shared-sizing bounds: a thin neutral border, a faint hatch
 /// outside the grid, a short fade on cut edges, and the size chip. Only the
 /// chip takes touches.
+///
+/// Every grey is the app's separator token (`UIColor.separator`, the color of
+/// the workspace list dividers, the size sheet's dividers and the plain
+/// letterbox border): the border and the chip stroke use it as is, and the
+/// hatch, cut-edge fade and chip fill use half of its own opacity.
 @MainActor
 final class GhosttySurfaceSharedSizingLayers {
     /// Distance between hatch lines, in points.
     static let hatchSpacing: CGFloat = 8
-    /// Opacity of the neutral border.
-    static let borderAlpha: CGFloat = 0.5
-    /// Opacity of the hatch lines.
-    static let hatchAlpha: CGFloat = 0.3
-    /// Opacity of the cut-edge fade at the edge.
-    static let cutFadeAlpha: CGFloat = 0.2
+    /// Share of the separator's opacity used by the hatch lines.
+    static let hatchOpacity: CGFloat = 0.5
+    /// Share of the separator's opacity used by the chip fill.
+    static let chipFillOpacity: CGFloat = 0.5
     /// Distance between the chip and the grid's corner, in points.
     static let chipInset: CGFloat = 6
+
+    /// The single grey of the sizing UI.
+    static let grey = UIColor.separator
+
+    /// `color` with its own opacity multiplied by `opacity`.
+    static func derived(_ color: UIColor, opacity: CGFloat) -> UIColor {
+        var alpha: CGFloat = 0
+        color.getRed(nil, green: nil, blue: nil, alpha: &alpha)
+        return color.withAlphaComponent(alpha * opacity)
+    }
 
     let container = CALayer()
     let border = CAShapeLayer()
@@ -102,7 +115,14 @@ final class GhosttySurfaceSharedSizingLayers {
         var configuration = UIButton.Configuration.plain()
         configuration.cornerStyle = .capsule
         configuration.baseForegroundColor = .secondaryLabel
+        // The blur keeps the chip legible over terminal text; the fill and
+        // stroke are the sizing grey.
         configuration.background.visualEffect = UIBlurEffect(style: .systemThinMaterial)
+        configuration.background.backgroundColor = UIColor { traits in
+            Self.derived(Self.grey.resolvedColor(with: traits), opacity: Self.chipFillOpacity)
+        }
+        configuration.background.strokeColor = Self.grey
+        configuration.background.strokeWidth = TerminalSizingBoundsGeometry.borderWidth
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)
         configuration.titleLineBreakMode = .byTruncatingMiddle
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
@@ -122,8 +142,7 @@ final class GhosttySurfaceSharedSizingLayers {
 
     func apply(
         geometry: TerminalSizingBoundsGeometry,
-        borderColor: UIColor,
-        hatchColor: UIColor,
+        grey: UIColor,
         bounds: CGRect,
         scale: CGFloat
     ) {
@@ -143,7 +162,7 @@ final class GhosttySurfaceSharedSizingLayers {
         }
 
         let inset = TerminalSizingBoundsGeometry.borderWidth / 2
-        border.strokeColor = borderColor.withAlphaComponent(Self.borderAlpha).cgColor
+        border.strokeColor = grey.cgColor
         border.path = UIBezierPath(rect: borderRect.insetBy(dx: inset, dy: inset)).cgPath
 
         let maskPath = UIBezierPath()
@@ -151,7 +170,7 @@ final class GhosttySurfaceSharedSizingLayers {
             maskPath.append(UIBezierPath(rect: rect))
         }
         hatchMask.path = maskPath.cgPath
-        hatch.strokeColor = hatchColor.withAlphaComponent(Self.hatchAlpha).cgColor
+        hatch.strokeColor = Self.derived(grey, opacity: Self.hatchOpacity).cgColor
         hatch.path = geometry.hatchRects.isEmpty ? nil : Self.hatchPath(in: bounds)
 
         fades.forEach { $0.removeFromSuperlayer() }
@@ -161,8 +180,8 @@ final class GhosttySurfaceSharedSizingLayers {
             layer.frame = fade.rect
             layer.contentsScale = scale
             layer.colors = [
-                borderColor.withAlphaComponent(0).cgColor,
-                borderColor.withAlphaComponent(Self.cutFadeAlpha).cgColor,
+                grey.withAlphaComponent(0).cgColor,
+                Self.derived(grey, opacity: Self.hatchOpacity).cgColor,
             ]
             switch fade.edge {
             case .trailing:
@@ -216,8 +235,7 @@ extension GhosttySurfaceView {
         let geometry = decoration.geometry(viewportRect: viewportRect, renderRect: lastRenderRect)
         layers.apply(
             geometry: geometry,
-            borderColor: UIColor.secondaryLabel.resolvedColor(with: traitCollection),
-            hatchColor: UIColor.separator.resolvedColor(with: traitCollection),
+            grey: GhosttySurfaceSharedSizingLayers.grey.resolvedColor(with: traitCollection),
             bounds: layer.bounds,
             scale: max(layer.contentsScale, 1)
         )
