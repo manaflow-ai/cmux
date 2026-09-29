@@ -3512,7 +3512,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await deferredBackupRefresh?.value
             return await self?.loadReconnectRefreshSnapshot(scope: scope)
         }
-        }
 
         var firstCandidateNeedingMacUpdate: MobilePairedMac?
         var attemptedAutomaticIroh = false
