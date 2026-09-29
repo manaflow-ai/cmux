@@ -396,17 +396,20 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             workspace = try #require(manager.selectedWorkspace)
             outerPanelID = try #require(workspace.focusedPanelId)
             if focusAwayFromMirror {
-                nonMirrorPanelID = try #require({
-                    switch workspace.newTerminalSplitOutcome(
-                        from: outerPanelID,
-                        orientation: .horizontal,
-                        focus: true,
-                        autoLayout: true
-                    ) {
-                    case .created(let panel): return panel.id
-                    default: return nil
-                    }
-                }())
+                // No closure here: capturing `workspace` (self) before every
+                // stored property is set fails definite initialization.
+                let splitPanelID: UUID?
+                if case .created(let panel) = workspace.newTerminalSplitOutcome(
+                    from: outerPanelID,
+                    orientation: .horizontal,
+                    focus: true,
+                    autoLayout: true
+                ) {
+                    splitPanelID = panel.id
+                } else {
+                    splitPanelID = nil
+                }
+                nonMirrorPanelID = try #require(splitPanelID)
             } else {
                 nonMirrorPanelID = nil
             }

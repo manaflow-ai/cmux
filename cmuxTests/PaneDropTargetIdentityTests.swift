@@ -58,7 +58,7 @@ struct PaneDropTargetIdentityTests {
         let expected = PaneDropRouting.compactOverlayFrame(for: .center, in: secondOwner.bounds.size)
         animator.setZone(
             .center,
-            frameForZone: { expected },
+            frameForZone: { _ in expected },
             ensureAttached: {},
             bringToFront: {}
         )
