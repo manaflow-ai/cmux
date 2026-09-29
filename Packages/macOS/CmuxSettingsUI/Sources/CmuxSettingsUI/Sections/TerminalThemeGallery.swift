@@ -86,7 +86,7 @@ struct TerminalThemeSettingsRows: View {
     }
 }
 
-/// Slot picker, search field and card grid for ``TerminalThemeGalleryModel``.
+/// Search field and card grid for ``TerminalThemeGalleryModel``.
 @MainActor
 private struct TerminalThemeGalleryView: View {
     @Bindable var model: TerminalThemeGalleryModel
@@ -95,41 +95,10 @@ private struct TerminalThemeGalleryView: View {
 
     var body: some View {
         let results = model.results
-        let selectedName = model.selectedName(for: model.slot)
+        let selectedName = model.themeInUse
 
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Toggle(
-                    String(
-                        localized: "settings.terminal.themeGallery.separate",
-                        defaultValue: "Separate Light and Dark Themes",
-                        bundle: .module
-                    ),
-                    isOn: Binding(
-                        get: { model.separatesAppearances },
-                        set: { model.setSeparatesAppearances($0) }
-                    )
-                )
-                .toggleStyle(.checkbox)
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsTerminalThemeSeparateToggle")
-
-                if model.separatesAppearances {
-                    Picker(
-                        String(localized: "settings.terminal.themeGallery.slot", defaultValue: "Appearance", bundle: .module),
-                        selection: $model.slot
-                    ) {
-                        Text(String(localized: "appearance.light", defaultValue: "Light"))
-                            .tag(TerminalThemeGalleryModel.Slot.light)
-                        Text(String(localized: "appearance.dark", defaultValue: "Dark"))
-                            .tag(TerminalThemeGalleryModel.Slot.dark)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                    .accessibilityIdentifier("SettingsTerminalThemeSlotPicker")
-                }
-
                 Spacer(minLength: 8)
 
                 TextField(
@@ -142,13 +111,6 @@ private struct TerminalThemeGalleryView: View {
                 .accessibilityIdentifier("SettingsTerminalThemeSearchField")
             }
 
-            if model.separatesAppearances, model.slot != model.slotInUse {
-                Text(Self.slotNotInUseCaption(model.slot))
-                    .cmuxFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("SettingsTerminalThemeSlotNotInUse")
-            }
-
             if !model.isLoaded {
                 ProgressView()
                     .controlSize(.small)
@@ -158,8 +120,8 @@ private struct TerminalThemeGalleryView: View {
                     .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                themeGroup(results.matchingSlot, isDark: model.slot == .dark, selectedName: selectedName)
-                themeGroup(results.otherAppearance, isDark: model.slot != .dark, selectedName: selectedName)
+                themeGroup(results.matchingSlot, isDark: model.slotInUse == .dark, selectedName: selectedName)
+                themeGroup(results.otherAppearance, isDark: model.slotInUse != .dark, selectedName: selectedName)
             }
 
             if model.writeFailed {
@@ -194,31 +156,11 @@ private struct TerminalThemeGalleryView: View {
                     TerminalThemeCard(
                         theme: theme,
                         isSelected: Self.matches(theme.name, selectedName),
-                        usedInLight: Self.matches(theme.name, model.selection.light),
-                        usedInDark: Self.matches(theme.name, model.selection.dark),
                         onSelect: { model.select(theme.name) }
                     )
                     .equatable()
                 }
             }
-        }
-    }
-
-    /// Says a pick for `slot` shows only once the appearance switches.
-    private static func slotNotInUseCaption(_ slot: TerminalThemeGalleryModel.Slot) -> String {
-        switch slot {
-        case .light:
-            String(
-                localized: "settings.terminal.themeGallery.lightNotInUse",
-                defaultValue: "Used when the appearance is Light. The terminal shows the Dark theme now.",
-                bundle: .module
-            )
-        case .dark:
-            String(
-                localized: "settings.terminal.themeGallery.darkNotInUse",
-                defaultValue: "Used when the appearance is Dark. The terminal shows the Light theme now.",
-                bundle: .module
-            )
         }
     }
 
@@ -240,19 +182,14 @@ private struct TerminalThemeGalleryView: View {
 /// Cards are built as they scroll into view, so each keeps its view count
 /// small: the background and swatches are one `Canvas`, colors are resolved
 /// once in ``TerminalThemeGalleryModel/PreviewColors``, and `Equatable` lets
-/// SwiftUI skip cards whose theme and badges did not change.
+/// SwiftUI skip cards whose theme and selection did not change.
 struct TerminalThemeCard: View, Equatable {
     let theme: TerminalThemeGalleryModel.Theme
     let isSelected: Bool
-    let usedInLight: Bool
-    let usedInDark: Bool
     let onSelect: () -> Void
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.theme.name == rhs.theme.name
-            && lhs.isSelected == rhs.isSelected
-            && lhs.usedInLight == rhs.usedInLight
-            && lhs.usedInDark == rhs.usedInDark
+        lhs.theme.name == rhs.theme.name && lhs.isSelected == rhs.isSelected
     }
 
     var body: some View {
@@ -260,31 +197,19 @@ struct TerminalThemeCard: View, Equatable {
         let foreground = preview.foreground ?? Color(nsColor: .textColor)
 
         Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 4) {
-                    Text(verbatim: theme.name)
-                        .cmuxFont(size: 10, weight: .medium, design: .monospaced)
-                        .foregroundStyle(foreground)
-                        .lineLimit(1)
-                    RoundedRectangle(cornerRadius: 1, style: .continuous)
-                        .fill(preview.cursor ?? foreground)
-                        .frame(width: 5, height: 11)
-                }
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-                .frame(maxWidth: .infinity, minHeight: Self.previewHeight, alignment: .topLeading)
-                .background(TerminalThemeSwatches(preview: preview))
-
-                HStack(spacing: 4) {
-                    if usedInLight {
-                        badge(String(localized: "appearance.light", defaultValue: "Light"))
-                    }
-                    if usedInDark {
-                        badge(String(localized: "appearance.dark", defaultValue: "Dark"))
-                    }
-                }
-                .frame(height: 14)
+            HStack(spacing: 4) {
+                Text(verbatim: theme.name)
+                    .cmuxFont(size: 10, weight: .medium, design: .monospaced)
+                    .foregroundStyle(foreground)
+                    .lineLimit(1)
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                    .fill(preview.cursor ?? foreground)
+                    .frame(width: 5, height: 11)
             }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, minHeight: Self.previewHeight, alignment: .topLeading)
+            .background(TerminalThemeSwatches(preview: preview))
             .padding(5)
             .contentShape(Rectangle())
             .background(
@@ -298,47 +223,11 @@ struct TerminalThemeCard: View, Equatable {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(verbatim: theme.name))
-        .accessibilityValue(accessibilityValue)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     /// Height of the drawn preview: name row plus two swatch rows.
     static let previewHeight: CGFloat = 54
-
-    /// Says which appearances use this theme, or nothing when neither does.
-    private var accessibilityValue: String {
-        switch (usedInLight, usedInDark) {
-        case (true, true):
-            String(
-                localized: "settings.terminal.themeGallery.card.lightAndDark",
-                defaultValue: "Current light and dark theme",
-                bundle: .module
-            )
-        case (true, false):
-            String(
-                localized: "settings.terminal.themeGallery.card.light",
-                defaultValue: "Current light theme",
-                bundle: .module
-            )
-        case (false, true):
-            String(
-                localized: "settings.terminal.themeGallery.card.dark",
-                defaultValue: "Current dark theme",
-                bundle: .module
-            )
-        case (false, false):
-            ""
-        }
-    }
-
-    private func badge(_ title: String) -> some View {
-        Text(title)
-            .cmuxFont(size: 9, weight: .medium)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(Color.secondary.opacity(0.15)))
-    }
 }
 
 /// The card's background and its two rows of eight ANSI swatches, drawn in
