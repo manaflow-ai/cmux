@@ -15,6 +15,11 @@ public actor CloudWorkspaceRPCProcess {
     public struct RemoteError: Error, Sendable, Equatable {
         public let code: String
         public let message: String
+
+        public init(code: String, message: String) {
+            self.code = code
+            self.message = message
+        }
     }
 
     private var process: Process?

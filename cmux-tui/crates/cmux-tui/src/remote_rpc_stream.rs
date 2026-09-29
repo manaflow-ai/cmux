@@ -45,22 +45,27 @@ enum StreamOutput {
 /// Parsed stream line: either a request to start or a cancellation.
 #[derive(Debug)]
 enum StreamCommand {
-    Start { key: String, id: Value, request: WorkspaceRequest },
+    Start { key: String, id: Value, request: Box<WorkspaceRequest> },
     Cancel { key: String },
 }
 
-fn parse_stream_line(line: &str) -> Result<StreamCommand, (Value, RpcError)> {
+fn parse_stream_line(line: &str) -> Result<StreamCommand, Box<(Value, RpcError)>> {
     let input: StreamInput = serde_json::from_str(line).map_err(|error| {
-        (Value::Null, RpcError::new("invalid-request", format!("invalid stream line: {error}")))
+        Box::new((
+            Value::Null,
+            RpcError::new("invalid-request", format!("invalid stream line: {error}")),
+        ))
     })?;
     let key = input.id.to_string();
     match (input.request, input.cancel) {
-        (Some(request), false) => Ok(StreamCommand::Start { key, id: input.id, request }),
+        (Some(request), false) => {
+            Ok(StreamCommand::Start { key, id: input.id, request: Box::new(request) })
+        }
         (None, true) => Ok(StreamCommand::Cancel { key }),
-        _ => Err((
+        _ => Err(Box::new((
             input.id,
             RpcError::new("invalid-request", "stream line needs exactly one of request or cancel"),
-        )),
+        ))),
     }
 }
 
@@ -94,7 +99,10 @@ pub(super) async fn serve_rpc_stream(
             continue;
         }
         match parse_stream_line(&line) {
-            Err((id, error)) => write_output(&StreamOutput::Error { id, error })?,
+            Err(failure) => {
+                let (id, error) = *failure;
+                write_output(&StreamOutput::Error { id, error })?;
+            }
             Ok(StreamCommand::Cancel { key }) => {
                 if let Some(task) = in_flight.remove(&key) {
                     task.abort();
@@ -115,7 +123,7 @@ pub(super) async fn serve_rpc_stream(
                 let done = done_tx.clone();
                 let task_key = key.clone();
                 let task = tokio::spawn(async move {
-                    let output = match client.request(request).await {
+                    let output = match client.request(*request).await {
                         Ok(result) => StreamOutput::Result { id, result },
                         Err(error) => StreamOutput::Error { id, error },
                     };
@@ -145,7 +153,7 @@ mod tests {
         let StreamCommand::Start { key, id, request } = command else { panic!() };
         assert_eq!(key, "7");
         assert_eq!(id, Value::from(7));
-        assert!(matches!(request, WorkspaceRequest::OpenWorkspace { root } if root == "/"));
+        assert!(matches!(*request, WorkspaceRequest::OpenWorkspace { root } if root == "/"));
     }
 
     #[test]
@@ -156,10 +164,10 @@ mod tests {
 
     #[test]
     fn stream_line_errors_keep_the_caller_id() {
-        let (id, error) = parse_stream_line(r#"{"id":3}"#).unwrap_err();
+        let (id, error) = *parse_stream_line(r#"{"id":3}"#).unwrap_err();
         assert_eq!(id, Value::from(3));
         assert_eq!(error.code, "invalid-request");
-        let (id, _) = parse_stream_line("not json").unwrap_err();
+        let (id, _) = *parse_stream_line("not json").unwrap_err();
         assert_eq!(id, Value::Null);
     }
 
