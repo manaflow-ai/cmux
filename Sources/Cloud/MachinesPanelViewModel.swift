@@ -605,8 +605,10 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func stopVMSync() {
-        vmSync?.stop()
+        // Cleared first so the stop's own `.disconnected` event finds nothing
+        // to change and does not re-arm a poll loop the caller is retiring.
         isVMSyncConnected = false
+        vmSync?.stop()
     }
 
     private func vmSyncDidEmit(_ event: CloudVMSyncSubscriber.Event) {
