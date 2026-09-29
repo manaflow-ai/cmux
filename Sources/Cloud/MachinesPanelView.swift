@@ -77,6 +77,22 @@ struct MachinesPanelView: View {
         return CloudMachinesFeature.isEnabled
     }
 
+    /// The panel replaces its cached tree as soon as a team mutation starts;
+    /// waiting for the scope observer would leave the previous team's rows
+    /// visible while the create or switch is still in flight.
+    private var isTeamChangePending: Bool {
+        accountFlow?.isSelectingTeam == true
+            || accountFlow?.isCreatingTeam == true
+            || viewModel.awaitingCatalogScope
+    }
+
+    private var teamScopeLoadingLabel: String {
+        if accountFlow?.isCreatingTeam == true {
+            return String(localized: "cloud.teamPicker.creating", defaultValue: "Creating team…")
+        }
+        return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
+    }
+
     private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
@@ -170,9 +186,23 @@ struct MachinesPanelView: View {
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("CloudDevBackendStartup")
+        } else if isTeamChangePending {
+            teamScopeLoading
         } else {
             content
         }
+    }
+
+    private var teamScopeLoading: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(teamScopeLoadingLabel)
+                .cmuxFont(size: 12)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("CloudMachinesTeamLoading")
     }
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
