@@ -75,21 +75,3 @@ final class AppServices {
         return nil
     }
 }
-
-/// Handles terminal requests that need the app (links, close requests).
-final class TerminalHostDelegate: TerminalSessionDelegate {
-    weak var services: AppServices?
-
-    func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        guard let pane = services?.windows.active?.focusedPane, url.scheme == "http" || url.scheme == "https" else {
-            return NSWorkspace.shared.open(url)
-        }
-        pane.newBrowserTab(url: url)
-        return true
-    }
-
-    func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String) {
-        let text = body
-        services?.daemon.send("notify") { connection in _ = try await connection.notify(title: title, body: text) }
-    }
-}

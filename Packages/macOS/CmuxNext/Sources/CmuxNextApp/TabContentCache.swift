@@ -52,6 +52,11 @@ final class TabContentCache {
         return entry
     }
 
+    /// The tab id whose surface is `session`.
+    func tabKey(for session: TerminalSession) -> String? {
+        terminals.first { $0.value.session === session }?.key
+    }
+
     // MARK: Browsers
 
     func browser(for key: String, url: URL?) -> BrowserEntry {
