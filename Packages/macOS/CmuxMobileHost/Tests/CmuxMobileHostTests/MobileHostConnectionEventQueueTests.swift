@@ -109,6 +109,7 @@ struct MobileHostConnectionEventQueueTests {
         let queue = MobileHostConnectionEventQueue(maximumEventCount: 1_000, maximumByteCount: 1_000_000)
         queue.updateSubscribedTopics(["device.terminal.grid", "terminal.bytes", "terminal.render_grid"])
         queue.enableSurfaceLanes(limit: 2)
+        _ = queue.focusSurfaceLane("s1")
         var expectedShared: [UInt8] = []
         var expectedSurface: [UInt8] = []
         for step in 0..<200 {
@@ -139,6 +140,33 @@ struct MobileHostConnectionEventQueueTests {
         #expect(shared == expectedShared)
         #expect(queue.count == 0)
         #expect(queue.byteCount == 0)
+    }
+
+    @Test("Background output never reassigns the focused surface lane")
+    func backgroundOutputDoesNotChurnSurfaceLanes() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        _ = queue.focusSurfaceLane("focused")
+
+        let focused = queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "focused",
+            isFullRenderGridFrame: true,
+            frame: Data([1])
+        )
+        #expect(focused.drainLane == .surface("focused"))
+        #expect(queue.dequeue(lane: .surface("focused")) != nil)
+        #expect(!queue.finishDrain(lane: .surface("focused")))
+
+        let background = queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "background",
+            isFullRenderGridFrame: true,
+            frame: Data([2])
+        )
+        #expect(background.drainLane == .shared)
+        #expect(queue.dequeue(lane: .shared)?.frame == Data([2]))
     }
 
     @Test("A lane that stays backlogged keeps its order storage bounded")

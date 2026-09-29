@@ -237,7 +237,6 @@ enum MobileHostIrxTerminalLaneServer {
                 }
                 for input in try MobileTerminalInputFrame.decode(from: &buffer)
                 {
-                    await onInteractiveSurface(surfaceID)
                     guard await deliverInput(
                         input,
                         surfaceID: surfaceID
@@ -245,6 +244,7 @@ enum MobileHostIrxTerminalLaneServer {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
                     }
+                    await onInteractiveSurface(surfaceID)
                 }
             }
             if !buffer.isEmpty {

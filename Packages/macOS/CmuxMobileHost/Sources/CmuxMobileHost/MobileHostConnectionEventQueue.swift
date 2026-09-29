@@ -188,11 +188,13 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
     private var drainingLanes: Set<MobileHostEventLane> = []
     private var overflowed = false
     private var isClosed = false
-    /// Maximum concurrently assigned surface lanes; 0 disables surface lanes.
+    /// How many focused surfaces hold their own lane; 0 disables surface lanes.
     private var surfaceLaneLimit = 0
-    /// Assigned surface lanes and their last-use tick (for LRU reassignment).
-    private var surfaceLaneLastUse: [String: UInt64] = [:]
-    private var surfaceLaneUseTick: UInt64 = 0
+    /// Canonical keys of recently focused surfaces, oldest first. Background
+    /// output never earns or takes a lane, so it cannot churn streams.
+    private var focusedSurfaceKeys: [String] = []
+    /// Render-grid key spelling for each canonical focused surface.
+    private var surfaceLaneCoalesceKeysByCanonicalKey: [String: String] = [:]
     private var surfaceLaneGenerations: [String: UInt64] = [:]
     private var surfaceLaneFailureCounts: [String: Int] = [:]
     private var sharedLanePinnedSurfaceIDs: Set<String> = []
@@ -460,14 +462,52 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
 
     // MARK: Surface lanes
 
-    /// Routes future render-grid frames onto per-surface lanes, at most
-    /// `limit` at once. Surfaces beyond the limit ride the shared lane.
+    /// Routes future render-grid frames of the `limit` most recently focused
+    /// surfaces onto their own lanes. Every other surface rides the shared
+    /// lane. Starts with no focused surface.
     public func enableSurfaceLanes(limit: Int) {
         lock.lock()
         surfaceLaneLimit = max(0, limit)
+        focusedSurfaceKeys.removeAll()
+        surfaceLaneCoalesceKeysByCanonicalKey.removeAll()
         sharedLanePinnedSurfaceIDs.removeAll()
         surfaceLaneFailureCounts.removeAll()
         lock.unlock()
+    }
+
+    /// One key per terminal: focus signals and render-grid events can differ
+    /// in case or surrounding whitespace.
+    public static func canonicalSurfaceKey(_ rawSurfaceKey: String) -> String {
+        let trimmed = rawSurfaceKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return UUID(uuidString: trimmed)?.uuidString ?? trimmed.lowercased()
+    }
+
+    /// Gives a focused surface its own lane and releases the least recently
+    /// focused surface when the limit is exceeded. Released frames are
+    /// poisoned so the producer must rebase with a full frame on the shared
+    /// lane; the writer resets the old native stream separately.
+    public func focusSurfaceLane(_ rawSurfaceKey: String) -> [String: UInt64] {
+        let key = Self.canonicalSurfaceKey(rawSurfaceKey)
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isClosed, surfaceLaneLimit > 0, !key.isEmpty else { return [:] }
+        if let index = focusedSurfaceKeys.firstIndex(of: key) {
+            focusedSurfaceKeys.remove(at: index)
+        }
+        focusedSurfaceKeys.append(key)
+        var released: [String: UInt64] = [:]
+        while focusedSurfaceKeys.count > surfaceLaneLimit {
+            let victim = focusedSurfaceKeys.removeFirst()
+            guard let surfaceID = surfaceLaneCoalesceKeysByCanonicalKey
+                .removeValue(forKey: victim) else { continue }
+            let generation = surfaceLaneGenerations[surfaceID, default: 0] &+ 1
+            surfaceLaneGenerations[surfaceID] = generation
+            var dropped = MobileHostEventShedSummary()
+            removeRenderGridEventsLocked(surfaceIDs: [surfaceID], summary: &dropped)
+            poisonedRenderGridSurfaceIDs.insert(surfaceID)
+            released[surfaceID] = generation
+        }
+        return released
     }
 
     public var surfaceLanesEnabled: Bool {
@@ -485,7 +525,8 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         defer { lock.unlock() }
         guard surfaceLaneLimit > 0 else { return [] }
         surfaceLaneLimit = 0
-        surfaceLaneLastUse.removeAll()
+        focusedSurfaceKeys.removeAll()
+        surfaceLaneCoalesceKeysByCanonicalKey.removeAll()
         var resync = Set<String>()
         let surfaceEventIDs = queuedEvents.compactMap { entry -> UUID? in
             guard case .surface(let surfaceID) = entry.value.lane else { return nil }
@@ -511,7 +552,6 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
             return []
         }
         surfaceLaneGenerations[surfaceID] = generation &+ 1
-        surfaceLaneLastUse.removeValue(forKey: surfaceID)
         let failures = surfaceLaneFailureCounts[surfaceID, default: 0] + 1
         surfaceLaneFailureCounts[surfaceID] = failures
         if failures >= Self.maximumSurfaceLaneFailureCount {
@@ -549,25 +589,9 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
               !sharedLanePinnedSurfaceIDs.contains(surfaceID) else {
             return (.shared, 0)
         }
-        surfaceLaneUseTick &+= 1
-        if surfaceLaneLastUse[surfaceID] == nil {
-            if surfaceLaneLastUse.count >= surfaceLaneLimit {
-                // Reassign the least recently used idle lane; a lane with
-                // queued or in-flight frames keeps its surface.
-                let idle = surfaceLaneLastUse.filter { entry in
-                    let lane = MobileHostEventLane.surface(entry.key)
-                    return queuedCountByLane[lane, default: 0] == 0
-                        && !drainingLanes.contains(lane)
-                }
-                guard let victim = idle.min(by: { $0.value < $1.value })?.key else {
-                    return (.shared, 0)
-                }
-                surfaceLaneLastUse.removeValue(forKey: victim)
-                // The victim's next frame opens a new stream.
-                surfaceLaneGenerations[victim, default: 0] &+= 1
-            }
-        }
-        surfaceLaneLastUse[surfaceID] = surfaceLaneUseTick
+        let key = Self.canonicalSurfaceKey(surfaceID)
+        guard focusedSurfaceKeys.contains(key) else { return (.shared, 0) }
+        surfaceLaneCoalesceKeysByCanonicalKey[key] = surfaceID
         return (.surface(surfaceID), surfaceLaneGenerations[surfaceID, default: 0])
     }
 
@@ -620,7 +644,8 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         subscribedTopics.removeAll()
         queuedCountByLane.removeAll()
         surfaceLaneLimit = 0
-        surfaceLaneLastUse.removeAll()
+        focusedSurfaceKeys.removeAll()
+        surfaceLaneCoalesceKeysByCanonicalKey.removeAll()
         lastRenderGridRouteBySurfaceID.removeAll()
         lock.unlock()
     }

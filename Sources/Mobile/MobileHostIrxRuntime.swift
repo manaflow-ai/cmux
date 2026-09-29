@@ -989,9 +989,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 tunnelHost: tunnelHost,
                 journal: journal,
                 onInteractiveSurface: { surfaceID in
-                    // Fire-and-forget: input delivery never waits on the
-                    // output side. Keystrokes arrive at human rate.
-                    Task { await eventWriter.noteInteractiveSurface(surfaceID.uuidString) }
+                    // The admitted connection serializes focus, stream
+                    // release, and priority updates. Input remains ordered;
+                    // the writer no longer owns a second focus state.
+                    await eventWriter.reportInteractiveSurface(surfaceID.uuidString)
                 })
         }
         let peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?

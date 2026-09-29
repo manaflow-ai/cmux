@@ -40,8 +40,9 @@ struct MobileHostSurfaceEventLaneTests {
             )
         )
 
-        // Surface A's replay is stuck in flight: the phone has not granted
-        // stream credit for its bytes yet.
+        // The user is looking at surface B, so it owns the one dedicated
+        // stream. Surface A's background replay remains on the shared lane.
+        await session.noteInteractiveSurface("surface-b")
         #expect(await session.sendEvent(
             topic: "terminal.render_grid",
             payload: ["surface_id": "surface-a", "full": true, "rows": ["replay"]]
@@ -90,6 +91,9 @@ struct MobileHostSurfaceEventLaneTests {
             // be sent a second one.
             #expect((acknowledgement["surface_event_lanes"] as? String) == (asks ? "v1" : nil))
 
+            if asks {
+                await session.noteInteractiveSurface("surface-a")
+            }
             #expect(await session.sendEvent(
                 topic: "terminal.render_grid",
                 payload: ["surface_id": "surface-a", "full": true]
@@ -125,6 +129,7 @@ struct MobileHostSurfaceEventLaneTests {
                 auth: nil
             )
         )
+        await session.noteInteractiveSurface("surface-a")
         #expect(await session.sendEvent(
             topic: "terminal.render_grid",
             payload: ["surface_id": "surface-a", "full": true]
@@ -157,6 +162,7 @@ struct MobileHostSurfaceEventLaneTests {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid"])
         queue.enableSurfaceLanes(limit: 4)
+        _ = queue.focusSurfaceLane("s")
         let full = queue.enqueue(
             topic: "terminal.render_grid", coalesceKey: "s", isFullRenderGridFrame: true, frame: Data([1])
         )
@@ -190,6 +196,7 @@ struct MobileHostSurfaceEventLaneTests {
         // Lanes are negotiated mid-chain: a delta may not follow its base
         // onto a different stream, where it could overtake it.
         queue.enableSurfaceLanes(limit: 4)
+        _ = queue.focusSurfaceLane("s")
         let crossing = queue.enqueue(
             topic: "terminal.render_grid", coalesceKey: "s", isFullRenderGridFrame: false, frame: Data([2])
         )
@@ -210,6 +217,8 @@ struct MobileHostSurfaceEventLaneTests {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid", "workspace.updated"])
         queue.enableSurfaceLanes(limit: 2)
+        _ = queue.focusSurfaceLane("a")
+        _ = queue.focusSurfaceLane("b")
         let a = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "a", isFullRenderGridFrame: true, frame: Data([1]))
         let b = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "b", isFullRenderGridFrame: true, frame: Data([2]))
         let c = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "c", isFullRenderGridFrame: true, frame: Data([3]))
@@ -229,6 +238,7 @@ struct MobileHostSurfaceEventLaneTests {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid"])
         queue.enableSurfaceLanes(limit: 4)
+        _ = queue.focusSurfaceLane("s")
         for attempt in 0..<MobileHostConnectionEventQueue.maximumSurfaceLaneFailureCount {
             let generation = queue.surfaceLaneGeneration(surfaceID: "s")
             #expect(generation == UInt64(attempt))

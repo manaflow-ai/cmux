@@ -395,6 +395,7 @@ struct IrxSurfaceEventLanesTests {
         let opener = FakeLaneOpener()
         await opener.block("a")
         let lanes = makeLanes(opener)
+        await lanes.noteFocused(surfaceID: "B")
         let stalled = Task { try await lanes.send(frame("replay-a"), surfaceID: "A", generation: 0) }
         #expect(try await waitUntil {
             guard let writer = await opener.writers(surfaceID: "a").first else { return false }
@@ -516,16 +517,29 @@ struct IrxSurfaceEventLanesTests {
         await lanes.closeAll()
     }
 
-    @Test func laneCountIsBoundedByEvictingTheLeastRecentlyUsedLane() async throws {
+    @Test func laneCountRefusesANewSurfaceInsteadOfEvictingAnother() async throws {
         let opener = FakeLaneOpener()
         let lanes = makeLanes(opener, configuration: .init(maximumLaneCount: 2))
         try await lanes.send(frame("1"), surfaceID: "one", generation: 0)
         try await lanes.send(frame("2"), surfaceID: "two", generation: 0)
-        try await lanes.send(frame("1b"), surfaceID: "one", generation: 0)
-        try await lanes.send(frame("3"), surfaceID: "three", generation: 0)
-        #expect(await lanes.openSurfaceIDs() == ["one", "three"])
-        let evicted = try #require(await opener.writers(surfaceID: "two").first)
-        #expect(try await waitUntil { await evicted.finished })
+        await #expect(throws: IrxSurfaceEventLanes.LaneError.laneLimit) {
+            try await lanes.send(frame("3"), surfaceID: "three", generation: 0)
+        }
+        #expect(await lanes.openSurfaceIDs() == ["one", "two"])
+        await lanes.closeAll()
+    }
+
+    @Test func releasedSurfaceRejectsStaleGenerationBeforeOpening() async throws {
+        let opener = FakeLaneOpener()
+        let lanes = makeLanes(opener)
+        try await lanes.send(frame("old"), surfaceID: "surface", generation: 0)
+        await lanes.release(surfaceID: "surface", belowGeneration: 1)
+        await #expect(throws: IrxSurfaceEventLanes.LaneError.released) {
+            try await lanes.send(frame("stale"), surfaceID: "surface", generation: 0)
+        }
+        try await lanes.send(frame("new"), surfaceID: "surface", generation: 1)
+        #expect(await opener.writers(surfaceID: "surface").count == 2)
+        await lanes.closeAll()
     }
 
     @Test func disabledLanesRefuseToOpen() async throws {

@@ -1731,7 +1731,6 @@ actor MobileHostConnection {
         if case let .success(request) = decodedRequest,
            request.isOrderedTerminalInput {
             let surfaceKey = request.orderedInputSurfaceKey
-            noteInteractiveSurface(surfaceKey)
             orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
                 .enqueue(MobileHostOrderedRequest(
                     frameByteCount: frame.count,
@@ -1933,6 +1932,9 @@ actor MobileHostConnection {
         let result = await handleRequest(request)
         guard !isClosed, !Task.isCancelled else {
             return nil
+        }
+        if case .ok = result, request.isOrderedTerminalInput {
+            await noteInteractiveSurface(request.orderedInputSurfaceKey)
         }
         return PreparedResponse(
             data: MobileHostRPCEnvelope.encodeResponse(
@@ -2515,10 +2517,12 @@ actor MobileHostConnection {
             eventQueue.enableSurfaceLanes(
                 limit: independentEventWriter.maximumSurfaceEventLaneCount
             )
-            let focusedSurfaceKey = lastInteractiveSurfaceKey
+            await independentEventWriter.setInteractiveSurfaceHandler { [weak self] surfaceKey in
+                await self?.noteInteractiveSurface(surfaceKey)
+            }
             await independentEventWriter.setSurfaceEventLanesEnabled(true)
-            if let focusedSurfaceKey {
-                await independentEventWriter.noteInteractiveSurface(focusedSurfaceKey)
+            if let focusedSurfaceKey = lastInteractiveSurfaceKey {
+                await focusSurfaceLane(focusedSurfaceKey, writer: independentEventWriter)
             }
         } else {
             let resync = eventQueue.disableSurfaceLanes()
@@ -2528,14 +2532,32 @@ actor MobileHostConnection {
                 )
             }
             await independentEventWriter.setSurfaceEventLanesEnabled(false)
+            await independentEventWriter.setInteractiveSurfaceHandler(nil)
         }
     }
 
-    private func noteInteractiveSurface(_ surfaceKey: String) {
+    /// Applies one authorized focus transition through the connection-owned
+    /// queue and writer, preserving release-before-priority ordering.
+    func noteInteractiveSurface(_ rawSurfaceKey: String) async {
+        let surfaceKey = MobileHostConnectionEventQueue.canonicalSurfaceKey(rawSurfaceKey)
         guard !surfaceKey.isEmpty, lastInteractiveSurfaceKey != surfaceKey else { return }
         lastInteractiveSurfaceKey = surfaceKey
         guard surfaceEventLanesActive, let independentEventWriter else { return }
-        Task { await independentEventWriter.noteInteractiveSurface(surfaceKey) }
+        await focusSurfaceLane(surfaceKey, writer: independentEventWriter)
+    }
+
+    private func focusSurfaceLane(
+        _ surfaceKey: String,
+        writer: any MobileHostIndependentEventWriting
+    ) async {
+        let released = eventQueue.focusSurfaceLane(surfaceKey)
+        if !released.isEmpty {
+            MobileTerminalRenderObserver.requestRenderGridFullResync(
+                surfaceIDStrings: Set(released.keys)
+            )
+            await writer.releaseSurfaceLanes(released)
+        }
+        await writer.noteInteractiveSurface(surfaceKey)
     }
 
     /// Writes one serialized frame until the transport completes or fails.
