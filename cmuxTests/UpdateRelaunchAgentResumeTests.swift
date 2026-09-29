@@ -377,7 +377,10 @@ struct UpdateRelaunchAgentResumeTests {
 
         // The admitted resume consumes the nudge, so a later restore resumes plainly.
         nudges.consume(panelId: marked.panelId)
-        #expect(nudges.prompt(forPanel: marked.panelId) == nil)
+        #expect(nudges.prompt(
+            forPanel: marked.panelId,
+            checkpointID: Self.continuationBinding.checkpointId
+        ) == nil)
 
         #expect(try restoredRecord(marked: false).record.continuationPrompt == nil)
     }
@@ -388,16 +391,35 @@ struct UpdateRelaunchAgentResumeTests {
         let nudges = UpdateRelaunchContinuationNudges.shared
         let panelId = UUID()
         defer { nudges.consume(panelId: panelId) }
-        let marked = SessionTerminalPanelSnapshot(resumeWithContinuation: true)
+        let marked = SessionTerminalPanelSnapshot(
+            managedAgentResumeBinding: Self.continuationBinding,
+            resumeWithContinuation: true
+        )
 
         nudges.registerRestoredPanel(panelId, snapshot: marked, resumesAgent: false, now: 100)
-        #expect(nudges.prompt(forPanel: panelId, now: 100) == nil)
+        #expect(nudges.prompt(
+            forPanel: panelId,
+            checkpointID: Self.continuationBinding.checkpointId,
+            now: 100
+        ) == nil)
 
         nudges.registerRestoredPanel(panelId, snapshot: marked, resumesAgent: true, now: 100)
-        #expect(nudges.prompt(forPanel: panelId, now: 100 + UpdateRelaunchContinuationNudges.lifetime)
+        #expect(nudges.prompt(
+            forPanel: panelId,
+            checkpointID: Self.continuationBinding.checkpointId,
+            now: 100 + UpdateRelaunchContinuationNudges.lifetime
+        )
             == UpdateRelaunchContinuationNudges.prompt)
-        #expect(nudges.prompt(forPanel: panelId, now: 101 + UpdateRelaunchContinuationNudges.lifetime) == nil)
-        #expect(nudges.prompt(forPanel: panelId, now: 100) == nil)
+        #expect(nudges.prompt(
+            forPanel: panelId,
+            checkpointID: Self.continuationBinding.checkpointId,
+            now: 101 + UpdateRelaunchContinuationNudges.lifetime
+        ) == nil)
+        #expect(nudges.prompt(
+            forPanel: panelId,
+            checkpointID: Self.continuationBinding.checkpointId,
+            now: 100
+        ) == nil)
     }
 
     private static let continuationBinding = SurfaceResumeBindingSnapshot(
