@@ -20,7 +20,8 @@ public struct CloudGuestDisplay: Decodable, Sendable {
 
     /// The sidebar names every guest screen by its stable display number.
     public static func title(for number: Int) -> String {
-        String(format: String(localized: "cloud.display.numberedTitle", defaultValue: "Display %d"), number)
+        let format = String(localized: "cloud.display.numberedTitle", defaultValue: "Display %d")
+        return format.replacingOccurrences(of: "%d", with: String(number))
     }
 
     /// The noVNC page for a guest display reached directly over the machine's private address.

@@ -428,7 +428,16 @@ struct CloudTreeNodeActions {
         actions.newDisplay = { machine in
             let target = try? destination(.split)
             run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in
-                try await catalog.createDisplay(on: machine, into: target)
+                do {
+                    try await catalog.createDisplay(on: machine, into: target)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    throw SurfaceCatalogError.unsupported(String(
+                        localized: "cloud.display.creationFailed",
+                        defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged."
+                    ))
+                }
             }
         }
         let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { label, operation in
