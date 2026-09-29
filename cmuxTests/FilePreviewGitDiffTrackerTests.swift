@@ -20,7 +20,7 @@ struct FilePreviewGitDiffTrackerTests {
     @Test("Publishes markers once the HEAD base loads")
     func publishesMarkersOnceBaseLoads() async {
         let reader = FixedHeadContentReader(content: "a\nb\n")
-        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: SidebarTestManualClock())
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
 
         tracker.update(currentText: "a\nB\n")
@@ -34,7 +34,7 @@ struct FilePreviewGitDiffTrackerTests {
     @Test("An unchanged tracked file still reports tracked so the gutter reserves the stripe")
     func unchangedTrackedFileReportsTracked() async {
         let reader = FixedHeadContentReader(content: "a\n")
-        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: SidebarTestManualClock())
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
 
         tracker.update(currentText: "a\n")
@@ -45,16 +45,10 @@ struct FilePreviewGitDiffTrackerTests {
         tracker.cancel()
     }
 
-    @Test("Waits for the debounce on the injected clock before diffing an edit")
-    func waitsForDebounceBeforeDiffing() async {
-        let clock = SidebarTestManualClock()
+    @Test("An edit is diffed without waiting for a timer")
+    func editIsDiffedWithoutTimer() async {
         let reader = FixedHeadContentReader(content: "a\n")
-        let tracker = FilePreviewGitDiffTracker(
-            filePath: Self.path,
-            reader: reader,
-            debounce: .milliseconds(150),
-            clock: clock
-        )
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
         tracker.update(currentText: "a\nb\n")
         tracker.refreshBase()
@@ -62,35 +56,28 @@ struct FilePreviewGitDiffTrackerTests {
         #expect(initial == Self.tracked([2: .added]))
 
         tracker.update(currentText: "a\nb\nc\n")
-        await clock.waitUntilSleeping(for: .milliseconds(150))
-        clock.advance(by: .milliseconds(149))
-        // Resumes only while the debounce sleep is still parked 1 ms short of its deadline.
-        await clock.waitUntilSleeping(for: .milliseconds(1))
-        clock.advance(by: .milliseconds(1))
 
-        let afterDebounce = await updates.next()
-        #expect(afterDebounce == Self.tracked([2: .added, 3: .added]))
+        let afterEdit = await updates.next()
+        #expect(afterEdit == Self.tracked([2: .added, 3: .added]))
         tracker.cancel()
     }
 
-    @Test("Coalesces rapid edits into the latest buffer")
-    func coalescesRapidEdits() async {
-        let clock = SidebarTestManualClock()
+    @Test("Edits made while a diff runs publish only the latest buffer")
+    func coalescesEditsDuringDiff() async {
         let reader = FixedHeadContentReader(content: "a\n")
-        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: clock)
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
         tracker.update(currentText: "a\nb\n")
         tracker.refreshBase()
         let initial = await updates.next()
         #expect(initial == Self.tracked([2: .added]))
 
+        // The first edit starts a diff and the rest arrive while it runs.
         // Each intermediate buffer has its own distinct result, so publishing
         // any of them instead of the last would fail the expectation.
         tracker.update(currentText: "A\n")
         tracker.update(currentText: "a\nb\nc\n")
         tracker.update(currentText: "a\nb\nc\nd\n")
-        await clock.waitUntilSleeping()
-        clock.advance(by: .seconds(1))
 
         let afterBurst = await updates.next()
         #expect(afterBurst == Self.tracked([2: .added, 3: .added, 4: .added]))
@@ -100,7 +87,7 @@ struct FilePreviewGitDiffTrackerTests {
     @Test("Clears markers when the file stops being tracked")
     func clearsMarkersWhenFileBecomesUntracked() async {
         let reader = FixedHeadContentReader(content: "a\n")
-        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: SidebarTestManualClock())
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
         tracker.update(currentText: "b\n")
         tracker.refreshBase()
@@ -118,7 +105,7 @@ struct FilePreviewGitDiffTrackerTests {
     @Test("A new HEAD base moves the markers without a buffer edit")
     func newBaseMovesMarkers() async {
         let reader = FixedHeadContentReader(content: "a\n")
-        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: SidebarTestManualClock())
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
         tracker.update(currentText: "a\nb\n")
         tracker.refreshBase()
@@ -137,7 +124,7 @@ struct FilePreviewGitDiffTrackerTests {
     func decodesBaseWithBufferEncoding() async throws {
         let latin1Base = try #require("café\n".data(using: .isoLatin1))
         let reader = FixedHeadContentReader(bytes: latin1Base)
-        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: SidebarTestManualClock())
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
 
         tracker.update(encoding: .isoLatin1)
@@ -152,7 +139,7 @@ struct FilePreviewGitDiffTrackerTests {
     @Test("Outside a repository the repository watch still reads the base once")
     func repositoryWatchWithoutRepositoryReadsBase() async {
         let reader = FixedHeadContentReader(content: "a\n")
-        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: SidebarTestManualClock())
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
 
         tracker.update(currentText: "b\n")
@@ -173,7 +160,7 @@ struct FilePreviewGitDiffTrackerTests {
         try Data("ref: refs/heads/main\n".utf8).write(to: URL(fileURLWithPath: headPath))
         let reader = FixedHeadContentReader(content: "a\n", watchedPaths: [headPath])
         let coordinator = FileContentChangeCoordinator()
-        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: SidebarTestManualClock())
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
         tracker.update(currentText: "a\nb\n")
         tracker.startWatchingRepository(using: coordinator)
@@ -203,7 +190,7 @@ struct FilePreviewGitDiffTrackerTests {
         let reader = FixedHeadContentReader(content: "a\n", watchedPaths: [headPath, mainRef])
         var headReads = reader.headReads.makeAsyncIterator()
         let coordinator = FileContentChangeCoordinator()
-        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader, clock: SidebarTestManualClock())
+        let tracker = FilePreviewGitDiffTracker(filePath: Self.path, reader: reader)
         var updates = tracker.updates.makeAsyncIterator()
         tracker.update(currentText: "a\nb\n")
         tracker.startWatchingRepository(using: coordinator)
@@ -230,8 +217,7 @@ struct FilePreviewGitDiffTrackerTests {
     func droppingTrackerFinishesUpdates() async throws {
         var tracker: FilePreviewGitDiffTracker? = FilePreviewGitDiffTracker(
             filePath: Self.path,
-            reader: FixedHeadContentReader(content: nil),
-            clock: SidebarTestManualClock()
+            reader: FixedHeadContentReader(content: nil)
         )
         var updates = try #require(tracker).updates.makeAsyncIterator()
         tracker?.startWatchingRepository(using: FileContentChangeCoordinator())
@@ -246,8 +232,7 @@ struct FilePreviewGitDiffTrackerTests {
     func cancelFinishesUpdates() async {
         let tracker = FilePreviewGitDiffTracker(
             filePath: Self.path,
-            reader: FixedHeadContentReader(content: nil),
-            clock: SidebarTestManualClock()
+            reader: FixedHeadContentReader(content: nil)
         )
         var updates = tracker.updates.makeAsyncIterator()
 

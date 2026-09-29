@@ -1,6 +1,8 @@
 import CmuxFilePreviewCore
 import CmuxGit
 import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import AppKit
 import Bonsplit
 import Combine
@@ -1261,8 +1263,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
-    @Published private(set) var gitGutterMarkers = FilePreviewGitGutterMarkers.untracked
-    private let gitGutterMarkersRevisionState = FilePreviewRevision()
+    let gitGutter = FilePreviewGitGutterModel()
     let previewRevisionState = FilePreviewRevision()
     private let textContentRevisionState = FilePreviewRevision()
     private var gitDiffTracker: FilePreviewGitDiffTracker?
@@ -1319,10 +1320,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     var textContentRevision: Int {
         textContentRevisionState.value
-    }
-
-    var gitGutterMarkersRevision: Int {
-        gitGutterMarkersRevisionState.value
     }
 
     init(
@@ -1383,7 +1380,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let updates = tracker.updates
         gitGutterMarkersTask = Task { [weak self] in
             for await markers in updates {
-                self?.publishGitGutterMarkers(markers)
+                self?.gitGutter.publish(markers)
             }
         }
         tracker.update(encoding: textEncoding)
@@ -1405,7 +1402,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         gitDiffTracker = nil
         gitGutterMarkersTask?.cancel()
         gitGutterMarkersTask = nil
-        publishGitGutterMarkers(.untracked)
+        gitGutter.publish(.untracked)
     }
 
     /// Pauses git work while the gutter is hidden and resumes it when shown.
@@ -1417,15 +1414,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         } else {
             stopTrackingGitLineChanges()
         }
-    }
-
-    /// Publishes new gutter markers.
-    ///
-    /// Bumps a revision so the editor never compares marker sets on each keystroke.
-    private func publishGitGutterMarkers(_ markers: FilePreviewGitGutterMarkers) {
-        guard gitGutterMarkers != markers else { return }
-        gitGutterMarkers = markers
-        gitGutterMarkersRevisionState.increment()
     }
 
     func focus() {
@@ -1844,6 +1832,7 @@ struct FilePreviewPanelView: View {
     @State private var focusFlashOpacity = 0.0
     @State private var focusFlashAnimationGeneration = 0
     @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
+    @LiveSetting(\.fileEditor.lineNumbers) private var fileEditorLineNumbers
 
     private var themeForegroundColor: NSColor {
         appearance.foregroundColor
@@ -1923,8 +1912,14 @@ struct FilePreviewPanelView: View {
                     drawsBackground: appearance.drawsContentBackground,
                     gutterBackgroundColor: appearance.backgroundColor,
                     wordWrap: fileEditorWordWrap,
-                    filePath: panel.filePath
+                    filePath: panel.filePath,
+                    gitGutterMarkers: panel.gitGutter.markers,
+                    gitGutterMarkersRevision: panel.gitGutter.revision
                 )
+                // The gutter shows with line numbers, so git tracking follows that setting.
+                .onChange(of: fileEditorLineNumbers, initial: true) { _, visible in
+                    panel.setGitGutterVisible(visible)
+                }
             case .pdf:
                 FilePreviewPDFView(
                     panel: panel,

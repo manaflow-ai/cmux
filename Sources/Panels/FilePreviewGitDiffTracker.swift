@@ -6,8 +6,9 @@ import Foundation
 ///
 /// - The base is the file at HEAD, read as bytes through
 ///   ``GitHeadContentReading`` and decoded with the buffer's own encoding.
-/// - Buffer edits are debounced on the injected clock and diffed off the main
-///   actor, keeping the typing path free of diff work.
+/// - Buffer edits are diffed off the main actor, one diff at a time. Edits
+///   that arrive while a diff runs coalesce into one rerun on the latest
+///   buffer, so typing never queues diff work.
 /// - Moves of HEAD are detected by watching `HEAD`, the index, and the branch
 ///   ref. A change whose HEAD bytes did not move skips the diff, and only a
 ///   change to `HEAD` itself, such as a checkout, resolves the watched set
@@ -23,8 +24,6 @@ final class FilePreviewGitDiffTracker {
     private let filePath: String
     private let reader: any GitHeadContentReading
     private let diff: FilePreviewGitLineDiff
-    private let debounce: Duration
-    private let clock: any Clock<Duration>
     private let continuation: AsyncStream<FilePreviewGitGutterMarkers>.Continuation
 
     private var hasReadBase = false
@@ -35,9 +34,10 @@ final class FilePreviewGitDiffTracker {
     private var hasBufferText = false
     private var markers = FilePreviewGitGutterMarkers.untracked
     private var baseTask: Task<Void, Never>?
-    private var recomputeTask: Task<Void, Never>?
-    /// A detached diff ignores cancellation, so a late result is dropped by generation.
-    private var recomputeGeneration = 0
+    private var diffTask: Task<Void, Never>?
+    /// Advances with every input change, so a diff that finishes behind the
+    /// latest input reruns instead of publishing.
+    private var inputGeneration = 0
     private var watchResolutionTask: Task<Void, Never>?
     private weak var watchCoordinator: FileContentChangeCoordinator?
     private var watchedPaths: [String]?
@@ -49,15 +49,11 @@ final class FilePreviewGitDiffTracker {
     init(
         filePath: String,
         reader: any GitHeadContentReading = SystemGitHeadContentReader(),
-        diff: FilePreviewGitLineDiff = FilePreviewGitLineDiff(),
-        debounce: Duration = .milliseconds(150),
-        clock: any Clock<Duration> = ContinuousClock()
+        diff: FilePreviewGitLineDiff = FilePreviewGitLineDiff()
     ) {
         self.filePath = filePath
         self.reader = reader
         self.diff = diff
-        self.debounce = debounce
-        self.clock = clock
         (updates, continuation) = AsyncStream.makeStream(
             of: FilePreviewGitGutterMarkers.self,
             bufferingPolicy: .bufferingNewest(1)
@@ -151,7 +147,7 @@ final class FilePreviewGitDiffTracker {
             self.hasReadBase = true
             self.baseData = data
             self.decodeBase()
-            self.recompute(debounced: false)
+            self.scheduleDiff()
         }
     }
 
@@ -161,10 +157,10 @@ final class FilePreviewGitDiffTracker {
         self.encoding = encoding
         guard hasReadBase else { return }
         decodeBase()
-        recompute(debounced: false)
+        scheduleDiff()
     }
 
-    /// Records the latest buffer text and schedules a debounced diff.
+    /// Records the latest buffer text and schedules a diff.
     ///
     /// Call it only with text loaded from the file or edited by the user.
     /// Diffing waits until both the base and the buffer have arrived, so a
@@ -173,17 +169,15 @@ final class FilePreviewGitDiffTracker {
     func update(currentText: String) {
         latestText = currentText
         hasBufferText = true
-        guard baseContent != nil else { return }
-        recompute(debounced: true)
+        scheduleDiff()
     }
 
     /// Stops all work and finishes ``updates``.
     func cancel() {
         baseTask?.cancel()
         baseTask = nil
-        recomputeTask?.cancel()
-        recomputeTask = nil
-        recomputeGeneration += 1
+        diffTask?.cancel()
+        diffTask = nil
         stopWatchingRepository()
         continuation.finish()
     }
@@ -192,38 +186,39 @@ final class FilePreviewGitDiffTracker {
         baseContent = baseData.flatMap { String(data: $0, encoding: encoding) }
     }
 
-    /// Recomputes the markers. A missing base means the file is untracked or
+    /// Marks the input changed and starts a diff unless one is running.
+    ///
+    /// A running diff sees the newer generation when it finishes and starts
+    /// the rerun itself.
+    private func scheduleDiff() {
+        inputGeneration += 1
+        guard diffTask == nil else { return }
+        startDiff()
+    }
+
+    /// Diffs the latest input. A missing base means the file is untracked or
     /// undecodable, so the markers clear.
-    private func recompute(debounced: Bool) {
-        recomputeTask?.cancel()
-        recomputeGeneration += 1
-        let generation = recomputeGeneration
+    private func startDiff() {
+        guard hasReadBase else { return }
         guard let baseContent else {
-            recomputeTask = nil
             publish(.untracked)
             return
         }
-        guard hasBufferText else {
-            recomputeTask = nil
-            return
-        }
+        guard hasBufferText else { return }
+        let generation = inputGeneration
         let current = latestText
         let diff = diff
-        let clock = clock
-        let delay = debounced ? debounce : nil
-        recomputeTask = Task { [weak self] in
-            if let delay {
-                do {
-                    try await clock.sleep(for: delay)
-                } catch {
-                    return
-                }
-            }
+        diffTask = Task { [weak self] in
             let next = await Task.detached(priority: .utility) {
                 diff.changes(base: baseContent, current: current)
             }.value
-            guard let self, self.recomputeGeneration == generation else { return }
-            self.publish(FilePreviewGitGutterMarkers(isTracked: true, changes: next))
+            guard !Task.isCancelled, let self else { return }
+            self.diffTask = nil
+            if self.inputGeneration == generation {
+                self.publish(FilePreviewGitGutterMarkers(isTracked: true, changes: next))
+            } else {
+                self.startDiff()
+            }
         }
     }
 

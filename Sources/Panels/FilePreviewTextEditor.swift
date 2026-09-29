@@ -10,22 +10,16 @@ import SwiftUI
 protocol FilePreviewTextEditingPanel: AnyObject {
     var textContent: String { get }
     var textContentRevision: Int { get }
-    var gitGutterMarkers: FilePreviewGitGutterMarkers { get }
-    var gitGutterMarkersRevision: Int { get }
 
     func attachTextView(_ textView: NSTextView)
     func retryPendingFocus()
     func updateTextContent(_ nextContent: String)
     @discardableResult
     func saveTextContent() -> Task<Void, Never>?
-    func setGitGutterVisible(_ visible: Bool)
 }
 
 extension FilePreviewTextEditingPanel {
     var textContentRevision: Int { 0 }
-    var gitGutterMarkers: FilePreviewGitGutterMarkers { .untracked }
-    var gitGutterMarkersRevision: Int { 0 }
-    func setGitGutterVisible(_ visible: Bool) {}
 }
 
 struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
@@ -42,6 +36,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let wordWrap: Bool
     /// Absolute path used only to resolve a highlight.js language.
     var filePath: String = ""
+    var gitGutterMarkers = FilePreviewGitGutterMarkers.untracked
+    /// Advances whenever ``gitGutterMarkers`` changes.
+    var gitGutterMarkersRevision = 0
 
     @LiveSetting(\.fileEditor.syntaxHighlighting) private var syntaxHighlighting
     @LiveSetting(\.fileEditor.lineNumbers) private var lineNumbers
@@ -96,9 +93,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             currentLineHighlight: currentLineHighlight,
             tabWidth: tabWidth
         )
-        context.coordinator.lastAppliedGitGutterMarkersRevision = panel.gitGutterMarkersRevision
-        Self.applyGitGutterMarkers(panel.gitGutterMarkers, to: scrollView)
-        context.coordinator.reportGitGutterVisibility(lineNumbers)
+        context.coordinator.lastAppliedGitGutterMarkersRevision = gitGutterMarkersRevision
+        Self.applyGitGutterMarkers(gitGutterMarkers, to: scrollView)
         Self.refreshChrome(on: scrollView, textView: textView)
         if isVisibleInUI {
             context.coordinator.scheduleHighlight(
@@ -178,11 +174,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         }
         // Apply only when the revision advances, keeping marker comparison off the typing path.
         if panelChanged
-            || context.coordinator.lastAppliedGitGutterMarkersRevision != panel.gitGutterMarkersRevision {
-            context.coordinator.lastAppliedGitGutterMarkersRevision = panel.gitGutterMarkersRevision
-            Self.applyGitGutterMarkers(panel.gitGutterMarkers, to: scrollView)
+            || context.coordinator.lastAppliedGitGutterMarkersRevision != gitGutterMarkersRevision {
+            context.coordinator.lastAppliedGitGutterMarkersRevision = gitGutterMarkersRevision
+            Self.applyGitGutterMarkers(gitGutterMarkers, to: scrollView)
         }
-        context.coordinator.reportGitGutterVisibility(lineNumbers, force: panelChanged)
         Self.refreshChrome(on: scrollView, textView: textView)
     }
 
@@ -297,7 +292,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         var isApplyingPanelUpdate = false
         var lastAppliedContentRevision: Int?
         var lastAppliedGitGutterMarkersRevision: Int?
-        private var reportedGitGutterVisibility: Bool?
         var isHighlightingVisible = false
         // `FilePreviewSyntaxStyler` owns the cancellable task and cancels it in
         // its own deinitializer. Keeping teardown in that owner also avoids an
@@ -366,20 +360,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                     on: scrollView,
                     textView: textView
                 )
-            }
-        }
-
-        /// Tells the panel whether the gutter is visible so a hidden gutter
-        /// runs no git work.
-        ///
-        /// The panel publishes state in response, and SwiftUI forbids that
-        /// during a view update, so the report hops to a later main-actor turn.
-        func reportGitGutterVisibility(_ visible: Bool, force: Bool = false) {
-            guard force || reportedGitGutterVisibility != visible else { return }
-            reportedGitGutterVisibility = visible
-            let panel = panel
-            Task { @MainActor [weak panel] in
-                panel?.setGitGutterVisible(visible)
             }
         }
 

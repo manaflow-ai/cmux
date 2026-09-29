@@ -1,5 +1,5 @@
 import CmuxFilePreviewCore
-import Combine
+import Observation
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -29,7 +29,7 @@ struct FilePreviewPanelGitTrackingTests {
         #expect(await Self.markers(of: panel) { $0 == Self.tracked([1: .modified]) } != nil)
 
         panel.setGitGutterVisible(false)
-        #expect(panel.gitGutterMarkers == .untracked)
+        #expect(panel.gitGutter.markers == .untracked)
 
         panel.setGitGutterVisible(true)
         #expect(await Self.markers(of: panel) { $0 == Self.tracked([1: .modified]) } != nil)
@@ -50,7 +50,7 @@ struct FilePreviewPanelGitTrackingTests {
 
         panel.stopWatchingForFileChanges()
 
-        #expect(panel.gitGutterMarkers == .untracked)
+        #expect(panel.gitGutter.markers == .untracked)
     }
 
     @Test("A workspace transfer keeps the markers and moves the repository watch")
@@ -73,7 +73,7 @@ struct FilePreviewPanelGitTrackingTests {
 
         let destination = FileContentChangeCoordinator()
         panel.updateWorkspaceId(UUID(), fileContentChangeCoordinator: destination)
-        #expect(panel.gitGutterMarkers == Self.tracked([1: .modified]))
+        #expect(panel.gitGutter.markers == Self.tracked([1: .modified]))
 
         // The destination's watch is installed once its registration reads the base.
         _ = await headReads.next()
@@ -83,15 +83,31 @@ struct FilePreviewPanelGitTrackingTests {
         #expect(await Self.markers(of: panel) { $0 == Self.tracked([:]) } != nil)
     }
 
-    /// Returns the first published markers that satisfy `predicate`.
+    /// Returns the first markers that satisfy `predicate`, waiting on
+    /// observation changes of the panel's gutter model.
     private static func markers(
         of panel: FilePreviewPanel,
         where predicate: (FilePreviewGitGutterMarkers) -> Bool
     ) async -> FilePreviewGitGutterMarkers? {
-        for await markers in panel.$gitGutterMarkers.values where predicate(markers) {
-            return markers
+        let (changes, continuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let model = panel.gitGutter
+        func observedMarkers() -> FilePreviewGitGutterMarkers {
+            withObservationTracking {
+                model.markers
+            } onChange: {
+                continuation.yield(())
+            }
         }
-        return nil
+        var current = observedMarkers()
+        var iterator = changes.makeAsyncIterator()
+        while !predicate(current) {
+            guard await iterator.next() != nil else { return nil }
+            current = observedMarkers()
+        }
+        return current
     }
 }
 

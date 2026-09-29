@@ -52,7 +52,10 @@ public struct SystemGitHeadContentReader: GitHeadContentReading {
     ///   return `nil`. A symbolic link reads the file it points to.
     /// - Returns: The committed bytes, or `nil` when the file is untracked,
     ///   outside a repository, larger than 2 MiB, or git fails.
-    public func headContent(forFile absolutePath: String) async -> Data? {
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    public nonisolated func headContent(forFile absolutePath: String) async -> Data? {
         guard let location = Self.location(ofFile: absolutePath) else { return nil }
         return await run(
             arguments: ["cat-file", "blob", "HEAD:./\(location.name)"],
@@ -68,7 +71,10 @@ public struct SystemGitHeadContentReader: GitHeadContentReading {
     /// - Returns: Existing absolute paths among `HEAD`, `index`, the
     ///   checked-out branch's loose ref or its nearest existing directory,
     ///   `packed-refs`, and `reftable`, sorted, or `nil` outside a repository.
-    public func watchedPaths(forFile absolutePath: String) async -> [String]? {
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    public nonisolated func watchedPaths(forFile absolutePath: String) async -> [String]? {
         guard let location = Self.location(ofFile: absolutePath),
               let directories = await run(
                   arguments: ["rev-parse", "--absolute-git-dir", "--git-common-dir"],
