@@ -79,6 +79,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_check_repo_variables.py
 
+      - name: Validate the cloud overflow switch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cloud_overflow_switch.py
+
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
