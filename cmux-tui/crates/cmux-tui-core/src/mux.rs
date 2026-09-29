@@ -24418,6 +24418,23 @@ mod tests {
     }
 
     #[test]
+    fn the_in_process_frontend_joins_shared_sizing_with_a_device_name() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        mux.resize_surface_for_client(surface.id, 0, 100, 30).unwrap();
+
+        let id = mux.terminal_view_participant_id(surface.id, 0).unwrap();
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        let participant = &state.participant(&id).unwrap().participant;
+        assert_eq!(participant.device_kind, TerminalDeviceKind::Tui);
+        assert!(
+            participant.device_name.as_deref().is_some_and(|name| !name.is_empty()),
+            "other viewers name this TUI after its host, or cmux-tui"
+        );
+    }
+
+    #[test]
     fn removing_the_owner_viewport_elects_the_next_owner() {
         let mux = test_mux();
         let source = mux.new_workspace(None, Some((80, 24))).unwrap();

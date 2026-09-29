@@ -4519,6 +4519,75 @@ mod tests {
         assert!(session.size_state(10).is_none());
     }
 
+    /// Answers `attach-surface` like a `shared-sizing-v1` daemon: with this
+    /// view's participant id and the current size state, and no event.
+    struct SizedAttachWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+    }
+
+    impl RemoteMessageWriter for SizedAttachWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let Some(id) = request.get("id").and_then(Value::as_u64) else { return Ok(()) };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("attach-surface") => json!({
+                    "participant": "c3",
+                    "size_state": {
+                        "generation": 2, "cols": 100, "rows": 40, "reason": "smallest",
+                        "owners": ["c3"],
+                        "policy": {"mode": "smallest", "priority": [], "fixed": null},
+                        "participants": [{
+                            "id": "c3", "device_kind": "tui", "device_name": "devbox",
+                            "viewport": {"cols": 100, "rows": 40},
+                            "counts": true, "priority_key": "anon:c3/tui",
+                        }],
+                    },
+                }),
+                _ => Value::Null,
+            };
+            response
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_terminal_has_its_size_state_right_after_attach() {
+        let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
+        let session = test_session_with_writer(
+            Box::new(SizedAttachWriter { session: session_slot.clone() }),
+            None,
+            HashSet::from([SHARED_SIZING_CAPABILITY.to_string()]),
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+
+        let attached =
+            session.try_ensure_surface_with_kind(9, SurfaceKind::Pty, Some((100, 40))).unwrap();
+        assert!(matches!(attached, RemoteSurfaceAttach::Attached(_)));
+
+        let stored = session.size_state(9).expect("the attach answer carries the size state");
+        assert_eq!((stored.state.generation, stored.state.cols, stored.state.rows), (2, 100, 40));
+        assert_eq!(stored.self_participant.as_deref(), Some("c3"));
+    }
+
     #[test]
     fn per_surface_client_sizing_requires_protocol_10() {
         const { assert!(SUPPORTED_PROTOCOL_VERSION >= 10) };
