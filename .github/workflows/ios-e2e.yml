@@ -304,7 +304,7 @@ jobs:
       - name: Create isolated simulator
         run: |
           set -euo pipefail
-          device_type="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; print([x["identifier"] for x in json.load(sys.stdin)["devicetypes"] if x.get("productFamily")=="iPhone"][-1])')"
+          device_type="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; items=[x for x in json.load(sys.stdin)["devicetypes"] if "iPhone" in x.get("name","")]; print(items[-1]["identifier"] if items else (_ for _ in ()).throw(SystemExit("no iPhone simulator device type")))')"
           udid="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$device_type")"
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid" -b
