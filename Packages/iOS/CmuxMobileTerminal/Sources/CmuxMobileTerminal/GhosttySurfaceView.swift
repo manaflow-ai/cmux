@@ -345,12 +345,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             var dockedAtTail: Bool
         }
 
-        /// The last position the pixel pump applied. While pixel authority is
-        /// held this is the position AUTHORITY: batches rebase from it instead
-        /// of the live viewport, so a verified-replay bottom-reset between
-        /// batches is overwritten on the next frame instead of hijacking the
-        /// gesture. Cleared on dock/typing snaps and surface replacement,
-        /// where the live viewport becomes the truth again.
+        /// The last position the pixel pump applied. While a gesture is
+        /// active this is the position AUTHORITY: batches rebase from it
+        /// instead of the live viewport, so a verified-replay bottom-reset
+        /// between batches is overwritten on the next frame instead of
+        /// hijacking the gesture. Cleared on dock/typing snaps and surface
+        /// replacement, where the live viewport becomes the truth again.
         var lastApplied: Held?
         /// Device pixels of scroll-top reveal: how far the gesture has pulled
         /// into the clipped-top zone, realized by the host sliding the
@@ -423,10 +423,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
-    /// The native route is captured for a drag and remains stable through its
-    /// deceleration. A render-grid update must not turn a pixel gesture into a
-    /// line gesture halfway through the same motion.
-    private var scrollGestureRoute = TerminalScrollGestureRoute()
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
@@ -1755,7 +1751,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var hostedAltScreenActive = false {
         didSet {
             guard hostedAltScreenActive != oldValue else { return }
-            scrollGestureRoute.reset()
             if !hostedAltScreenActive || useLegacyTerminalSizing {
                 committedKeyboardHeight = 0
             } else if !keyboardTransitionActiveForGeometry {
@@ -2898,7 +2893,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
-        scrollGestureRoute.reset()
         pendingScrollLines = 0
         linePathFractionCarry = 0
         pendingScrollPixels = 0
@@ -2951,18 +2945,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingScrollLines = 0
         pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
-        let route = scrollGestureRoute.resolve(
-            currentAuthority: scrollPresentationAuthority,
-            currentOwnsLocalPrimaryScreen: ownsLocalPrimaryScreenScroll
-        )
-        let appliedLocally = route.appliesLocally
+        let appliedLocally = scrollPresentationAuthority.appliesLocally
         var dispatchLines = lines
         if appliedLocally {
             // Pixel-precise local scroll only where the phone owns
             // primary-screen scrolling (the confirmed-primary condition that
             // also suppresses the Mac scroll RPC). Alt screens and legacy
             // transports keep the row-quantized line path.
-            if pixels != 0, route.usesPixelPath {
+            if pixels != 0, ownsLocalPrimaryScreenScroll {
                 // Entering the pixel path: drop any line-path residue so a
                 // sub-line fraction from an earlier alt gesture cannot leak
                 // into a later line-path dispatch.
@@ -3933,7 +3923,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The bottom snap resets Ghostty's fractional pixel offset; drop the
         // pixel batch, remainder, and held position so the next gesture
         // rebases from the bottom.
-        scrollGestureRoute.reset()
         pendingScrollPixels = 0
         pendingLocalScrollPixels = 0
         pendingLocalPixelScrollInteractionGeneration = nil
@@ -6114,7 +6103,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// screen); a locally emulated one checks its own emulator: primary
     /// screen with history, and no app capturing the mouse.
     var ownsLocalPrimaryScreenScroll: Bool {
-        guard !hostedAltScreenActive else { return false }
         guard localEmulation != .mirror else {
             return delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true
         }
@@ -6361,7 +6349,6 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView else { return }
-        scrollGestureRoute.begin()
         // Reveal on touch-down and hold the chip (no linger) while the finger
         // is down; the end/deceleration callbacks arm the fade-out. Recorded
         // even before any chip content mounts (see noteArtifactChipScrollActivity).
