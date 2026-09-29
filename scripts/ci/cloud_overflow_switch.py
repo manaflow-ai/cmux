@@ -219,6 +219,13 @@ class Restore:
     skipped: str = ""  # why it is left alone
 
 
+@dataclasses.dataclass(frozen=True)
+class Resume:
+    name: str
+    value: str
+    skipped: str = ""  # why it is left alone
+
+
 def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None]) -> list[Restore]:
     """What turning overflow back on writes: each recorded variable's value before, unless it moved since."""
     restores: list[Restore] = []
@@ -233,6 +240,32 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None]) -> lis
             continue
         restores.append(Restore(name, before))
     return restores
+
+
+def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None]) -> list[Resume]:
+    """What a stalled probe should retry after a partial failover write.
+
+    A value still at the recorded ``before`` value was never switched, so it
+    is safe to apply its recorded failover. Any other value is either already
+    at ``after`` or was edited by someone else and is left alone.
+    """
+    resumes: list[Resume] = []
+    for name, change in sorted((record.get("changed") or {}).items()):
+        if not isinstance(change, Mapping):
+            continue
+        before, after = change.get("before"), change.get("after")
+        if (before is not None and not isinstance(before, str)) or not isinstance(after, str):
+            resumes.append(Resume(name, "", "record has an invalid before/after value; left alone"))
+            continue
+        now = (current.get(name) or "").strip() or None
+        if now == after:
+            continue
+        if now == before:
+            resumes.append(Resume(name, after))
+        else:
+            resumes.append(Resume(name, after, f"now {now or 'unset'}, not the recorded before {before or 'unset'}; "
+                                  "someone changed it, so it is left alone"))
+    return resumes
 
 
 def job_started(job: Mapping[str, Any]) -> bool:
@@ -549,6 +582,25 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                     log(f"- {name}: {change['before'] or 'unset'} -> {change['after']}")
                 log(f"overflow off; {RECORD_VARIABLE} holds the values to put back")
                 record = new_record
+        else:
+            resumes = plan_resume(record, current)
+            if args.dry_run:
+                for item in resumes:
+                    if item.skipped:
+                        log(f"- {item.name}: {item.skipped}")
+                    else:
+                        log(f"- {item.name}: would retry {item.value} (dry run)")
+            elif switch is None and any(not item.skipped for item in resumes):
+                log("::error title=Cloud overflow switch::no switch token (GLAEDA_ROUTE_APP_ID); the recorded "
+                    "failover is incomplete and stays as-is")
+                code = 1
+            elif switch is not None:
+                for item in resumes:
+                    if item.skipped:
+                        log(f"- {item.name}: {item.skipped}")
+                    else:
+                        switch.set_variable(item.name, item.value)
+                        log(f"- {item.name}: retried {item.value}")
         if record or args.dry_run:
             for line in rescue_stuck_runs(api, own_run_id=run_id, minutes=minutes, now=now, sleep=sleep,
                                           log=log, dry_run=args.dry_run):
