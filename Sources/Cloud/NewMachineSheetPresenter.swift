@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import SwiftUI
 
@@ -7,7 +8,7 @@ import SwiftUI
 /// the request to ``MachineCreateCoordinator`` and the sheet ends at once, so
 /// the window is modal for exactly as long as the person is choosing.
 @MainActor
-final class NewMachineSheetPresenter: NewMachineSheetPresenting {
+final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     static let shared = NewMachineSheetPresenter()
 
     private var sheetWindow: NSWindow?
@@ -16,9 +17,78 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
     private var pendingSelectionID: UUID?
     private var pendingSelectionContinuation: CheckedContinuation<MachineCreateRequest?, Never>?
 
-    private init() {}
+    private var planRefreshTask: Task<Void, Never>?
+    private var planRefreshID: UUID?
+
+    private override init() { super.init() }
 
     var isPresenting: Bool { sheetWindow != nil }
+
+    /// Reserves and immediately selects the local loading workspace at the
+    /// acceptance boundary. Completion never selects again, so later network
+    /// callbacks cannot steal focus after the person navigates away.
+    private func reserveNewMachineWorkspace(title: String, preferredWindow: NSWindow?) -> UUID? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        let context = appDelegate.contextForMainWindow(preferredWindow)
+            ?? appDelegate.preferredMainWindowContextForWorkspaceCreation(
+                debugSource: "newMachine.optimisticReservation"
+            )
+        guard let tabManager = context?.tabManager
+            ?? appDelegate.activeTabManagerForCommands(preferredWindow: preferredWindow),
+              let workspace = tabManager.addWorkspaceIfActive(
+                title: title,
+                titleSource: .auto,
+                initialSurface: .cloudVMLoading,
+                inheritWorkingDirectory: false,
+                select: true,
+                autoWelcomeIfNeeded: false
+              ) else { return nil }
+#if DEBUG
+        cmuxDebugLog(
+            "cloud.create.reserve workspace=\(workspace.id.uuidString) focus=1 " +
+            "time=\(Date().timeIntervalSince1970)"
+        )
+#endif
+        return workspace.id
+    }
+
+    /// Every entrypoint reserves before launch; inability to reserve is an inline refusal.
+    private func reserving(_ request: MachineCreateRequest, preferredWindow: NSWindow?) -> MachineCreateRequest? {
+        if request.reservedWorkspaceID != nil { return request }
+        guard let workspaceID = reserveNewMachineWorkspace(title: request.displayName, preferredWindow: preferredWindow) else { return nil }
+        return request.targetingReservedWorkspace(workspaceID)
+    }
+
+    /// Removes only the unadopted creating card. User-added panes and an already
+    /// attached terminal are no longer a disposable create presentation.
+    static func closeReservedWorkspace(_ workspaceID: UUID, machineID: String? = nil) {
+        guard let appDelegate = AppDelegate.shared,
+              let tabManager = appDelegate.tabManagerFor(tabId: workspaceID),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else { return }
+        let loading = workspace.panels.values.compactMap { $0 as? CloudVMLoadingPanel }
+        guard !loading.isEmpty else { return }
+        let ownsBinding = workspace.cloudVMBinding?.vmID == nil
+            || workspace.cloudVMBinding?.vmID == machineID
+        guard ownsBinding else { return }
+        if loading.count < workspace.panels.count {
+            // A cancelled create may destroy its provider machine after this
+            // callback. Detach the preserved user content from that machine
+            // before the shared destroy cleanup scans bound workspaces.
+            workspace.cloudVMBinding = nil
+            workspace.withClosedPanelHistorySuppressed {
+                for panel in loading { _ = workspace.closePanel(panel.id, force: true) }
+            }
+            return
+        }
+        // Closing the last workspace normally leaves it intact. A cancelled
+        // create has no remaining operation to render, so provide a normal local
+        // anchor before removing its card, without activating the window.
+        if tabManager.tabs.count == 1 {
+            guard tabManager.addWorkspaceIfActive(inheritWorkingDirectory: false, select: false,
+                eagerLoadTerminal: false, autoWelcomeIfNeeded: false) != nil else { return }
+        }
+        tabManager.closeWorkspace(workspace, recordHistory: false)
+    }
 
     /// Presents the sheet. A second request while one is up just re-raises the
     /// host window so the open sheet is where the person looks.
@@ -42,6 +112,12 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
         }
         self.model = model
         sheetWindow = window
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshPresentedPlan),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
 
         if NSApp.activationPolicy() == .regular {
             NSApp.activate(ignoringOtherApps: true)
@@ -63,11 +139,15 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
     /// command palette) goes through: paywall check, model, sheet. Create
     /// launches `cmux vm new …` through the shared coordinator; the Machines
     /// panel shows the pending row and the outcome, whichever window it is in.
-    /// `plan` and `memoryOptionsMb` come from whatever fleet page the caller
-    /// already holds.
+    /// `plan`, `memoryOptionsMb`, `lockedMemoryOptionsMb` and
+    /// `memoryUpgradePlanId` come from whatever fleet page the caller already
+    /// holds (`VMPlanLimits`).
     func presentNewMachine(
         plan: MachinePlanSnapshot?,
         memoryOptionsMb: [Int],
+        lockedMemoryOptionsMb: [Int]? = nil,
+        memoryUpgradePlanId: String? = nil,
+        memoryUpgradePlansByMb: [String: String]? = nil,
         preferredWindow: NSWindow?,
         coordinator: MachineCreateCoordinator? = nil
     ) {
@@ -82,8 +162,13 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
             mode: .newMachine,
             plan: plan,
             memoryOptionsMb: memoryOptionsMb,
+            lockedMemoryOptionsMb: lockedMemoryOptionsMb,
+            memoryUpgradePlanId: memoryUpgradePlanId,
+            memoryUpgradePlansByMb: memoryUpgradePlansByMb,
+            selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             submit: { request in
-                coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
+                guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
+                let didStart = coordinator.start(effectiveRequest, cancellableLaunch: { arguments, progress, completion in
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
                     let didStart = MachineRowActions.openNewMachine(
                         arguments: arguments,
@@ -95,6 +180,7 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                     )
                     return didStart ? cancellation : nil
                 })
+                return didStart
             }
         )
         present(model: model, preferredWindow: preferredWindow)
@@ -103,7 +189,10 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
     /// Presents provisioning and awaits the exact local workspace receipt.
     /// Synchronous menu callers own the surrounding Task; the machine coordinator
     /// continues to publish the pending machine row while this method awaits.
-    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID? {
+    func presentNewMachineFetchingPlan(
+        preferredWindow: NSWindow?,
+        onReservation: @escaping @MainActor (UUID) -> Void
+    ) async -> UUID? {
         guard !isPresenting, pendingSelectionID == nil else {
             (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
             return nil
@@ -134,9 +223,15 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                     mode: .newMachine,
                     plan: plan,
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                    lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
+                    memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
+                    memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
+                    selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
                     submit: { [weak self] request in
                         guard let self, self.pendingSelectionID == selectionID else { return false }
-                        self.finishSelection(selectionID, request: request)
+                        guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
+                        if let workspaceID = effectiveRequest.reservedWorkspaceID { onReservation(workspaceID) }
+                        self.finishSelection(selectionID, request: effectiveRequest)
                         return true
                     }
                 )
@@ -154,7 +249,13 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                 self.finishSelection(selectionID, request: nil)
             }
         })
-        guard let request, !Task.isCancelled else { return nil }
+        guard let request else { return nil }
+        guard !Task.isCancelled else {
+            if let workspaceID = request.reservedWorkspaceID {
+                Self.closeReservedWorkspace(workspaceID)
+            }
+            return nil
+        }
         return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: { arguments, progress, completion in
             var cancellation: CloudVMActionLauncher.CancellationHandle?
             let didStart = MachineRowActions.openNewMachine(
@@ -176,7 +277,27 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
         continuation?.resume(returning: request)
     }
 
+    /// Only the presenter can apply a refresh to its current sheet. Cancelled
+    /// or replaced requests cannot overwrite a newer plan snapshot.
+    @objc private func refreshPresentedPlan() {
+        guard let model, let client = VMClient.shared else { return }
+        planRefreshTask?.cancel()
+        let refreshID = UUID()
+        planRefreshID = refreshID
+        planRefreshTask = Task { [weak self, weak model] in
+            guard let page = try? await client.listPage(), !Task.isCancelled,
+                  let self, let model, self.model === model,
+                  self.planRefreshID == refreshID else { return }
+            model.applyPage(page)
+            self.planRefreshTask = nil
+        }
+    }
+
     private func dismiss() {
+        NotificationCenter.default.removeObserver(self, name: NSApplication.didBecomeActiveNotification, object: nil)
+        planRefreshID = nil
+        planRefreshTask?.cancel()
+        planRefreshTask = nil
         guard let window = sheetWindow else { return }
         if let host = hostWindow, host.attachedSheet === window {
             host.endSheet(window)

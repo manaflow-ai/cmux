@@ -28,9 +28,11 @@ enum WorkspaceInitialCommandLoginShell {
     /// Login profiles can prepend other tool directories (Homebrew's `shellenv` puts
     /// `/opt/homebrew/bin` first) ahead of the per-surface shim directory that cmux
     /// seeds into the spawned PATH, which would route `claude`/`codex` around cmux's
-    /// wrapper hooks. The payload therefore re-prepends the shim directory
-    /// unconditionally after profiles run; a duplicate PATH entry is harmless and
-    /// matches what interactive shell integration already produces.
+    /// wrapper hooks. The payload therefore re-prepends the shim directory after
+    /// profiles run; a duplicate PATH entry is harmless and matches what interactive
+    /// shell integration already produces. The directory can sit in a shared
+    /// temporary directory, so it is prepended only when it is a real directory
+    /// (not a symlink) owned by this user.
     static func wrap(_ command: String, userShell: String?) -> String {
         var shellPath: String
         if let userShell, userShell.hasPrefix("/") {
@@ -43,24 +45,26 @@ enum WorkspaceInitialCommandLoginShell {
         switch (shellPath as NSString).lastPathComponent {
         case "fish":
             payload = """
-            if test -n "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -d "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; set -gx PATH "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" $PATH; end
+            if test -n "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -d "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and not test -L "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -O "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; set -gx PATH "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" $PATH; end
             \(command)
             """
         case "zsh", "bash", "sh", "ksh", "dash":
             payload = """
-            if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+            \(posixShimRootPrepend)
             \(command)
             """
         default:
             shellPath = "/bin/zsh"
             payload = """
-            if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+            \(posixShimRootPrepend)
             \(command)
             """
         }
 
         return "\(shellSingleQuoted(shellPath)) -lc \(shellSingleQuoted(payload))"
     }
+
+    private static let posixShimRootPrepend = #"if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ ! -L "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ] && [ -O "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi"#
 
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"

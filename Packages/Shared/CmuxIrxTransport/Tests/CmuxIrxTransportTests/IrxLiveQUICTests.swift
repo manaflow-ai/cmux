@@ -22,7 +22,7 @@ enum IrxLiveTestSupport {
             preset: presetMinimal(),
             bindAddr: "127.0.0.1:0",
             secretKey: seed,
-            alpns: [IrxProtocol.alpnData],
+            alpns: [IrxProtocol().alpnData],
             relayMode: RelayMode.disabled(),
             portMappingEnabled: false,
             deferNatTraversalUntilAuthorized: false,
@@ -79,7 +79,7 @@ struct IrxLiveQUICTests {
             let connection = try await accepting.connect()
             let irx = IrxConnection(
                 connection: connection, role: .acceptor, journal: journal)
-            guard await IrxAdmission.performServer(
+            guard await IrxAdmission().performServer(
                 connection: irx,
                 judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                 journal: journal
@@ -90,9 +90,9 @@ struct IrxLiveQUICTests {
         }
 
         let connection = try await client.connect(
-            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
         let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
-        let (_, control) = try await IrxAdmission.performClient(
+        let (_, control) = try await IrxAdmission().performClient(
             connection: irx, grantJWS: "good-grant", journal: journal)
         let releaseProbe = IrxControlReleaseProbe()
         let transport = IrxControlByteTransport(
@@ -139,7 +139,7 @@ struct IrxLiveQUICTests {
             let connection = try await accepting.connect()
             let irx = IrxConnection(
                 connection: connection, role: .acceptor, journal: journal)
-            guard let result = await IrxAdmission.performServer(
+            guard let result = await IrxAdmission().performServer(
                 connection: irx,
                 judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                 journal: journal
@@ -150,9 +150,9 @@ struct IrxLiveQUICTests {
         }
 
         let connection = try await client.connect(
-            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
         let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
-        let (_, control) = try await IrxAdmission.performClient(
+        let (_, control) = try await IrxAdmission().performClient(
             connection: irx, grantJWS: "good-grant", journal: journal)
         let releaseProbe = IrxControlReleaseProbe()
         let transport = IrxControlByteTransport(
@@ -225,7 +225,7 @@ struct IrxLiveQUICTests {
                 let native = try await incoming.accept().connect()
                 let connection = IrxConnection(
                     connection: native, role: .acceptor, journal: journal)
-                guard let (_, control, _) = await IrxAdmission.performServer(
+                guard let (_, control, _) = await IrxAdmission().performServer(
                     connection: connection,
                     judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                     journal: journal
@@ -237,9 +237,9 @@ struct IrxLiveQUICTests {
         var clientPairs: [(IrxConnection, IrxLaneStream)] = []
         for _ in 0..<2 {
             let native = try await client.connect(
-                addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+                addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
             let connection = IrxConnection(connection: native, role: .dialer, journal: journal)
-            let (_, control) = try await IrxAdmission.performClient(
+            let (_, control) = try await IrxAdmission().performClient(
                 connection: connection, grantJWS: "good-grant", journal: journal)
             clientPairs.append((connection, control))
         }
@@ -322,7 +322,7 @@ struct IrxLiveQUICTests {
             let connection = try await accepting.connect()
             let irx = IrxConnection(
                 connection: connection, role: .acceptor, journal: journal)
-            guard await IrxAdmission.performServer(
+            guard await IrxAdmission().performServer(
                 connection: irx,
                 judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                 journal: journal
@@ -333,9 +333,9 @@ struct IrxLiveQUICTests {
         }
 
         let connection = try await client.connect(
-            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
         let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
-        let (_, control) = try await IrxAdmission.performClient(
+        let (_, control) = try await IrxAdmission().performClient(
             connection: irx, grantJWS: "good-grant", journal: journal)
         let establishmentStarted = IrxAsyncLatch()
         let releaseEstablishment = IrxAsyncLatch()
@@ -395,7 +395,7 @@ struct IrxLiveQUICTests {
             let connection = try await accepting.connect()
             let irx = IrxConnection(
                 connection: connection, role: .acceptor, journal: journal)
-            guard await IrxAdmission.performServer(
+            guard await IrxAdmission().performServer(
                 connection: irx,
                 judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                 journal: journal
@@ -406,9 +406,9 @@ struct IrxLiveQUICTests {
         }
 
         let connection = try await client.connect(
-            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
         let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
-        let (_, control) = try await IrxAdmission.performClient(
+        let (_, control) = try await IrxAdmission().performClient(
             connection: irx, grantJWS: "good-grant", journal: journal)
         let establishmentStarted = IrxAsyncLatch()
         let releaseEstablishment = IrxAsyncLatch()
@@ -470,7 +470,7 @@ struct IrxLiveQUICTests {
             let connection = try await accepting.connect()
             let irx = IrxConnection(connection: connection, role: .acceptor, journal: journal)
             guard
-                let admitted = await IrxAdmission.performServer(
+                let admitted = await IrxAdmission().performServer(
                     connection: irx,
                     judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                     journal: journal
@@ -488,9 +488,9 @@ struct IrxLiveQUICTests {
         }
 
         let connection = try await client.connect(
-            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
         let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
-        let (admit, _) = try await IrxAdmission.performClient(
+        let (admit, _) = try await IrxAdmission().performClient(
             connection: irx, grantJWS: "good-grant", journal: journal)
         #expect(!admit.session.isEmpty)
 
@@ -524,7 +524,7 @@ struct IrxLiveQUICTests {
             let accepting = try await incoming.accept()
             let connection = try await accepting.connect()
             let irx = IrxConnection(connection: connection, role: .acceptor, journal: journal)
-            _ = await IrxAdmission.performServer(
+            _ = await IrxAdmission().performServer(
                 connection: irx,
                 judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                 journal: journal
@@ -532,10 +532,10 @@ struct IrxLiveQUICTests {
         }
 
         let connection = try await client.connect(
-            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
         let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
         do {
-            _ = try await IrxAdmission.performClient(
+            _ = try await IrxAdmission().performClient(
                 connection: irx, grantJWS: "stolen-grant", journal: journal)
             Issue.record("admission unexpectedly succeeded")
         } catch let denial as IrxAdmissionDenied {
@@ -566,10 +566,10 @@ struct IrxLiveQUICTests {
         }
 
         let connection = try await client.connect(
-            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
         let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
         do {
-            _ = try await IrxAdmission.performClient(
+            _ = try await IrxAdmission().performClient(
                 connection: irx, grantJWS: "good-grant", journal: journal)
             Issue.record("admission unexpectedly succeeded")
         } catch let denial as IrxAdmissionDenied {
@@ -608,7 +608,7 @@ struct IrxLiveQUICTests {
                 let irx = IrxConnection(
                     connection: connection, role: .acceptor, journal: journal)
                 guard
-                    let (peer, _, sessionID) = await IrxAdmission.performServer(
+                    let (peer, _, sessionID) = await IrxAdmission().performServer(
                         connection: irx,
                         judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                         journal: journal
@@ -632,9 +632,9 @@ struct IrxLiveQUICTests {
             journal: journal
         ) {
             let connection = try await client.connect(
-                addr: dialAddr, alpn: IrxProtocol.alpnData)
+                addr: dialAddr, alpn: IrxProtocol().alpnData)
             let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
-            let (admit, control) = try await IrxAdmission.performClient(
+            let (admit, control) = try await IrxAdmission().performClient(
                 connection: irx, grantJWS: "good-grant", journal: journal)
             return IrxClientSession(
                 connection: irx, admit: admit, control: control, establishedAt: Date())
@@ -685,21 +685,17 @@ struct IrxLiveQUICTests {
         #expect(await registry.activeSessionCount == 1)
 
         let retired = try #require(recovered)
-        let dialStartsBeforeRetirement =
-            journal.counterSnapshot()["dial-started"] ?? 0
-        #expect(
-            await engine.retire(
-                connection: retired.connection,
-                code: .explicitRedial
-            )
-        )
+        let dialStartsBeforeRetirement = journal.counterSnapshot()["dial-started"] ?? 0
+        let autoRedialsBeforeRetirement = journal.counterSnapshot()["auto-redial"] ?? 0
+        #expect(await engine.retire(connection: retired.connection, code: .explicitRedial))
         await retired.connection.close(code: .explicitRedial, origin: .local)
-        try await Task.sleep(for: .milliseconds(150))
+        _ = await retired.connection.termination()
         #expect(await engine.currentSession() == nil)
         #expect(
             journal.counterSnapshot()["dial-started"] ?? 0
                 == dialStartsBeforeRetirement
         )
+        #expect(journal.counterSnapshot()["auto-redial"] ?? 0 == autoRedialsBeforeRetirement)
 
         await engine.stop()
         serverLoop.cancel()

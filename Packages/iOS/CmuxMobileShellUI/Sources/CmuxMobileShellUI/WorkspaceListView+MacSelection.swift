@@ -5,14 +5,6 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-enum WorkspaceMacSelection: Hashable {
-    case automatic
-    case all
-    /// A pairing id for saved app instances, or a bare device id for an
-    /// unpaired workspace-only computer.
-    case machine(String)
-}
-
 extension WorkspaceListView {
     var displayPairedMacsForPicker: [MobilePairedMac] {
         if let store {
@@ -33,10 +25,17 @@ extension WorkspaceListView {
             displayPairedMacs: displayPairedMacsForPicker,
             foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
             foregroundInstanceTag: store?.connectedMacInstanceTag,
+            locallyServedMachineIDs: sshComputerMachineIDs,
             aliasesFor: {
                 store?.pairedMacAliasIDs(for: $0, instanceTag: $1) ?? []
             }
         )
+    }
+
+    /// SSH computers' ids, so they are selectable before listing a workspace.
+    var sshComputerMachineIDs: Set<String> {
+        guard let store else { return [] }
+        return Set(store.sshComputers.hosts.map { store.sshComputerDeviceID(hostID: $0.id) })
     }
 
     var activeFilter: MobileWorkspaceListFilter {
@@ -90,17 +89,32 @@ extension WorkspaceListView {
             names[mac.macDeviceID] = mac.resolvedName
             names[mac.id] = mac.resolvedName
         }
-        guard let buildScope = MobileIOSBuildScope.current() else { return names }
-        return names.mapValues(buildScope.computerDisplayName)
+        if let buildScope = MobileIOSBuildScope.current() {
+            names = names.mapValues(buildScope.computerDisplayName)
+        }
+        // After the build-scope mapping: the dev tag suffix identifies which
+        // cmux Mac build a row belongs to, and an SSH host is not a cmux build.
+        if let store {
+            for host in store.sshComputers.hosts {
+                names[store.sshComputerDeviceID(hostID: host.id)] = host.name
+            }
+        }
+        return names
     }
 
     func macBuildLabelsByID() -> [String: String] {
+        let labels: [String: String]
         if let store {
-            return store.pairedMacBuildLabelsByEntryID()
+            labels = store.pairedMacBuildLabelsByEntryID()
+        } else {
+            labels = MobileShellComposite.buildLabelsByEntryID(
+                for: displayPairedMacsForPicker
+            ) { _, _ in nil }
         }
-        return MobileShellComposite.buildLabelsByEntryID(
-            for: displayPairedMacsForPicker
-        ) { _, _ in nil }
+        return WorkspaceMacBuildLabelResolver().labels(
+            workspaces: workspaces,
+            existing: labels
+        )
     }
 
     var filterMenuPresentMachineIDs: [String] {
@@ -223,7 +237,9 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 } label: {
                     menuRow(
                         title: machine.name,
-                        subtitle: machine.buildLabel,
+                        subtitle: machine.buildLabel.map {
+                            MacAppInstanceDisplayFormatter().localizedBuildLabel($0)
+                        },
                         isSelected: value.selection == selection
                     )
                 }

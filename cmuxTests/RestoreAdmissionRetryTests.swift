@@ -32,7 +32,7 @@ import Testing
         var slept: [TimeInterval] = []
         var retriesAnnounced: [Int] = []
 
-        let response = try AgentRestoreAdmissionRetry.response(
+        let response = try AgentRestoreAdmissionRetry().response(
             delays: [0.5, 1, 2],
             sleep: { slept.append($0) },
             onRetry: { retriesAnnounced.append($0) },
@@ -55,7 +55,7 @@ import Testing
         var slept: [TimeInterval] = []
 
         #expect(throws: AdmissionFailure.self) {
-            try AgentRestoreAdmissionRetry.response(
+            try AgentRestoreAdmissionRetry().response(
                 delays: [0.5, 1],
                 sleep: { slept.append($0) },
                 isRetryable: Self.isRetryable
@@ -74,7 +74,7 @@ import Testing
         var slept: [TimeInterval] = []
 
         #expect(throws: AdmissionFailure.self) {
-            try AgentRestoreAdmissionRetry.response(
+            try AgentRestoreAdmissionRetry().response(
                 delays: [0.5, 1],
                 sleep: { slept.append($0) },
                 isRetryable: Self.isRetryable
@@ -89,10 +89,10 @@ import Testing
 
     @Test
     func defaultBudgetWaitsLongEnoughForAHookStormToSubside() {
-        let total = AgentRestoreAdmissionRetry.delaysSeconds.reduce(0, +)
+        let total = AgentRestoreAdmissionRetry().delaysSeconds.reduce(0, +)
         #expect(total >= 30)
         #expect(total <= 60)
-        #expect(AgentRestoreAdmissionRetry.delaysSeconds.first.map { $0 <= 1 } == true)
+        #expect(AgentRestoreAdmissionRetry().delaysSeconds.first.map { $0 <= 1 } == true)
     }
 }
 

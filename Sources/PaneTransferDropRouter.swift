@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 
@@ -26,6 +27,8 @@ final class PaneTransferDropRouter {
     private weak var activeContainer: (any PaneDropContainer)?
     private var activeContext: PaneDropContext?
     private var activePlan: Plan?
+    private(set) var rejection: SurfaceTransferRejection?
+    let feedback = SurfaceDropFeedback()
 
     init(
         containerResolver: @escaping ContainerResolver = { context in
@@ -61,31 +64,24 @@ final class PaneTransferDropRouter {
     ) -> Resolution {
         guard DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboard.types) else {
             activePlan = nil
+            rejection = nil
+            feedback.clear()
             return .notTransfer
         }
-        guard let transfer = sourceResolver.transfer(from: pasteboard) else {
-            activePlan = nil
-            return .rejected
-        }
         guard let container = container(for: context) else {
-            activePlan = nil
-            return .rejected
+            return reject(nil)
         }
-        let source: PaneTransferSourceResolver.Source
-        if let accepted = activePlan,
-           accepted.context == context,
-           accepted.transfer == transfer {
-            source = accepted.source
-        } else if let resolved = sourceResolver.source(for: transfer) {
-            source = resolved
-        } else {
-            activePlan = nil
-            return .rejected
+        guard let transfer = sourceResolver.transfer(from: pasteboard) else {
+            return reject(container.surfaceOwnershipPolicy.rejection(for: nil))
+        }
+        guard let source = sourceResolver.source(for: transfer) else {
+            return reject(container.surfaceOwnershipPolicy.rejection(for: nil))
         }
         guard container.canPerformPortalPaneDrop(transfer, source: source) else {
-            activePlan = nil
-            return .rejected
+            return reject(container.surfaceDropRejection(transfer, source: source))
         }
+        rejection = nil
+        feedback.clear()
         let zone = container.portalPaneDropZone(
             tabId: transfer.tabId,
             sourcePaneId: transfer.sourcePaneId,
@@ -104,9 +100,12 @@ final class PaneTransferDropRouter {
 
     /// Executes a previously accepted transfer through the same pane owner.
     func perform(_ plan: Plan, pasteboard: NSPasteboard) -> Bool {
+        defer { clear() }
         guard activePlan == plan,
               sourceResolver.transfer(from: pasteboard) == plan.transfer,
-              let container = container(for: plan.context) else { return false }
+              sourceResolver.source(for: plan.transfer) == plan.source,
+              let container = container(for: plan.context),
+              container.canPerformPortalPaneDrop(plan.transfer, source: plan.source) else { return false }
         let handled = container.performPortalPaneDrop(
             tabId: plan.transfer.tabId,
             sourcePaneId: plan.transfer.sourcePaneId,
@@ -127,8 +126,16 @@ final class PaneTransferDropRouter {
 
     /// Releases the owner when the drag or target context ends.
     func clear() {
+        rejection = nil
+        feedback.clear()
         activePlan = nil
         activeContainer = nil
         activeContext = nil
+    }
+
+    private func reject(_ reason: SurfaceTransferRejection?) -> Resolution {
+        activePlan = nil
+        rejection = reason
+        return .rejected
     }
 }

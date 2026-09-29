@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import AppKit
 import SwiftUI
 import Testing
@@ -10,6 +11,42 @@ import Testing
 
 @Suite("Computer Use onboarding windows", .serialized)
 struct ComputerUseOnboardingWindowTests {
+    @Test @MainActor func dismissedWindowStaysClosedThroughRefreshAndToolRetry() async throws {
+        let fixture = try ComputerUseToolOnboardingFixture(usesProductionPresenter: true)
+        defer { fixture.remove() }
+        let responder = try UnixSocketResponder(
+            path: fixture.persistence.paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true,"source":{"attribution":"helper-daemon"}}}}"#
+        )
+        defer { responder.stop() }
+        try await fixture.enable()
+        let actions = HostSettingsActions(
+            configFileURL: fixture.persistence.root.appendingPathComponent("cmux.json"),
+            computerUseRuntimeService: fixture.runtime,
+            browserDataImportCoordinator: BrowserDataImportCoordinator(),
+            runComputerUseOnboardingAction: { startingPoint in
+                fixture.coordinator.presentOnboardingFromSettings(startingAt: startingPoint)
+            }
+        )
+        await fixture.send("cmux-cua.get_app_state")
+        let window = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding" && $0.isVisible
+        })
+        window.close()
+        #expect(!window.isVisible)
+        #expect(fixture.runtime.permissionPhase == .onboarding)
+        await actions.refreshComputerUsePermissions()
+        await fixture.send("cmux-cua.get_app_state")
+        #expect(!NSApp.windows.contains {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding" && $0.isVisible
+        })
+        #expect(fixture.coordinator.presentOnboardingFromSettings())
+        #expect(NSApp.windows.contains {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding" && $0.isVisible
+        })
+        #expect(!fixture.runtime.onboardingIsComplete)
+    }
+
     @Test @MainActor func offscreenCompanionReturnsWithoutMovingTheOverview() throws {
         var companions: [NSWindow] = []
         let controller = ComputerUseOnboardingWindowController(
@@ -19,10 +56,9 @@ struct ComputerUseOnboardingWindowTests {
                 $0.orderBack(nil)
             }
         )
-        controller.present()
         defer { controller.dismiss() }
-        let main = try #require(NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding"
+        let main = try #require(newWindow(identified: "cmux.computerUse.onboarding") {
+            controller.present()
         } as? ComputerUseOnboardingWindow)
         let originalFrame = main.frame
         controller.configureForPermissionCompanion(
@@ -44,7 +80,7 @@ struct ComputerUseOnboardingWindowTests {
         #expect(main.frame == originalFrame)
     }
 
-    @Test @MainActor func offscreenWindowMetadataPreservesItsIdentity() throws {
+    @Test @MainActor func offscreenWindowMetadataPreservesItsIdentity() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 20, y: 20, width: 200, height: 120),
             styleMask: [.titled],
@@ -55,16 +91,27 @@ struct ComputerUseOnboardingWindowTests {
         defer { window.close() }
         window.orderBack(nil)
         let windowID = CGWindowID(window.windowNumber)
+        // Let WindowServer register the ordered window before asking for its
+        // offscreen metadata; ordering it out in the same actor turn can hide
+        // it before the server has published its first description.
+        try #require(await AppKitTestEventPump().waitUntil {
+            ExternalApplicationWindowTracker.windowSnapshot(
+                windowID: windowID,
+                processIdentifier: ProcessInfo.processInfo.processIdentifier,
+                primaryScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
+            ) != nil
+        })
         window.orderOut(nil)
+        await AppKitTestEventPump().drain()
 
-        let snapshot = ExternalApplicationWindowTracker.windowSnapshot(
+        let snapshot = try #require(ExternalApplicationWindowTracker.windowSnapshot(
             windowID: windowID,
             processIdentifier: ProcessInfo.processInfo.processIdentifier,
             primaryScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
-        )
+        ))
 
-        #expect(snapshot?.windowID == windowID)
-        #expect(snapshot?.isOnScreen == false)
+        #expect(snapshot.windowID == windowID)
+        #expect(!snapshot.isOnScreen)
     }
 
     @Test @MainActor func unavailableTargetDismissesOnlyItsCompanion() throws {
@@ -180,12 +227,11 @@ struct ComputerUseOnboardingWindowTests {
             mainWindow.close()
         }
 
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: NSRect(origin: mainWindow.frame.origin, size: companionSize)
-        )
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        let companionWindow = newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: NSRect(origin: mainWindow.frame.origin, size: companionSize)
+            )
         }
 
         #expect(mainWindow.frame.size == CGSize(width: 600, height: 440))
@@ -243,13 +289,11 @@ struct ComputerUseOnboardingWindowTests {
             height: companionSize.height
         )
 
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: destinationFrame
-        )
-
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        let companionWindow = newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: destinationFrame
+            )
         }
         #expect(mainWindow.isVisible)
         #expect(mainWindow.frame == mainFrame)
@@ -282,12 +326,11 @@ struct ComputerUseOnboardingWindowTests {
             width: companionSize.width,
             height: companionSize.height
         )
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: destinationFrame
-        )
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        let companionWindow = newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: destinationFrame
+            )
         }
         #expect(companionWindow?.isVisible == true)
         let visibleFrame = mainWindow.screen?.visibleFrame
@@ -328,15 +371,14 @@ struct ComputerUseOnboardingWindowTests {
             mainWindow.close()
         }
 
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: NSRect(
-                origin: .zero,
-                size: ComputerUsePermissionCompanionLayout.size
+        let companionWindow = newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: NSRect(
+                    origin: .zero,
+                    size: ComputerUsePermissionCompanionLayout.size
+                )
             )
-        )
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
         }
 
         let companionPanel = companionWindow as? NSPanel
@@ -356,24 +398,20 @@ struct ComputerUseOnboardingWindowTests {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
-        controller.present()
         defer { controller.dismiss() }
-
-        let mainWindow = try #require(NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding"
+        let mainWindow = try #require(newWindow(identified: "cmux.computerUse.onboarding") {
+            controller.present()
         } as? ComputerUseOnboardingWindow)
         #expect(mainWindow.level == .normal)
         #expect(mainWindow.collectionBehavior.contains(.managed))
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: NSRect(
-                origin: mainWindow.frame.origin,
-                size: ComputerUsePermissionCompanionLayout.size
+        let companionWindow = try #require(newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: NSRect(
+                    origin: mainWindow.frame.origin,
+                    size: ComputerUsePermissionCompanionLayout.size
+                )
             )
-        )
-        let companionWindow = try #require(NSApp.windows.first {
-            $0.identifier?.rawValue
-                == "cmux.computerUse.onboarding.permissionCompanion"
         })
         #expect(companionWindow.isVisible)
 
@@ -437,5 +475,18 @@ struct ComputerUseOnboardingWindowTests {
 
         #expect(presentedWindow?.identifier?.rawValue
             == "cmux.computerUse.onboarding.permissionCompanion")
+    }
+}
+
+/// The window with `identifier` that `action` opened. An earlier test's
+/// onboarding or companion window can still be in `NSApp.windows` (both are
+/// kept when closed), and a bare identifier lookup found it instead: run
+/// 36316398822 shard 3 read the same stale, invisible window in two tests.
+@MainActor
+private func newWindow(identified identifier: String, _ action: () -> Void) -> NSWindow? {
+    let earlier = Set(NSApp.windows.map(ObjectIdentifier.init))
+    action()
+    return NSApp.windows.first {
+        !earlier.contains(ObjectIdentifier($0)) && $0.identifier?.rawValue == identifier
     }
 }

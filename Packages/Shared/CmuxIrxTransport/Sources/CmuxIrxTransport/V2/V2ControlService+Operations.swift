@@ -35,6 +35,12 @@ extension V2ControlService {
         cache.ticket = response.ticket
         failure = nil
         try await persist(run: run)
+        let issued = Int(dependencies.now().timeIntervalSince1970)
+        journal("refresh-succeeded", [
+            "schema": "ticket.request.v1",
+            "refresh_after_in_s": String(response.ticket.refreshAfter - issued),
+            "expires_in_s": String(response.ticket.expiresAt - issued),
+        ])
         return response.ticket
     }
 
@@ -81,6 +87,13 @@ extension V2ControlService {
         cache.relayCredentials = response.credentials
         failure = nil
         try await persist(run: run)
+        let issued = Int(dependencies.now().timeIntervalSince1970)
+        journal("refresh-succeeded", [
+            "schema": "relay.request.v1",
+            "count": String(response.credentials.count),
+            "refresh_after_in_s": String((response.credentials.map(\.refreshAfter).min() ?? issued) - issued),
+            "expires_in_s": String((response.credentials.map(\.expiresAt).min() ?? issued) - issued),
+        ])
         return response.credentials
     }
 
@@ -108,6 +121,7 @@ extension V2ControlService {
             var seenCursors = Set<String>()
             var devices: [V2DeviceRecord] = []
             var inboundPeers: [V2InboundPeerPermission] = []
+            var rules: Set<String>?
             var inconsistent = false
             repeat {
                 let request = V2DirectoryRequest(cursor: cursor, haveRevision: first?.revision, requestID: UUID().uuidString.lowercased(), schemaID: .directoryRequestV1)
@@ -122,7 +136,16 @@ extension V2ControlService {
                 let page = response.directory
                 guard page.teamID == descriptor.identity.teamID else { throw V2ControlFailure.scopeMismatch }
                 if let first, first.revision != page.revision { inconsistent = true; break }
-                if first == nil { first = page }
+                if first == nil {
+                    first = page
+                    rules = page.rules.map(Set.init)
+                } else if let currentRules = rules, let pageRules = page.rules {
+                    rules = currentRules.intersection(pageRules)
+                } else {
+                    // Mixed-version pagination must fail closed. A later page
+                    // without the rule cannot inherit page one's capabilities.
+                    rules = nil
+                }
                 devices.append(contentsOf: page.devices)
                 inboundPeers.append(contentsOf: page.inboundPeers ?? [])
                 guard devices.count <= 4096, inboundPeers.count <= 4096 else { throw V2ControlFailure.capacityExceeded }
@@ -133,11 +156,17 @@ extension V2ControlService {
             let directory = V2Directory(
                 devices: devices, inboundPeers: inboundPeers, issuedAt: first.issuedAt, nextCursor: nil,
                 permissionExpiresAt: first.permissionExpiresAt, relayURLs: first.relayURLs,
-                revision: first.revision, teamID: first.teamID
+                revision: first.revision, rules: rules?.sorted(), teamID: first.teamID
             )
             cache.directory = directory
             failure = nil
             try await persist(run: run)
+            journal("refresh-succeeded", [
+                "schema": "directory.request.v1",
+                "revision": String(directory.revision),
+                "bindings": String(directory.devices.count),
+                "expires_in_s": String(directory.permissionExpiresAt - Int(dependencies.now().timeIntervalSince1970)),
+            ])
             return directory
         }
         throw V2ControlFailure.server(V2ErrorResponse(code: .revisionConflict, requestID: "directory-refresh", retryable: true, retryAfterMS: 1000, schemaID: .errorV1))
@@ -148,7 +177,6 @@ extension V2ControlService {
     /// - Throws: A typed operation error; an uncertain mutation is not replayed automatically.
     public func updateMetadata(_ metadata: V2DeviceMetadata) async throws {
         guard let run = runID else { throw V2ControlFailure.stopped }
-        guard metadata.platform != .mac || metadata.pairingEnabled else { throw V2ControlFailure.scopeMismatch }
         guard metadata != cache.device?.descriptor.metadata else { return }
         let request = V2MetadataRequest(metadata: metadata, requestID: UUID().uuidString.lowercased(), schemaID: .deviceMetadataV1)
         let response = try await perform(request, requestID: request.requestID, schemaID: request.schemaID.rawValue, response: V2CompletedResponse.self, run: run)

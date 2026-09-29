@@ -3264,7 +3264,7 @@ impl Terminal {
     /// Feeding `bytes` into a fresh terminal of the same size and restoring
     /// `kitty_image_aliases` reproduces
     /// the screen contents, styles, cursor, modes, palette, keyboard
-    /// state, charsets, and tabstops. This is the attach primitive: a new
+    /// state, charsets, tabstops, and title. This is the attach primitive: a new
     /// frontend replays this, then follows the live pty stream.
     pub fn vt_replay(&mut self) -> Result<VtReplay> {
         self.vt_replay_bounded(usize::MAX)
@@ -3280,7 +3280,7 @@ impl Terminal {
     /// destructive geometry change, then build the full replay afterward.
     pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
         self.kitty_inflight.replay_prefix_fits(max_bytes)?;
-        let suffix_len = self.mouse_format_replay_suffix().len();
+        let suffix_len = self.replay_state_suffix().len();
         let prefix_len = self.kitty_inflight.replay_prefix_checked(max_bytes)?.len();
         if prefix_len.checked_add(suffix_len).is_none_or(|total| total > max_bytes) {
             return Err(Error::OutOfSpace);
@@ -3320,6 +3320,27 @@ impl Terminal {
         max_bytes: usize,
     ) -> Result<VtReplay> {
         self.vt_replay_bounded_with_palette(max_bytes, false)
+    }
+
+    /// Bytes appended after the formatted replay for state Ghostty's VT
+    /// formatter does not emit.
+    fn replay_state_suffix(&self) -> Vec<u8> {
+        let mut suffix = self.mouse_format_replay_suffix();
+        suffix.extend_from_slice(&self.title_replay_suffix());
+        suffix
+    }
+
+    /// OSC 2 that restores the title. The formatter emits OSC 7 for the
+    /// working directory but never the title, so without this every mirror
+    /// rebuilt from a replay (attach, resync, host resize) loses the title an
+    /// application set. Control characters cannot appear inside an OSC
+    /// payload, so they are replaced with spaces.
+    fn title_replay_suffix(&self) -> Vec<u8> {
+        let Some(title) = self.title() else {
+            return Vec::new();
+        };
+        let title: String = title.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        format!("\x1b]2;{title}\x1b\\").into_bytes()
     }
 
     /// Correction bytes appended to a serialized replay so the replayed
@@ -3366,10 +3387,10 @@ impl Terminal {
         include_palette: bool,
     ) -> Result<VtReplay> {
         let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
-        let mouse_format_suffix = self.mouse_format_replay_suffix();
+        let state_suffix = self.replay_state_suffix();
         let remaining = max_bytes
             .checked_sub(inflight.len())
-            .and_then(|remaining| remaining.checked_sub(mouse_format_suffix.len()))
+            .and_then(|remaining| remaining.checked_sub(state_suffix.len()))
             .ok_or(Error::OutOfSpace)?;
         let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
         let snapshot = kitty::snapshot_for_replay(self, &mut pixel_cache, true);
@@ -3409,7 +3430,7 @@ impl Terminal {
             .len()
             .checked_add(interleaved.len())
             .and_then(|total| total.checked_add(inflight.len()))
-            .and_then(|total| total.checked_add(mouse_format_suffix.len()))
+            .and_then(|total| total.checked_add(state_suffix.len()))
             .ok_or(Error::OutOfSpace)?;
         if total > max_bytes || graphics.total_len > graphics_budget {
             return Err(Error::OutOfSpace);
@@ -3422,11 +3443,9 @@ impl Terminal {
             bytes.extend_from_slice(&graphics.image_bytes);
             bytes.extend_from_slice(&interleaved);
         }
-        // The formatter dumps DEC modes in numeric order, which destroys the
-        // last-set-wins semantics of the extended mouse coordinate formats.
-        // Reduce the flag dump to the single active selector so replay
-        // reproduces the semantic, not the numeric flag order.
-        bytes.extend_from_slice(&mouse_format_suffix);
+        // State the formatter cannot express: the active mouse coordinate
+        // format and the OSC 0/2 title.
+        bytes.extend_from_slice(&state_suffix);
         let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
         Ok(VtReplay {
@@ -3574,19 +3593,29 @@ impl Terminal {
             return Ok(None);
         };
         let insert_at_start = placement_rows.overlaps(range.start);
+        let has_placement_anchor =
+            placement_rows.anchors.range(range.start..=range.end).next().is_some();
         let mut segment_ends =
             placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
         if insert_at_start {
             segment_ends.insert(range.start);
         }
         segment_ends.insert(range.end);
-
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
         let mut segment_start = range.start;
         let replay_rows = range.end - range.start + 1;
         let screen_rows = u64::from(self.rows().max(1));
-        let history_bearing = replay_rows > screen_rows;
+        // A replay with retained scrollback can contain exactly one viewport
+        // of rows while still carrying a sparse history prefix in Ghostty's
+        // screen coordinate space. Keep every row boundary in that case so
+        // the target cannot retain stale history above the active TUI.
+        let history_bearing = self.history_rows() > 0 || replay_rows > screen_rows;
+        // A replay without image placement anchors can let the target terminal
+        // recreate soft wraps naturally. Placement commands and history-bearing
+        // ranges depend on physical row cursor positions, so retain the
+        // row-delimited form for those cases.
+        let preserve_soft_wrap = !history_bearing && !insert_at_start && !has_placement_anchor;
         let mut emitted_breaks = 0usize;
         for segment_end in segment_ends {
             if segment_end < segment_start {
@@ -3597,16 +3626,24 @@ impl Terminal {
             let last = segment_end == range.end;
             let remaining = format_max_bytes.saturating_sub(bytes.len());
             let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(&selection, first, last, include_palette),
+                Self::vt_replay_segment_options(
+                    &selection,
+                    first,
+                    last,
+                    include_palette,
+                    preserve_soft_wrap,
+                ),
                 remaining,
             )?
             else {
                 return Ok(None);
             };
-            emitted_breaks = emitted_breaks
-                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            if !preserve_soft_wrap {
+                emitted_breaks = emitted_breaks
+                    .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            }
             bytes.extend_from_slice(&chunk);
-            if history_bearing {
+            if !preserve_soft_wrap && history_bearing {
                 let expected_breaks =
                     usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
                 while emitted_breaks < expected_breaks {
@@ -3623,19 +3660,17 @@ impl Terminal {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
             if !last {
-                if bytes.len().saturating_add(2) > format_max_bytes {
-                    return Ok(None);
+                if !preserve_soft_wrap {
+                    if bytes.len().saturating_add(2) > format_max_bytes {
+                        return Ok(None);
+                    }
+                    bytes.extend_from_slice(b"\r\n");
+                    emitted_breaks = emitted_breaks.saturating_add(1);
                 }
-                bytes.extend_from_slice(b"\r\n");
-                emitted_breaks = emitted_breaks.saturating_add(1);
                 segment_start = segment_end.saturating_add(1);
             }
         }
-        if history_bearing {
-            // A history-bearing selection must advance once per row so the
-            // reconstructed scrollback keeps Kitty anchors aligned. A
-            // viewport-only selection may use direct cursor positioning for
-            // sparse rows; padding that case would scroll visible text away.
+        if !preserve_soft_wrap && history_bearing {
             let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
             for _ in emitted_breaks..expected_breaks {
                 if bytes.len().saturating_add(2) > format_max_bytes {
@@ -3752,8 +3787,10 @@ impl Terminal {
         first: bool,
         last: bool,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
-        let mut options = Self::vt_replay_options(Some(selection), include_palette);
+        let mut options =
+            Self::vt_replay_options(Some(selection), include_palette, unwrap_soft_wrap);
         options.extra.palette = include_palette && first;
         options.extra.modes = first;
         options.extra.scrolling_region = last;
@@ -3772,11 +3809,12 @@ impl Terminal {
     fn vt_replay_options(
         selection: Option<&sys::GhosttySelection>,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
         sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
-            unwrap: false,
+            unwrap: unwrap_soft_wrap,
             trim: false,
             extra: sys::GhosttyFormatterTerminalExtra {
                 size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
@@ -4781,6 +4819,40 @@ mod tests {
     }
 
     #[test]
+    fn replay_restores_the_osc_title() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b]2;renamed tab\x07");
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&host.vt_replay().unwrap()).unwrap();
+        assert_eq!(mirror.title().as_deref(), Some("renamed tab"));
+
+        let mut theme_portable = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        theme_portable
+            .apply_vt_replay(&host.vt_replay_bounded_theme_portable_with_aliases(1 << 20).unwrap())
+            .unwrap();
+        assert_eq!(theme_portable.title(), mirror.title());
+    }
+
+    #[test]
+    fn replay_without_a_title_carries_no_title_suffix() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        assert!(host.title_replay_suffix().is_empty());
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&host.vt_replay().unwrap()).unwrap();
+        assert_eq!(mirror.title(), None);
+    }
+
+    #[test]
+    fn replay_preflight_reserves_title_suffix_at_exact_boundary() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]2;title\x07");
+        let suffix_len = terminal.replay_state_suffix().len();
+        assert!(suffix_len > 0);
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len).is_ok());
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len - 1).is_err());
+    }
+
+    #[test]
     fn replay_preflight_reserves_mouse_suffix_at_exact_boundary() {
         let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b[?1006h\x1b[?1015h\x1b[?1006h");
@@ -5218,6 +5290,53 @@ mod tests {
         target.vt_write(&replay);
 
         assert_eq!(target.viewport_text().unwrap(), expected);
+    }
+
+    #[test]
+    fn vt_replay_preserves_blank_tail_after_history() {
+        let mut source = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        for _ in 0..12 {
+            source.vt_write(b"history\r\n");
+        }
+        source.vt_write(b"\x1b[2J\x1b[HHEADER\x1b[5;1H> Ask Codex\x1b[6;1HSTATUS\x1b[5;3H");
+        let expected = source.viewport_text().unwrap();
+        let replay = source.vt_replay_bounded_theme_portable(128 * 1024).unwrap();
+        let mut restored = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        restored.vt_write(&replay);
+
+        assert_eq!(restored.viewport_text().unwrap(), expected);
+        assert_eq!(restored.cursor_position(), source.cursor_position());
+
+        // A TUI continues with absolute-cell diffs after attaching. Its header,
+        // composer and cursor must still agree on the same physical rows.
+        let update = b"\x1b[5;3HInput\x1b[6;1HDONE\x1b[5;8H";
+        source.vt_write(update);
+        restored.vt_write(update);
+        assert_eq!(restored.viewport_text().unwrap(), source.viewport_text().unwrap());
+    }
+
+    #[test]
+    fn vt_replay_preserves_codex_composer_before_incremental_redraw() {
+        let mut source = Terminal::new(40, 8, 100, Callbacks::default()).unwrap();
+        for _ in 0..12 {
+            source.vt_write(b"history\r\n");
+        }
+        source.vt_write(
+            b"\x1b[2J\x1b[HOpenAI Codex\x1b[4;1H> Ask Codex to do anything\x1b[5;1HSTATUS\x1b[4;3H",
+        );
+        let expected = source.viewport_text().unwrap();
+        let replay = source.vt_replay_bounded_theme_portable(128 * 1024).unwrap();
+        let mut restored = Terminal::new(40, 8, 100, Callbacks::default()).unwrap();
+        restored.vt_write(&replay);
+
+        assert_eq!(restored.viewport_text().unwrap(), expected);
+
+        // Codex redraws the composer incrementally after a restore. The
+        // replacement replay and the next redraw must share the same rows.
+        let update = b"\x1b[4;1H\x1b[2K> NEW PROMPT\x1b[5;1HDONE\x1b[4;3H";
+        source.vt_write(update);
+        restored.vt_write(update);
+        assert_eq!(restored.viewport_text().unwrap(), source.viewport_text().unwrap());
     }
 
     #[test]

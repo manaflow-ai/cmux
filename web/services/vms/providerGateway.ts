@@ -13,6 +13,7 @@ import {
   type ProviderId,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelAttachment,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SnapshotRef,
@@ -23,6 +24,7 @@ import {
   type VMVolumeListOptions,
   type VMStatus,
   type VMStats,
+  type VMResourceStatsResult,
   type VMResizeOptions,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -49,6 +51,7 @@ export type VmProviderGatewayShape = {
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
   readonly snapshot?: (
     provider: ProviderId,
     vmId: string,
@@ -88,6 +91,10 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMStats, VmProviderOperationError>;
+  readonly getResourceStats?: (
+    provider: ProviderId,
+    vmId: string,
+  ) => Effect.Effect<VMResourceStatsResult | null, VmProviderOperationError>;
   readonly resize?: (
     provider: ProviderId,
     vmId: string,
@@ -129,12 +136,12 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string; heal?: boolean },
+    options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean },
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
-  /** Read a provider network without creating or repairing it. */
+  /** Read a provider network by id or slug without creating or repairing it. */
   readonly getNetwork?: (
     provider: ProviderId,
-    networkId: string,
+    networkIdOrSlug: string,
   ) => Effect.Effect<ProviderNetwork | null, VmProviderOperationError>;
   readonly deleteNetwork?: (
     provider: ProviderId,
@@ -159,6 +166,9 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     tunnelId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  readonly attachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
+  readonly detachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -220,6 +230,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
   pause: (provider, vmId) =>
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
+  setRuntimeBudget: (provider, vmId, remainingSeconds) => providerEffect(provider, "setRuntimeBudget", async () => {
+    const driver = getProvider(provider);
+    if (!driver.setRuntimeBudget) throw new Error("Provider runtime caps are unavailable");
+    await driver.setRuntimeBudget(vmId, remainingSeconds);
+  }),
   snapshot: (provider, vmId, name) =>
     providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
   restore: (provider, snapshotId, options) =>
@@ -270,6 +285,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return await impl.getStats(vmId);
     }),
+  getResourceStats: (provider, vmId) => providerEffect(provider, "getResourceStats", async () => {
+    const impl = getProvider(provider);
+    if (!impl.getResourceStats) {
+      throw new VmOperationUnsupportedError({ provider, operation: "getResourceStats" });
+    }
+    return await impl.getResourceStats(vmId);
+  }),
   resize: (provider, vmId, options) => {
     const impl = getProvider(provider);
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
@@ -357,4 +379,22 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "deleteTunnel", () =>
       privateNetworking(provider).deleteTunnel(tunnelId)
     ),
+  attachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "attachTunnelNetwork", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.attachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "attachTunnelNetwork" });
+      return await networking.attachTunnelNetwork(tunnelId, networkId);
+    }),
+  detachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "detachTunnelNetwork", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.detachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "detachTunnelNetwork" });
+      await networking.detachTunnelNetwork(tunnelId, networkId);
+    }),
+  listNetworkTunnelIds: (provider, networkId) =>
+    providerEffect(provider, "listNetworkTunnelIds", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.listNetworkTunnelIds) throw new VmOperationUnsupportedError({ provider, operation: "listNetworkTunnelIds" });
+      return await networking.listNetworkTunnelIds(networkId);
+    }),
 });

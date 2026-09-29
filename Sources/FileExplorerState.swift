@@ -8,7 +8,17 @@ final class FileExplorerState: ObservableObject {
     private static let customSidebarNameKey = "rightSidebar.customSidebarName"
 
     @Published var isVisible: Bool {
-        didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
+        didSet { persistVisibility() }
+    }
+    /// Hidden because the window was too narrow (SidePanelWidthFit), not by the
+    /// person. Persisted as visible, so a narrow window neither changes the
+    /// default for new windows nor the next launch. Set it before `isVisible`.
+    var isAutoCollapsed = false {
+        didSet { persistVisibility() }
+    }
+
+    private func persistVisibility() {
+        UserDefaults.standard.set(isVisible || isAutoCollapsed, forKey: "fileExplorer.isVisible")
     }
     @Published var width: CGFloat {
         didSet { UserDefaults.standard.set(Double(width), forKey: "fileExplorer.width") }
@@ -36,6 +46,9 @@ final class FileExplorerState: ObservableObject {
     /// persisted).
     @Published var rightSidebarOwnsInputFocus: Bool = false
 
+    /// The right-sidebar Cloud picker belongs to this window, even before it mounts.
+    @MainActor lazy var cloudTeamPickerPresentation = CloudTeamPickerPresentation()
+
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
     var mode: RightSidebarMode {
         get { storedMode }
@@ -57,7 +70,7 @@ final class FileExplorerState: ObservableObject {
         self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
         let customSidebarName = defaults.string(forKey: Self.customSidebarNameKey)?.nilIfEmpty
         self.storedCustomSidebarName = customSidebarName
-        let storedMode = RightSidebarMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
+        let storedMode = RightSidebarMode.from(cliArgument: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
         self.storedMode = Self.visibleMode(storedMode, defaults: defaults)
         defaults.set(self.storedMode.rawValue, forKey: Self.modeKey)
     }
@@ -133,6 +146,8 @@ final class FileExplorerState: ObservableObject {
         defaults: UserDefaults
     ) -> RightSidebarMode {
         let candidate = availableMode(mode, defaults: defaults)
+        // Custom sidebars are selectable content, not customizable mode-bar tabs.
+        if candidate == .customSidebar { return candidate }
         let visible = RightSidebarMode.visibleModes(defaults: defaults)
         if visible.contains(candidate) { return candidate }
         return visible.first ?? candidate

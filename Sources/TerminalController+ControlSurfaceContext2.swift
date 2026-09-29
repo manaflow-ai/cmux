@@ -1,8 +1,8 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
-
 /// The surface-domain lifecycle witnesses (`split` / `respawn` / `create` /
 /// `close` / `move` / `reorder`) plus the browser-disabled mapping and the
 /// localized respawn strings. Split out of `TerminalController+ControlSurfaceContext`
@@ -40,11 +40,9 @@ extension TerminalController {
             )
         )
     }
-
     func controlSurfaceNotFoundMessage() -> String {
         String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found")
     }
-
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped onto
     /// the shared ``ControlSurfaceBrowserDisabledOutcome``.
     private func surfaceBrowserDisabledOutcome(
@@ -64,9 +62,7 @@ extension TerminalController {
         let windowId = v2ResolveWindowId(tabManager: tabManager)
         return .openedExternally(windowID: windowId, url: url.absoluteString)
     }
-
     // MARK: - split
-
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceSplitInputs
@@ -150,6 +146,16 @@ extension TerminalController {
         let insertFirst = direction.insertFirst
         let dividerPosition = inputs.initialDividerPosition.map { CGFloat($0) }
         let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
+        // Terminal splits check the minimum pane size in
+        // `newTerminalSplitOutcome`; other panel types check it here (#15371).
+        if panelType != .terminal, !ws.isRemoteTmuxMirror,
+           ws.splitSpaceVerdict(
+               splittingPanel: targetSurfaceId,
+               orientation: orientation,
+               dividerPosition: dividerPosition
+           ) == .noSpace {
+            return .noSpace
+        }
         let newId: UUID?
         if panelType == .browser {
             newId = ws.newBrowserSplit(
@@ -194,6 +200,8 @@ extension TerminalController {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
+            case .noSpace:
+                return .noSpace
             case .failed:
                 newId = nil
             }
@@ -201,6 +209,10 @@ extension TerminalController {
 
         guard let newId else {
             return .createFailed
+        }
+        // An explicit divider position wins over equalize-on-create.
+        if dividerPosition == nil {
+            ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newId)
         }
         return .created(
             windowID: v2ResolveWindowId(tabManager: tabManager),
@@ -272,7 +284,8 @@ extension TerminalController {
         }
 
         let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
-        if remoteRespawnRouting == .unsupportedRemote {
+        let isNativeSSH = ws.machineOwningSurface(surfaceId)?.isSSH == true
+        if remoteRespawnRouting == .unsupportedRemote, !isNativeSSH {
             // A remote-owned pane must never fall through to a local Ghostty
             // exec when its transport cannot provide the persistent PTY bridge.
             return .respawnFailed(surfaceId)
@@ -311,7 +324,11 @@ extension TerminalController {
                 allowTextBoxFocusDefault: focus == true
             )
         case .unsupportedRemote:
-            return .respawnFailed(surfaceId)
+            replacementPanel = ws.respawnSSHTuiSurface(
+                panelID: surfaceId, command: inputs.command, workingDirectory: inputs.workingDirectory,
+                tmuxStartCommand: inputs.tmuxStartCommand, focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
         }
         guard let replacementPanel else {
             return .respawnFailed(surfaceId)
@@ -359,10 +376,6 @@ extension TerminalController {
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)
         }
-        if case .dock = placement, !RightSidebarMode.dock.isAvailable() {
-            return .dockUnavailable(message: dockUnavailableMessage())
-        }
-
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if case .dock = placement,
            let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
@@ -465,7 +478,7 @@ extension TerminalController {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
-            case .failed:
+            case .failed, .noSpace:
                 newPanelId = nil
             }
         }
@@ -494,6 +507,11 @@ extension TerminalController {
         }
         if hasSurfaceIDParam, surfaceID == nil {
             return .invalidSurfaceID
+        }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager),
+           let dockSurfaceID = surfaceID ?? routing.surfaceID,
+           !remoteRelayDockTargetIsCurrent(routing: routing, dock: dock, surfaceID: dockSurfaceID) {
+            return .surfaceNotFound(dockSurfaceID)
         }
         if let resolution = controlWindowDockSurfaceClose(
             routing: routing,

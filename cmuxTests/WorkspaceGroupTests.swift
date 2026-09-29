@@ -263,7 +263,8 @@ struct WorkspaceGroupTests {
         // stale reference must not inherit the member indent. The render-item
         // projection and row-input projection therefore agree on root-level
         // membership, which keeps long titles left-aligned with other roots.
-        #expect(effectiveMembership[staleMember.id] == nil)
+        #expect(effectiveMembership.keys.contains(staleMember.id))
+        #expect(effectiveMembership[staleMember.id].flatMap { $0 } == nil)
         #expect(!memberWorkspaceIdsByGroupId[groupId, default: []].contains(staleMember.id))
         #expect(renderItems.contains { item in
             if case .workspace(let workspaceId) = item {

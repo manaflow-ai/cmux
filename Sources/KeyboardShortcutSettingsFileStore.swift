@@ -1,9 +1,9 @@
+import CmuxBrowser
 import Combine
 import CmuxFoundation
 import CmuxSettings
 import Foundation
 import os
-
 nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
 final class CmuxSettingsFileStore {
@@ -81,6 +81,7 @@ final class CmuxSettingsFileStore {
         startWatching: Bool = true,
         isUserDefaultsKeyForcedByProfile: @escaping (String) -> Bool = { key in
             let policy = ManagedDevicePolicy()
+            if key == SocketControlSettings.appStorageKey && policy.isForced(.socketControlMode) { return true }
             if key == BrowserURLAllowlistPolicy.userDefaultsKey {
                 return policy.isBrowserURLAllowlistLocked(
                     userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
@@ -354,11 +355,11 @@ final class CmuxSettingsFileStore {
         guard let data = fileManager.contents(atPath: path), !data.isEmpty else {
             return .invalid
         }
-
         do {
             let sanitized = try JSONCParser.preprocess(data: data)
             let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
             guard let root = object as? [String: Any] else { return .invalid }
+            for issue in CmuxConfigSemanticValidator(scope: .global).validate(jsonObject: root) { cmuxSettingsFileStoreLogger.warning("semantic config issue '\(issue.path, privacy: .private(mask: .hash))' in \(path, privacy: .private(mask: .hash)): \(issue.message, privacy: .public)") }
             let malformedAutomation = root["automation"] != nil && !(root["automation"] is [String: Any])
             return .parsed(parseSettingsFile(root: root, sourcePath: path), malformedAutomation: malformedAutomation)
         } catch {
@@ -624,11 +625,38 @@ final class CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[setting.defaultsKey] = .bool(value)
             }
         }
+        if section.keys.contains("workspaceDescriptionColor"),
+           let value = parseNullableHex(
+               section["workspaceDescriptionColor"],
+               path: "sidebar.workspaceDescriptionColor",
+               sourcePath: sourcePath
+           ) {
+            snapshot.managedUserDefaults[
+                SidebarCatalogSection().workspaceDescriptionColorHex.userDefaultsKey
+            ] = .nullableString(value)
+        }
         if let raw = jsonString(section["branchLayout"]) {
             if let value = SidebarSettingsFileMapping.branchLayoutStoredValue(raw) {
                 snapshot.managedUserDefaults[SidebarCatalogSection().branchVerticalLayout.userDefaultsKey] = .bool(value)
             } else {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
+            }
+        }
+        if section.keys.contains("compactStatusIcons") {
+            if let rawIcons = section["compactStatusIcons"] as? [String: Any] {
+                var icons: [String: String] = [:]
+                for (key, rawValue) in rawIcons {
+                    guard SidebarCompactStatusGlyph.IconSlot(rawValue: key) != nil,
+                          let symbol = jsonString(rawValue)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !symbol.isEmpty else {
+                        logInvalid("sidebar.compactStatusIcons.\(key)", sourcePath: sourcePath)
+                        continue
+                    }
+                    icons[key] = symbol
+                }
+                snapshot.managedUserDefaults[SidebarCatalogSection().compactStatusIcons.userDefaultsKey] = .stringDictionary(icons)
+            } else {
+                logInvalid("sidebar.compactStatusIcons", sourcePath: sourcePath)
             }
         }
         if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
@@ -671,6 +699,13 @@ final class CmuxSettingsFileStore {
                 sourcePath: sourcePath
             ) else { return }
             snapshot.managedUserDefaults["sidebarSelectionColorHex"] = .nullableString(value)
+        }
+        if section.keys.contains("subtleSelection") {
+            if let value = jsonBool(section["subtleSelection"]) {
+                snapshot.managedUserDefaults[SettingCatalog().workspaceColors.subtleSelection.userDefaultsKey] = .bool(value)
+            } else {
+                logInvalid("workspaceColors.subtleSelection", sourcePath: sourcePath)
+            }
         }
         if section.keys.contains("notificationBadgeColor") {
             guard let value = parseNullableHex(

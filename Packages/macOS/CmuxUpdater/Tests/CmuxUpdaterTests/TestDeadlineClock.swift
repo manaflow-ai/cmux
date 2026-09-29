@@ -28,13 +28,13 @@ actor TestDeadlineClock: UpdateClock {
         }
     }
 
-    func fireDeadlineWhenReady() async {
+    func fireDeadlineWhenReady(timeout: Duration = .seconds(2)) async {
         // A test may request a deadline and immediately release it before the task running
         // `sleep(for:)` reaches the actor. Poll that real registration signal without timing
         // sleeps, but bound the poll so a missing deadline fails instead of hanging the suite.
         let clock = ContinuousClock()
-        let timeout = clock.now.advanced(by: .seconds(2))
-        while parked.isEmpty, clock.now < timeout {
+        let deadline = clock.now.advanced(by: timeout)
+        while parked.isEmpty, clock.now < deadline {
             await Task.yield()
         }
         guard !parked.isEmpty else {

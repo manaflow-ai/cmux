@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import CmuxWorkspaces
 import Foundation
 import Testing
@@ -105,10 +107,11 @@ struct CloudWorkspaceRestoreNamesTests {
         source.cloudVMBinding = WorkspaceCloudVMBinding(
             vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "ws_main"
         )
-        source.setCustomTitle("API – 東京 🚀")
+        source.setCustomTitle("API – 東京 🚀", source: .remote)
         source.setPanelCustomTitle(panelId: first, title: "Build & test", propagateToCloud: false)
         source.setPanelCustomTitle(panelId: second, title: "Logs / 本番", propagateToCloud: false)
         let saved = try roundTrip(source.sessionSnapshot(includeScrollback: false))
+        #expect(saved.effectiveCustomTitleSource == .remote)
         let restored = Workspace()
         let panelMap = restored.restoreSessionSnapshot(saved)
         manager.tabs = [restored]

@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageCard, useCliAuthConfirmation, useUser, type CliAuthConfirmationState } from "@stackframe/stack";
+import { MessageCard, useCliAuthConfirmation, useUser, type CliAuthConfirmationState } from "@hexclave/next";
 
 export type CliAuthIdentityMessages = {
   email: string;
@@ -8,6 +8,9 @@ export type CliAuthIdentityMessages = {
   organization: string;
   personalAccount: string;
   switchAccountButton: string;
+  signedOutTitle: string;
+  signedOutBody: string;
+  signInButton: string;
 };
 
 export function CliAuthConfirmation({ fullPage = true, identityMessages }: {
@@ -16,25 +19,41 @@ export function CliAuthConfirmation({ fullPage = true, identityMessages }: {
 }) {
   const cliAuth = useCliAuthConfirmation();
   const user = useUser({ includeRestricted: true });
-  const email = user?.primaryEmail ?? identityMessages.emailUnavailable;
-  const organization = user?.selectedTeam?.displayName ?? identityMessages.personalAccount;
-  const { children, ...cardProps } = cliAuthMessage(cliAuth, identityMessages.switchAccountButton);
+  const { children, ...cardProps } = user
+    ? cliAuthMessage(cliAuth, identityMessages.switchAccountButton)
+    : signedOutMessage(cliAuth, identityMessages);
 
   return (
     <MessageCard {...cardProps} fullPage={fullPage}>
-      <dl className="space-y-2 text-sm">
-        <div>
-          <dt className="font-medium">{identityMessages.email}</dt>
-          <dd className="break-words"><bdi>{email}</bdi></dd>
-        </div>
-        <div>
-          <dt className="font-medium">{identityMessages.organization}</dt>
-          <dd className="break-words"><bdi>{organization}</bdi></dd>
-        </div>
-      </dl>
+      {user && (
+        <dl className="space-y-2 text-sm">
+          <div>
+            <dt className="font-medium">{identityMessages.email}</dt>
+            <dd className="break-words"><bdi>{user.primaryEmail ?? identityMessages.emailUnavailable}</bdi></dd>
+          </div>
+          <div>
+            <dt className="font-medium">{identityMessages.organization}</dt>
+            <dd className="break-words"><bdi>{user.selectedTeam?.displayName ?? identityMessages.personalAccount}</bdi></dd>
+          </div>
+        </dl>
+      )}
       {children}
     </MessageCard>
   );
+}
+
+// A signed-out browser has no account to show. Stack's authorize action
+// already sends it to sign-in and finishes the CLI login on return, so only
+// the idle prompt changes.
+function signedOutMessage(cliAuth: CliAuthConfirmationState, messages: CliAuthIdentityMessages) {
+  if (cliAuth.status !== "idle") return cliAuthMessage(cliAuth, messages.switchAccountButton);
+  return {
+    title: messages.signedOutTitle,
+    primaryButtonText: messages.signInButton,
+    primaryAction: cliAuth.authorize,
+    ...switchAccountProps(cliAuth.loginCode, messages.switchAccountButton),
+    children: <p>{messages.signedOutBody}</p>,
+  };
 }
 
 export function cliAuthSwitchAccountHref(loginCode: string): string {
@@ -58,6 +77,9 @@ function switchAccountProps(loginCode: string | null, label: string) {
   };
 }
 
+// Every screen that still has a usable login code offers the account switch.
+// Success is the exception: Stack has consumed the code, so a switch would
+// return to a confirmation that can only fail.
 function cliAuthMessage(cliAuth: CliAuthConfirmationState, switchAccountButton: string) {
   const accountSwitch = switchAccountProps(cliAuth.loginCode, switchAccountButton);
 
@@ -87,6 +109,7 @@ function cliAuthMessage(cliAuth: CliAuthConfirmationState, switchAccountButton: 
   if (cliAuth.status === "authorizing" || cliAuth.status === "redirecting") {
     return {
       title: "Completing Authorization...",
+      ...accountSwitch,
       children: <p>{"Finishing up the CLI authorization..."}</p>,
     };
   }

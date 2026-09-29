@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Foundation
 
@@ -39,7 +40,7 @@ struct MachineCreateRowActions {
             },
             copyFailure: { [weak coordinator] id in
                 guard let operation = coordinator?.operation(id: id), let output = operation.failureOutput else { return }
-                CloudErrorCopy.copy("\(operation.request.failureLabel)\n\(output)")
+                CloudErrorCopy.copy("\(operation.statusLabel)\n\(output)")
             }
         )
     }
@@ -52,9 +53,11 @@ struct MachineCreateRowActions {
     private static func presentFailure(operation: MachineCreateOperation, output: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = operation.request.failureLabel
+        alert.messageText = operation.statusLabel
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        let lead = String(
+        let lead = operation.createdMachineID != nil && !operation.request.isBaseSetup
+            ? String(localized: "machines.notification.createdOpenFailed.body", defaultValue: "Open it from the Machines list.")
+            : String(
             format: String(localized: "machines.pending.failure.lead", defaultValue: "%@ did not get created. The command reported:"),
             operation.request.displayName
         )

@@ -6,6 +6,10 @@ import CmuxMobileSupport
 extension TaskComposerSheet {
     var modelPickerErrorText: String? {
         guard let displayedModelError else { return nil }
+        if displayedModelError == .hostUnavailable,
+           !availableModels.isEmpty || displayedDefaultModel != nil {
+            return nil
+        }
         switch displayedModelError {
         case .providerUnavailable:
             return L10n.string(

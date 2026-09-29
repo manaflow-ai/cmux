@@ -1,0 +1,35 @@
+name: Triage radar
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+# The radar preserves human text around a generated body section. Serialize
+# scheduled/manual refreshes so two runs cannot overwrite each other's read.
+concurrency:
+  group: triage-radar
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted issue-write token
+    timeout-minutes: 5
+    steps:
+      - name: Check out trusted radar code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Refresh current attention candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TRIAGE_RADAR_ISSUE: "13512"
+          ISSUE_HOURS: "72"
+          PR_HOURS: "168"
+        run: python3 scripts/ci/triage-radar.py

@@ -432,10 +432,15 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "22222222-2222-2222-2222-222222222222"
         let resolvedSessionID = sessionID ?? "sentry-hook-\(UUID().uuidString)"
+        let transcriptURL = root.appendingPathComponent("rollout-\(resolvedSessionID).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(resolvedSessionID)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         let inputData = try JSONSerialization.data(withJSONObject: [
             "session_id": resolvedSessionID,
+            "turn_id": UUID().uuidString,
             "hook_event_name": "Stop",
             "cwd": root.path,
+            "transcript_path": transcriptURL.path,
             "last_assistant_message": "done"
         ])
         let input = String(decoding: inputData, as: UTF8.self)
@@ -471,6 +476,14 @@ private final class CMUXCLISentryTelemetryBundleToken {}
                 return "OK"
             }
             switch method {
+            case "agent.resolve_delivery_target":
+                return try? String(
+                    data: JSONSerialization.data(withJSONObject: [
+                        "id": id, "ok": false,
+                        "error": ["code": "unrecognized_method", "message": "process resolution unavailable in fixture"],
+                    ]),
+                    encoding: .utf8
+                )
             case "surface.list":
                 return try? String(
                     data: JSONSerialization.data(withJSONObject: [

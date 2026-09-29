@@ -334,6 +334,11 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
+COPY cmux-opencode /etc/cmux/opencode
+RUN mkdir -p /usr/local/libexec \
+  && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode-real \
+  && rm -f /usr/local/bin/opencode \
+  && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode
 RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \

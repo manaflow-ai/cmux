@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxSettings
 import Foundation
@@ -50,16 +51,12 @@ struct MobileHostIdentityTests {
             store.selectedPairingURLScheme?.rawValue
                 == "cmux-ios-com.cmux.app"
         )
-        #expect(
-            store.pushTargetNamespace?.bundleIdentifier == "com.cmux.app"
-        )
 
         let internalNamespace = try #require(MobileIOSAppNamespace(
             bundleIdentifier: "dev.cmux.app.internal"
         ))
         #expect(store.select(internalNamespace))
         #expect(store.selectedNamespace == internalNamespace)
-        #expect(store.pushTargetNamespace == internalNamespace)
         #expect(
             store.selectedPairingURLScheme?.rawValue
                 == "cmux-ios-dev.cmux.app.internal"
@@ -85,9 +82,6 @@ struct MobileHostIdentityTests {
         #expect(
             store.selectedPairingURLScheme?.rawValue
                 == "cmux-ios-com.cmux.app"
-        )
-        #expect(
-            store.pushTargetNamespace?.bundleIdentifier == "com.cmux.app"
         )
     }
 
@@ -528,7 +522,9 @@ struct MobileHostIdentityTests {
         defaults.set(fallbackID, forKey: "mobileHost.deviceID")
 
         #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == fallbackID.lowercased())
-        #expect(defaults.string(forKey: "mobileHost.deviceID") == fallbackID.lowercased())
+        // Repair the shared file without rewriting an equivalent defaults ID.
+        // Avoiding that write also avoids reentrant defaults notifications.
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == fallbackID)
         #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == fallbackID.lowercased())
     }
 

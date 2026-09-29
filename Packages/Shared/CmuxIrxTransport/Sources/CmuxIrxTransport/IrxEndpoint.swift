@@ -1,5 +1,7 @@
+public import CMUXMobileCore
 public import Foundation
 public import IrohLib
+import CmuxIrohTransport
 
 public enum IrxEndpointError: Error, Sendable {
     case noUsableRelayCredential
@@ -58,10 +60,12 @@ public struct IrxEndpointConfiguration: Sendable {
 public actor IrxEndpointSupervisor {
     private let configuration: IrxEndpointConfiguration
     private let journal: IrxJournal
+    private let diagnosticLog: DiagnosticLog?
     private var driver: Endpoint?
     private var generation = 0
     private var onlineReached = false
     private var closeWatcher: Task<Void, Never>?
+    private var relayDiagnosticWatch: WatchHandle?
     private var desiredRelayCredentials: [IrxRelayCredential]?
     private var desiredRelayOwnership: IrxRelayCredentialInstallOwnership?
     private var relayInstaller: IrxRelayCredentialInstaller?
@@ -73,9 +77,13 @@ public actor IrxEndpointSupervisor {
     private var lifecycleEpoch: UInt64 = 0
     private var deactivated = false
 
-    public init(configuration: IrxEndpointConfiguration, journal: IrxJournal) {
+    public init(
+        configuration: IrxEndpointConfiguration, journal: IrxJournal,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
         self.configuration = configuration
         self.journal = journal
+        self.diagnosticLog = diagnosticLog
     }
 
     public var currentGeneration: Int { generation }
@@ -153,9 +161,10 @@ public actor IrxEndpointSupervisor {
             let accepting = try await incoming.accept()
             let alpn = try await accepting.alpn()
             let connection = try await accepting.connect()
-            if alpn == IrxProtocol.alpnData {
+            if alpn == IrxProtocol().alpnData {
                 return .irx(
-                    IrxConnection(connection: connection, role: .acceptor, journal: journal))
+                    IrxConnection(connection: connection, role: .acceptor, journal: journal,
+                        diagnosticLog: diagnosticLog))
             }
             journal.record(
                 "endpoint", "foreign-alpn-accepted",
@@ -178,7 +187,17 @@ public actor IrxEndpointSupervisor {
     /// Queues a serialized installation and retries local failures independently
     /// of credential minting. Native installation emits its own outcome event.
     public func rotateCredentials(_ credentials: [IrxRelayCredential]) async {
-        guard !deactivated, configuration.pathMode != .directOnly else { return }
+        guard !deactivated, configuration.pathMode != .directOnly else {
+            journal.record("endpoint", "relay-rotation-skipped", [
+                "reason": deactivated ? "deactivated" : "direct-only",
+            ])
+            return
+        }
+        if relayInstaller == nil {
+            // The credentials are retained for the next bind, but nothing
+            // reaches the live driver; say so instead of rotating silently.
+            journal.record("endpoint", "relay-rotation-deferred", ["reason": "no-installer"])
+        }
         desiredRelayCredentials = credentials
         desiredRelayOwnership = nil
         await relayInstaller?.replace(with: credentials)
@@ -204,6 +223,19 @@ public actor IrxEndpointSupervisor {
 
     /// Health check after suspension/resume: a closed driver is replaced on
     /// the next `readyEndpoint` call.
+    /// Tells the live endpoint that the platform network may have changed.
+    ///
+    /// iroh recommends calling `Endpoint.networkChange()` from platform
+    /// connectivity callbacks: its own interface monitor cannot see every
+    /// change on iOS. Without it, a phone that leaves Wi-Fi keeps sending on
+    /// the dead direct path until heartbeat and path-idle timeouts abandon it,
+    /// stalling ordered streams (terminal output) for seconds. Harmless when
+    /// nothing changed; a no-op when no endpoint is bound.
+    public func notifyNetworkChange() async {
+        guard let driver, !driver.isClosed() else { return }
+        await driver.networkChange()
+    }
+
     public func isHealthy() -> Bool {
         guard let driver else { return false }
         return !driver.isClosed() && onlineReached
@@ -216,11 +248,14 @@ public actor IrxEndpointSupervisor {
         bindID = nil
         closeWatcher?.cancel()
         closeWatcher = nil
+        let diagnosticWatch = relayDiagnosticWatch
+        relayDiagnosticWatch = nil
         let installer = relayInstaller
         relayInstaller = nil
         let old = driver
         driver = nil
         onlineReached = false
+        await diagnosticWatch?.stop()
         await installer?.stop()
         if let old { try? await old.close() }
         journal.record("endpoint", "closed", ["generation": String(generation)])
@@ -243,6 +278,9 @@ public actor IrxEndpointSupervisor {
             onlineReached = false
             closeWatcher?.cancel()
             closeWatcher = nil
+            let diagnosticWatch = relayDiagnosticWatch
+            relayDiagnosticWatch = nil
+            await diagnosticWatch?.stop()
             await installer?.stop()
         }
         try? await bound.close()
@@ -286,7 +324,7 @@ public actor IrxEndpointSupervisor {
         }
         var options = EndpointOptions(preset: presetMinimal())
         options.secretKey = configuration.identity.privateKeyData
-        options.alpns = [IrxProtocol.alpnData] + configuration.additionalALPNs
+        options.alpns = [IrxProtocol().alpnData] + configuration.additionalALPNs
         options.relayMode = directOnly ? RelayMode.disabled() : RelayMode.custom(map: relayMap)
         options.portMappingEnabled = false
         // NAT traversal stays unauthorized until admission (automatic mode) or
@@ -314,6 +352,8 @@ public actor IrxEndpointSupervisor {
             throw IrxEndpointError.endpointClosed
         }
         driver = bound
+        relayDiagnosticWatch = bound.watchRelayConnectionDiagnostics(
+            callback: CmxIrohRelayDiagnosticObserver())
         if !directOnly {
             let installer = IrxRelayCredentialInstaller(installed: usable, journal: journal) { credential in
                 try await bound.insertRelay(config: RelayConfig(
@@ -363,12 +403,21 @@ public actor IrxEndpointSupervisor {
             throw IrxEndpointError.endpointClosed
         }
         guard cameOnline == true else {
+            // Read this generation's native state, independent of callback delivery.
+            let failure = bound.relayConnectionDiagnostics().lazy.compactMap(\.failureDescription).first
             journal.record(
                 "endpoint", "online-timeout",
                 ["generation": String(generation)]
             )
             await discardBinding(bound)
-            throw IrxEndpointError.bindFailed("relay link never came up (20s)")
+            throw IrxEndpointError.bindFailed(
+                failure ?? String(
+                    localized: directOnly
+                        ? "settings.networking.diagnostics.failure.timedOut"
+                        : "connection.relay.timedOut",
+                    defaultValue: directOnly ? "Timed out." : "The relay connection timed out."
+                )
+            )
         }
         onlineReached = true
         let readyMs =
@@ -397,6 +446,9 @@ public actor IrxEndpointSupervisor {
         driver = nil
         onlineReached = false
         journal.record("endpoint", "closed-unexpectedly", ["generation": String(closedGeneration)])
+        let diagnosticWatch = relayDiagnosticWatch
+        relayDiagnosticWatch = nil
+        await diagnosticWatch?.stop()
         await installer?.stop()
     }
 }
@@ -437,10 +489,11 @@ extension IrxEndpointSupervisor {
         let endpoint = try await readyEndpoint(credentials: credentials)
         let startedAt = DispatchTime.now()
         let connection = try await endpoint.connect(
-            addr: target, alpn: IrxProtocol.alpnData)
+            addr: target, alpn: IrxProtocol().alpnData)
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
-        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal,
+            diagnosticLog: diagnosticLog)
         journal.record(
             "endpoint", "dialed",
             [

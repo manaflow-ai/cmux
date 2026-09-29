@@ -24,6 +24,11 @@ would sit, which shares the same post-config execution point). It asserts:
 2. With the bootstrap applied, ``which claude`` resolves to the shim again.
 3. Actually running ``claude`` executes the shim, arguments intact.
 4. The bootstrap normalizes a user config that left ``PATH`` a string.
+5. Only the surface's shim root moves, and only when it is a real directory
+   this user owns: a symlinked root, a root another user owns and any other
+   ``cmux-cli-shims`` entry stay where they are.
+6. The shim root still moves when Claude integration is off, since the
+   Codex, Pi, Amp and Hermes shims live there too.
 
 It is deterministic: no PTY, no sleeps, no network. Skips loudly when ``nu``
 is not installed locally, but fails when ``CI`` is set so the suite can never
@@ -98,8 +103,11 @@ def _write_executable(path: Path, contents: str) -> None:
     path.chmod(0o755)
 
 
-def _make_sandbox(tmp: Path, env_nu_body: str) -> dict:
-    """Build an isolated HOME/XDG tree with a decoy claude, a shim claude, and the env cmux would spawn with."""
+def _make_sandbox(tmp: Path, env_nu_body: str, symlinked_root: bool = False) -> dict:
+    """Build an isolated HOME/XDG tree with a decoy claude, a shim claude, and the env cmux would spawn with.
+
+    With `symlinked_root`, the shim root is a symlink to a directory holding the shim claude.
+    """
     home = tmp / "home"
     xdg = tmp / "xdg"
     nushell_config = xdg / "nushell"
@@ -117,7 +125,13 @@ def _make_sandbox(tmp: Path, env_nu_body: str) -> dict:
     )
 
     shim_dir = tmp / "cmux-cli-shims" / SURFACE_ID
-    shim_dir.mkdir(parents=True)
+    if symlinked_root:
+        target = tmp / "elsewhere"
+        target.mkdir()
+        shim_dir.parent.mkdir()
+        shim_dir.symlink_to(target, target_is_directory=True)
+    else:
+        shim_dir.mkdir(parents=True)
     _write_executable(
         shim_dir / "claude",
         '#!/bin/sh\nprintf \'SHIM-CLAUDE %s\\n\' "$*"\n',
@@ -136,6 +150,9 @@ def _make_sandbox(tmp: Path, env_nu_body: str) -> dict:
                 [str(shim_dir), "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
             ),
             "CMUX_SURFACE_ID": SURFACE_ID,
+            # The app sets both when the Claude shim is installed.
+            "CMUX_AGENT_COMMAND_SHIM_ROOT": str(shim_dir),
+            "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(shim_dir),
         }
     )
     return {"env": env, "decoy_dir": decoy_dir, "shim_dir": shim_dir}
@@ -160,6 +177,12 @@ $env.PATH = ($env.PATH | split row (char esep) | prepend "__DECOY_DIR__")
 _DECOY_PREPEND_STRING_PATH_ENV_NU = """
 $env.PATH = ($env.PATH | split row (char esep) | prepend "__DECOY_DIR__" | str join (char esep))
 """
+
+
+def _path_entries(proc: subprocess.CompletedProcess) -> list:
+    """Split the colon-joined PATH a probe printed on its last line."""
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    return lines[-1].split(os.pathsep) if lines else []
 
 
 def _debug(proc: subprocess.CompletedProcess) -> str:
@@ -281,10 +304,129 @@ def test_nushell_bootstrap_noops_outside_cmux() -> None:
         )
 
 
+def test_nushell_bootstrap_skips_a_symlinked_shim_root() -> None:
+    nu = _require_nu()
+    if nu is None:
+        return
+    one_liner = _bootstrap_one_liner()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-nu-symlink-") as td:
+        tmp = Path(td)
+        sandbox = _make_sandbox(
+            tmp,
+            _DECOY_PREPEND_ENV_NU.replace("__DECOY_DIR__", str(tmp / "decoy-bin")),
+            symlinked_root=True,
+        )
+        env = sandbox["env"]
+        decoy_claude = str(sandbox["decoy_dir"] / "claude")
+
+        ran = _run_nu(nu, env, one_liner + "; which claude | get 0.path")
+        assert ran.returncode == 0, "bootstrap run failed" + _debug(ran)
+        assert ran.stdout.strip() == decoy_claude, (
+            "bootstrap must not move a symlinked shim root ahead of the user's "
+            f"PATH (got {ran.stdout.strip()!r})" + _debug(ran)
+        )
+
+
+def test_nushell_bootstrap_skips_a_shim_root_another_user_owns() -> None:
+    nu = _require_nu()
+    if nu is None:
+        return
+    if os.geteuid() == 0:
+        print("SKIP: root owns the system directory used as another user's shim root")
+        return
+    one_liner = _bootstrap_one_liner()
+    other_owner = "/usr/share"
+    assert os.stat(other_owner).st_uid != os.geteuid()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-nu-owner-") as td:
+        tmp = Path(td)
+        sandbox = _make_sandbox(
+            tmp,
+            _DECOY_PREPEND_ENV_NU.replace("__DECOY_DIR__", str(tmp / "decoy-bin")),
+        )
+        env = sandbox["env"]
+        env["CMUX_AGENT_COMMAND_SHIM_ROOT"] = other_owner
+        env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = other_owner
+        env["PATH"] = os.pathsep.join([other_owner, "/usr/bin", "/bin", "/usr/sbin", "/sbin"])
+        decoy_dir = str(sandbox["decoy_dir"])
+
+        ran = _run_nu(nu, env, one_liner + "; $env.PATH | str join (char esep)")
+        assert ran.returncode == 0, "bootstrap run failed" + _debug(ran)
+        entries = _path_entries(ran)
+        assert decoy_dir in entries and other_owner in entries, (
+            f"PATH lost an entry (got {entries!r})" + _debug(ran)
+        )
+        assert entries.index(decoy_dir) < entries.index(other_owner), (
+            "bootstrap must not move a shim root another user owns ahead of "
+            f"the user's PATH (got {entries!r})" + _debug(ran)
+        )
+
+
+def test_nushell_bootstrap_moves_only_the_shim_root() -> None:
+    nu = _require_nu()
+    if nu is None:
+        return
+    one_liner = _bootstrap_one_liner()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-nu-only-root-") as td:
+        tmp = Path(td)
+        sandbox = _make_sandbox(
+            tmp,
+            _DECOY_PREPEND_ENV_NU.replace("__DECOY_DIR__", str(tmp / "decoy-bin")),
+        )
+        env = sandbox["env"]
+        shim_dir = str(sandbox["shim_dir"])
+        decoy_dir = str(sandbox["decoy_dir"])
+        other_shims = tmp / "cmux-cli-shims" / "other-surface"
+        other_shims.mkdir()
+        env["PATH"] = os.pathsep.join(
+            [shim_dir, str(other_shims), "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        )
+
+        ran = _run_nu(nu, env, one_liner + "; $env.PATH | str join (char esep)")
+        assert ran.returncode == 0, "bootstrap run failed" + _debug(ran)
+        watched = {shim_dir, decoy_dir, str(other_shims)}
+        order = [entry for entry in _path_entries(ran) if entry in watched]
+        assert order == [shim_dir, decoy_dir, str(other_shims)], (
+            "bootstrap must move only the shim root and keep other entries in "
+            f"their original order (got {order!r})" + _debug(ran)
+        )
+
+
+def test_nushell_bootstrap_refronts_shim_root_without_claude_integration() -> None:
+    nu = _require_nu()
+    if nu is None:
+        return
+    one_liner = _bootstrap_one_liner()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-nu-no-claude-") as td:
+        tmp = Path(td)
+        sandbox = _make_sandbox(
+            tmp,
+            _DECOY_PREPEND_ENV_NU.replace("__DECOY_DIR__", str(tmp / "decoy-bin")),
+        )
+        env = sandbox["env"]
+        # Without the Claude shim, the app sets only the shared agent root.
+        env.pop("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", None)
+        shim_claude = str(sandbox["shim_dir"] / "claude")
+
+        ran = _run_nu(nu, env, one_liner + "; which claude | get 0.path")
+        assert ran.returncode == 0, "bootstrap run failed" + _debug(ran)
+        assert ran.stdout.strip() == shim_claude, (
+            "bootstrap must re-front the agent shim root when Claude "
+            f"integration is off (got {ran.stdout.strip()!r})" + _debug(ran)
+        )
+
+
 if __name__ == "__main__":
     test_nushell_bootstrap_refronts_shim_over_user_path_prepends()
     test_nushell_bootstrap_normalizes_string_path()
     test_nushell_bootstrap_noops_outside_cmux()
+    test_nushell_bootstrap_skips_a_symlinked_shim_root()
+    test_nushell_bootstrap_skips_a_shim_root_another_user_owns()
+    test_nushell_bootstrap_moves_only_the_shim_root()
+    test_nushell_bootstrap_refronts_shim_root_without_claude_integration()
     if _find_nu() is None:
         print("SKIP: nushell (nu) not found; nothing was verified")
     else:

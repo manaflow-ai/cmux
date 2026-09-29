@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
+/* cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45. */
 
 
 import type * as T from "./types.js";
@@ -37,9 +37,11 @@ export interface ApplyLayoutRequest extends CmuxRequestBase {
 export interface AttachSurfaceRequest extends CmuxRequestBase {
   cmd: "attach-surface";
   "cols"?: (number) | null;
+  "expected_generation"?: (string) | null;
+  "expected_terminal_id"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
   "rows"?: (number) | null;
-  "surface": T.Id;
+  "surface"?: (T.Id) | null;
 }
 export type AttachSurfaceResult = T.EmptyResult;
 
@@ -442,6 +444,14 @@ export interface MoveTabRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type MoveTabResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabToWorkspaceRequest extends CmuxRequestBase {
+  cmd: "move-tab-to-workspace";
+  "surface": T.Id;
+  "workspace"?: (T.Id) | null;
+}
+export type MoveTabToWorkspaceResult = T.EmptyResult;
 
 /** Protocol v9; authority: control. */
 export interface MoveTerminalRequest extends CmuxRequestBase {
@@ -862,6 +872,14 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
 }
 export type SetSplitRatioResult = T.EmptyResult;
 
+/** Protocol v12; authority: control. */
+export interface SetTerminalIdlePolicyRequest extends CmuxRequestBase {
+  cmd: "set-terminal-idle-policy";
+  "idle_close_seconds"?: (bigint) | null;
+  "surface"?: (T.Id) | null;
+  "terminal_id"?: (string) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
   cmd: "set-viewport-pane-width";
@@ -942,6 +960,36 @@ export interface UnregisterBrowserProviderRequest extends CmuxRequestBase {
 }
 export type UnregisterBrowserProviderResult = T.BrowserProviderUnregisterResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface UrlOpenRequest extends CmuxRequestBase {
+  cmd: "url-open";
+  "terminal_id": string;
+  "url": string;
+}
+export type UrlOpenResult = T.GuestUrlOpenResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenClaimRequest extends CmuxRequestBase {
+  cmd: "url-open-claim";
+  "request_id": string;
+}
+export type UrlOpenClaimResult = T.GuestUrlClaimResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenResultRequest extends CmuxRequestBase {
+  cmd: "url-open-result";
+  "opened": boolean;
+  "request_id": string;
+}
+export type UrlOpenResultResult = T.GuestUrlAcknowledgeResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenSubscribeRequest extends CmuxRequestBase {
+  cmd: "url-open-subscribe";
+  "terminal_ids": Array<string>;
+}
+export type UrlOpenSubscribeResult = T.GuestUrlSubscribeResult;
+
 /** Protocol v5; authority: control. */
 export interface VtStateRequest extends CmuxRequestBase {
   cmd: "vt-state";
@@ -1015,6 +1063,7 @@ export type CmuxRequest =
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveTabRequest
+  | MoveTabToWorkspaceRequest
   | MoveTerminalRequest
   | MoveWorkspaceRequest
   | NewBrowserTabRequest
@@ -1060,6 +1109,7 @@ export type CmuxRequest =
   | SetDefaultColorsRequest
   | SetRatioRequest
   | SetSplitRatioRequest
+  | SetTerminalIdlePolicyRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
   | ShutdownDaemonRequest
@@ -1070,6 +1120,10 @@ export type CmuxRequest =
   | TerminalEventsRequest
   | UndoLayoutRequest
   | UnregisterBrowserProviderRequest
+  | UrlOpenRequest
+  | UrlOpenClaimRequest
+  | UrlOpenResultRequest
+  | UrlOpenSubscribeRequest
   | VtStateRequest
   | WaitForRequest
   | ZoomPaneRequest;
@@ -1468,6 +1522,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "move-tab-to-workspace": {
+    request: MoveTabToWorkspaceRequest;
+    result: MoveTabToWorkspaceResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-workspace-move-v1";
+    stream: null;
+  };
   "move-terminal": {
     request: MoveTerminalRequest;
     result: T.MoveTerminalResult;
@@ -1828,6 +1890,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "set-terminal-idle-policy": {
+    request: SetTerminalIdlePolicyRequest;
+    result: T.SetTerminalIdlePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-idle-close-v1";
+    stream: null;
+  };
   "set-viewport-pane-width": {
     request: SetViewportPaneWidthRequest;
     result: SetViewportPaneWidthResult;
@@ -1907,6 +1977,38 @@ export interface CmuxCommandDefinitionMap {
     since: 10;
     capability: "browser-provider-v1";
     stream: null;
+  };
+  "url-open": {
+    request: UrlOpenRequest;
+    result: UrlOpenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-claim": {
+    request: UrlOpenClaimRequest;
+    result: UrlOpenClaimResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-result": {
+    request: UrlOpenResultRequest;
+    result: UrlOpenResultResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-subscribe": {
+    request: UrlOpenSubscribeRequest;
+    result: UrlOpenSubscribeResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: "subscribe";
   };
   "vt-state": {
     request: VtStateRequest;

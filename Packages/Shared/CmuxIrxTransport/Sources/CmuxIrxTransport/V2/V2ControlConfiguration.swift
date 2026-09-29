@@ -17,12 +17,14 @@ public struct V2ControlConfiguration: Sendable {
     ///   - device: The identity whose key the signing dependency uses.
     ///   - requestTimeout: A bounded operation deadline, defaulting to 30 seconds.
     ///   - maximumPendingRequests: A finite client-side buffer, defaulting to 256 operations.
-    /// - Throws: A scope error for an insecure non-loopback origin or disabled Mac pairing.
+    /// - Throws: A scope error for an insecure non-loopback origin or a Mac with neither hosting nor device discovery enabled.
     public init(baseURL: URL, device: V2DeviceDescriptor, requestTimeout: TimeInterval = 30, maximumPendingRequests: Int = 256) throws {
         let loopback = ["localhost", "127.0.0.1", "::1"].contains(baseURL.host ?? "")
         guard baseURL.scheme == "https" || (baseURL.scheme == "http" && loopback),
               baseURL.user == nil, baseURL.password == nil, baseURL.query == nil, baseURL.fragment == nil,
-              device.metadata.platform != .mac || device.metadata.pairingEnabled else {
+              device.metadata.platform != .mac || device.metadata.pairingEnabled
+                || device.metadata.capabilities.contains("cmux.mac-devices.v1")
+                || device.metadata.capabilities.contains("cmux.mac-host.v1") else {
             throw V2ControlFailure.scopeMismatch
         }
         self.baseURL = baseURL

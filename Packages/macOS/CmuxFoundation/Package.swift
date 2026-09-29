@@ -21,6 +21,7 @@ let package = Package(
         .target(
             name: "CmuxFoundation",
             dependencies: ["CmuxFoundationAtomicsC"],
+            resources: [.process("Resources")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

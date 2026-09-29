@@ -18,6 +18,7 @@ struct TerminalLinkOpenCoordinator {
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
     private let fileOpen: any FileOpening
+    private let recordsDiagnostics: Bool
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
     /// Creates a coordinator using the supplied routing collaborators.
@@ -29,11 +30,13 @@ struct TerminalLinkOpenCoordinator {
         containerResolver: (@MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?)? = nil,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
         fileOpen: (any FileOpening)? = nil,
+        recordsDiagnostics: Bool = true,
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
             Task { @MainActor in operation() }
         }
     ) {
         self.defaults = defaults
+        self.recordsDiagnostics = recordsDiagnostics
         self.externalNavigationHandler = BrowserExternalNavigationHandler(
             defaults: defaults,
             openURL: externalOpen
@@ -51,6 +54,13 @@ struct TerminalLinkOpenCoordinator {
 
         let trimmed = request.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
+        if let sourcePanelId = request.sourcePanelId, let container,
+           container.terminalLinkIsRemoteTerminal(sourcePanelId),
+           RemoteTerminalPathResolver().isFileReference(trimmed),
+           container.deferRemoteTerminalFileLinkOpen(sourcePanelId: sourcePanelId, rawValue: trimmed) {
+            // A managed SSH path must never resolve to an unrelated file on this Mac.
+            return true
+        }
         var normalizedOpenURLString = request.rawValue
         let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
 
@@ -268,6 +278,9 @@ struct TerminalLinkOpenCoordinator {
             "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
         )
 
+        if !request.focus {
+            return container.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, focus: false)
+        }
         deferOperation { [self] in
             let currentContainer = self.containerResolver(request.sourceWorkspaceId, sourcePanelId)
             let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)
@@ -324,7 +337,7 @@ struct TerminalLinkOpenCoordinator {
 
     private func log(_ message: @autoclosure () -> String) {
         #if DEBUG
-        cmuxDebugLog(message())
+        if recordsDiagnostics { cmuxDebugLog(message()) }
         #endif
     }
 }

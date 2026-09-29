@@ -9,6 +9,7 @@ import concurrent.futures
 import getpass
 import json
 import os
+import pty
 from pathlib import Path
 import shlex
 import socket
@@ -21,6 +22,18 @@ import time
 
 def run(argv, **kwargs):
     return subprocess.run(argv, text=True, capture_output=True, timeout=45, **kwargs)
+
+
+def drain_terminal(master, sink):
+    """Collects a pty's output until every process holding its slave has exited."""
+    while True:
+        try:
+            chunk = os.read(master, 65536)
+        except OSError:
+            return
+        if not chunk:
+            return
+        sink.extend(chunk)
 
 
 def main(cli):
@@ -84,11 +97,24 @@ LogLevel ERROR
         requests = []
         wrong_host_key = False
         short_grant = False
+        cleanup_grants_remaining = None
+        idle_connection_closed = threading.Event()
 
         def serve_connection(conn):
-            nonlocal short_grant
+            nonlocal short_grant, cleanup_grants_remaining
+            # Match the app's bounded control-socket lifecycle. File transfer
+            # can continue after its endpoint request's connection goes idle.
+            conn.settimeout(2)
             with conn, conn.makefile("rwb") as stream:
-                for line in stream:
+                while True:
+                    try:
+                        line = stream.readline()
+                    except (TimeoutError, socket.timeout):
+                        idle_connection_closed.set()
+                        return
+                    if not line:
+                        idle_connection_closed.set()
+                        return
                     if line.startswith(b"auth "):
                         stream.write(b"OK\n")
                         stream.flush()
@@ -97,6 +123,11 @@ LogLevel ERROR
                     with lock:
                         requests.append(request)
                     if request["method"] == "vm.scp_info":
+                        if cleanup_grants_remaining is not None:
+                            if cleanup_grants_remaining == 0:
+                                return  # Drop only cleanup's grant response.
+                            cleanup_grants_remaining -= 1
+                            short_grant = True
                         public_key = request["params"]["public_key"].strip()
                         assert public_key.startswith("ssh-ed25519 ") and "\n" not in public_key
                         with lock, authorized.open("a") as out:
@@ -109,6 +140,10 @@ LogLevel ERROR
                             "expires_at_unix": int(time.time()) + lifetime,
                         }
                         response = {"id": request["id"], "ok": True, "result": result}
+                    elif request["method"] == "vm.file_transfer_failure":
+                        params = request["params"]
+                        assert set(params).issubset({"phase", "failure", "error_number"}), params
+                        response = {"id": request["id"], "ok": True, "result": {"reference": "operation=test trace=00000000000000000000000000000001"}}
                     else:
                         response = {"id": request["id"], "ok": False, "error": {"code": "unexpected", "message": request["method"]}}
                     stream.write(json.dumps(response).encode() + b"\n")
@@ -197,6 +232,7 @@ LogLevel ERROR
             assert (guest / "parallel/a").read_bytes() == (guest / "parallel/b").read_bytes() == payload.read_bytes()
             print("PASS concurrent transfers keep independent keys", flush=True)
 
+            idle_connection_closed.clear()
             watch = subprocess.Popen([cli, "--json", "vm", "push", "test-vm", str(tree), "watch", "--watch", "--interval", "0.2"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
                 for _ in range(100):
@@ -205,6 +241,9 @@ LogLevel ERROR
                     if watch.poll() is not None:
                         raise AssertionError(watch.communicate())
                     time.sleep(.1)
+                # Wait for the server to retire the endpoint connection, then
+                # make a new edit. The old test edited before the idle timeout.
+                assert idle_connection_closed.wait(timeout=5), "control socket never reached its idle deadline"
                 (tree / "b").write_text("two")
                 stdout, stderr = watch.communicate(timeout=30)
                 assert watch.returncode == 0, stderr
@@ -215,9 +254,76 @@ LogLevel ERROR
                 if watch.poll() is None:
                     watch.kill()
                     watch.wait()
-            assert all(r["method"] == "vm.scp_info" for r in requests), requests
+            assert all(r["method"] in {"vm.scp_info", "vm.file_transfer_failure"} for r in requests), requests
+            failures = [r["params"] for r in requests if r["method"] == "vm.file_transfer_failure"]
+            assert len(failures) == 2, failures
+            assert {p["phase"] for p in failures} == {"process", "connect"}
+            assert all(p["failure"] == "process" for p in failures), failures
             assert max(len(json.dumps(r)) for r in requests) < 1024
             print("PASS watch and bounded control messages without file bytes", flush=True)
+
+            cleanup_grants_remaining = 2
+            result = push(payload, "cleanup-failure/payload.bin")
+            cleanup_grants_remaining = None
+            assert result.returncode == 0, result.stderr
+            assert (guest / "cleanup-failure/payload.bin").read_bytes() == payload.read_bytes()
+            assert "cleanup failed" in result.stderr
+            cleanup_reports = [r["params"] for r in requests if r["method"] == "vm.file_transfer_failure" and r["params"]["phase"] == "cleanup"]
+            assert len(cleanup_reports) == 1, cleanup_reports
+            assert cleanup_reports[0]["failure"] == "network", cleanup_reports
+            assert "error_number" not in cleanup_reports[0]
+            print("PASS cleanup grant transport failure keeps network classification and transfer success", flush=True)
+
+            # SCP has no exec chunks. Verify human output over both a pipe and
+            # a real terminal, with actual transfers and host-key rejection.
+            for tty in (False, True):
+                for fails in (False, True):
+                    wrong_host_key = fails
+                    destination = f"human-{tty}-{fails}"
+                    master, slave = pty.openpty() if tty else (None, None)
+                    terminal_output = bytearray()
+                    reader = None
+                    try:
+                        process = subprocess.Popen(
+                            [cli, "vm", "push", "test-vm", str(payload), destination],
+                            env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=slave if tty else subprocess.PIPE,
+                        )
+                        if slave is not None:
+                            # The CLI owns the slave now. A terminal's output queue
+                            # holds only about 1 KiB and the host-key failure report is
+                            # longer, so the master must be drained while the CLI runs
+                            # or its stderr writes block until the timeout.
+                            os.close(slave)
+                            slave = None
+                            reader = threading.Thread(target=drain_terminal, args=(master, terminal_output), daemon=True)
+                            reader.start()
+                        try:
+                            stdout, piped_stderr = process.communicate(timeout=30)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.communicate()
+                            raise
+                        if reader is not None:
+                            # Returns once every process holding the slave has exited.
+                            reader.join(timeout=10)
+                            assert not reader.is_alive(), "terminal stderr stayed open after the CLI exited"
+                        stderr = piped_stderr if piped_stderr is not None else bytes(terminal_output)
+                    finally:
+                        if slave is not None: os.close(slave)
+                        if master is not None: os.close(master)
+                        wrong_host_key = False
+                    assert process.returncode == (1 if fails else 0), stderr
+                    if fails:
+                        assert b"Host key verification failed" in stderr, stderr
+                        assert b"Cloud diagnostic reference:" in stderr, stderr
+                        assert b"Pushed" not in stdout, stdout
+                        assert not (guest / destination).exists()
+                    else:
+                        assert b"Pushed" in stdout and destination.encode() in stdout, stdout
+                        assert stderr == b"", stderr
+                        assert (guest / destination).read_bytes() == payload.read_bytes()
+            print("PASS SCP human output and errors over pipes and terminals", flush=True)
         finally:
             stop.set()
             thread.join(timeout=2)

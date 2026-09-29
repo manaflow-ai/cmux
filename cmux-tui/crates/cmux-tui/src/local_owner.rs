@@ -44,6 +44,10 @@ pub(crate) struct OwnerSpec {
     pub socket_is_derived: bool,
     pub state: Option<PathBuf>,
     pub term: Option<String>,
+    /// Host colors sampled by the first interactive client. The detached
+    /// owner has no terminal of its own, so the client passes these values
+    /// through the private startup contract before it creates a PTY.
+    pub initial_host_colors: Option<cmux_tui_core::DefaultColors>,
 }
 
 /// A validated, client-ready owner.
@@ -95,7 +99,9 @@ pub(crate) fn ensure_owner(
 ) -> Result<Ensured, EnsureError> {
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
-    if let Some(ready) = wait_while_starting(&spec.socket, expected_session, deadline)? {
+    if let Some(ready) =
+        wait_while_starting(&spec.socket, spec.socket_is_derived, expected_session, deadline)?
+    {
         return Ok(Ensured::Running(ready));
     }
     let owner = {
@@ -103,7 +109,9 @@ pub(crate) fn ensure_owner(
             .map_err(EnsureError::Spawn)?;
         // Re-probe under the lock: a concurrent ensure may have spawned the
         // owner while this call waited for the lock.
-        if let Some(ready) = wait_while_starting(&spec.socket, expected_session, deadline)? {
+        if let Some(ready) =
+            wait_while_starting(&spec.socket, spec.socket_is_derived, expected_session, deadline)?
+        {
             return Ok(Ensured::Running(ready));
         }
         // The lock is released once the spawn is issued: the owner's serve
@@ -113,7 +121,7 @@ pub(crate) fn ensure_owner(
         // and every caller converges on the winner through the probe below.
         spawn_detached_owner(spec).map_err(EnsureError::Spawn)?
     };
-    match wait_until_ready(&spec.socket, Some(&spec.session), deadline) {
+    match wait_until_ready(&spec.socket, spec.socket_is_derived, Some(&spec.session), deadline) {
         Ok(Some(ready)) => Ok(Ensured::Started(ready)),
         Ok(None) => {
             owner.terminate();
@@ -130,11 +138,12 @@ pub(crate) fn ensure_owner(
 /// nothing serves the socket; the caller decides whether to spawn.
 fn wait_while_starting(
     socket: &Path,
+    socket_is_derived: bool,
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
-        match attempt(socket, expected_session, deadline)? {
+        match attempt(socket, socket_is_derived, expected_session, deadline)? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Absent => return Ok(None),
             Attempt::Starting => {}
@@ -150,11 +159,14 @@ fn wait_while_starting(
 /// tolerated here because the owner may not have bound the socket yet.
 fn wait_until_ready(
     socket: &Path,
+    socket_is_derived: bool,
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
-        if let Attempt::Ready(ready) = attempt(socket, expected_session, deadline)? {
+        if let Attempt::Ready(ready) =
+            attempt(socket, socket_is_derived, expected_session, deadline)?
+        {
             return Ok(Some(ready));
         }
         if Instant::now() >= deadline {
@@ -166,10 +178,11 @@ fn wait_until_ready(
 
 fn attempt(
     socket: &Path,
+    socket_is_derived: bool,
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Attempt, EnsureError> {
-    let stream = match transport::connect(socket) {
+    let stream = match cmux_tui_core::server::connect_session_socket(socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(_) => return Ok(Attempt::Absent),
     };
@@ -314,6 +327,18 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(term) = &spec.term {
         command.arg("--term").arg(term);
+    }
+    if let Some(colors) = spec.initial_host_colors {
+        if let Some(foreground) = colors.fg {
+            command
+                .arg("--owner-host-fg")
+                .arg(format!("#{:02x}{:02x}{:02x}", foreground.r, foreground.g, foreground.b));
+        }
+        if let Some(background) = colors.bg {
+            command
+                .arg("--owner-host-bg")
+                .arg(format!("#{:02x}{:02x}{:02x}", background.r, background.g, background.b));
+        }
     }
     configure_detached_owner_environment(&mut command);
     // The owner reports through the bounded client log at its state root;

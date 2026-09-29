@@ -391,9 +391,9 @@ public actor IrxControlPlaneClient {
     ) -> CmxRateLimitedError? {
         guard let response = task.response as? HTTPURLResponse,
               response.statusCode == 429 else { return nil }
-        return CmxRateLimitedError(retryAfterSeconds: CmxRetryAfterPolicy.seconds(
+        return CmxRateLimitedError(retryAfterSeconds: CmxRetryAfterPolicy().seconds(
             from: response,
-            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+            defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
         ))
     }
 

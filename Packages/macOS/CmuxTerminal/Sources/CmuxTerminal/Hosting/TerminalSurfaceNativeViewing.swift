@@ -39,6 +39,11 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     @discardableResult
     func forceRefreshSurface() -> Bool
 
+    /// Whether a window portal positions this view and therefore owns the
+    /// pane geometry it may publish. A portal-owned view never derives a
+    /// terminal size from its own bounds; it waits for the portal's commit.
+    var paneGeometryIsPortalOwned: Bool { get }
+
     /// Monotonic count of drawables vended by the native renderer.
     ///
     /// Hosts that do not expose a Metal layer use the default zero value; the
@@ -78,6 +83,9 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
 
 public extension TerminalSurfaceNativeViewing {
     var renderedFrameSequence: UInt64 { 0 }
+
+    /// Views outside a portal size themselves from their own bounds.
+    var paneGeometryIsPortalOwned: Bool { false }
 
     /// Leaves input synchronous for hosts without clipboard sequencing.
     ///

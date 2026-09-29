@@ -8,9 +8,10 @@ public import Foundation
 public actor LegacyCompatibilityService {
     public static let v2Capability = "cmux.iroh-control.v2"
 
-    /// Derives the old broker's UUID-shaped app/device identifiers from the
-    /// already enrolled v2 endpoint. No second key is created or persisted.
-    public static func compatibilityIdentity(from identity: IrxIdentity) -> IrxIdentity {
+    /// Keeps the older directory's physical computer ID while using the current
+    /// v2 endpoint key. This changes presentation identity, never v2 authority.
+    /// Omitting deviceID reproduces the initial v2 publication for migration.
+    public static func compatibilityIdentity(from identity: IrxIdentity, deviceID: String? = nil) -> IrxIdentity {
         func uuid(from bytes: Data) -> String {
             var value = Array(bytes.prefix(16))
             value += Array(repeating: 0, count: max(0, 16 - value.count))
@@ -19,8 +20,8 @@ public actor LegacyCompatibilityService {
             let hex = value.map { String(format: "%02x", $0) }.joined()
             return "\(hex.prefix(8))-\(hex.dropFirst(8).prefix(4))-\(hex.dropFirst(12).prefix(4))-\(hex.dropFirst(16).prefix(4))-\(hex.dropFirst(20))"
         }
-        let deviceID = UUID(uuidString: identity.deviceID) == nil
-            ? uuid(from: identity.publicKeyData) : identity.deviceID
+        let deviceID = deviceID ?? (UUID(uuidString: identity.deviceID) == nil
+            ? uuid(from: identity.publicKeyData) : identity.deviceID)
         return IrxIdentity(privateKeyData: identity.privateKeyData,
             deviceID: deviceID,
             appInstanceID: uuid(from: Data(identity.publicKeyData.reversed())))
@@ -82,6 +83,8 @@ public actor LegacyCompatibilityService {
     public nonisolated let listCurrent = IrxDeviceListCurrent()
     private let configuration: Configuration
     private let identity: IrxIdentity
+    private let previousDeviceID: String?
+    private let brokerConfiguration: IrxBrokerService.Configuration
     private let accessTokenPair: @Sendable () async throws -> (access: String, refresh: String)?
     private let journal: IrxJournal
     private var directory = LegacyCompatibilityDirectory()
@@ -98,7 +101,7 @@ public actor LegacyCompatibilityService {
 
     /// Use the v2 key with stable UUID device and app-instance identifiers. The
     /// namespace is the real app namespace required by older discovery filters.
-    public init(configuration: Configuration, identity: IrxIdentity,
+    public init(configuration: Configuration, identity: IrxIdentity, previousDeviceID: String? = nil,
                 accessTokenPair: @escaping @Sendable () async throws -> (access: String, refresh: String)?,
                 journal: IrxJournal) throws {
         guard UUID(uuidString: identity.deviceID) != nil,
@@ -106,15 +109,18 @@ public actor LegacyCompatibilityService {
               !configuration.accountID.isEmpty else { throw Failure.invalidIdentity }
         self.configuration = configuration
         self.identity = identity
+        self.previousDeviceID = previousDeviceID
         self.accessTokenPair = accessTokenPair
         self.journal = journal
-        broker = try IrxBrokerService(configuration: .init(
+        let brokerConfiguration = IrxBrokerService.Configuration(
             baseURL: configuration.brokerBaseURL, clientNamespace: configuration.clientNamespace,
             tag: configuration.tag, platform: configuration.platform, displayName: configuration.displayName,
             cacheDirectory: configuration.cacheDirectory,
             identityGeneration: configuration.identityGeneration, accountID: configuration.accountID,
             keychainAccessGroup: configuration.keychainAccessGroup,
-            additionalCapabilities: [Self.v2Capability], cacheIdentity: identity.endpointIDHex),
+            additionalCapabilities: [Self.v2Capability], cacheIdentity: identity.endpointIDHex)
+        self.brokerConfiguration = brokerConfiguration
+        broker = try IrxBrokerService(configuration: brokerConfiguration,
             identity: identity, accessTokenPair: accessTokenPair, journal: journal)
     }
 
@@ -134,8 +140,7 @@ public actor LegacyCompatibilityService {
     }
 
     private func performStart() async throws {
-        let registered = try await broker.register(pairingEnabled: configuration.platform == .mac,
-            relayURLHint: relayURL)
+        let registered = try await registerPreservingComputerID()
         guard !stopped, !Task.isCancelled else { throw Failure.stopped }
         binding = registered
         started = true
@@ -151,6 +156,45 @@ public actor LegacyCompatibilityService {
             binding = nil
             publish()
             throw error
+        }
+    }
+
+    /// The first v2 release published the installation ID in the account
+    /// directory. If that exact key already occupies the erroneous slot, prove
+    /// ownership of it, retire it, and retry the physical-ID registration.
+    /// A failed/lost reply is safe to retry on the next startup. Never search by
+    /// display name or revoke another endpoint, namespace, tag, or account.
+    private func registerPreservingComputerID() async throws -> IrxBindingSnapshot {
+        do {
+            return try await broker.register(pairingEnabled: configuration.platform == .mac,
+                relayURLHint: relayURL)
+        } catch CmxIrohTrustBrokerClientError.rejected(statusCode: 409, code: "endpoint_already_bound") {
+            guard let previousDeviceID, previousDeviceID != identity.deviceID,
+                  UUID(uuidString: previousDeviceID) != nil,
+                  !stopped, !Task.isCancelled else {
+                throw CmxIrohTrustBrokerClientError.rejected(statusCode: 409, code: "endpoint_already_bound")
+            }
+            let previous = IrxIdentity(privateKeyData: identity.privateKeyData,
+                deviceID: previousDeviceID, appInstanceID: identity.appInstanceID)
+            let previousBroker = try IrxBrokerService(configuration: brokerConfiguration,
+                identity: previous, accessTokenPair: accessTokenPair, journal: journal)
+            do {
+                let old = try await previousBroker.register(
+                    pairingEnabled: configuration.platform == .mac, relayURLHint: relayURL)
+                guard !stopped, !Task.isCancelled else { throw Failure.stopped }
+                try await previousBroker.revoke(bindingID: old.bindingID)
+                await previousBroker.deactivate()
+                guard !stopped, !Task.isCancelled else { throw Failure.stopped }
+                journal.record("legacy-compat", "computer-id-migrated", [
+                    "previous_device": previousDeviceID, "device": identity.deviceID,
+                    "endpoint": identity.endpointIDHex
+                ])
+            } catch {
+                await previousBroker.deactivate()
+                throw error
+            }
+            return try await broker.register(pairingEnabled: configuration.platform == .mac,
+                relayURLHint: relayURL)
         }
     }
 

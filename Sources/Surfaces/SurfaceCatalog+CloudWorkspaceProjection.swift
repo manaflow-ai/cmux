@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -30,6 +32,9 @@ extension SurfaceCatalog {
     /// so a rename, move or close during refresh cannot resurrect captured members.
     /// Arbitrary groups and local workspaces retain their supplied membership.
     func currentCloudWorkspace(_ group: SurfaceResourceGroup) throws -> (group: SurfaceResourceGroup, layout: SurfaceProjectionLayout?)? {
+        if let workspaceID = group.remoteWorkspaceID, let machine = group.placements.first?.resource.machine {
+            try checkCloudWorkspaceNavigation(machine: machine, workspaceID: workspaceID)
+        }
         guard group.representsWorkspace, let workspaceID = group.remoteWorkspaceID,
               let machine = group.placements.first?.resource.machine,
               !machine.isLocal, cloudStates[machine] != nil,
@@ -48,18 +53,23 @@ extension SurfaceCatalog {
         cloudWorkspaceRenameService.reconcileRemoteState(machine: state.machine, state: state, catalog: self, observation: cloudStateObservations[state.machine] ?? .current)
     }
     func beginProjectionMutation(for resources: [SurfaceResourceID]) -> [SurfaceMachineID: UUID] {
-        Dictionary(uniqueKeysWithValues: Set(resources.map(\.machine)).filter { !$0.isLocal }.map {
-            ($0, cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: $0))
+        Dictionary(uniqueKeysWithValues: Set(resources.map(\.machine)).filter { !$0.isLocal }.map { machine in
+            let token = cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
+            (provider(for: machine) as? any SurfaceProjectionMutationObserving)?.beginProjectionMutation(token)
+            return (machine, token)
         })
     }
 
     func endProjectionMutation(_ tokens: [SurfaceMachineID: UUID]) {
-        for (machine, token) in tokens { cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: self) }
+        for (machine, token) in tokens {
+            cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: self)
+            (provider(for: machine) as? any SurfaceProjectionMutationObserving)?.endProjectionMutation(token)
+        }
     }
 
     func requestCloudWorkspaceProjection(_ workspaceID: UUID) {
         guard let binding = cloudWorkspaceProjectionCoordinator.environment.bindings()[workspaceID] else { return }
-        cloudWorkspaceProjectionCoordinator.request(machine: .cloud(binding.vmID), catalog: self)
+        cloudWorkspaceProjectionCoordinator.request(machine: SurfaceMachineID(rawValue: binding.vmID), catalog: self)
     }
 
 }

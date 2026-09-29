@@ -83,6 +83,7 @@ use crate::{
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[path = "server/image_paste.rs"]
 mod image_paste;
+mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -90,6 +91,7 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
@@ -120,6 +122,9 @@ pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 /// client. Cloud clients use this over the private cmux-tui link, so routine
 /// port inventory never needs a provider or web control-plane call.
 pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
+/// Advertises `set-terminal-idle-policy` and the owner-side reaper that
+/// closes a terminal once it has had no attached view for its policy.
+pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -197,12 +202,14 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
+        "attach-identity-v1",
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
+        TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,
@@ -219,6 +226,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         MACHINE_USAGE_CAPABILITY,
         MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
+        TERMINAL_IDLE_CLOSE_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -682,6 +690,21 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Private, connection-scoped guest-to-frontend OS browser opening.
+    UrlOpenSubscribe {
+        terminal_ids: Vec<String>,
+    },
+    UrlOpen {
+        terminal_id: String,
+        url: String,
+    },
+    UrlOpenClaim {
+        request_id: String,
+    },
+    UrlOpenResult {
+        request_id: String,
+        opened: bool,
+    },
     PasteImage {
         surface: SurfaceId,
         terminal_id: String,
@@ -928,6 +951,18 @@ enum Command {
         terminal_incarnation: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
+    },
+    /// Set (`idle_close_seconds`) or clear (`null`, never close) the
+    /// idle-close policy of one hosted terminal, named by exactly one of a
+    /// PTY `surface` or a stable `terminal_id`. The policy is durable and
+    /// survives owner restarts.
+    SetTerminalIdlePolicy {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
+        #[serde(default)]
+        idle_close_seconds: Option<u64>,
     },
     /// New tab in a pane (default: the active pane).
     NewTab {
@@ -1193,6 +1228,11 @@ enum Command {
         pane: PaneId,
         index: usize,
     },
+    MoveTabToWorkspace {
+        surface: SurfaceId,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+    },
     MoveWorkspace {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -1358,7 +1398,12 @@ enum Command {
     },
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
-        surface: SurfaceId,
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        expected_generation: Option<String>,
+        #[serde(default)]
+        expected_terminal_id: Option<String>,
         #[serde(default)]
         mode: Option<String>,
         /// Optional initial viewer size. Supplying this pair makes the attach
@@ -1406,6 +1451,7 @@ impl Command {
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
             | Self::MoveTab { surface, .. }
+            | Self::MoveTabToWorkspace { surface, .. }
             | Self::CloseSurface { surface }
             | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
@@ -1413,9 +1459,9 @@ impl Command {
             | Self::ReleaseSurfaceSize { surface }
             | Self::ReleaseAttachedViewSize { surface, .. }
             | Self::DetachAttachedView { surface, .. }
-            | Self::AttachSurface { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
-            Self::Notify { surface, .. }
+            Self::AttachSurface { surface, .. }
+            | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. } => *surface,
             _ => None,
@@ -2329,6 +2375,12 @@ struct MessageWriter {
 }
 
 impl MessageWriter {
+    fn send_url_open(&self, request_id: &str, terminal_id: &str, url: &str) -> std::io::Result<()> {
+        self.send_control(&json!({
+            "event": "url-open", "request_id": request_id, "terminal_id": terminal_id, "url": url,
+        }))
+    }
+
     #[cfg(test)]
     fn new(sink: impl MessageSink + 'static) -> Self {
         Self::new_with_render_service(sink, Arc::new(RenderService::new()))
@@ -3832,12 +3884,18 @@ enum DaemonHandoffReservation {
 struct ClientRegistryState {
     clients: BTreeMap<u64, ClientRecord>,
     attached_by_surface: HashMap<SurfaceId, HashSet<u64>>,
+    /// Newest attach sequence per surface. The idle-close reaper compares it
+    /// across ticks so a detach and reattach between two ticks still resets
+    /// a terminal's idle clock.
+    attach_epochs: HashMap<SurfaceId, u64>,
+    next_attach_epoch: u64,
     /// Shares the registry lock with registration so accepting a handoff and
     /// admitting a new owner cannot pass each other.
     daemon_handoff: Option<DaemonHandoffReservation>,
 }
 
 pub(crate) struct ClientRegistry {
+    url_opens: url_open::URLRequests,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -3848,6 +3906,7 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             next_id: AtomicU64::new(1),
+            url_opens: url_open::URLRequests::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -4342,6 +4401,9 @@ impl ClientRegistry {
             record.view_leases.insert(lease.clone(), (surface, stream_id));
         }
         state.attached_by_surface.entry(surface).or_default().insert(client);
+        state.next_attach_epoch += 1;
+        let epoch = state.next_attach_epoch;
+        state.attach_epochs.insert(surface, epoch);
         Ok(lease)
     }
 
@@ -4758,6 +4820,7 @@ impl ClientRegistry {
     }
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
+        self.url_opens.disconnect(client);
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
@@ -4805,6 +4868,25 @@ impl ClientRegistry {
     /// Query one surface without walking every client's retained attachments.
     pub(crate) fn attached_client_ids_for_surface(&self, surface: SurfaceId) -> HashSet<u64> {
         self.state.lock().unwrap().attached_by_surface.get(&surface).cloned().unwrap_or_default()
+    }
+
+    /// Whether any client holds an attach stream on one of `surfaces`, and
+    /// the newest attach epoch among them (0 when none was ever attached).
+    pub(crate) fn attach_observation(&self, surfaces: &[SurfaceId]) -> (bool, u64) {
+        let state = self.state.lock().unwrap();
+        let attached =
+            surfaces.iter().any(|surface| state.attached_by_surface.contains_key(surface));
+        let epoch = surfaces
+            .iter()
+            .filter_map(|surface| state.attach_epochs.get(surface).copied())
+            .max()
+            .unwrap_or(0);
+        (attached, epoch)
+    }
+
+    /// Drop the attach epoch of a surface that no longer exists.
+    pub(crate) fn forget_surface_attach_epoch(&self, surface: SurfaceId) {
+        self.state.lock().unwrap().attach_epochs.remove(&surface);
     }
 }
 
@@ -4901,14 +4983,7 @@ fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
         if metadata.permissions().mode() & 0o077 != 0 {
             platform::restrict_directory(dir)?;
         }
-        let verified = std::fs::symlink_metadata(dir)?;
-        if verified.file_type().is_symlink()
-            || !verified.is_dir()
-            || verified.uid() != unsafe { libc::geteuid() }
-            || verified.permissions().mode() & 0o077 != 0
-        {
-            anyhow::bail!("runtime socket directory is not private: {}", dir.display());
-        }
+        verify_private_socket_directory(dir)?;
     }
     #[cfg(not(unix))]
     {
@@ -4958,6 +5033,44 @@ pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()
         }
     } else {
         prepare_explicit_socket_directory(path)?;
+    }
+    Ok(())
+}
+
+/// Connect a client to a session socket. A derived path must sit in the
+/// private runtime directory a server prepared, and its listener must run as
+/// this user, before the caller writes anything. Explicit paths keep their
+/// caller-managed semantics.
+pub fn connect_session_socket(
+    path: &Path,
+    is_derived: bool,
+) -> std::io::Result<Box<dyn transport::Stream>> {
+    if !is_derived {
+        return transport::connect(path);
+    }
+    #[cfg(unix)]
+    if let Some(dir) = path.parent() {
+        verify_private_socket_directory(dir)?;
+    }
+    transport::connect_same_user(path)
+}
+
+/// Check, without changing anything, that a derived socket directory is still
+/// the private one `prepare_runtime_socket_directory` leaves behind.
+#[cfg(unix)]
+fn verify_private_socket_directory(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let metadata = std::fs::symlink_metadata(dir)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_dir()
+        || metadata.uid() != platform::effective_uid()
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("runtime socket directory is not private: {}", dir.display()),
+        ));
     }
     Ok(())
 }
@@ -8361,7 +8474,7 @@ fn handle_journal_extension_request(
     let origin = LOCAL_JOURNAL_PRINCIPAL;
     match request.envelope.operation {
         ResourceOperation::SessionJournalProducerList => mux
-            .journal_producer_manifests()
+            .userland_journal_producer_manifests()
             .map(|producers| json!({"producers":producers}))
             .map_err(|error| journal_extension_error("session.journal.producer.list", error)),
         ResourceOperation::SessionJournalProducerPut => {
@@ -9157,6 +9270,9 @@ fn handle_request_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> bool {
     let Request { id, cmd } = request;
+    if let Command::UrlOpen { terminal_id, url } = cmd {
+        return url_open::start(mux, client, id, terminal_id, url, writer);
+    }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
     {
@@ -10271,7 +10387,7 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     match source {
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
-        other => anyhow::bail!("bad source {other}"),
+        other => anyhow::bail!("bad source {other}; raw report-agent accepts only socket or hook"),
     }
 }
 
@@ -10281,6 +10397,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "state": record.state.as_str(),
         "source": record.source.as_str(),
         "session": record.session,
+        "agent": record.agent,
         "updated_at_ms": record.updated_at_ms,
     })
 }
@@ -11255,6 +11372,19 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::UrlOpenSubscribe { terminal_ids } => {
+            mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
+            Ok(json!({"url_open_ready": true}))
+        }
+        Command::UrlOpenClaim { request_id } => {
+            Ok(json!({"claimed": mux.control_clients.url_opens.claim(&request_id)}))
+        }
+        Command::UrlOpenResult { request_id, opened } => {
+            Ok(json!({"accepted": mux.control_clients.url_opens.complete(&request_id, opened)}))
+        }
+        Command::UrlOpen { .. } => {
+            anyhow::bail!("URL opening requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,
@@ -11839,6 +11969,28 @@ fn handle_command_with_cancellation(
                 "generation": generation,
             }))
         }
+        Command::SetTerminalIdlePolicy { surface, terminal_id, idle_close_seconds } => {
+            let terminal_id = match (surface, terminal_id) {
+                (Some(surface), None) => {
+                    let surface = get_surface(mux, surface)?;
+                    require_pty(&surface)?;
+                    let identity = mux.resource_terminal_host_identity(&surface);
+                    identity.ok_or_else(|| anyhow::anyhow!("terminal_not_hosted"))?.terminal_id
+                }
+                (None, Some(terminal_id)) => {
+                    let resolution = mux.resolve_terminal(&terminal_id)?;
+                    let resolution =
+                        resolution.ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
+                    resolution.terminal.terminal_id
+                }
+                _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
+            };
+            mux.set_terminal_idle_policy(&terminal_id, idle_close_seconds)?;
+            Ok(json!({
+                "terminal_id": terminal_id,
+                "idle_close_seconds": idle_close_seconds,
+            }))
+        }
         Command::NewTab { pane, cwd, cols, rows } => {
             let surface = mux.new_tab(pane, cwd, optional_surface_size(cols, rows))?;
             let terminal_identity = surface.terminal_host_identity();
@@ -12271,6 +12423,9 @@ fn handle_command_with_cancellation(
                 "command": surface.spawn_command(),
                 "cwd": surface.local_cwd(),
                 "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
+                "foreground_executable": surface
+                    .process_id()
+                    .and_then(platform::foreground_process_name),
             }))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
@@ -12299,6 +12454,10 @@ fn handle_command_with_cancellation(
                 "registry_id":registry_id,
                 "generation":generation,
             }))
+        }
+        Command::MoveTabToWorkspace { surface, workspace } => {
+            mux.move_tab_to_workspace(surface, workspace)?;
+            Ok(json!({}))
         }
         Command::MoveTab { surface, pane, index } => {
             let valid = mux.with_state(|state| {
@@ -12799,13 +12958,58 @@ fn handle_command_with_cancellation(
             })?;
             Ok(json!({}))
         }
-        Command::AttachSurface { surface: surface_id, mode, cols, rows } => {
+        Command::AttachSurface {
+            surface: surface_id,
+            mode,
+            cols,
+            rows,
+            expected_generation,
+            expected_terminal_id,
+        } => {
             let initial_size = match (cols, rows) {
                 (Some(cols), Some(rows)) => Some((cols, rows)),
                 (None, None) => None,
                 _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
             };
+            let surface_id = match surface_id {
+                Some(surface) => surface,
+                None => {
+                    let generation = expected_generation.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "attachment identity requires generation and terminal together"
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        mux.registry_identity().1 == generation,
+                        "attachment_generation_mismatch"
+                    );
+                    let terminal = expected_terminal_id.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "attachment identity requires generation and terminal together"
+                        )
+                    })?;
+                    let terminal = TerminalPublicId::parse(terminal)
+                        .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
+                    mux.resource_surface_for_terminal(&terminal)
+                        .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
+                }
+            };
             let surface = get_surface(mux, surface_id)?;
+            match (expected_generation, expected_terminal_id) {
+                (Some(generation), Some(terminal)) => {
+                    anyhow::ensure!(
+                        mux.registry_identity().1 == generation,
+                        "attachment_generation_mismatch"
+                    );
+                    anyhow::ensure!(
+                        surface.terminal_public_id().map(|id| id.as_str())
+                            == Some(terminal.as_str()),
+                        "attachment_terminal_mismatch"
+                    );
+                }
+                (None, None) => {}
+                _ => anyhow::bail!("attachment identity requires generation and terminal together"),
+            }
             if surface.kind() == SurfaceKind::Browser {
                 let guarded_owner = mux
                     .control_clients
@@ -13256,12 +13460,13 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
-        MuxEvent::AgentChanged { surface, state, source, session, updated_at_ms } => json!({
+        MuxEvent::AgentChanged { surface, state, source, session, agent, updated_at_ms } => json!({
             "event": "agent-changed",
             "surface": surface,
             "state": state.as_ref(),
             "source": source.as_ref(),
             "session": session.as_deref(),
+            "agent": agent.as_deref(),
             "updated_at_ms": updated_at_ms,
         }),
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
@@ -13715,6 +13920,39 @@ mod tests {
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
         prepare_runtime_socket_directory(&directory).unwrap();
         assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_connect_requires_a_private_derived_parent() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let root = TestSocketDir::create("private-socket");
+        let runtime = root.path().join("rt");
+        std::fs::create_dir(&runtime).unwrap();
+        let socket = runtime.join("m.sock");
+        let _listener = transport::listen(&socket).unwrap();
+
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(connect_session_socket(&socket, false).is_ok(), "explicit paths are unchanged");
+        let error = connect_session_socket(&socket, true)
+            .err()
+            .expect("a derived socket in a shared directory must be refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(connect_session_socket(&socket, true).is_ok());
+
+        let alias = root.path().join("al");
+        symlink(&runtime, &alias).unwrap();
+        let error = connect_session_socket(&alias.join("m.sock"), true)
+            .err()
+            .expect("a derived socket behind a symlinked directory must be refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        let missing = root.path().join("missing").join("m.sock");
+        let error = connect_session_socket(&missing, true).err().expect("nothing listens there");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
     }
 
     #[cfg(unix)]
@@ -14355,7 +14593,7 @@ mod tests {
         );
     }
 
-    fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
+    pub(super) fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
         let outbound = Arc::new(BoundedOutbound::default());
         (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
     }
@@ -19326,12 +19564,38 @@ mod tests {
         assert_eq!(result["source"], "socket");
         assert_eq!(result["session"], "raw-command");
         assert_eq!(mux.with_state(|state| state.resource_revision), revision + 1);
-        assert_eq!(mux.resource_event_epoch(), epoch + 1);
+        // A fresh direct report publishes twice on the shared change epoch:
+        // its resource commit and its journal echo.
+        assert_eq!(mux.resource_event_epoch(), epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let events = mux.resource_events_after(revision).unwrap();
         assert_eq!(events.batches.len(), 1);
         assert_eq!(events.batches[0].changes[0]["resource"], "agent");
         assert_eq!(events.batches[0].changes[0]["value"]["source_session"], "raw-command");
+    }
+
+    #[test]
+    fn raw_report_agent_command_rejects_internal_projection_sources() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        for source in ["plugin", "detected"] {
+            let error = handle_command(
+                &mux,
+                0,
+                Command::ReportAgent {
+                    surface: surface.id,
+                    state: "working".into(),
+                    source: source.into(),
+                    session: Some("raw-command".into()),
+                },
+                &test_writer(),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("bad source"), "{source}: {error}");
+        }
+
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
     }
 
     #[test]
@@ -19539,6 +19803,45 @@ mod tests {
     }
 
     #[test]
+    fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let terminal = surface.terminal_public_id().unwrap().to_string();
+        for (generation, terminal, expected) in [
+            ("old-generation".to_string(), terminal.clone(), "attachment_generation_mismatch"),
+            (
+                mux.registry_identity().1,
+                "term_00000000000000000000000000000000".to_string(),
+                "attachment_terminal_mismatch",
+            ),
+        ] {
+            let command = Command::AttachSurface {
+                surface: Some(surface.id),
+                mode: None,
+                cols: None,
+                rows: None,
+                expected_generation: Some(generation),
+                expected_terminal_id: Some(terminal),
+            };
+            let error = handle_command(&mux, client, command, &writer).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error:#}");
+        }
+        let command = Command::AttachSurface {
+            surface: None,
+            mode: None,
+            cols: None,
+            rows: None,
+            expected_generation: Some(mux.registry_identity().1),
+            expected_terminal_id: Some(terminal),
+        };
+        handle_command(&mux, client, command, &writer).unwrap();
+        disconnect_client(&mux, client, false);
+        mux.shutdown();
+    }
+
+    #[test]
     fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
         let mux = test_mux();
         let writer = test_writer();
@@ -19563,7 +19866,14 @@ mod tests {
         let attach = handle_command(
             &mux,
             client,
-            Command::AttachSurface { surface: surface.id, mode: None, cols: None, rows: None },
+            Command::AttachSurface {
+                surface: Some(surface.id),
+                mode: None,
+                cols: None,
+                rows: None,
+                expected_generation: None,
+                expected_terminal_id: None,
+            },
             &writer,
         );
         mux.shutdown();
@@ -20616,6 +20926,91 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn idle_close_policy_reaps_only_unattached_terminals_past_their_deadline() {
+        const IDLE: &str = "00000000000040008000000000000031";
+        const IDLE_INCARNATION: &str = "10000000000040008000000000000031";
+        const NEVER: &str = "00000000000040008000000000000032";
+        const NEVER_INCARNATION: &str = "10000000000040008000000000000032";
+        const HOUR: Duration = Duration::from_secs(60 * 60);
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TERMINAL_IDLE_CLOSE_CAPABILITY));
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000003101".into()), None)
+            .unwrap();
+        // Seeded terminals project as exited placeholders (dead surfaces), so
+        // address them by stable terminal id; the surface form is covered by
+        // the live-surface handler path.
+        let idle =
+            mux.seed_running_terminal_for_test(IDLE, IDLE_INCARNATION, &workspace.key).unwrap();
+        mux.seed_running_terminal_for_test(NEVER, NEVER_INCARNATION, &workspace.key).unwrap();
+
+        let set = Command::SetTerminalIdlePolicy {
+            surface: None,
+            terminal_id: Some(IDLE.into()),
+            idle_close_seconds: Some(3_600),
+        };
+        let result = handle_command(&mux, 0, set, &test_writer()).unwrap();
+        assert_eq!(result["terminal_id"], IDLE);
+        assert_eq!(result["idle_close_seconds"], 3_600);
+        // A stable terminal id works as well, and null means never close.
+        for idle_close_seconds in [Some(60), None] {
+            let set = Command::SetTerminalIdlePolicy {
+                surface: None,
+                terminal_id: Some(NEVER.into()),
+                idle_close_seconds,
+            };
+            handle_command(&mux, 0, set, &test_writer()).unwrap();
+        }
+        assert_eq!(mux.terminal_idle_policy(IDLE).unwrap(), Some(3_600));
+        assert_eq!(mux.terminal_idle_policy(NEVER).unwrap(), None);
+        let ambiguous = Command::SetTerminalIdlePolicy {
+            surface: Some(idle),
+            terminal_id: Some(IDLE.into()),
+            idle_close_seconds: Some(60),
+        };
+        assert!(handle_command(&mux, 0, ambiguous, &test_writer()).is_err());
+
+        // An attached view keeps the terminal alive regardless of elapsed time.
+        let start = Instant::now();
+        let writer = test_writer();
+        let viewer = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&attach_overflow_json(idle)).unwrap();
+        mux.control_clients.attach_surface(viewer, idle, stream).unwrap();
+        assert!(mux.reap_idle_terminals(start).is_empty());
+        assert!(mux.reap_idle_terminals(start + 10 * HOUR).is_empty());
+
+        // The clock starts when the last view detaches.
+        mux.control_clients.remove(viewer);
+        let detached = start + 11 * HOUR;
+        assert!(mux.reap_idle_terminals(detached).is_empty());
+        assert!(mux.reap_idle_terminals(detached + HOUR - Duration::from_secs(1)).is_empty());
+
+        // A reattach between two ticks resets the clock.
+        let writer = test_writer();
+        let viewer = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&attach_overflow_json(idle)).unwrap();
+        mux.control_clients.attach_surface(viewer, idle, stream).unwrap();
+        mux.control_clients.remove(viewer);
+        let reattached = detached + HOUR;
+        assert!(mux.reap_idle_terminals(reattached).is_empty());
+        assert!(mux.reap_idle_terminals(reattached + HOUR / 2).is_empty());
+
+        assert_eq!(mux.reap_idle_terminals(reattached + HOUR), vec![IDLE.to_string()]);
+        let closed = mux.resolve_terminal(IDLE).unwrap().unwrap().terminal.lifecycle;
+        assert_eq!(closed, TerminalLifecycle::Tombstoned);
+        assert!(mux.surface(idle).is_none());
+
+        // The terminal whose policy was cleared is never reaped, and the
+        // closed terminal's policy is pruned.
+        assert!(mux.reap_idle_terminals(reattached + 1_000 * HOUR).is_empty());
+        assert_eq!(mux.terminal_idle_policy(IDLE).unwrap(), None);
+        let never = mux.resolve_terminal(NEVER).unwrap().unwrap().terminal.lifecycle;
+        assert_eq!(never, TerminalLifecycle::Running);
+        mux.close_terminal(NEVER, NEVER_INCARNATION).unwrap();
+    }
+
     #[test]
     fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
         let mux = test_mux();
@@ -21063,6 +21458,76 @@ mod tests {
 
         assert_eq!(surface.size(), (70, 20));
         assert_eq!(mux.new_workspace(None, None).unwrap().size(), (80, 24));
+    }
+
+    #[test]
+    fn displaced_terminal_owner_reclaims_geometry_when_the_new_owner_leaves() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let phone = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
+        assert_eq!(mux.claim_terminal_geometry(surface.id, laptop), Some(true));
+        assert_eq!(surface.size(), (120, 40));
+
+        // The phone views the terminal, then releases its viewport while
+        // keeping its stream (release-attached-view-size).
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        assert_eq!(mux.claim_terminal_geometry(surface.id, phone), Some(true));
+        assert_eq!(surface.size(), (66, 52));
+        assert!(!mux.client_size_participates(surface.id, laptop));
+        mux.remove_surface_size_client(surface.id, phone);
+        assert_eq!(surface.size(), (120, 40));
+        assert!(mux.client_size_participates(surface.id, laptop));
+        mux.resize_surface_for_client(surface.id, laptop, 118, 38).unwrap();
+        assert_eq!(surface.size(), (118, 38));
+
+        // The phone claims again, then disables its sizing.
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+        assert_eq!(surface.size(), (66, 52));
+        assert_eq!(mux.set_client_size_participation(surface.id, phone, false), Some(true));
+        assert_eq!(surface.size(), (118, 38));
+        assert!(mux.client_size_participates(surface.id, laptop));
+
+        // The phone claims again, then disconnects.
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+        assert_eq!(surface.size(), (66, 52));
+        assert!(disconnect_client(&mux, phone, false));
+        assert_eq!(surface.size(), (118, 38));
+        assert!(mux.client_size_participates(surface.id, laptop));
+    }
+
+    #[test]
+    fn departed_or_frozen_owners_do_not_reclaim_terminal_geometry() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let phone = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
+        mux.claim_terminal_geometry(surface.id, laptop).unwrap();
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+
+        // A displaced owner that disconnected is never re-elected.
+        assert!(disconnect_client(&mux, laptop, false));
+        mux.remove_surface_size_client(surface.id, phone);
+        assert_eq!(surface.size(), (66, 52));
+        assert!(!mux.client_size_participates(surface.id, phone));
+
+        // An explicit release freezes the grid and forgets displaced owners.
+        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
+        mux.claim_terminal_geometry(surface.id, laptop).unwrap();
+        assert_eq!(surface.size(), (120, 40));
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+        assert_eq!(mux.release_terminal_geometry(surface.id), Some(true));
+        assert_eq!(surface.size(), (66, 52));
+        mux.remove_surface_size_client(surface.id, phone);
+        assert_eq!(surface.size(), (66, 52));
+        assert!(!mux.client_size_participates(surface.id, laptop));
     }
 
     #[test]
@@ -23034,6 +23499,7 @@ mod tests {
                 state: Arc::<str>::from("working"),
                 source: Arc::<str>::from("hook"),
                 session: Some(Arc::<str>::from("review")),
+                agent: Some(Arc::<str>::from("claude")),
                 updated_at_ms: 41,
             }),
             json!({
@@ -23042,6 +23508,7 @@ mod tests {
                 "state": "working",
                 "source": "hook",
                 "session": "review",
+                "agent": "claude",
                 "updated_at_ms": 41,
             })
         );

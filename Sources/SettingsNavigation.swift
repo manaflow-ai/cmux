@@ -8,6 +8,9 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case sleepyMode
     case mobile
     case cloudMachines
+    /// Devices (My Devices). The raw value predates the rename and stays
+    /// because persisted navigation targets and `cmux settings open` send it.
+    case computers
     case networking
     case sidebarAppearance
     case customSidebars
@@ -26,6 +29,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .computers:
+            return String(localized: "settings.section.devices", defaultValue: "Devices")
         case .account:
             return String(localized: "settings.section.account", defaultValue: "Account")
         case .app:
@@ -53,7 +58,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
         case .computerUse:
-            return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
+            return String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use")
         case .browser:
             return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport:
@@ -71,6 +76,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 
     var symbolName: String {
         switch self {
+        case .computers:
+            return "desktopcomputer"
         case .account:
             return "person.crop.circle"
         case .app:
@@ -116,6 +123,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 
     var searchText: String {
         switch self {
+        case .computers:
+            return String(localized: "settings.devices.keywords", defaultValue: "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces")
         case .account:
             return "\(title) sign in team sync"
         case .app:
@@ -139,7 +148,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .customSidebars:
             return "\(title) custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures:
-            return "\(title) beta experimental unstable feed dock right sidebar"
+            return "\(title) beta experimental unstable feed right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
         case .computerUse:

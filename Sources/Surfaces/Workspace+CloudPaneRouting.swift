@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Identifies one remote workspace placement for a local projection.
@@ -103,15 +104,14 @@ final class CloudWorkspaceRenameService {
             resources: snapshot.resources
         ) else { return }
         if let binding = workspace.cloudVMBinding,
-           binding.vmID != target.machine.cloudMachineID {
+           binding.vmID != target.machine.tuiMachineID {
             return
         }
-        bind(
+        catalog.bindCloudWorkspace(
             localWorkspaceID: localWorkspaceID,
             machine: target.machine,
             remoteWorkspaceID: target.remoteWorkspaceID
         )
-        updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: catalog)
     }
     /// The one remote cmux-tui workspace a local workspace stands for. The persisted
     /// binding wins; otherwise the projected cloud resources decide, but only when
@@ -123,7 +123,7 @@ final class CloudWorkspaceRenameService {
         projectedResources: [SurfaceResource]
     ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
         if let binding, let remote = binding.remoteWorkspaceID, !remote.isEmpty {
-            return (.cloud(binding.vmID), remote)
+            return (SurfaceMachineID(rawValue: binding.vmID), remote)
         }
         var seen = Set<CloudWorkspaceRemoteIdentity>()
         var found: (SurfaceMachineID, String)?
@@ -301,17 +301,20 @@ final class CloudWorkspaceRenameService {
         }
     }
 
-    /// Records which machine + remote workspace a just-opened local workspace stands
-    /// for, so later local renames write through without guessing from its panes.
+}
+
+extension CloudWorkspaceRenameService {
+    /// Records the stable machine/workspace identity for a local projection.
     @MainActor
     func bind(
         localWorkspaceID: UUID,
         machine: SurfaceMachineID,
         remoteWorkspaceID: String?,
         isBase: Bool? = nil,
-        generatedTitle: String? = nil
+        generatedTitle: String? = nil,
+        remoteWorkspaceName: String? = nil
     ) {
-        guard let vmID = machine.cloudMachineID,
+        guard let vmID = machine.tuiMachineID,
               let manager = environment.tabManager(localWorkspaceID),
               let workspace = manager.workspacesById[localWorkspaceID] else { return }
         let previousBinding = workspace.cloudVMBinding
@@ -321,19 +324,20 @@ final class CloudWorkspaceRenameService {
             isBase: isBase ?? (sameMachine ? (previousBinding?.isBase ?? false) : false),
             remoteWorkspaceID: remoteWorkspaceID ?? (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
         )
-        // Local workspace creation historically records its creation title as
-        // `.user`. Mark only an exact generated title as remote, and never erase
-        // a real user edit that raced the bind operation.
+
+        // The placeholder is marked automatic at creation. An explicit user
+        // title, including the literal "Cloud VM", is never inferred from text
+        // and therefore wins over a delayed daemon receipt. When the first
+        // remote workspace receipt includes its accepted name, apply it here so
+        // the local projection adopts that identity in the same turn instead of
+        // briefly presenting two names for one workspace.
         if let generatedTitle,
+           (workspace.effectiveCustomTitleSource == .auto || workspace.customTitleSource == nil),
            workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
                == generatedTitle.trimmingCharacters(in: .whitespacesAndNewlines) {
-            _ = manager.setCustomTitle(
-                tabId: localWorkspaceID,
-                title: generatedTitle,
-                source: .remote,
-                propagateToRemoteTmux: false,
-                propagateToCloud: false
-            )
+            _ = manager.setCustomTitle(tabId: localWorkspaceID, title: remoteWorkspaceName ?? generatedTitle, source: .remote,
+                                       propagateToRemoteTmux: false, propagateToCloud: false)
         }
+
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
@@ -388,14 +389,14 @@ final class WindowBrowserHostView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         performHitTest(
-            at: point,
+            at: convert(point, from: superview ?? self),
             currentEvent: NSApp.currentEvent,
             dragPasteboard: NSPasteboard(name: .drag)
         )
     }
 
-    // Treat the event and drag pasteboard as one routing snapshot; AppKit can
-    // otherwise advance either ambient value during nested hit testing.
+    // Routing uses host-local points; AppKit hitTest uses superview coordinates.
+    // Capture the event and drag pasteboard together across nested hit testing.
     func performHitTest(
         at point: NSPoint,
         currentEvent: NSEvent?,
@@ -403,7 +404,7 @@ final class WindowBrowserHostView: NSView {
     ) -> NSView? {
         let routingContext = WindowInputRoutingContext(event: currentEvent)
         guard routingContext.allowsPortalPointerHitTesting else {
-            let hitView = super.hitTest(point)
+            let hitView = super.hitTest(convert(point, to: superview ?? self))
             return hitView === self ? nil : hitView
         }
 
@@ -531,7 +532,7 @@ final class WindowBrowserHostView: NSView {
 #endif
             return self
         }
-        let hitView = super.hitTest(point)
+        let hitView = super.hitTest(convert(point, to: superview ?? self))
 #if DEBUG
         debugLogPointerRouting(
             stage: "hitTest.result",
@@ -800,7 +801,7 @@ final class WindowBrowserHostView: NSView {
             }
             let pointInSibling = sibling.convert(windowPoint, from: nil)
             guard sibling.bounds.contains(pointInSibling),
-                  let hitView = sibling.hitTest(pointInSibling) else {
+                  let hitView = sibling.cmuxHitTest(windowPoint: windowPoint) else {
                 continue
             }
 
@@ -848,7 +849,7 @@ final class WindowBrowserHostView: NSView {
         at point: NSPoint,
         hostedInspectorHit: HostedInspectorDividerHit
     ) -> NSView? {
-        guard let nativeHit = super.hitTest(point), nativeHit !== self else { return nil }
+        guard let nativeHit = super.hitTest(convert(point, to: superview ?? self)), nativeHit !== self else { return nil }
         if nativeHit === hostedInspectorHit.pageView ||
             nativeHit.isDescendant(of: hostedInspectorHit.pageView) {
             return nil
@@ -1262,7 +1263,8 @@ final class WindowBrowserSlotView: NSView {
     }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
-    private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
+    lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
+    private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlayRoot>?
     private var designComposerHostingView: BrowserDesignModeComposerHostingView?
     private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
@@ -1270,8 +1272,6 @@ final class WindowBrowserSlotView: NSView {
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     private var forwardedDropZone: DropZone?
     private var portalDragDropZone: DropZone?
-    private var displayedDropZone: DropZone?
-    private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var isRefreshingInteractionLayers = false
     private var paneTopChromeHeight: CGFloat = 0
     var preferredHostedInspectorWidth: CGFloat?
@@ -1291,12 +1291,7 @@ final class WindowBrowserSlotView: NSView {
 
         paneDropTargetView.slotView = self
 
-        dropZoneOverlayView.wantsLayer = true
-        dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
-        dropZoneOverlayView.layer?.borderWidth = 2
-        dropZoneOverlayView.layer?.cornerRadius = 8
-        dropZoneOverlayView.isHidden = true
+        _ = dropZoneOverlayAnimator
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
     }
 
@@ -1461,6 +1456,7 @@ final class WindowBrowserSlotView: NSView {
             onClose: configuration.onClose,
             onFieldDidFocus: configuration.onFieldDidFocus
         )
+        .cmuxAccentColorEnvironment()
 
         if let overlay = searchOverlayHostingView {
             logSearchOverlayEvent("updateExisting", panelId: configuration.panelId)
@@ -1764,72 +1760,12 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
-        let previousZone = displayedDropZone
-        displayedDropZone = resolvedZone
-        let previousFrame = dropZoneOverlayView.frame
-
-        guard let zone = resolvedZone else {
-            guard !dropZoneOverlayView.isHidden else {
-                bringInteractionLayersToFrontIfNeeded()
-                return
-            }
-
-            dropZoneOverlayAnimationGeneration &+= 1
-            let animationGeneration = dropZoneOverlayAnimationGeneration
-            dropZoneOverlayView.layer?.removeAllAnimations()
-            bringInteractionLayersToFrontIfNeeded()
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.14
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                dropZoneOverlayView.animator().alphaValue = 0
-            } completionHandler: { [weak self] in
-                guard let self else { return }
-                guard self.dropZoneOverlayAnimationGeneration == animationGeneration else { return }
-                guard self.displayedDropZone == nil else { return }
-                self.dropZoneOverlayView.isHidden = true
-                self.dropZoneOverlayView.alphaValue = 1
-            }
-            return
-        }
-        attachDropZoneOverlayIfNeeded()
-
-        let targetFrame = dropZoneOverlayFrame(for: zone, in: bounds.size)
-        let needsFrameUpdate = !Self.rectApproximatelyEqual(previousFrame, targetFrame)
-        let zoneChanged = previousZone != zone
-
-        if !dropZoneOverlayView.isHidden && !needsFrameUpdate && !zoneChanged {
-            bringInteractionLayersToFrontIfNeeded()
-            return
-        }
-
-        dropZoneOverlayAnimationGeneration &+= 1
-        dropZoneOverlayView.layer?.removeAllAnimations()
-
-        if dropZoneOverlayView.isHidden {
-            applyDropZoneOverlayFrame(targetFrame)
-            dropZoneOverlayView.alphaValue = 0
-            dropZoneOverlayView.isHidden = false
-            bringInteractionLayersToFrontIfNeeded()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                dropZoneOverlayView.animator().alphaValue = 1
-            }
-            return
-        }
-
-        bringInteractionLayersToFrontIfNeeded()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            if needsFrameUpdate {
-                dropZoneOverlayView.animator().frame = targetFrame
-            }
-            if dropZoneOverlayView.alphaValue < 1 {
-                dropZoneOverlayView.animator().alphaValue = 1
-            }
-        }
+        dropZoneOverlayAnimator.setZone(
+            resolvedZone,
+            frameForZone: { dropZoneOverlayFrame(for: $0, in: bounds.size) },
+            ensureAttached: attachDropZoneOverlayIfNeeded,
+            bringToFront: bringInteractionLayersToFrontIfNeeded
+        )
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
@@ -1866,14 +1802,6 @@ final class WindowBrowserSlotView: NSView {
         }, context: context)
     }
 
-    private func applyDropZoneOverlayFrame(_ frame: CGRect) {
-        if Self.rectApproximatelyEqual(dropZoneOverlayView.frame, frame) { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        dropZoneOverlayView.frame = frame
-        CATransaction.commit()
-    }
-
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
         let localFrame = BrowserPaneDropRouting.overlayFrame(
             for: zone,
@@ -1882,13 +1810,6 @@ final class WindowBrowserSlotView: NSView {
         )
         guard let superview else { return localFrame }
         return superview.convert(localFrame, from: self)
-    }
-
-    private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
-        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-            abs(lhs.size.width - rhs.size.width) <= epsilon &&
-            abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 }
 
@@ -2139,15 +2060,15 @@ final class WindowBrowserPortal: NSObject {
             installedContainerView !== container ||
             installedReferenceView !== reference {
             hostView.removeFromSuperview()
-            container.addSubview(hostView, positioned: .above, relativeTo: placementReference)
+            container.addSubview(hostView, positioned: .above, relativeTo: placementReference === container ? nil : placementReference)
             installedContainerView = container
             installedReferenceView = reference
         } else {
-            let aboveReference = Self.isView(hostView, above: reference, in: container)
+            let aboveReference = reference === container ? container.subviews.last === hostView : Self.isView(hostView, above: reference, in: container)
             let abovePlacementReference = placementReference === reference
                 || Self.isView(hostView, above: placementReference, in: container)
             if !aboveReference || !abovePlacementReference {
-                container.addSubview(hostView, positioned: .above, relativeTo: placementReference)
+                container.addSubview(hostView, positioned: .above, relativeTo: placementReference === container ? nil : placementReference)
             }
         }
 
@@ -2187,7 +2108,7 @@ final class WindowBrowserPortal: NSObject {
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
         guard let target = chromeComposition
             .contentOverlayTargetResolver
-            .installationTarget(for: window) else { return nil }
+            .browserInstallationTarget(for: window) else { return nil }
         return (target.container, target.reference)
     }
 
@@ -2931,9 +2852,12 @@ final class WindowBrowserPortal: NSObject {
 
     func updatePaneDropContext(forWebViewId webViewId: ObjectIdentifier, context: BrowserPaneDropContext?) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
-        guard entry.paneDropContext != context else { return }
-        entry.paneDropContext = context
-        entriesByWebViewId[webViewId] = entry
+        // The physical slot may have been reset independently during recovery.
+        // Reapply the authoritative context even when the entry is unchanged.
+        if entry.paneDropContext != context {
+            entry.paneDropContext = context
+            entriesByWebViewId[webViewId] = entry
+        }
         guard let containerView = entry.containerView else { return }
         if let context {
             containerView.setPaneDropContext(context)
@@ -4024,7 +3948,7 @@ final class WindowBrowserPortal: NSObject {
         for subview in hostView.subviews.reversed() {
             guard let container = subview as? WindowBrowserSlotView else { continue }
             guard !container.isHidden else { continue }
-            guard container.frame.contains(point) else { continue }
+            let containsPoint = container.frame.contains(point) || container.convert(container.bounds, to: nil).contains(windowPoint); guard containsPoint else { continue }
             guard let webView = entriesByWebViewId
                 .first(where: { _, entry in entry.containerView === container })?
                 .value
@@ -4058,7 +3982,6 @@ enum BrowserWindowPortalRegistry {
 
     private static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]
     private static var webViewToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
-
     private static func postRegistryDidChange(for webView: WKWebView) {
         NotificationCenter.default.post(name: .browserPortalRegistryDidChange, object: webView)
     }
@@ -4112,6 +4035,7 @@ enum BrowserWindowPortalRegistry {
     }
 
     private static func portal(for window: NSWindow) -> WindowBrowserPortal {
+        installBrowserHostMountObserverIfNeeded()
         if let existing = objc_getAssociatedObject(window, &cmuxWindowBrowserPortalKey) as? WindowBrowserPortal {
             portalsByWindowId[ObjectIdentifier(window)] = existing
             installWindowCloseObserverIfNeeded(for: window)
