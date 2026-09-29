@@ -1418,6 +1418,13 @@ export const stripeSubscriptions = pgTable(
   ],
 );
 
+export const teamBillingOwners = pgTable("team_billing_owners", {
+  stackTeamId: text("stack_team_id").primaryKey(),
+  billingOwnerUserId: text("billing_owner_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
   id: text("id").primaryKey(),
   type: text("type").notNull(),
