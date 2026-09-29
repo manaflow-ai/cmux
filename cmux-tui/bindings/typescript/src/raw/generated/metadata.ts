@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45. */
+/* cmux-tui mux protocol 12, IR 252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45" as const;
+export const SDK_IR_SHA256 = "252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -38,6 +38,26 @@ export const PROFILES = {
   }
 } as const;
 export const COMMAND_METADATA = {
+  "ack-tab-notifications": {
+    "authority": "control",
+    "since": 12,
+    "capability": "notification-ack-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "add-tabs-to-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "apply-layout": {
     "authority": "control",
     "since": 6,
@@ -328,6 +348,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "close-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "close-terminal": {
     "authority": "control",
     "since": 9,
@@ -393,11 +423,25 @@ export const COMMAND_METADATA = {
       "A new idempotency_key is valid only when durable creation resolution instructs retry_new_idempotency_key."
     ]
   },
+  "create-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "create-terminal": {
     "authority": "control",
     "since": 7,
     "capability": "workspace-registry-v1",
     "fields": {
+      "env": {
+        "since": 12,
+        "capability": "terminal-env-v1"
+      },
       "terminal_id": {
         "since": 9,
         "capability": null
@@ -413,6 +457,36 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "create-workspace-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "workspace-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "delete-saved-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "saved-tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "delete-workspace-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "workspace-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "detach-attached-view": {
     "authority": "frontend",
@@ -530,6 +604,36 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "list-notifications": {
+    "authority": "control",
+    "since": 12,
+    "capability": "notification-ack-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "list-saved-tab-groups": {
+    "authority": "control",
+    "since": 12,
+    "capability": "saved-tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "list-tab-groups": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "list-terminals": {
     "authority": "control",
     "since": 9,
@@ -537,6 +641,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "list-workspace-groups": {
+    "authority": "control",
+    "since": 12,
+    "capability": "workspace-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "list-workspaces": {
     "authority": "control",
@@ -598,17 +712,97 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "transaction": {
+        "since": 12,
+        "capability": "tab-drag-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "An out-of-range index clamps to the destination end."
+    ]
+  },
+  "move-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-tab-group-to-column": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-tab-group-to-new-workspace": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-tab-group-to-split": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-tab-to-column": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-drag-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-tab-to-new-workspace": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-drag-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-tab-to-split": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-drag-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "move-tab-to-workspace": {
     "authority": "control",
     "since": 12,
     "capability": "tab-workspace-move-v1",
-    "fields": {},
+    "fields": {
+      "transaction": {
+        "since": 12,
+        "capability": "tab-drag-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "Moves the existing tab to the selected workspace or atomically creates a workspace when workspace is omitted."
@@ -653,6 +847,26 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "move-workspace-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "workspace-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "move-workspace-to-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "workspace-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "new-browser-tab": {
     "authority": "control",
     "since": 5,
@@ -661,6 +875,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Bootstrap and navigation failures are asynchronous browser-state outcomes."
+    ]
+  },
+  "new-frontend-browser-tab": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-browser-tabs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "new-pane": {
@@ -691,7 +915,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "env": {
+        "since": 12,
+        "capability": "terminal-env-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -826,6 +1055,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "remove-tabs-from-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "rename-pane": {
     "authority": "control",
     "since": 5,
@@ -897,6 +1136,16 @@ export const COMMAND_METADATA = {
       "Provider-managed workspaces reject this ordinary mutation."
     ]
   },
+  "reopen-saved-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "saved-tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "report-agent": {
     "authority": "control",
     "since": 6,
@@ -954,6 +1203,16 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": []
+  },
+  "save-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "saved-tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "scroll-surface": {
     "authority": "control",
@@ -1109,6 +1368,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "set-tab-pinned": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-metadata-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "set-terminal-idle-policy": {
     "authority": "control",
     "since": 12,
@@ -1143,6 +1412,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "set-workspace-metadata": {
+    "authority": "control",
+    "since": 12,
+    "capability": "workspace-metadata-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "shutdown-daemon": {
     "authority": "local-admin",
     "since": 9,
@@ -1173,7 +1452,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "cwd": {
+        "since": 12,
+        "capability": "terminal-env-v1"
+      },
+      "env": {
+        "since": 12,
+        "capability": "terminal-env-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -1288,6 +1576,16 @@ export const COMMAND_METADATA = {
       "Clients must reject incomplete or contradictory result variants."
     ]
   },
+  "ungroup-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "unregister-browser-provider": {
     "authority": "local-admin",
     "since": 10,
@@ -1296,6 +1594,46 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Only the calling connection's provider lease is removed."
+    ]
+  },
+  "unsave-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "saved-tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "update-frontend-browser-tab": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-browser-tabs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "update-tab-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "update-workspace-group": {
+    "authority": "control",
+    "since": 12,
+    "capability": "workspace-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "url-open": {
@@ -1681,6 +2019,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "tab-changed": {
+    "since": 12,
+    "capability": "tab-metadata-v1",
+    "streams": [
+      "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
   "tab-closed": {
     "since": 7,
     "capability": null,
@@ -1748,6 +2094,14 @@ export const EVENT_METADATA = {
   "workspace-added": {
     "since": 7,
     "capability": null,
+    "streams": [
+      "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "workspace-changed": {
+    "since": 12,
+    "capability": "workspace-metadata-v1",
     "streams": [
       "subscribe-deltas"
     ],
@@ -4048,6 +4402,10 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "PaneRef": {
+    "kind": "opaque_json",
+    "reason": "A pane named by its numeric id or its public pane_ id."
+  },
   "PingResult": {
     "additional_properties": false,
     "fields": {
@@ -5963,6 +6321,10 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TabRef": {
+    "kind": "opaque_json",
+    "reason": "A tab named by its numeric surface id or its public tab_ id."
+  },
   "TerminalColorOverrides": {
     "additional_properties": false,
     "fields": {
@@ -7100,6 +7462,69 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   }
 };
 export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
+  "ack-tab-notifications": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "add-tabs-to-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surfaces": {
+          "aliases": [
+            "tabs"
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabRef"
+            },
+            "kind": "array"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "apply-layout": {
     "request": {
       "additional_properties": false,
@@ -7968,6 +8393,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "close-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "close-terminal": {
     "request": {
       "additional_properties": false,
@@ -8299,6 +8744,68 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "create-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "group": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surfaces": {
+          "aliases": [
+            "tabs"
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabRef"
+            },
+            "kind": "array"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "create-terminal": {
     "request": {
       "additional_properties": false,
@@ -8348,6 +8855,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "env": {
+          "capability": "terminal-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
           }
         },
         "expected_generation": {
@@ -8530,6 +9051,102 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "WorkspaceMutationResult"
+    }
+  },
+  "create-workspace-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "collapsed": {
+          "default": null,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "group": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "name": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "delete-saved-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "saved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "delete-workspace-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "detach-attached-view": {
@@ -8819,6 +9436,49 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "array"
     }
   },
+  "list-notifications": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "limit": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "list-saved-tab-groups": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "list-tab-groups": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "list-terminals": {
     "request": {
       "additional_properties": false,
@@ -8828,6 +9488,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ListTerminalsResult"
+    }
+  },
+  "list-workspace-groups": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "list-workspaces": {
@@ -8985,6 +9656,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "ref",
             "name": "Id"
           }
+        },
+        "transaction": {
+          "capability": "tab-drag-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
         }
       },
       "kind": "object"
@@ -8992,6 +9674,385 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "move-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "pane": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "PaneRef"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-tab-group-to-column": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_column": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "PaneRef"
+          }
+        },
+        "screen": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "width": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-tab-group-to-new-workspace": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "workspace_group": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-tab-group-to-split": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "edge": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "PaneRef"
+          }
+        },
+        "ratio": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float32"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-tab-to-column": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_column": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "pane": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "screen": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "width": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-tab-to-new-workspace": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-tab-to-split": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "edge": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "ratio": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float32"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "move-tab-to-workspace": {
@@ -9004,6 +10065,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "transaction": {
+          "capability": "tab-drag-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "workspace": {
@@ -9189,6 +10261,121 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "WorkspaceMutationResult"
     }
   },
+  "move-workspace-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-workspace-to-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_generation": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_revision": {
+          "aliases": [
+            "expected_terminal_revision"
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "group": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "key": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "new-browser-tab": {
     "request": {
       "additional_properties": false,
@@ -9237,6 +10424,88 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "SurfaceResult"
+    }
+  },
+  "new-frontend-browser-tab": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cols": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "engine": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "favicon_url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "profile_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "rows": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "title": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "new-pane": {
@@ -9402,6 +10671,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "env": {
+          "capability": "terminal-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
           }
         },
         "pane": {
@@ -10014,6 +11297,41 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "remove-tabs-from-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surfaces": {
+          "aliases": [
+            "tabs"
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabRef"
+            },
+            "kind": "array"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "rename-pane": {
     "request": {
       "additional_properties": false,
@@ -10240,6 +11558,43 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "WorkspaceMutationResult"
+    }
+  },
+  "reopen-saved-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "PaneRef"
+          }
+        },
+        "saved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "report-agent": {
@@ -10556,6 +11911,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "RunResult"
+    }
+  },
+  "save-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "scroll-surface": {
@@ -11130,6 +12505,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "set-tab-pinned": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "pinned": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "set-terminal-idle-policy": {
     "request": {
       "additional_properties": false,
@@ -11253,6 +12656,102 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "set-workspace-metadata": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_generation": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_revision": {
+          "aliases": [
+            "expected_terminal_revision"
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "icon": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "key": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "title": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "shutdown-daemon": {
     "request": {
       "additional_properties": false,
@@ -11345,12 +12844,37 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "cwd": {
+          "capability": "terminal-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "dir": {
           "nullable": false,
           "presence": "required",
           "type": {
             "kind": "ref",
             "name": "SplitDirection"
+          }
+        },
+        "env": {
+          "capability": "terminal-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
           }
         },
         "pane": {
@@ -11517,6 +13041,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "LayoutUndoResult"
     }
   },
+  "ungroup-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "unregister-browser-provider": {
     "request": {
       "additional_properties": false,
@@ -11526,6 +13070,167 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "BrowserProviderUnregisterResult"
+    }
+  },
+  "unsave-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "update-frontend-browser-tab": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "favicon_url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "title": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "update-tab-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "collapsed": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "update-workspace-group": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "collapsed": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "url-open": {
@@ -13431,6 +15136,78 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "tab-changed": {
+    "additional_properties": false,
+    "fields": {
+      "entity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Tab"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "tab-changed"
+        }
+      },
+      "index": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pane": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "screen": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "transaction": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "tab-closed": {
     "additional_properties": false,
     "fields": {
@@ -13807,6 +15584,88 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "index": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "mutation_id": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "origin": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "registry_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "workspace_revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "workspace-changed": {
+    "additional_properties": false,
+    "constraints": [
+      "origin and mutation_id are either both present or both absent."
+    ],
+    "fields": {
+      "entity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Workspace"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "workspace-changed"
+        }
+      },
+      "generation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "index": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "uint64"

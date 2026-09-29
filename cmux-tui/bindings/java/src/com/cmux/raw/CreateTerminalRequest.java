@@ -16,6 +16,7 @@ public final class CreateTerminalRequest implements WireValue {
     private final Field<Integer> cols;
     private final Field<String> command;
     private final Field<String> cwd;
+    private final Field<Map<String, String>> env;
     private final Field<String> expectedGeneration;
     private final Field<UInt64> expectedRevision;
     private final Field<String> key;
@@ -31,6 +32,7 @@ public final class CreateTerminalRequest implements WireValue {
         this.cols = builder.cols;
         this.command = builder.command;
         this.cwd = builder.cwd;
+        this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
         this.expectedGeneration = builder.expectedGeneration;
         this.expectedRevision = builder.expectedRevision;
         this.key = builder.key;
@@ -48,6 +50,7 @@ public final class CreateTerminalRequest implements WireValue {
     public Field<Integer> cols() { return cols; }
     public Field<String> command() { return command; }
     public Field<String> cwd() { return cwd; }
+    public Field<Map<String, String>> env() { return env; }
     public Field<String> expectedGeneration() { return expectedGeneration; }
     public Field<UInt64> expectedRevision() { return expectedRevision; }
     public Field<String> key() { return key; }
@@ -76,6 +79,10 @@ public final class CreateTerminalRequest implements WireValue {
         Object rawCwd = Wire.optional(object, "cwd");
         if (!Wire.isMissing(rawCwd)) {
             builder.cwd(rawCwd == null ? null : Wire.string(rawCwd, "CreateTerminalRequest.cwd"));
+        }
+        Object rawEnv = Wire.optional(object, "env");
+        if (!Wire.isMissing(rawEnv)) {
+            builder.env(rawEnv == null ? null : Wire.map(rawEnv, "CreateTerminalRequest.env", item -> Wire.string(item, "CreateTerminalRequest.env value")));
         }
         Object rawExpectedGeneration = Wire.optional(object, "expected_generation");
         if (!Wire.isMissing(rawExpectedGeneration)) {
@@ -123,6 +130,7 @@ public final class CreateTerminalRequest implements WireValue {
         Wire.put(object, "cols", cols);
         Wire.put(object, "command", command);
         Wire.put(object, "cwd", cwd);
+        Wire.put(object, "env", env);
         Wire.put(object, "expected_generation", expectedGeneration);
         Wire.put(object, "expected_revision", expectedRevision);
         Wire.put(object, "key", key);
@@ -138,11 +146,11 @@ public final class CreateTerminalRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateTerminalRequest that)) return false;
-        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(argv, cols, command, cwd, expectedGeneration, expectedRevision, key, mutationId, name, origin, rows, terminalId, workspace); }
+    public int hashCode() { return Objects.hash(argv, cols, command, cwd, env, expectedGeneration, expectedRevision, key, mutationId, name, origin, rows, terminalId, workspace); }
 
     @Override
     public String toString() { return "CreateTerminalRequest" + toWire(); }
@@ -152,6 +160,7 @@ public final class CreateTerminalRequest implements WireValue {
         private Field<Integer> cols = Field.omitted();
         private Field<String> command = Field.omitted();
         private Field<String> cwd = Field.omitted();
+        private Field<Map<String, String>> env = Field.omitted();
         private Field<String> expectedGeneration = Field.omitted();
         private Field<UInt64> expectedRevision = Field.omitted();
         private Field<String> key = Field.omitted();
@@ -176,6 +185,10 @@ public final class CreateTerminalRequest implements WireValue {
         }
         public Builder cwd(String value) {
             this.cwd = Field.ofNullable(value);
+            return this;
+        }
+        public Builder env(Map<String, String> value) {
+            this.env = Field.ofNullable(value);
             return this;
         }
         public Builder expectedGeneration(String value) {

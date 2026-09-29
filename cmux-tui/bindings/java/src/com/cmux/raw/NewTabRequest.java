@@ -14,12 +14,14 @@ import java.util.Objects;
 public final class NewTabRequest implements WireValue {
     private final Field<Integer> cols;
     private final Field<String> cwd;
+    private final Field<Map<String, String>> env;
     private final Field<UInt64> pane;
     private final Field<Integer> rows;
 
     private NewTabRequest(Builder builder) {
         this.cols = builder.cols;
         this.cwd = builder.cwd;
+        this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
         this.pane = builder.pane;
         this.rows = builder.rows;
     }
@@ -28,6 +30,7 @@ public final class NewTabRequest implements WireValue {
 
     public Field<Integer> cols() { return cols; }
     public Field<String> cwd() { return cwd; }
+    public Field<Map<String, String>> env() { return env; }
     public Field<UInt64> pane() { return pane; }
     public Field<Integer> rows() { return rows; }
 
@@ -41,6 +44,10 @@ public final class NewTabRequest implements WireValue {
         Object rawCwd = Wire.optional(object, "cwd");
         if (!Wire.isMissing(rawCwd)) {
             builder.cwd(rawCwd == null ? null : Wire.string(rawCwd, "NewTabRequest.cwd"));
+        }
+        Object rawEnv = Wire.optional(object, "env");
+        if (!Wire.isMissing(rawEnv)) {
+            builder.env(rawEnv == null ? null : Wire.map(rawEnv, "NewTabRequest.env", item -> Wire.string(item, "NewTabRequest.env value")));
         }
         Object rawPane = Wire.optional(object, "pane");
         if (!Wire.isMissing(rawPane)) {
@@ -58,6 +65,7 @@ public final class NewTabRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "cols", cols);
         Wire.put(object, "cwd", cwd);
+        Wire.put(object, "env", env);
         Wire.put(object, "pane", pane);
         Wire.put(object, "rows", rows);
         return Collections.unmodifiableMap(object);
@@ -66,11 +74,11 @@ public final class NewTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewTabRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows);
+        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, cwd, pane, rows); }
+    public int hashCode() { return Objects.hash(cols, cwd, env, pane, rows); }
 
     @Override
     public String toString() { return "NewTabRequest" + toWire(); }
@@ -78,6 +86,7 @@ public final class NewTabRequest implements WireValue {
     public static final class Builder {
         private Field<Integer> cols = Field.omitted();
         private Field<String> cwd = Field.omitted();
+        private Field<Map<String, String>> env = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
         private Field<Integer> rows = Field.omitted();
 
@@ -87,6 +96,10 @@ public final class NewTabRequest implements WireValue {
         }
         public Builder cwd(String value) {
             this.cwd = Field.ofNullable(value);
+            return this;
+        }
+        public Builder env(Map<String, String> value) {
+            this.env = Field.ofNullable(value);
             return this;
         }
         public Builder pane(UInt64 value) {

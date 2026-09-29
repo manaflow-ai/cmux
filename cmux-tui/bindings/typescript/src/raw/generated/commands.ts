@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45. */
+/* cmux-tui mux protocol 12, IR 252966630de426c49feb36ad1c035f9489871b52e59dc659d4fd93a49d20e675. */
 
 
 import type * as T from "./types.js";
@@ -22,6 +22,22 @@ export interface CmuxFailureResponse {
 export type CmuxResponse<D = T.JsonValue> =
   | CmuxSuccessResponse<D>
   | CmuxFailureResponse;
+
+/** Protocol v12; authority: control. */
+export interface AckTabNotificationsRequest extends CmuxRequestBase {
+  cmd: "ack-tab-notifications";
+  "surface": T.Id;
+}
+export type AckTabNotificationsResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface AddTabsToTabGroupRequest extends CmuxRequestBase {
+  cmd: "add-tabs-to-tab-group";
+  "group": string;
+  "surfaces": Array<T.TabRef>;
+  "transaction"?: (string) | null;
+}
+export type AddTabsToTabGroupResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface ApplyLayoutRequest extends CmuxRequestBase {
@@ -224,6 +240,13 @@ export interface CloseSurfaceRequest extends CmuxRequestBase {
 }
 export type CloseSurfaceResult = T.EmptyResult;
 
+/** Protocol v12; authority: control. */
+export interface CloseTabGroupRequest extends CmuxRequestBase {
+  cmd: "close-tab-group";
+  "group": string;
+}
+export type CloseTabGroupResult = T.JsonValue;
+
 /** Protocol v9; authority: control. */
 export interface CloseTerminalRequest extends CmuxRequestBase {
   cmd: "close-terminal";
@@ -274,6 +297,17 @@ export interface CreateSurfaceWithReceiptRequest extends CmuxRequestBase {
 }
 export type CreateSurfaceWithReceiptResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface CreateTabGroupRequest extends CmuxRequestBase {
+  cmd: "create-tab-group";
+  "color"?: (string) | null;
+  "group"?: (string) | null;
+  "name"?: (string) | null;
+  "surfaces": Array<T.TabRef>;
+  "transaction"?: (string) | null;
+}
+export type CreateTabGroupResult = T.JsonValue;
+
 /** Protocol v7; authority: control. */
 export interface CreateTerminalRequest extends CmuxRequestBase {
   cmd: "create-terminal";
@@ -281,6 +315,7 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "cols"?: (number) | null;
   "command"?: (string) | null;
   "cwd"?: (string) | null;
+  "env"?: (Record<string, string>) | null;
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "key"?: (string) | null;
@@ -304,6 +339,31 @@ export interface CreateWorkspaceRequest extends CmuxRequestBase {
   "origin"?: (string) | null;
 }
 export type CreateWorkspaceResult = T.WorkspaceMutationResult;
+
+/** Protocol v12; authority: control. */
+export interface CreateWorkspaceGroupRequest extends CmuxRequestBase {
+  cmd: "create-workspace-group";
+  "collapsed"?: boolean;
+  "color"?: (string) | null;
+  "group"?: (string) | null;
+  "index"?: (bigint) | null;
+  "name": string;
+}
+export type CreateWorkspaceGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface DeleteSavedTabGroupRequest extends CmuxRequestBase {
+  cmd: "delete-saved-tab-group";
+  "saved": string;
+}
+export type DeleteSavedTabGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface DeleteWorkspaceGroupRequest extends CmuxRequestBase {
+  cmd: "delete-workspace-group";
+  "group": string;
+}
+export type DeleteWorkspaceGroupResult = T.JsonValue;
 
 /** Protocol v10; authority: frontend. */
 export interface DetachAttachedViewRequest extends CmuxRequestBase {
@@ -393,10 +453,35 @@ export interface ListClientsRequest extends CmuxRequestBase {
 }
 export type ListClientsResult = Array<T.ClientInfo>;
 
+/** Protocol v12; authority: control. */
+export interface ListNotificationsRequest extends CmuxRequestBase {
+  cmd: "list-notifications";
+  "limit"?: (bigint) | null;
+}
+export type ListNotificationsResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface ListSavedTabGroupsRequest extends CmuxRequestBase {
+  cmd: "list-saved-tab-groups";
+}
+export type ListSavedTabGroupsResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface ListTabGroupsRequest extends CmuxRequestBase {
+  cmd: "list-tab-groups";
+}
+export type ListTabGroupsResult = T.JsonValue;
+
 /** Protocol v9; authority: control. */
 export interface ListTerminalsRequest extends CmuxRequestBase {
   cmd: "list-terminals";
 }
+
+/** Protocol v12; authority: control. */
+export interface ListWorkspaceGroupsRequest extends CmuxRequestBase {
+  cmd: "list-workspace-groups";
+}
+export type ListWorkspaceGroupsResult = T.JsonValue;
 
 /** Protocol v5; authority: control. */
 export interface ListWorkspacesRequest extends CmuxRequestBase {
@@ -442,13 +527,91 @@ export interface MoveTabRequest extends CmuxRequestBase {
   "index": bigint;
   "pane": T.Id;
   "surface": T.Id;
+  "transaction"?: (string) | null;
 }
 export type MoveTabResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabGroupRequest extends CmuxRequestBase {
+  cmd: "move-tab-group";
+  "group": string;
+  "index"?: (bigint) | null;
+  "pane"?: (T.PaneRef) | null;
+  "transaction"?: (string) | null;
+}
+export type MoveTabGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabGroupToColumnRequest extends CmuxRequestBase {
+  cmd: "move-tab-group-to-column";
+  "after_column"?: (T.Id) | null;
+  "group": string;
+  "pane"?: (T.PaneRef) | null;
+  "screen"?: (T.Id) | null;
+  "transaction"?: (string) | null;
+  "width"?: (number) | null;
+}
+export type MoveTabGroupToColumnResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabGroupToNewWorkspaceRequest extends CmuxRequestBase {
+  cmd: "move-tab-group-to-new-workspace";
+  "group": string;
+  "index"?: (bigint) | null;
+  "transaction"?: (string) | null;
+  "workspace_group"?: (string) | null;
+}
+export type MoveTabGroupToNewWorkspaceResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabGroupToSplitRequest extends CmuxRequestBase {
+  cmd: "move-tab-group-to-split";
+  "edge": string;
+  "group": string;
+  "pane": T.PaneRef;
+  "ratio"?: (number) | null;
+  "transaction"?: (string) | null;
+}
+export type MoveTabGroupToSplitResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabToColumnRequest extends CmuxRequestBase {
+  cmd: "move-tab-to-column";
+  "after_column"?: (T.Id) | null;
+  "pane"?: (T.Id) | null;
+  "screen"?: (T.Id) | null;
+  "surface": T.Id;
+  "transaction"?: (string) | null;
+  "width"?: (number) | null;
+}
+export type MoveTabToColumnResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabToNewWorkspaceRequest extends CmuxRequestBase {
+  cmd: "move-tab-to-new-workspace";
+  "group"?: (string) | null;
+  "index"?: (bigint) | null;
+  "surface": T.Id;
+  "transaction"?: (string) | null;
+}
+export type MoveTabToNewWorkspaceResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabToSplitRequest extends CmuxRequestBase {
+  cmd: "move-tab-to-split";
+  "edge": string;
+  "pane": T.Id;
+  "ratio"?: (number) | null;
+  "surface": T.Id;
+  "transaction"?: (string) | null;
+}
+export type MoveTabToSplitResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface MoveTabToWorkspaceRequest extends CmuxRequestBase {
   cmd: "move-tab-to-workspace";
   "surface": T.Id;
+  "transaction"?: (string) | null;
   "workspace"?: (T.Id) | null;
 }
 export type MoveTabToWorkspaceResult = T.EmptyResult;
@@ -478,6 +641,28 @@ export interface MoveWorkspaceRequest extends CmuxRequestBase {
 }
 export type MoveWorkspaceResult = T.WorkspaceMutationResult;
 
+/** Protocol v12; authority: control. */
+export interface MoveWorkspaceGroupRequest extends CmuxRequestBase {
+  cmd: "move-workspace-group";
+  "group": string;
+  "index": bigint;
+}
+export type MoveWorkspaceGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface MoveWorkspaceToGroupRequest extends CmuxRequestBase {
+  cmd: "move-workspace-to-group";
+  "expected_generation"?: (string) | null;
+  "expected_revision"?: (bigint) | null;
+  "group"?: (string) | null;
+  "index"?: (bigint) | null;
+  "key"?: (string) | null;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+  "workspace"?: (T.Id) | null;
+}
+export type MoveWorkspaceToGroupResult = T.JsonValue;
+
 /** Protocol v5; authority: control. */
 export interface NewBrowserTabRequest extends CmuxRequestBase {
   cmd: "new-browser-tab";
@@ -487,6 +672,20 @@ export interface NewBrowserTabRequest extends CmuxRequestBase {
   "url": string;
 }
 export type NewBrowserTabResult = T.SurfaceResult;
+
+/** Protocol v12; authority: control. */
+export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
+  cmd: "new-frontend-browser-tab";
+  "cols"?: (number) | null;
+  "engine": string;
+  "favicon_url"?: (string) | null;
+  "pane"?: (T.Id) | null;
+  "profile_id"?: (string) | null;
+  "rows"?: (number) | null;
+  "title"?: (string) | null;
+  "url": string;
+}
+export type NewFrontendBrowserTabResult = T.JsonValue;
 
 /** Protocol v9; authority: control. */
 export interface NewPaneRequest extends CmuxRequestBase {
@@ -521,6 +720,7 @@ export interface NewTabRequest extends CmuxRequestBase {
   cmd: "new-tab";
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
+  "env"?: (Record<string, string>) | null;
   "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
 }
@@ -654,6 +854,14 @@ export type ReloadConfigResult = {
   "reloaded": true;
 };
 
+/** Protocol v12; authority: control. */
+export interface RemoveTabsFromTabGroupRequest extends CmuxRequestBase {
+  cmd: "remove-tabs-from-tab-group";
+  "surfaces": Array<T.TabRef>;
+  "transaction"?: (string) | null;
+}
+export type RemoveTabsFromTabGroupResult = T.JsonValue;
+
 /** Protocol v5; authority: control. */
 export interface RenamePaneRequest extends CmuxRequestBase {
   cmd: "rename-pane";
@@ -700,6 +908,15 @@ export interface RenameWorkspaceRequest extends CmuxRequestBase {
   "workspace"?: (T.Id) | null;
 }
 export type RenameWorkspaceResult = T.WorkspaceMutationResult;
+
+/** Protocol v12; authority: control. */
+export interface ReopenSavedTabGroupRequest extends CmuxRequestBase {
+  cmd: "reopen-saved-tab-group";
+  "pane": T.PaneRef;
+  "saved": string;
+  "transaction"?: (string) | null;
+}
+export type ReopenSavedTabGroupResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface ReportAgentRequest extends CmuxRequestBase {
@@ -756,6 +973,13 @@ export interface RunRequest extends CmuxRequestBase {
   "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
 }
+
+/** Protocol v12; authority: control. */
+export interface SaveTabGroupRequest extends CmuxRequestBase {
+  cmd: "save-tab-group";
+  "group": string;
+}
+export type SaveTabGroupResult = T.JsonValue;
 
 /** Protocol v5; authority: control. */
 export interface ScrollSurfaceRequest extends CmuxRequestBase {
@@ -873,6 +1097,14 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
 export type SetSplitRatioResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
+export interface SetTabPinnedRequest extends CmuxRequestBase {
+  cmd: "set-tab-pinned";
+  "pinned": boolean;
+  "surface": T.Id;
+}
+export type SetTabPinnedResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface SetTerminalIdlePolicyRequest extends CmuxRequestBase {
   cmd: "set-terminal-idle-policy";
   "idle_close_seconds"?: (bigint) | null;
@@ -896,6 +1128,21 @@ export interface SetWindowTitleRequest extends CmuxRequestBase {
 }
 export type SetWindowTitleResult = T.EmptyResult;
 
+/** Protocol v12; authority: control. */
+export interface SetWorkspaceMetadataRequest extends CmuxRequestBase {
+  cmd: "set-workspace-metadata";
+  "color"?: (string) | null;
+  "expected_generation"?: (string) | null;
+  "expected_revision"?: (bigint) | null;
+  "icon"?: (string) | null;
+  "key"?: (string) | null;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+  "title"?: (string) | null;
+  "workspace"?: (T.Id) | null;
+}
+export type SetWorkspaceMetadataResult = T.JsonValue;
+
 /** Protocol v9; authority: local-admin. */
 export interface ShutdownDaemonRequest extends CmuxRequestBase {
   cmd: "shutdown-daemon";
@@ -916,7 +1163,9 @@ export interface SidebarPluginRequest extends CmuxRequestBase {
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
   "cols"?: (number) | null;
+  "cwd"?: (string) | null;
   "dir": T.SplitDirection;
+  "env"?: (Record<string, string>) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
 }
@@ -954,11 +1203,55 @@ export interface UndoLayoutRequest extends CmuxRequestBase {
 }
 export type UndoLayoutResult = T.LayoutUndoResult;
 
+/** Protocol v12; authority: control. */
+export interface UngroupTabGroupRequest extends CmuxRequestBase {
+  cmd: "ungroup-tab-group";
+  "group": string;
+}
+export type UngroupTabGroupResult = T.JsonValue;
+
 /** Protocol v10; authority: local-admin. */
 export interface UnregisterBrowserProviderRequest extends CmuxRequestBase {
   cmd: "unregister-browser-provider";
 }
 export type UnregisterBrowserProviderResult = T.BrowserProviderUnregisterResult;
+
+/** Protocol v12; authority: control. */
+export interface UnsaveTabGroupRequest extends CmuxRequestBase {
+  cmd: "unsave-tab-group";
+  "group": string;
+}
+export type UnsaveTabGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface UpdateFrontendBrowserTabRequest extends CmuxRequestBase {
+  cmd: "update-frontend-browser-tab";
+  "favicon_url"?: (string) | null;
+  "surface": T.Id;
+  "title"?: (string) | null;
+  "url"?: (string) | null;
+}
+export type UpdateFrontendBrowserTabResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface UpdateTabGroupRequest extends CmuxRequestBase {
+  cmd: "update-tab-group";
+  "collapsed"?: (boolean) | null;
+  "color"?: (string) | null;
+  "group": string;
+  "name"?: (string) | null;
+}
+export type UpdateTabGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface UpdateWorkspaceGroupRequest extends CmuxRequestBase {
+  cmd: "update-workspace-group";
+  "collapsed"?: (boolean) | null;
+  "color"?: (string) | null;
+  "group": string;
+  "name"?: (string) | null;
+}
+export type UpdateWorkspaceGroupResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface UrlOpenRequest extends CmuxRequestBase {
@@ -1014,6 +1307,8 @@ export interface ZoomPaneRequest extends CmuxRequestBase {
 
 /** Every implemented protocol command request. */
 export type CmuxRequest =
+  | AckTabNotificationsRequest
+  | AddTabsToTabGroupRequest
   | ApplyLayoutRequest
   | AttachSurfaceRequest
   | BrowserActivateRequest
@@ -1036,12 +1331,17 @@ export type CmuxRequest =
   | CloseProviderManagedWorkspaceRequest
   | CloseScreenRequest
   | CloseSurfaceRequest
+  | CloseTabGroupRequest
   | CloseTerminalRequest
   | CloseWorkspaceRequest
   | CopyRequest
   | CreateSurfaceWithReceiptRequest
+  | CreateTabGroupRequest
   | CreateTerminalRequest
   | CreateWorkspaceRequest
+  | CreateWorkspaceGroupRequest
+  | DeleteSavedTabGroupRequest
+  | DeleteWorkspaceGroupRequest
   | DetachAttachedViewRequest
   | DetachClientRequest
   | ExportLayoutRequest
@@ -1055,7 +1355,11 @@ export type CmuxRequest =
   | JournalFrontendEventRequest
   | ListAgentsRequest
   | ListClientsRequest
+  | ListNotificationsRequest
+  | ListSavedTabGroupsRequest
+  | ListTabGroupsRequest
   | ListTerminalsRequest
+  | ListWorkspaceGroupsRequest
   | ListWorkspacesRequest
   | MachineListeningTcpRequest
   | MachineUsageRequest
@@ -1063,10 +1367,20 @@ export type CmuxRequest =
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveTabRequest
+  | MoveTabGroupRequest
+  | MoveTabGroupToColumnRequest
+  | MoveTabGroupToNewWorkspaceRequest
+  | MoveTabGroupToSplitRequest
+  | MoveTabToColumnRequest
+  | MoveTabToNewWorkspaceRequest
+  | MoveTabToSplitRequest
   | MoveTabToWorkspaceRequest
   | MoveTerminalRequest
   | MoveWorkspaceRequest
+  | MoveWorkspaceGroupRequest
+  | MoveWorkspaceToGroupRequest
   | NewBrowserTabRequest
+  | NewFrontendBrowserTabRequest
   | NewPaneRequest
   | NewPaneRightRequest
   | NewScreenRequest
@@ -1085,17 +1399,20 @@ export type CmuxRequest =
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
   | ReloadConfigRequest
+  | RemoveTabsFromTabGroupRequest
   | RenamePaneRequest
   | RenameProviderManagedWorkspaceRequest
   | RenameScreenRequest
   | RenameSurfaceRequest
   | RenameWorkspaceRequest
+  | ReopenSavedTabGroupRequest
   | ReportAgentRequest
   | ReportFocusRequest
   | ResizeAttachedViewRequest
   | ResizeSurfaceRequest
   | ResolveTerminalRequest
   | RunRequest
+  | SaveTabGroupRequest
   | ScrollSurfaceRequest
   | SelectScreenRequest
   | SelectTabRequest
@@ -1109,9 +1426,11 @@ export type CmuxRequest =
   | SetDefaultColorsRequest
   | SetRatioRequest
   | SetSplitRatioRequest
+  | SetTabPinnedRequest
   | SetTerminalIdlePolicyRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
+  | SetWorkspaceMetadataRequest
   | ShutdownDaemonRequest
   | SidebarPluginRequest
   | SplitRequest
@@ -1119,7 +1438,12 @@ export type CmuxRequest =
   | SwapPaneRequest
   | TerminalEventsRequest
   | UndoLayoutRequest
+  | UngroupTabGroupRequest
   | UnregisterBrowserProviderRequest
+  | UnsaveTabGroupRequest
+  | UpdateFrontendBrowserTabRequest
+  | UpdateTabGroupRequest
+  | UpdateWorkspaceGroupRequest
   | UrlOpenRequest
   | UrlOpenClaimRequest
   | UrlOpenResultRequest
@@ -1130,6 +1454,22 @@ export type CmuxRequest =
 
 /** Command name to request, result, authority, and version mapping. */
 export interface CmuxCommandDefinitionMap {
+  "ack-tab-notifications": {
+    request: AckTabNotificationsRequest;
+    result: AckTabNotificationsResult;
+    authority: "control";
+    since: 12;
+    capability: "notification-ack-v1";
+    stream: null;
+  };
+  "add-tabs-to-tab-group": {
+    request: AddTabsToTabGroupRequest;
+    result: AddTabsToTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
   "apply-layout": {
     request: ApplyLayoutRequest;
     result: T.ApplyLayoutResult;
@@ -1306,6 +1646,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "close-tab-group": {
+    request: CloseTabGroupRequest;
+    result: CloseTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
   "close-terminal": {
     request: CloseTerminalRequest;
     result: T.CloseTerminalResult;
@@ -1338,6 +1686,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "creation-receipts-v1";
     stream: null;
   };
+  "create-tab-group": {
+    request: CreateTabGroupRequest;
+    result: CreateTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
   "create-terminal": {
     request: CreateTerminalRequest;
     result: CreateTerminalResult;
@@ -1352,6 +1708,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 7;
     capability: "workspace-registry-v1";
+    stream: null;
+  };
+  "create-workspace-group": {
+    request: CreateWorkspaceGroupRequest;
+    result: CreateWorkspaceGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "workspace-groups-v1";
+    stream: null;
+  };
+  "delete-saved-tab-group": {
+    request: DeleteSavedTabGroupRequest;
+    result: DeleteSavedTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "saved-tab-groups-v1";
+    stream: null;
+  };
+  "delete-workspace-group": {
+    request: DeleteWorkspaceGroupRequest;
+    result: DeleteWorkspaceGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "workspace-groups-v1";
     stream: null;
   };
   "detach-attached-view": {
@@ -1458,12 +1838,44 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "list-notifications": {
+    request: ListNotificationsRequest;
+    result: ListNotificationsResult;
+    authority: "control";
+    since: 12;
+    capability: "notification-ack-v1";
+    stream: null;
+  };
+  "list-saved-tab-groups": {
+    request: ListSavedTabGroupsRequest;
+    result: ListSavedTabGroupsResult;
+    authority: "control";
+    since: 12;
+    capability: "saved-tab-groups-v1";
+    stream: null;
+  };
+  "list-tab-groups": {
+    request: ListTabGroupsRequest;
+    result: ListTabGroupsResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
   "list-terminals": {
     request: ListTerminalsRequest;
     result: T.ListTerminalsResult;
     authority: "control";
     since: 9;
     capability: null;
+    stream: null;
+  };
+  "list-workspace-groups": {
+    request: ListWorkspaceGroupsRequest;
+    result: ListWorkspaceGroupsResult;
+    authority: "control";
+    since: 12;
+    capability: "workspace-groups-v1";
     stream: null;
   };
   "list-workspaces": {
@@ -1522,6 +1934,62 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "move-tab-group": {
+    request: MoveTabGroupRequest;
+    result: MoveTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
+  "move-tab-group-to-column": {
+    request: MoveTabGroupToColumnRequest;
+    result: MoveTabGroupToColumnResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
+  "move-tab-group-to-new-workspace": {
+    request: MoveTabGroupToNewWorkspaceRequest;
+    result: MoveTabGroupToNewWorkspaceResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
+  "move-tab-group-to-split": {
+    request: MoveTabGroupToSplitRequest;
+    result: MoveTabGroupToSplitResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
+  "move-tab-to-column": {
+    request: MoveTabToColumnRequest;
+    result: MoveTabToColumnResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-drag-v1";
+    stream: null;
+  };
+  "move-tab-to-new-workspace": {
+    request: MoveTabToNewWorkspaceRequest;
+    result: MoveTabToNewWorkspaceResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-drag-v1";
+    stream: null;
+  };
+  "move-tab-to-split": {
+    request: MoveTabToSplitRequest;
+    result: MoveTabToSplitResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-drag-v1";
+    stream: null;
+  };
   "move-tab-to-workspace": {
     request: MoveTabToWorkspaceRequest;
     result: MoveTabToWorkspaceResult;
@@ -1546,12 +2014,36 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "move-workspace-group": {
+    request: MoveWorkspaceGroupRequest;
+    result: MoveWorkspaceGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "workspace-groups-v1";
+    stream: null;
+  };
+  "move-workspace-to-group": {
+    request: MoveWorkspaceToGroupRequest;
+    result: MoveWorkspaceToGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "workspace-groups-v1";
+    stream: null;
+  };
   "new-browser-tab": {
     request: NewBrowserTabRequest;
     result: NewBrowserTabResult;
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "new-frontend-browser-tab": {
+    request: NewFrontendBrowserTabRequest;
+    result: NewFrontendBrowserTabResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-browser-tabs-v1";
     stream: null;
   };
   "new-pane": {
@@ -1698,6 +2190,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "remove-tabs-from-tab-group": {
+    request: RemoveTabsFromTabGroupRequest;
+    result: RemoveTabsFromTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
   "rename-pane": {
     request: RenamePaneRequest;
     result: RenamePaneResult;
@@ -1736,6 +2236,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "reopen-saved-tab-group": {
+    request: ReopenSavedTabGroupRequest;
+    result: ReopenSavedTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "saved-tab-groups-v1";
     stream: null;
   };
   "report-agent": {
@@ -1784,6 +2292,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "save-tab-group": {
+    request: SaveTabGroupRequest;
+    result: SaveTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "saved-tab-groups-v1";
     stream: null;
   };
   "scroll-surface": {
@@ -1890,6 +2406,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "set-tab-pinned": {
+    request: SetTabPinnedRequest;
+    result: SetTabPinnedResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-metadata-v1";
+    stream: null;
+  };
   "set-terminal-idle-policy": {
     request: SetTerminalIdlePolicyRequest;
     result: T.SetTerminalIdlePolicyResult;
@@ -1912,6 +2436,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "set-workspace-metadata": {
+    request: SetWorkspaceMetadataRequest;
+    result: SetWorkspaceMetadataResult;
+    authority: "control";
+    since: 12;
+    capability: "workspace-metadata-v1";
     stream: null;
   };
   "shutdown-daemon": {
@@ -1970,12 +2502,52 @@ export interface CmuxCommandDefinitionMap {
     capability: "layout-undo-v1";
     stream: null;
   };
+  "ungroup-tab-group": {
+    request: UngroupTabGroupRequest;
+    result: UngroupTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
   "unregister-browser-provider": {
     request: UnregisterBrowserProviderRequest;
     result: UnregisterBrowserProviderResult;
     authority: "local-admin";
     since: 10;
     capability: "browser-provider-v1";
+    stream: null;
+  };
+  "unsave-tab-group": {
+    request: UnsaveTabGroupRequest;
+    result: UnsaveTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "saved-tab-groups-v1";
+    stream: null;
+  };
+  "update-frontend-browser-tab": {
+    request: UpdateFrontendBrowserTabRequest;
+    result: UpdateFrontendBrowserTabResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-browser-tabs-v1";
+    stream: null;
+  };
+  "update-tab-group": {
+    request: UpdateTabGroupRequest;
+    result: UpdateTabGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-groups-v1";
+    stream: null;
+  };
+  "update-workspace-group": {
+    request: UpdateWorkspaceGroupRequest;
+    result: UpdateWorkspaceGroupResult;
+    authority: "control";
+    since: 12;
+    capability: "workspace-groups-v1";
     stream: null;
   };
   "url-open": {
