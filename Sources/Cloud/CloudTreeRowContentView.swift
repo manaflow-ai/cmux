@@ -50,16 +50,16 @@ struct CloudTreeRowContentView: View {
             CloudTreeLocalMachineRowContent(row: row, style: style)
         case .device(let row):
             CloudTreeDeviceRowContent(row: row, style: style)
-        case .devicesSection(let section):
-            groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"), count: section.count)
+        case .devicesSection:
+            groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"))
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
         case .devicesEmpty:
             EmptyView()
-        case .terminalsPool(_, let count):
-            groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
-        case .displaysPool(_, let count, _):
-            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
+        case .terminalsPool:
+            groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"))
+        case .displaysPool:
+            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"))
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
         case .workspace(_, let workspace, _, _, _):
@@ -110,9 +110,9 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
+            groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
         case .resourcesPool:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: nil, style: style)
+            groupRow(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"))
         case .resource(_, let row):
             CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, let url, _):
@@ -132,8 +132,18 @@ struct CloudTreeRowContentView: View {
     }
     /// One section label ("Workspaces", "My Devices") in the shared group row,
     /// so the row switch stays a list of one-line cases.
-    private func groupRow(title: String, count: Int? = nil) -> some View {
-        CloudTreeGroupRowContent(title: title, count: count, style: style)
+    private func groupRow(title: String) -> some View {
+        CloudTreeGroupRowContent(title: title, count: Self.groupCount(for: kind), style: style)
+    }
+
+    /// The count a group header shows after its title ("My Devices 2"); nil shows none.
+    static func groupCount(for kind: CloudTreeNode.Kind) -> CloudTreeGroupCount? {
+        switch kind {
+        case .devicesSection(let section): CloudTreeGroupCount(section.count)
+        case .cloudMachinesSection(_, let usage?): CloudTreeGroupCount(usage: usage)
+        case .terminalsPool(_, let count), .displaysPool(_, let count, _): CloudTreeGroupCount(count)
+        default: nil
+        }
     }
 
     /// Formats terminal totals for group and machine summaries.

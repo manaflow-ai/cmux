@@ -4387,7 +4387,10 @@
     "emailUnavailable": "e-mail nije dostupan",
     "organization": "Organizacija",
     "personalAccount": "lični račun",
-    "switchAccountButton": "Koristi drugi račun"
+    "switchAccountButton": "Koristi drugi račun",
+    "signedOutTitle": "Prijavite se da autorizujete coderouter",
+    "signedOutBody": "Aplikacija komandne linije čeka da se prijavite. Prijavite se svojim cmux računom da završite povezivanje ovog terminala. Ako niste pokrenuli ovaj zahtjev, zatvorite ovu stranicu.",
+    "signInButton": "Prijavi se"
   },
   "MobileRelease106": {
     "title": "Novosti u verziji 1.0.6",

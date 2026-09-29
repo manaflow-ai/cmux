@@ -4384,7 +4384,10 @@
     "emailUnavailable": "e-post ikke tilgjengelig",
     "organization": "Organisasjon",
     "personalAccount": "personlig konto",
-    "switchAccountButton": "Bruk en annen konto"
+    "switchAccountButton": "Bruk en annen konto",
+    "signedOutTitle": "Logg inn for å godkjenne coderouter",
+    "signedOutBody": "Et kommandolinjeprogram venter på at du logger inn. Logg inn med cmux-kontoen din for å fullføre tilkoblingen av denne terminalen. Hvis du ikke startet denne forespørselen, lukk denne siden.",
+    "signInButton": "Logg inn"
   },
   "MobileRelease106": {
     "title": "Nytt i 1.0.6",
