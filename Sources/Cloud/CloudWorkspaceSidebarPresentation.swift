@@ -21,6 +21,8 @@ struct CloudWorkspaceSidebarPresentation {
     @MainActor
     private static func deviceLabel(workspace: Workspace, machines: Set<SurfaceMachineID>) -> String? {
         let state = workspace.cloudBindingState
+
+
         guard !machines.isEmpty else { return nil }
         let names = machines.sorted { $0.rawValue < $1.rawValue }.map {
             state.machineNames[$0.rawValue] ?? SurfaceCatalog.shared.machineInfo(for: $0)?.name ?? $0.rawValue
@@ -44,12 +46,14 @@ struct CloudWorkspaceSidebarPresentation {
     /// Builds the immutable remote sidebar identity and directory presentation.
     init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool) {
         let state = workspace.cloudBindingState
+
         var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
         if let id = workspace.cloudVMID { cloudMachineIDs.insert(id) }
         let deviceMachines = Self.deviceMachines(for: workspace)
         let deviceMachineIDs = Set(deviceMachines.map(\.rawValue))
         isDeviceWorkspace = cloudMachineIDs.isEmpty && !deviceMachineIDs.isEmpty
         let machineIDs = cloudMachineIDs.union(deviceMachineIDs)
+
         guard !machineIDs.isEmpty else { return nil }
         deviceLabel = Self.deviceLabel(workspace: workspace, machines: deviceMachines)
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
