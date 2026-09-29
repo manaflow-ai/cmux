@@ -49,6 +49,14 @@ import Testing
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.render_grid.verified_replay.v1",
+        "terminal.render_grid.screen_anchor.v1",
+        "terminal.replay.v1",
+    ])
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
 
     let collector = OutputCollector()
