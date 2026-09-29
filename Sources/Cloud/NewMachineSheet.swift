@@ -2,25 +2,69 @@ import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
-/// The New Machine sheet: one image size and what the plan allows. Every
-/// machine is the same devbox with a screen, so there is nothing else to ask.
-/// Presented by ``NewMachineSheetPresenter`` as a window sheet on the main
-/// window. Create closes it at once; the machine coming up is shown by the
-/// Machines panel, not here, so the sheet never holds the window.
+/// How the New Machine sheet arranges its three settings. Release builds
+/// always use ``recommended``; DEBUG builds read ``defaultsKey`` each time the
+/// sheet opens so the variants can be compared without a rebuild
+/// (`defaults write <bundle id> cloud.newMachine.layoutVariant B`).
+enum NewMachineSheetLayout: String, CaseIterable {
+    /// Two columns: right-aligned labels, equal-width controls.
+    case grid = "A"
+    /// One column: a small caps label above each full-width control.
+    case stacked = "B"
+    /// One sentence of borderless menus: "8 GB RAM · Full internet · Agents update".
+    case sentence = "C"
+    /// A grouped card like System Settings: label leading, control trailing.
+    case grouped = "D"
+
+    static let recommended: Self = .grid
+    static let defaultsKey = "cloud.newMachine.layoutVariant"
+
+    static var current: Self {
+#if DEBUG
+        if let raw = UserDefaults.standard.string(forKey: defaultsKey),
+           let layout = Self(rawValue: raw.uppercased()) {
+            return layout
+        }
+#endif
+        return recommended
+    }
+
+    var width: CGFloat {
+        switch self {
+        case .grid: return 400
+        case .stacked: return 360
+        case .sentence: return 460
+        case .grouped: return 420
+        }
+    }
+}
+
+/// The New Machine sheet: size, network, agent updates, and what the plan
+/// allows, as a few labeled controls. Every explanation is a tooltip or the
+/// security popover, so nothing wraps while the sheet opens. Presented by
+/// ``NewMachineSheetPresenter`` with its data already loaded; Create closes
+/// it at once and the Machines panel shows the machine coming up.
 struct NewMachineSheet: View {
     @Bindable var model: NewMachineModel
+    let layout: NewMachineSheetLayout
+    @State private var allowlistExpanded: Bool
+
+    init(model: NewMachineModel, layout: NewMachineSheetLayout = .current, allowlistInitiallyExpanded: Bool = false) {
+        self.model = model
+        self.layout = layout
+        _allowlistExpanded = State(initialValue: allowlistInitiallyExpanded)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             if hasSettingsRows {
-                settingsGrid
-            }
-            if let note = model.freeAccessNoteText {
-                Text(note)
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                switch layout {
+                case .grid: gridLayout
+                case .stacked: stackedLayout
+                case .sentence: sentenceLayout
+                case .grouped: groupedLayout
+                }
             }
             if let errorText = model.errorText {
                 errorBox(errorText)
@@ -28,7 +72,7 @@ struct NewMachineSheet: View {
             footer
         }
         .padding(20)
-        .frame(width: 500)
+        .frame(width: layout.width)
         .accessibilityIdentifier("NewMachineSheet")
         .confirmationDialog(
             String(format: String(localized: "machines.new.size.locked.upgrade", defaultValue: "Upgrade to %@"), NewMachineModel.planDisplayName(model.selectedUpgradePlanId)),
@@ -42,8 +86,9 @@ struct NewMachineSheet: View {
             Text(model.selectedUpgradePlanId == "pro" ? String(localized: "pricing.native.pro.price", defaultValue: "$50") : String(localized: "pricing.native.max.price", defaultValue: "$200"))
             + Text(String(localized: "pricing.native.period.month", defaultValue: "/month"))
         }
-
     }
+
+    // MARK: Header
 
     private var subtitle: String {
         model.isBaseSetup
@@ -57,9 +102,9 @@ struct NewMachineSheet: View {
             )
     }
 
-    /// New Machine shows its description as the title's tooltip; Base has no
-    /// settings rows, so its description stays visible because it is the
-    /// only thing that says what Base is.
+    /// New Machine's description is the title's tooltip. Base has no
+    /// settings, so its description stays visible: it is the only thing
+    /// that says what Base is.
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(model.isBaseSetup
@@ -77,54 +122,269 @@ struct NewMachineSheet: View {
     }
 
     private var hasSettingsRows: Bool {
-        model.supportsSize || model.hasNoAllowedMemoryOptions || model.supportsNetworkPolicy || model.supportsAgentUpdates
+        showsSizeRow || model.supportsNetworkPolicy || model.supportsAgentUpdates
     }
 
-    /// One label column, one control column, like a System Settings pane.
-    private var settingsGrid: some View {
-        Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 12, verticalSpacing: 14) {
-            if model.supportsSize || model.hasNoAllowedMemoryOptions {
+    private var showsSizeRow: Bool { model.supportsSize || model.hasNoAllowedMemoryOptions }
+
+    private var sizeLabel: String { String(localized: "machines.new.row.size", defaultValue: "Size") }
+    private var networkLabel: String { String(localized: "cloud.network.section.label", defaultValue: "Network") }
+    private var agentsLabel: String { String(localized: "machines.new.row.agents.short", defaultValue: "Agents") }
+    private var agentsTitle: String { String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date") }
+    private var agentsHelp: String {
+        String(
+            localized: "machines.new.agentUpdates.help",
+            defaultValue: "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day. A new release installs only after it has been public for 3 days."
+        )
+    }
+
+    // MARK: A. Grid
+
+    private static let gridControlWidth: CGFloat = 220
+
+    private var gridLayout: some View {
+        Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 10, verticalSpacing: 12) {
+            if showsSizeRow {
                 GridRow {
-                    rowLabel(String(localized: "machines.new.row.size", defaultValue: "Size"))
-                    sizeControl
+                    gridLabel(sizeLabel)
+                    sizeMenu.frame(width: Self.gridControlWidth)
                 }
             }
             if model.supportsNetworkPolicy {
                 GridRow {
-                    rowLabel(String(localized: "cloud.network.section.label", defaultValue: "Network"))
-                    networkControl
+                    gridLabel(networkLabel)
+                    HStack(spacing: 6) {
+                        networkMenu.frame(width: Self.gridControlWidth)
+                        CloudSecurityExplainer()
+                    }
                 }
+                allowlistGridRows
             }
             if model.supportsAgentUpdates {
                 GridRow {
-                    rowLabel(String(localized: "machines.new.row.agents", defaultValue: "Coding agents"))
-                    agentUpdatesControl
+                    gridLabel(agentsLabel)
+                    agentsCheckbox
                 }
             }
         }
     }
 
-    private func rowLabel(_ title: String) -> some View {
+    @ViewBuilder
+    private var allowlistGridRows: some View {
+        if model.networkAvailability == .available, model.network.showsAllowlistDetails {
+            GridRow {
+                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                allowlistDisclosure
+            }
+        }
+        if model.network.inputError != nil {
+            GridRow {
+                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                CloudNetworkInputError(model: model.network)
+            }
+        }
+    }
+
+    private func gridLabel(_ title: String) -> some View {
         Text(title)
             .cmuxFont(size: 13)
+            .foregroundStyle(.secondary)
             .gridColumnAlignment(.trailing)
             .accessibilityHidden(true)
     }
 
-    @ViewBuilder
-    private var sizeControl: some View {
-        if model.hasNoAllowedMemoryOptions {
-            Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
-                .cmuxFont(size: 12)
+    // MARK: B. Stacked
+
+    private var stackedLayout: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if showsSizeRow {
+                stackedRow(sizeLabel) { sizeMenu.frame(maxWidth: .infinity) }
+            }
+            if model.supportsNetworkPolicy {
+                stackedRow(networkLabel) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            networkMenu.frame(maxWidth: .infinity)
+                            CloudSecurityExplainer()
+                        }
+                        networkExtras
+                    }
+                }
+            }
+            if model.supportsAgentUpdates {
+                stackedRow(agentsLabel) { agentsCheckbox }
+            }
+        }
+    }
+
+    private func stackedRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .cmuxFont(size: 10, weight: .semibold)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("NewMachineSheet.size.noneAllowed")
+                .textCase(.uppercase)
+                .accessibilityHidden(true)
+            content()
+        }
+    }
+
+    // MARK: C. Sentence
+
+    private var sentenceLayout: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                if showsSizeRow {
+                    makeSizeMenu(borderless: true)
+                    sentenceDot
+                }
+                if model.supportsNetworkPolicy {
+                    makeNetworkMenu(borderless: true)
+                    if model.supportsAgentUpdates { sentenceDot }
+                }
+                if model.supportsAgentUpdates {
+                    agentsMenu
+                    agentsNetworkWarning
+                }
+                Spacer(minLength: 4)
+                if model.supportsNetworkPolicy {
+                    CloudSecurityExplainer()
+                }
+            }
+            if model.supportsNetworkPolicy {
+                networkExtras
+            }
+        }
+    }
+
+    private var sentenceDot: some View {
+        Text(verbatim: "·")
+            .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
+    }
+
+    /// The agent-update choice as a borderless menu whose one item is the
+    /// checkmarked setting (a menu item, not a checkbox button).
+    private var agentsMenu: some View {
+        Menu {
+            Button {
+                model.keepsAgentsUpdated.toggle()
+            } label: {
+                if model.keepsAgentsUpdated {
+                    Label(agentsTitle, systemImage: "checkmark")
+                } else {
+                    Text(agentsTitle)
+                }
+            }
+        } label: {
+            Text(model.keepsAgentsUpdated
+                ? String(localized: "machines.new.agentUpdates.on", defaultValue: "Agents auto-update")
+                : String(localized: "machines.new.agentUpdates.off", defaultValue: "Agents pinned"))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(agentsHelp)
+        .accessibilityLabel(agentsTitle)
+        .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+    }
+
+    // MARK: D. Grouped
+
+    private var groupedLayout: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if showsSizeRow {
+                groupedRow(sizeLabel) { sizeMenu.fixedSize() }
+            }
+            if model.supportsNetworkPolicy {
+                if showsSizeRow { groupedDivider }
+                groupedRow(networkLabel) {
+                    HStack(spacing: 6) {
+                        CloudSecurityExplainer()
+                        networkMenu.fixedSize()
+                    }
+                }
+                if hasNetworkExtras {
+                    networkExtras
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 10)
+                }
+            }
+            if model.supportsAgentUpdates {
+                if showsSizeRow || model.supportsNetworkPolicy { groupedDivider }
+                groupedRow(agentsTitle) {
+                    HStack(spacing: 6) {
+                        agentsNetworkWarning
+                        Toggle(isOn: $model.keepsAgentsUpdated) { EmptyView() }
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .labelsHidden()
+                            .fixedSize()
+                            .accessibilityLabel(agentsTitle)
+                            .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+                    }
+                }
+                .help(agentsHelp)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private func groupedRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(title)
+                .cmuxFont(size: 13)
+                .lineLimit(1)
+                .accessibilityHidden(true)
+            Spacer(minLength: 8)
+            content()
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 36)
+    }
+
+    private var groupedDivider: some View {
+        Divider().padding(.leading, 12)
+    }
+
+    // MARK: Shared controls
+
+    private var sizeMenu: some View { makeSizeMenu(borderless: false) }
+
+    /// The size pull-down: allowed sizes, then the locked ones with the plan
+    /// that unlocks them. Picking a locked size asks to upgrade instead.
+    @ViewBuilder
+    private func makeSizeMenu(borderless: Bool) -> some View {
+        if model.hasNoAllowedMemoryOptions {
+            Label(
+                String(localized: "machines.new.size.noneAllowed.short", defaultValue: "No size available"),
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .cmuxFont(size: 12)
+            .foregroundStyle(.orange)
+            .lineLimit(1)
+            .help(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
+            .accessibilityIdentifier("NewMachineSheet.size.noneAllowed")
         } else if let selectedSize = model.selectedSize {
-            Menu {
+            let menu = Menu {
                 ForEach(model.memoryOptions, id: \.self) { memoryMb in
                     if let size = MachineSizeOption(memoryMb: memoryMb) {
-                        Button(size.menuTitle) { model.selectSize(memoryMb) }
+                        Button { model.selectSize(memoryMb) } label: {
+                            if memoryMb == model.memoryMb {
+                                Label(size.menuTitle, systemImage: "checkmark")
+                            } else {
+                                Text(size.menuTitle)
+                            }
+                        }
                     }
+                }
+                if !model.lockedMemoryOptions.isEmpty {
+                    Divider()
                 }
                 ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
                     if let size = MachineSizeOption(memoryMb: memoryMb) {
@@ -136,66 +396,104 @@ struct NewMachineSheet: View {
                     }
                 }
             } label: {
-                Text(selectedSize.menuTitle)
+                Text(borderless ? selectedSize.title : selectedSize.menuTitle)
             }
-            .fixedSize()
             .help(String(localized: "machines.new.size.help", defaultValue: "Choose the memory and disk profile for this machine."))
             .accessibilityIdentifier("NewMachineSheet.size")
             .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
             .accessibilityValue(selectedSize.menuTitle)
+            if borderless {
+                menu.menuStyle(.borderlessButton).fixedSize()
+            } else {
+                menu
+            }
         }
     }
 
+    private var networkMenu: some View { makeNetworkMenu(borderless: false) }
+
+    /// The mode menu once the catalog is known; a spinner or a warning icon
+    /// with its explanation as the tooltip otherwise. The cache normally has
+    /// the catalog before the sheet opens, so the spinner is rare.
     @ViewBuilder
-    private var networkControl: some View {
-        Group {
-            switch model.networkAvailability {
-            case .loading:
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text(String(localized: "cloud.network.loading", defaultValue: "Loading network options…"))
-                        .cmuxFont(size: 12)
-                        .foregroundStyle(.secondary)
-                    CloudSecurityExplainer()
-                }
-            case .unavailable:
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(String(
-                        localized: "cloud.network.unavailable",
-                        defaultValue: "Network options could not be loaded. The machine gets full internet access; change it later with Network… in the machine menu."
-                    ))
-                    .cmuxFont(size: 12)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    CloudSecurityExplainer()
-                }
-            case .available:
-                CloudNetworkPolicyEditor(model: model.network)
-            }
+    private func makeNetworkMenu(borderless: Bool) -> some View {
+        switch model.networkAvailability {
+        case .loading:
+            ProgressView()
+                .controlSize(.small)
+                .help(String(localized: "cloud.network.loading", defaultValue: "Loading network options…"))
+                .accessibilityIdentifier("NewMachineSheet.network")
+        case .unavailable:
+            Label(
+                CloudNetworkPolicyMode.full.title,
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .cmuxFont(size: 12)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .help(String(
+                localized: "cloud.network.unavailable",
+                defaultValue: "Network options could not be loaded. The machine gets full internet access; change it later with Network… in the machine menu."
+            ))
+            .accessibilityIdentifier("NewMachineSheet.network")
+        case .available:
+            CloudNetworkModeMenu(model: model.network, borderless: borderless)
+                .accessibilityIdentifier("NewMachineSheet.network")
         }
-        .accessibilityIdentifier("NewMachineSheet.network")
     }
 
-    private var agentUpdatesControl: some View {
-        CloudCheckboxRow(
-            title: String(localized: "machines.new.agentUpdates.short", defaultValue: "Keep up to date"),
-            accessibilityTitle: String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date"),
-            isOn: $model.keepsAgentsUpdated
-        ) {
-            if let note = model.agentUpdatesNetworkNote {
-                Text(note)
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("NewMachineSheet.agentUpdates.networkNote")
-            }
-        }
-        .help(String(
-            localized: "machines.new.agentUpdates.help",
-            defaultValue: "Updates Claude Code, Codex, OpenCode, and Pi to the newest release when you connect, at most once a day. A new release installs only after it has been public for 3 days."
-        ))
-        .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+    private var hasNetworkExtras: Bool {
+        (model.networkAvailability == .available && model.network.showsAllowlistDetails)
+            || model.network.inputError != nil
     }
+
+    /// The Allowlist disclosure and any input error, under the network row.
+    @ViewBuilder
+    private var networkExtras: some View {
+        if model.networkAvailability == .available, model.network.showsAllowlistDetails {
+            allowlistDisclosure
+        }
+        CloudNetworkInputError(model: model.network)
+    }
+
+    private var allowlistDisclosure: some View {
+        DisclosureGroup(isExpanded: $allowlistExpanded) {
+            CloudNetworkAllowlistDetails(model: model.network)
+                .padding(.top, 6)
+        } label: {
+            CloudNetworkAllowlistSummary(model: model.network)
+        }
+        .accessibilityIdentifier("CloudNetworkPolicyEditor.allowlist")
+    }
+
+    /// A label-less checkbox with a sibling title (see ``CloudCheckboxRow``).
+    private var agentsCheckbox: some View {
+        HStack(spacing: 6) {
+            CloudCheckboxRow(
+                title: String(localized: "machines.new.agentUpdates.short", defaultValue: "Keep up to date"),
+                accessibilityTitle: agentsTitle,
+                isOn: $model.keepsAgentsUpdated
+            )
+            .help(agentsHelp)
+            .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+            agentsNetworkWarning
+        }
+    }
+
+    /// Shown when the chosen network blocks the npm registry the updates
+    /// download from; the explanation is the tooltip.
+    @ViewBuilder
+    private var agentsNetworkWarning: some View {
+        if let note = model.agentUpdatesNetworkNote {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .help(note)
+                .accessibilityLabel(note)
+                .accessibilityIdentifier("NewMachineSheet.agentUpdates.networkNote")
+        }
+    }
+
+    // MARK: Error and footer
 
     private func errorBox(_ text: String) -> some View {
         ScrollView(.vertical) {
@@ -218,15 +516,17 @@ struct NewMachineSheet: View {
         .cloudErrorCopyMenu(text)
     }
 
-    /// Plan usage and the upgrade for locked sizes share the row with the
-    /// buttons; the longer explanations are tooltips.
+    /// Plan usage, the free-plan window and the upgrade for locked sizes
+    /// share one line with the buttons; the explanations are tooltips.
     private var footer: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             if let meter = model.planMeterText {
-                Text(meter)
+                Text(meterText(meter))
                     .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .help(model.freeAccessNoteText ?? meter)
+                    .accessibilityHint(model.freeAccessNoteText ?? "")
                     .accessibilityIdentifier("NewMachineSheet.plan")
             }
             if let note = model.lockedSizesNoteText, let upgradeTitle = model.memoryUpgradeButtonTitle {
@@ -257,7 +557,13 @@ struct NewMachineSheet: View {
                 : String(localized: "machines.new.background.note", defaultValue: "Creation continues in the Machines panel."))
             .accessibilityIdentifier("NewMachineSheet.create")
         }
-        .padding(.top, 4)
+    }
+
+    /// "1 of 1 machine in use · 7-day access" on the free plan.
+    private func meterText(_ meter: String) -> String {
+        guard let plan = model.plan, !plan.isPaidPlan, plan.freeAccessWindowDays > 0 else { return meter }
+        let format = String(localized: "machines.new.plan.freeWindow.short", defaultValue: "Free for %d days")
+        return meter + " · " + String(format: format, plan.freeAccessWindowDays)
     }
 
     private var createTitle: String {
@@ -268,202 +574,4 @@ struct NewMachineSheet: View {
             ? String(localized: "machines.new.create.base", defaultValue: "Set Up Base")
             : String(localized: "machines.new.create", defaultValue: "Create")
     }
-
 }
-
-#if DEBUG
-/// Plain SwiftUI alternatives for reviewing the size control without a web mockup.
-/// These views are preview-only. The sheet uses the first variation: the native menu.
-private struct NewMachinePickerVariationsPreview: View {
-    @State private var selectedMemoryMb = 8192
-    var viewportHeight: CGFloat = 820
-
-    private static let sizes = NewMachineModel.memoryOptionsMb
-        .compactMap { MachineSizeOption(memoryMb: $0) }
-
-    private var selectedSize: MachineSizeOption {
-        MachineSizeOption(memoryMb: selectedMemoryMb) ?? Self.sizes[1]
-    }
-
-    private var selectedIndex: Int {
-        Self.sizes.firstIndex(where: { $0.memoryMb == selectedMemoryMb }) ?? 0
-    }
-
-    private var selectedIndexBinding: Binding<Int> {
-        Binding(
-            get: { selectedIndex },
-            set: { selectedMemoryMb = Self.sizes[$0].memoryMb }
-        )
-    }
-
-    private var selectedIndexDoubleBinding: Binding<Double> {
-        Binding(
-            get: { Double(selectedIndex) },
-            set: {
-                let index = min(max(Int($0.rounded()), 0), Self.sizes.count - 1)
-                selectedMemoryMb = Self.sizes[index].memoryMb
-            }
-        )
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
-                    .font(.headline)
-                Text(String(
-                    localized: "machines.new.size.help",
-                    defaultValue: "Choose the memory and disk profile for this machine."
-                ))
-                .foregroundStyle(.secondary)
-
-                variation(1) {
-                    Picker(selection: $selectedMemoryMb) {
-                        sizeOptions
-                    } label: {
-                        Text(selectedSize.menuTitle)
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-
-                variation(2) {
-                    Picker(selection: $selectedMemoryMb) {
-                        ForEach(Self.sizes, id: \.memoryMb) { size in
-                            Text(size.title).tag(size.memoryMb)
-                        }
-                    } label: {
-                        Text(selectedSize.menuTitle)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-
-                variation(3) {
-                    Picker(selection: $selectedMemoryMb) {
-                        sizeOptions
-                    } label: {
-                        Text(selectedSize.menuTitle)
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
-                }
-
-                variation(4) {
-                    Stepper(value: selectedIndexBinding, in: 0...(Self.sizes.count - 1)) {
-                        Text(selectedSize.menuTitle)
-                    }
-                }
-
-                variation(5) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(selectedSize.menuTitle)
-                        Slider(value: selectedIndexDoubleBinding, in: 0...Double(Self.sizes.count - 1), step: 1)
-                    }
-                }
-
-                variation(6) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Self.sizes, id: \.memoryMb) { size in
-                            Button {
-                                selectedMemoryMb = size.memoryMb
-                            } label: {
-                                HStack {
-                                    Text(size.menuTitle)
-                                    Spacer()
-                                    if size.memoryMb == selectedMemoryMb {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-
-                variation(7) {
-                    DisclosureGroup(selectedSize.menuTitle) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(Self.sizes, id: \.memoryMb) { size in
-                                Button(size.menuTitle) {
-                                    selectedMemoryMb = size.memoryMb
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.top, 4)
-                    }
-                }
-
-                variation(8) {
-                    Menu {
-                        ForEach(Self.sizes, id: \.memoryMb) { size in
-                            Button(size.menuTitle) {
-                                selectedMemoryMb = size.memoryMb
-                            }
-                        }
-                    } label: {
-                        Text(selectedSize.menuTitle)
-                    }
-                }
-
-                variation(9) {
-                    Picker(selection: $selectedMemoryMb) {
-                        sizeOptions
-                    } label: {
-                        Text(String(localized: "machines.new.size.label", defaultValue: "Machine size"))
-                    }
-                }
-
-                variation(10) {
-                    HStack(spacing: 8) {
-                        Button {
-                            selectedMemoryMb = Self.sizes[max(selectedIndex - 1, 0)].memoryMb
-                        } label: {
-                            Image(systemName: "minus")
-                        }
-                        .buttonStyle(.bordered)
-                        Text(selectedSize.menuTitle)
-                        Button {
-                            selectedMemoryMb = Self.sizes[min(selectedIndex + 1, Self.sizes.count - 1)].memoryMb
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-            }
-            .frame(width: 588, alignment: .leading)
-            .padding()
-        }
-        .frame(width: 620, height: viewportHeight)
-    }
-
-    @ViewBuilder
-    private var sizeOptions: some View {
-        ForEach(Self.sizes, id: \.memoryMb) { size in
-            Text(size.menuTitle).tag(size.memoryMb)
-        }
-    }
-
-    @ViewBuilder
-    private func variation<Content: View>(
-        _ number: Int,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(format: "%02d", number))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            content()
-            Divider()
-        }
-    }
-}
-
-private struct NewMachinePickerVariationsPreview_Previews: PreviewProvider {
-    static var previews: some View {
-        NewMachinePickerVariationsPreview()
-    }
-}
-#endif

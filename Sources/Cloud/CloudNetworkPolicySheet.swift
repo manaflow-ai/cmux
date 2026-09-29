@@ -3,7 +3,7 @@ import CmuxFoundation
 import SwiftUI
 
 /// The machine menu's Network sheet: the shared editor over the stored
-/// policy, the provider's applied state, and Save.
+/// policy, the provider's applied state beside the buttons, and Save.
 struct CloudNetworkPolicySheet: View {
     @Bindable var model: CloudNetworkPolicySheetModel
 
@@ -24,13 +24,11 @@ struct CloudNetworkPolicySheet: View {
                     Text(String(localized: "cloud.network.sheet.loading", defaultValue: "Loading the network policy…"))
                         .cmuxFont(size: 12)
                         .foregroundStyle(.secondary)
-                    CloudSecurityExplainer()
                 }
             case .loadFailed(let message):
                 messageBox(message, isError: true)
             case .ready:
-                CloudNetworkPolicyEditor(model: model.editor, detailsInitiallyExpanded: true)
-                appliedRow
+                CloudNetworkPolicyEditor(model: model.editor)
             }
 
             if let error = model.saveError {
@@ -45,31 +43,26 @@ struct CloudNetworkPolicySheet: View {
         .accessibilityIdentifier("CloudNetworkPolicySheet")
     }
 
+    /// Whether the provider applied the stored policy: an icon and one word
+    /// beside the buttons; the time and any provider error are the tooltip.
     @ViewBuilder
-    private var appliedRow: some View {
+    private var appliedStatus: some View {
         if let applied = model.applied {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Image(systemName: applied.state == .applied ? "checkmark.circle.fill"
-                        : applied.state == .pending ? "clock" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(applied.state == .failed ? Color.red : Color.secondary)
-                    Text(applied.title)
-                        .cmuxFont(size: 11, weight: .medium)
-                    if let appliedAt = applied.appliedAt, applied.state == .applied {
-                        Text(appliedAt)
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-                if let error = applied.error, !error.isEmpty {
-                    Text(error)
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            let detail = [applied.state == .applied ? applied.appliedAt : nil, applied.error]
+                .compactMap { $0?.isEmpty == false ? $0 : nil }
+                .joined(separator: "\n")
+            HStack(spacing: 4) {
+                Image(systemName: applied.state == .applied ? "checkmark.circle.fill"
+                    : applied.state == .pending ? "clock" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(applied.state == .failed ? Color.red : Color.secondary)
+                Text(applied.title)
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(applied.state == .failed ? Color.red : Color.secondary)
+                    .lineLimit(1)
             }
+            .help(detail.isEmpty ? applied.title : detail)
             .accessibilityElement(children: .combine)
+            .accessibilityHint(detail)
             .accessibilityIdentifier("CloudNetworkPolicySheet.applied")
         }
     }
@@ -88,6 +81,7 @@ struct CloudNetworkPolicySheet: View {
     /// "Changes apply without restarting" is Save's tooltip, not a footer line.
     private var buttons: some View {
         HStack(spacing: 8) {
+            appliedStatus
             Spacer()
             if model.outcome == nil, model.applied?.state == .pending, !model.hasChanges {
                 Button(String(localized: "cloud.network.sheet.done", defaultValue: "Done")) { model.done() }

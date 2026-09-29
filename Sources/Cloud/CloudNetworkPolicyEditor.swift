@@ -2,81 +2,109 @@ import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
-/// The outbound network controls, embedded in the New Machine sheet and the
-/// Network sheet: a mode picker, and in Allowlist mode the presets, domains,
-/// IP ranges, and DNS switch behind a disclosure so the sheet stays compact.
+/// The Network sheet's editor: the mode menu with the security info button,
+/// and in Allowlist mode the lists themselves. The New Machine sheet lays
+/// out the same pieces (``CloudNetworkModeMenu``,
+/// ``CloudNetworkAllowlistDetails``) inside its own rows.
 struct CloudNetworkPolicyEditor: View {
     @Bindable var model: CloudNetworkPolicyEditorModel
-    /// Starts expanded in the Network sheet, where the lists are the point.
-    @State private var detailsExpanded: Bool
-
-    init(model: CloudNetworkPolicyEditorModel, detailsInitiallyExpanded: Bool = false) {
-        self.model = model
-        _detailsExpanded = State(initialValue: detailsInitiallyExpanded)
-    }
+    var modeMenuWidth: CGFloat = 200
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Picker(String(localized: "cloud.network.mode.label", defaultValue: "Outbound access"), selection: $model.mode) {
-                    ForEach(CloudNetworkPolicyMode.allCases, id: \.self) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .accessibilityIdentifier("CloudNetworkPolicyEditor.mode")
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                CloudNetworkModeMenu(model: model)
+                    .frame(width: modeMenuWidth)
                 CloudSecurityExplainer()
             }
-
-            // The note on what stays reachable is the caption's tooltip; in
-            // Allowlist mode it is also printed under the lists below.
-            Text(model.mode.explanation)
-                .cmuxFont(size: 11)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .help(model.requiredDomainsNote ?? model.mode.explanation)
-                .accessibilityHint(model.requiredDomainsNote ?? "")
-                .accessibilityIdentifier("CloudNetworkPolicyEditor.modeExplanation")
-
             if model.showsAllowlistDetails {
-                DisclosureGroup(isExpanded: $detailsExpanded) {
-                    allowlistDetails
-                        .padding(.top, 6)
-                } label: {
-                    Text(allowlistSummary)
-                        .cmuxFont(size: 12)
-                }
-                .accessibilityIdentifier("CloudNetworkPolicyEditor.allowlist")
+                CloudNetworkAllowlistDetails(model: model)
             }
-
-            if let error = model.inputError {
-                Text(error)
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("CloudNetworkPolicyEditor.inputError")
-            }
+            CloudNetworkInputError(model: model)
         }
     }
+}
 
-    /// "Presets: 2 · Domains: 3 · IP ranges: 1". Label-and-number form needs
-    /// no plural rules; the numbers are formatted for the locale.
-    private var allowlistSummary: String {
+/// Full internet / Allowlist / No internet as one pull-down. What each mode
+/// allows is the tooltip, not a caption.
+struct CloudNetworkModeMenu: View {
+    @Bindable var model: CloudNetworkPolicyEditorModel
+    var borderless = false
+
+    var body: some View {
+        let menu = Menu {
+            ForEach(CloudNetworkPolicyMode.allCases, id: \.self) { mode in
+                Button {
+                    model.mode = mode
+                } label: {
+                    if mode == model.mode {
+                        Label(mode.title, systemImage: "checkmark")
+                    } else {
+                        Text(mode.title)
+                    }
+                }
+                .help(mode.explanation)
+            }
+        } label: {
+            Text(model.mode.title)
+        }
+        .help(model.mode.explanation)
+        .accessibilityLabel(String(localized: "cloud.network.mode.label", defaultValue: "Outbound access"))
+        .accessibilityValue(model.mode.title)
+        .accessibilityHint(model.mode.explanation)
+        .accessibilityIdentifier("CloudNetworkPolicyEditor.mode")
+        if borderless {
+            menu.menuStyle(.borderlessButton).fixedSize()
+        } else {
+            menu
+        }
+    }
+}
+
+/// "Presets: 2 · Domains: 3 · IP ranges: 1". Label-and-number form needs
+/// no plural rules; the numbers are formatted for the locale.
+struct CloudNetworkAllowlistSummary: View {
+    let model: CloudNetworkPolicyEditorModel
+
+    var body: some View {
         let format = String(
             localized: "cloud.network.allowlist.summary",
             defaultValue: "Presets: %1$@ · Domains: %2$@ · IP ranges: %3$@"
         )
         let counts = [model.policy.presets.count, model.policy.domains.count, model.policy.ranges.count]
             .map { NumberFormatter.localizedString(from: NSNumber(value: $0), number: .decimal) }
-        return String(format: format, counts[0], counts[1], counts[2])
+        Text(String(format: format, counts[0], counts[1], counts[2]))
+            .cmuxFont(size: 12)
+            .lineLimit(1)
     }
+}
 
-    private var allowlistDetails: some View {
-        VStack(alignment: .leading, spacing: 10) {
+/// The last refused add or toggle, in red; nothing when there is none.
+struct CloudNetworkInputError: View {
+    let model: CloudNetworkPolicyEditorModel
+
+    var body: some View {
+        if let error = model.inputError {
+            Text(error)
+                .cmuxFont(size: 11)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("CloudNetworkPolicyEditor.inputError")
+        }
+    }
+}
+
+/// The allowlist itself: presets, domains, IP ranges, DNS, and the domains
+/// cmux always allows. Small row labels, one line each; the longer notes
+/// are tooltips.
+struct CloudNetworkAllowlistDetails: View {
+    @Bindable var model: CloudNetworkPolicyEditorModel
+
+    var body: some View {
+        Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 8, verticalSpacing: 8) {
             if !model.presets.isEmpty {
-                section(String(localized: "cloud.network.presets.label", defaultValue: "Quick add")) {
+                GridRow {
+                    rowLabel(String(localized: "cloud.network.presets.label", defaultValue: "Quick add"))
                     CloudNetworkPresetToggles(
                         presets: model.presets,
                         isEnabled: { model.isPresetEnabled($0) },
@@ -84,85 +112,95 @@ struct CloudNetworkPolicyEditor: View {
                     )
                 }
             }
-
-            section(String(localized: "cloud.network.domains.label", defaultValue: "Domains (HTTPS)")) {
-                ForEach(model.policy.domains, id: \.self) { domain in
-                    CloudNetworkEntryRow(text: domain) { model.removeDomain(domain) }
-                }
-                HStack(spacing: 6) {
-                    TextField(
-                        String(localized: "cloud.network.domains.placeholder", defaultValue: "e.g. api.example.com"),
-                        text: $model.domainDraft
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { model.addDomain() }
-                    .accessibilityIdentifier("CloudNetworkPolicyEditor.domainField")
-                    Button(String(localized: "cloud.network.add", defaultValue: "Add")) { model.addDomain() }
-                        .controlSize(.small)
-                        .accessibilityIdentifier("CloudNetworkPolicyEditor.addDomain")
-                }
-            }
-
-            section(String(localized: "cloud.network.ranges.label", defaultValue: "IP ranges")) {
-                ForEach(model.policy.ranges, id: \.identityKey) { range in
-                    CloudNetworkEntryRow(text: range.displayText) { model.removeRange(range) }
-                }
-                HStack(spacing: 6) {
-                    TextField(
-                        String(localized: "cloud.network.ranges.placeholder", defaultValue: "e.g. 203.0.113.0/24"),
-                        text: $model.rangeDraft
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { model.addRange() }
-                    .accessibilityIdentifier("CloudNetworkPolicyEditor.rangeField")
-                    TextField(
-                        String(localized: "cloud.network.ranges.port", defaultValue: "Port"),
-                        text: $model.portDraft
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 64)
-                    .onSubmit { model.addRange() }
-                    Picker(String(localized: "cloud.network.ranges.protocol", defaultValue: "Protocol"), selection: $model.protocolDraft) {
-                        ForEach(CloudNetworkRangeProtocol.allCases, id: \.self) { transport in
-                            Text(transport.rawValue.uppercased()).tag(transport)
-                        }
+            GridRow {
+                rowLabel(String(localized: "cloud.network.domains.label", defaultValue: "Domains (HTTPS)"))
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(model.policy.domains, id: \.self) { domain in
+                        CloudNetworkEntryRow(text: domain) { model.removeDomain(domain) }
                     }
-                    .labelsHidden()
-                    .frame(width: 70)
-                    .disabled(model.portDraft.trimmingCharacters(in: .whitespaces).isEmpty)
-                    Button(String(localized: "cloud.network.add", defaultValue: "Add")) { model.addRange() }
+                    HStack(spacing: 6) {
+                        TextField(
+                            String(localized: "cloud.network.domains.placeholder", defaultValue: "e.g. api.example.com"),
+                            text: $model.domainDraft
+                        )
+                        .textFieldStyle(.roundedBorder)
                         .controlSize(.small)
-                        .accessibilityIdentifier("CloudNetworkPolicyEditor.addRange")
+                        .onSubmit { model.addDomain() }
+                        .accessibilityIdentifier("CloudNetworkPolicyEditor.domainField")
+                        Button(String(localized: "cloud.network.add", defaultValue: "Add")) { model.addDomain() }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("CloudNetworkPolicyEditor.addDomain")
+                    }
                 }
             }
-
-            CloudCheckboxRow(
-                title: String(localized: "cloud.network.dns.label", defaultValue: "Allow DNS lookups"),
-                isOn: $model.allowDns
-            )
-            .help(String(
-                localized: "cloud.network.dns.note",
-                defaultValue: "Listed domains work without DNS. Open DNS lets tools resolve names for IP ranges, but DNS is also an outbound channel."
-            ))
-            .accessibilityIdentifier("CloudNetworkPolicyEditor.dns")
-
-            if let note = model.requiredDomainsNote {
-                Text(note)
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("CloudNetworkPolicyEditor.requiredDomains")
+            GridRow {
+                rowLabel(String(localized: "cloud.network.ranges.label", defaultValue: "IP ranges"))
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(model.policy.ranges, id: \.identityKey) { range in
+                        CloudNetworkEntryRow(text: range.displayText) { model.removeRange(range) }
+                    }
+                    HStack(spacing: 6) {
+                        TextField(
+                            String(localized: "cloud.network.ranges.placeholder", defaultValue: "e.g. 203.0.113.0/24"),
+                            text: $model.rangeDraft
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { model.addRange() }
+                        .accessibilityIdentifier("CloudNetworkPolicyEditor.rangeField")
+                        TextField(
+                            String(localized: "cloud.network.ranges.port", defaultValue: "Port"),
+                            text: $model.portDraft
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 52)
+                        .onSubmit { model.addRange() }
+                        Picker(String(localized: "cloud.network.ranges.protocol", defaultValue: "Protocol"), selection: $model.protocolDraft) {
+                            ForEach(CloudNetworkRangeProtocol.allCases, id: \.self) { transport in
+                                Text(transport.rawValue.uppercased()).tag(transport)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 64)
+                        .disabled(model.portDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                        Button(String(localized: "cloud.network.add", defaultValue: "Add")) { model.addRange() }
+                            .accessibilityIdentifier("CloudNetworkPolicyEditor.addRange")
+                    }
+                    .controlSize(.small)
+                }
+            }
+            GridRow {
+                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                VStack(alignment: .leading, spacing: 4) {
+                    CloudCheckboxRow(
+                        title: String(localized: "cloud.network.dns.label", defaultValue: "Allow DNS lookups"),
+                        isOn: $model.allowDns,
+                        fontSize: 12
+                    )
+                    .help(String(
+                        localized: "cloud.network.dns.note",
+                        defaultValue: "Listed domains work without DNS. Open DNS lets tools resolve names for IP ranges, but DNS is also an outbound channel."
+                    ))
+                    .accessibilityIdentifier("CloudNetworkPolicyEditor.dns")
+                    if let note = model.requiredDomainsNote {
+                        Text(note)
+                            .cmuxFont(size: 11)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help(note)
+                            .accessibilityIdentifier("CloudNetworkPolicyEditor.requiredDomains")
+                    }
+                }
             }
         }
     }
 
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .cmuxFont(size: 11, weight: .semibold)
-                .foregroundStyle(.secondary)
-            content()
-        }
+    private func rowLabel(_ title: String) -> some View {
+        Text(title)
+            .cmuxFont(size: 11)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .gridColumnAlignment(.trailing)
     }
 }
 
@@ -189,7 +227,8 @@ private struct CloudNetworkEntryRow: View {
     }
 }
 
-/// Preset checkboxes in two columns. Closures only, for the same reason.
+/// Preset checkboxes in two columns; each preset's domains are its tooltip.
+/// Closures only, for the same reason.
 private struct CloudNetworkPresetToggles: View {
     let presets: [CloudNetworkPreset]
     let isEnabled: (String) -> Bool
@@ -204,7 +243,7 @@ private struct CloudNetworkPresetToggles: View {
                         CloudCheckboxRow(title: preset.label, isOn: Binding(
                             get: { isEnabled(preset.id) },
                             set: { setEnabled(preset.id, $0) }
-                        ))
+                        ), fontSize: 12)
                         .help(preset.domains.joined(separator: ", "))
                         .accessibilityIdentifier("CloudNetworkPolicyEditor.preset.\(preset.id)")
                     }

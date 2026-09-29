@@ -252,10 +252,16 @@ final class NewMachineModel {
     }
 
     func applyPage(_ page: VMListPage) {
-        guard let limits = page.limits else { return }
+        applyPlan(activeCount: page.vms.count, limits: page.limits)
+    }
+
+    /// Replaces the plan in place (a background refresh of the cached plan).
+    /// The selected size survives unless the new plan no longer allows it.
+    func applyPlan(activeCount: Int, limits: VMPlanLimits?) {
+        guard let limits else { return }
         let updated = NewMachineModel(
             mode: mode,
-            plan: MachineSnapshotBuilder.planSnapshot(activeCount: page.vms.count, limits: limits),
+            plan: MachineSnapshotBuilder.planSnapshot(activeCount: activeCount, limits: limits),
             memoryOptionsMb: limits.memoryOptionsMb,
             lockedMemoryOptionsMb: limits.lockedMemoryOptionsMb,
             memoryUpgradePlanId: limits.memoryUpgradePlanId,
