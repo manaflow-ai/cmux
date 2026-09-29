@@ -9,7 +9,7 @@ enum CloudTreeCreateActionBuilder {
                     node.children.append(CloudTreeNode(id: "cloud-machines-section/new-cloud-vm", kind: .createAction(.newCloudVM)))
                 }
                 let hasCloudMachine = node.children.contains { child in
-                    if case .machine(let machine, _) = child.kind { return machine.cloudMachineID != nil }
+                    if case .machine(let machine, _) = child.kind { return !machine.id.isEmpty }
                     return false
                 }
                 if !hasCloudMachine && !node.children.contains(where: { $0.id == "cloud-machines-section/new-workspace" }) {
