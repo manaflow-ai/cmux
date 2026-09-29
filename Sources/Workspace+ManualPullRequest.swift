@@ -12,25 +12,30 @@ extension Workspace {
         status: SidebarPullRequestStatus,
         branch: String?
     ) {
-        _ = sidebarMetadata.attachManualPullRequest(
+        let changed = sidebarMetadata.attachManualPullRequest(
             number: number,
             label: label,
             url: url,
             status: status,
             branch: branch
         )
+        if changed { objectWillChange.send() }
     }
 
     /// Matching fresh watcher results advance the manual link's status too,
     /// including closed/reopened transitions, so changing branch cannot
     /// resurrect the status originally supplied by the handoff.
     func reconcileManualPullRequest(with state: SidebarPullRequestState) {
-        _ = sidebarMetadata.reconcileManualPullRequest(with: state)
+        if sidebarMetadata.reconcileManualPullRequest(with: state) {
+            objectWillChange.send()
+        }
     }
 
     /// Removes the CLI-owned workspace pull-request association.
     func clearManualPullRequest() {
-        _ = sidebarMetadata.clearManualPullRequest()
+        if sidebarMetadata.clearManualPullRequest() {
+            objectWillChange.send()
+        }
     }
 
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {

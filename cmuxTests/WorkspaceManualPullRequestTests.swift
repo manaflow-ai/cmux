@@ -109,4 +109,32 @@ struct WorkspaceManualPullRequestTests {
         #expect(workspace.sidebarPullRequestsInDisplayOrder().map(\.status) == [.closed])
     }
 
+    @Test func handoffInvalidatesWorkspaceObserversOnlyForRealChanges() throws {
+        let workspace = Workspace(title: "Test")
+        let url = try #require(URL(string: "https://github.com/owner/repo/pull/123"))
+        var emissions = 0
+        let token = workspace.objectWillChange.sink { emissions += 1 }
+        defer { token.cancel() }
+
+        workspace.attachManualPullRequest(number: 123, label: "PR", url: url, status: .open, branch: nil)
+        #expect(emissions == 1)
+
+        workspace.attachManualPullRequest(number: 123, label: "PR", url: url, status: .open, branch: nil)
+        #expect(emissions == 1)
+
+        workspace.reconcileManualPullRequest(
+            with: SidebarPullRequestState(
+                number: 123,
+                label: "PR",
+                url: url,
+                status: .merged,
+                branch: nil
+            )
+        )
+        #expect(emissions == 2)
+
+        workspace.clearManualPullRequest()
+        #expect(emissions == 3)
+    }
+
 }

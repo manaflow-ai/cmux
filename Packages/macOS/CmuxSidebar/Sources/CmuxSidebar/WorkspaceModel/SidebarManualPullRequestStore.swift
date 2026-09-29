@@ -10,6 +10,8 @@ public struct SidebarManualPullRequestStore: Equatable, Sendable {
     /// The currently attached manual pull request, if any.
     public private(set) var state: SidebarPullRequestState?
 
+    /// Creates a store with an optional existing manual association.
+    /// - Parameter state: The association to retain until the next transition.
     public init(state: SidebarPullRequestState? = nil) {
         self.state = state
     }
