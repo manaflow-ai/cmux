@@ -1,0 +1,140 @@
+import AppKit
+import CmuxNextDesign
+import QuartzCore
+
+/// Draggable handle for a split divider or a column's trailing edge. The
+/// frame is the hit area; a thin line is drawn in its center for splits.
+final class DividerHandleView: NSView {
+    enum Kind: Hashable {
+        case split(SplitID)
+        case columnEdge(ColumnID)
+    }
+
+    enum DragEvent {
+        case began(NSPoint)
+        case moved(NSPoint)
+        case ended(NSPoint)
+        case doubleClick
+    }
+
+    let kind: Kind
+    private(set) var axis: SplitAxis
+    var lineThickness: CGFloat = 1 { didSet { needsLayout = true } }
+    var onDrag: ((DragEvent) -> Void)?
+
+    private let line = CALayer()
+    private var isHovered = false { didSet { applyColors() } }
+    private var isDragging = false { didSet { applyColors() } }
+    private var trackingArea: NSTrackingArea?
+
+    init(kind: Kind, axis: SplitAxis) {
+        self.kind = kind
+        self.axis = axis
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.addSublayer(line)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.splitter)
+        switch kind {
+        case .split: setAccessibilityLabel(LayoutStrings.dividerAccessibility)
+        case .columnEdge: setAccessibilityLabel(LayoutStrings.columnEdgeAccessibility)
+        }
+        applyColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override var isFlipped: Bool { true }
+
+    func setAxis(_ axis: SplitAxis) {
+        guard self.axis != axis else { return }
+        self.axis = axis
+        window?.invalidateCursorRects(for: self)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let t = isColumnEdge ? max(lineThickness, 2) : lineThickness
+        switch axis {
+        case .horizontal: line.frame = CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
+        case .vertical: line.frame = CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)
+        }
+        CATransaction.commit()
+    }
+
+    private var isColumnEdge: Bool {
+        if case .columnEdge = kind { return true }
+        return false
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: axis == .horizontal ? .columnResize : .rowResize)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true }
+    override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            onDrag?(.doubleClick)
+            return
+        }
+        isDragging = true
+        onDrag?(.began(event.locationInWindow))
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isDragging else { return }
+        onDrag?(.moved(event.locationInWindow))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isDragging else { return }
+        isDragging = false
+        onDrag?(.ended(event.locationInWindow))
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        let isEdge = isColumnEdge
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let active = isHovered || isDragging
+            let color: NSColor
+            if isEdge {
+                color = active ? Palette.focusRing.withAlphaComponent(0.45) : .clear
+            } else {
+                color = active ? Palette.focusRing.withAlphaComponent(0.6) : Palette.separator
+            }
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(0.12)
+            line.backgroundColor = color.cgColor
+            line.cornerRadius = isEdge ? 1 : 0
+            CATransaction.commit()
+        }
+    }
+}

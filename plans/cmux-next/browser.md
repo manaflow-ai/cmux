@@ -262,3 +262,54 @@ Keep (pure, tested, engine-neutral; move into a new small `CmuxBrowserCore` pack
 4. `cmux-cef` crate, `ensure-cef.sh`, the helper app assembly, and signing in the Xcode build.
 5. `BrowserEngine` protocol, `WebKitEngine`, `CEFEngine`, and the daemon `engine` and `profile_id` fields on browser tabs.
 6. Automation: daemon CDP executor for CEF, WebKit executor capability in the frontend, and the ported JS scripts.
+
+## Spike results (2026-09-28)
+
+Code: branch `spike/lazy-cef` in worktree `~/fun/cmux2-spike`, commit `5f3e534` (not pushed). `apple/Sources/CmuxMac/Spike.swift` (the `--spike` mode of cmux2), `crates/ffi/src/spike.rs` + `crates/ffi/include/cmux_spike.h` (small C ABI over the `cef` crate), `scripts/spike-drive.sh`. Evidence: `docs/spike-2026-09-28/` (screenshots `NN-*.png`, logs `logs/runN-spike.log`). Build: `CEF_PATH=~/fun/cef-cmux-dist scripts/build-mac.sh release`. The dist is the fork: `include/cef_cmux.h` is present and `nm` shows all 11 `cmux_*` exports. The spike detected the fork API at run time (`fork_api=true`) and used `--cmux-tabbed-windows`.
+
+### 1. Lazy init: works, with the external message pump
+
+Sequence that works (run1, run2, run3, run5, run8):
+
+1. `main` creates `CmuxApplication.shared` (the `CefAppProtocol` subclass), sets the delegate, and calls `NSApp.run()`. The CEF framework is not linked and not loaded (`framework mapped before init: false`).
+2. Later (timer or button, on the main thread, while `NSApp.isRunning == true`): `LibraryLoader::load` (49-71 ms), then start one `CFRunLoopTimer` on the main run loop in common modes, then `CefInitialize` with `external_message_pump = 1`.
+3. `on_schedule_message_pump_work(delay)` can arrive on any thread. It moves to the main thread with `CFRunLoopPerformBlock` + `CFRunLoopWakeUp`, then sets the timer's next fire date (`delay <= 0` means now, capped at 1/30 s). The timer calls `CefDoMessageLoopWork`, then re-arms at 1/30 s. The re-entrancy guard is from cefclient `MainMessageLoopExternalPumpMac`.
+4. `on_context_initialized` runs **synchronously inside `CefInitialize`**, 0.40-0.51 s after the start. Browsers can be created from that callback. `CefInitialize` returns after 0.41-0.59 s. The first browser exists after about 0.56 s. The page `load_end` comes about 1.0 s after the start.
+
+Other results:
+- Helpers start normally from the bundle, and the helper sandbox is not changed. The renderer, GPU and utility helpers appear after the first browser.
+- The fork API must be found by path with `dlopen(RTLD_NOLOAD)`, as in `fork.rs`. `dlsym(RTLD_DEFAULT)` fails because the `cef` crate loader opens the framework `RTLD_LOCAL`.
+- No focus steal was seen. The app was launched with `open -g`, and the window uses `orderFront` only. `lsappinfo front` never showed cmux2. In one screenshot (16) the spike window has colored traffic lights. The cause is not known and could be a user click.
+- **Rejected:** `external_message_pump = 0` with no `CefRunMessageLoop` (run6). This crashes at once: `FATAL message_pump_apple.mm:360 DCHECK failed: nesting_level_ != 0` from `MessagePumpCFRunLoopBase::EnterExitObserver` (see `logs/run6-cef-fatal.txt`). The dist has DCHECKs enabled.
+- **Rejected:** a nested `CefRunMessageLoop` called from a timer callback (run7). It runs, but that callback never returns until quit.
+- **Quit path, new risk:** `close_browser` on all browsers, then `CefShutdown` right after the last `on_before_close` (51 ms) causes a crash. The crash is `CHECK` in `tabs_api::TabDragServiceImpl::~TabDragServiceImpl` from `Browser::~Browser` during `ProfileManager` teardown (`DiagnosticReports/cmux2-2026-09-28-223653.ips`). The tabbed Chromium `Browser` lives longer than its CEF browsers, because `do_close` returns 1. When the pump runs 2 s more before `CefShutdown`, the call returns in 47 ms and there is no crash (run9). After that the process exited with no crash report. I did not find out why. A product fix needs a fork signal such as "window destroyed" before `CefShutdown`, not a timer. This probably applies to eager init too. I did not check whether cmux2 `main` has the same crash.
+- Not tested: pumping during menu tracking or a modal loop, keyboard focus into the page, DevTools, extensions, and **main-menu/`NSApp` delegate changes by Chrome style**. The spike app has no main menu, so the browser.md risk "Chrome style installs its own menu items after cmux menus exist" is still open.
+
+### 2. Child-window placement: follows ancestor frame moves, never clips
+
+Setup: a 150 pt "sidebar", then a clipping viewport (`clipsToBounds`) with a wider strip that holds 560 pt columns. Scrolling animates `strip.frameOrigin.x` at 60 Hz over 1.5 s or 6 s. At each tick the spike compares the host rect with the child `NSWindow.frame` and with the WindowServer bounds (`CGWindowListCopyWindowInfo`).
+
+| Case | Follows host | Clipped to viewport | Evidence |
+| --- | --- | --- | --- |
+| Frame-origin scroll, no mitigation | Yes. AppKit child frame within 1 pt at every tick. WindowServer bounds 1-4 pt behind at slow speed, up to 23 pt at 200 pt/s (about one tick behind the parent). | **No.** The page covers the sidebar by 280 pt and leaves the parent window's edges (left edge at x=300, right edge by 30 pt at rest). | `02`, `11`, `01` |
+| `NSScrollView` clip-view scroll, no mitigation | **No.** The page stays in place, 300 pt off, because the tracker does not observe `boundsDidChange`. | No | `21` |
+| Clip-view scroll + host posts `NSViewFrameDidChangeNotification` for each host view on `boundsDidChange` | Yes (within 1 pt) | No | `23` |
+| **hide**: `host.isHidden = true` when the host's visible rect differs from its bounds (the tracker KVO-observes `hidden`) | n/a | Yes, 0 pt overflow | `04`, `15` |
+| **mask**: `CAShapeLayer` mask on the child `BridgedContentView.layer` set to the visible rect at each tick, plus `child.isOpaque = false`, `backgroundColor = .clear` | Yes | **Yes, exact clip** at the viewport edge, during animation and at rest | `16`, `17`, `18` (`13` shows the opaque child background before the `isOpaque` fix) |
+| **snapshot**: CDP `Page.captureScreenshot` in process (`send_dev_tools_message` + observer), 2 captures in 84-283 ms (2x pixels), `NSImageView` over each host, hosts hidden while scrolling | n/a (the image scrolls with the column) | Yes while scrolling | `12` mid-animation. At rest the live window comes back unclipped (`08`), so combine this with hide or mask. |
+
+Conclusions for Decision 2:
+- A frame move of an ancestor view is enough for the page to follow. niri-style scroll must move frames, or post frame-change notifications for host views. A clip-view bounds scroll alone does not work with the fork as it is.
+- Clipping is never automatic. **mask** is the best host-side result: the page stays live and is clipped exactly. But it changes CEF's `NSWindow` from outside (opacity and a layer mask on Chromium's content view). Mouse hit-testing in the masked-out part of the child window is **not tested** (it is probably still captured, because the window shape does not change). The correct place for this is a fork patch in `CmuxParentViewTracker`: observe `boundsDidChange` on each enclosing `NSClipView`, apply the visible-rect mask, and set `ignoresMouseEvents` or a shaped hit test.
+- **hide** is simple and safe, but a column loses its content as soon as 1 pt of it is off-screen. **snapshot** is good for animations, and the capture latency (84-283 ms) must happen before the scroll starts.
+
+### 3. Two browsers side by side: works
+
+With `--cmux-tabbed-windows`, each `browser_host_create_browser` call with its own parent view created its own Chromium `Browser` (browser ids 1 and 2), with one child window for each host view. Both render and track independently (`01`, `10`). This supports Decision 1 (one `Browser` per pane).
+
+### Items I did out of laziness, or did not verify
+
+- The cmux-cua MCP daemon refused every call ("Computer Use onboarding is still in progress"). I took the screenshots with `screencapture -x -o -l <window>` for the spike window only. Window capture includes the child windows, so the overflow is visible. I did not touch the user's windows or change focus.
+- The `hide` and `mask` rows in the logs show `max|child-host|=600pt`. This is a bug in the spike's child-to-host matching when one child is hidden, not a real offset. Use the screenshots for those rows.
+- I did not record video, so the frame-level lag between the parent content and the child window is estimated from WindowServer bounds only. Each case ran once.
+- The child windows show rounded bottom corners (visible in every screenshot). This is cosmetic, and the fork should remove it.
