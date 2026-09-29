@@ -3876,6 +3876,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Restore all scoped display snapshots before the paired-Mac SQLite read.
+    /// The snapshot store carries the account/team scope in each value, so an
+    /// early render cannot leak rows from another signed-in identity. The live
+    /// paired-Mac load still replaces these rows and remains the authority for
+    /// every action.
+    private func restoreWorkspaceSnapshots(
+        scope: MobileShellScopeSnapshot
+    ) {
+        guard let workspaceSnapshotStore else { return }
+        var changed = false
+        for (key, cached) in workspaceSnapshotStore.loadAll(
+            userID: scope.userID,
+            teamID: scope.teamID
+        ) {
+            guard workspacesByMac[key]?.status != .connected else { continue }
+            workspacesByMac[key] = cached
+            changed = true
+        }
+        if changed {
+            recomputeDerivedWorkspaceState()
+        }
+    }
+
     /// Persist only a complete live workspace list. The snapshot is scoped by
     /// Stack account/team and exact Mac app instance, and contains metadata plus
     /// terminal identities, never terminal output or credentials.
@@ -4492,6 +4515,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         guard loadGeneration == pairedMacLoadGeneration else { return false }
+        // Hydrate the last authenticated workspace metadata immediately. The
+        // paired-Mac directory is still loaded below, but its disk read must
+        // not delay the first useful row on a cold launch.
+        restoreWorkspaceSnapshots(scope: scope)
         pairedMacLoadState = .notLoaded
         let storeLoad = await Self.raceAgainstDeadline(
             nanoseconds: 5_000_000_000
