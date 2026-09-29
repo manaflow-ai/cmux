@@ -571518,7 +571518,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not safely detach the parent session, so the fork was not started. Retry the fork from the parent pane."
+            "value": "cmux could not safely bind the new fork session. Retry the fork from the parent pane."
           }
         },
         "ja": {
