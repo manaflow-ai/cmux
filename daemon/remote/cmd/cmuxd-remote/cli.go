@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1147,7 +1148,7 @@ func dialSocketUntil(addr string, refreshAddr func() string, deadline time.Time)
 	}
 	if uid != uint32(os.Geteuid()) {
 		_ = conn.Close()
-		return nil, fmt.Errorf("socket is served by another user (uid %d)", uid)
+		return nil, errors.New("socket is served by another user")
 	}
 	return conn, nil
 }

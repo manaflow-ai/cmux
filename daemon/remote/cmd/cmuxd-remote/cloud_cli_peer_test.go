@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -108,6 +109,9 @@ func TestCLIRefusesSocketAnotherUserServes(t *testing.T) {
 			}
 			if err == nil {
 				t.Fatal("CLI sent a request to a socket another user serves")
+			}
+			if test.name == "another user" && strings.Contains(err.Error(), "uid") {
+				t.Fatalf("peer UID leaked in user-facing error: %v", err)
 			}
 			select {
 			case request := <-requests:
