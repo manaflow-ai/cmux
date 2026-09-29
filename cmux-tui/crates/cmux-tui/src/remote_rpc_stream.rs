@@ -73,11 +73,10 @@ fn write_output(output: &StreamOutput) -> io::Result<()> {
 
 /// Serves stream mode until stdin closes or the remote runtime finishes.
 pub(super) async fn serve_rpc_stream(
-    client: WorkspaceClient,
+    client: Arc<WorkspaceClient>,
     input: &mut mpsc::Receiver<io::Result<String>>,
     finished: &mut watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
-    let client = Arc::new(client);
     let (done_tx, mut done_rx) = mpsc::unbounded_channel::<String>();
     let mut in_flight: HashMap<String, JoinHandle<()>> = HashMap::new();
     write_output(&StreamOutput::Ready { ready: true })?;
