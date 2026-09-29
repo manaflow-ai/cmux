@@ -388,7 +388,7 @@ import Testing
         #expect(rig.controller.phase == .failed(.configuration))
     }
 
-    @Test func aLateEnrollmentContinuesIntoInstallAndDoesNotEnrollAgain() async {
+    @Test func aTimedOutEnrollmentIsRevokedBeforeItCanInstall() async {
         let rig = Rig(operationTimeout: .milliseconds(100))
         rig.service.enrollmentDelay = .milliseconds(250)
         await signedIn(rig)
@@ -397,13 +397,12 @@ import Testing
         await rig.controller.waitForPendingOperation()
         #expect(rig.controller.phase == .failed(.configuration))
 
-        rig.controller.enable()
-        #expect(rig.service.calls.enroll.count == 1)
-
         await rig.service.waitForEnrollmentCompletion()
-        await rig.manager.waitForInstallCompletion()
-        await rig.waitForPhase(.failed(.configuration))
-        #expect(rig.manager.installed.count == 1)
+        for _ in 0..<50 where rig.service.calls.revoke.isEmpty {
+            try? await ContinuousClock().sleep(for: .milliseconds(5))
+        }
+        #expect(rig.manager.installed.isEmpty)
+        #expect(rig.service.calls.revoke.count == 1)
         #expect(rig.controller.phase == .failed(.configuration))
     }
 
