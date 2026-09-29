@@ -11,7 +11,16 @@ final class TmuxWorkspacePaneOverlayCoordinator {
     /// Refreshes from current model and AppKit values, rebuilding only when
     /// those values differ from the last admitted snapshot.
     func refresh(builder: TmuxWorkspacePaneOverlayStateBuilder, in newWindow: NSWindow? = nil) {
-        if let newWindow { window = newWindow }
+        if let newWindow {
+            if let previousWindow = window, previousWindow !== newWindow {
+                WindowTmuxWorkspacePaneOverlayController.controller(
+                    for: previousWindow,
+                    createIfNeeded: false
+                )?.update(state: nil)
+                lastSnapshot = nil
+            }
+            window = newWindow
+        }
         guard let window else { return }
         let inputs = builder.inputs
         let controller = WindowTmuxWorkspacePaneOverlayController.controller(
