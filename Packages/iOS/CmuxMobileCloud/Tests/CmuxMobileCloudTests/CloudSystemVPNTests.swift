@@ -389,6 +389,25 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.controller.phase == .failed(.configuration))
     }
 
+    @Test func aStaleEnrollmentIsRevokedBeforeItCanInstall() async {
+        let rig = Rig(operationTimeout: .milliseconds(100))
+        rig.service.enrollmentDelay = .milliseconds(250)
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        rig.controller.setScope(nil)
+        await rig.service.waitForEnrollmentCompletion()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.installed.isEmpty)
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(rig.service.calls.revoke.first?.purpose == .browser)
+    }
+
     @Test func aStartRequestStaysTransitioningUntilStatusArrives() async {
         let rig = Rig()
         rig.manager.phaseAfterStart = .off
@@ -586,6 +605,20 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         #expect(rig.manager.stops == [true])
         #expect(rig.manager.refreshedScopes == ["user-1/team-1", "user-2/team-9"])
+    }
+
+    @Test func switchingAccountsRevokesTheOldBrowserPeer() async {
+        let rig = Rig()
+        await signedIn(rig, scope: "user-1/team-1")
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        rig.controller.setScope("user-2/team-9")
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
     @Test func theFirstSignedInScopeDoesNotRemoveAnything() async {

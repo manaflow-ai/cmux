@@ -31,6 +31,7 @@ public final class CloudSystemVPNController {
     private var hasLoadedScope = false
     private var cleanupPending = false
     private var browserTunnel: (scope: String, deviceFingerprint: String)?
+    private var pendingBrowserTunnelRevocations: [(scope: String, deviceFingerprint: String)] = []
     private var needsPlatformReconciliation = false
     private var generation: UInt64 = 0
     private var operation: Task<Void, Never>?
@@ -97,10 +98,10 @@ public final class CloudSystemVPNController {
         cleanupRetryTask?.cancel()
         cleanupRetryTask = nil
         let previousScope = scope
-        scope = newScope
-        if browserTunnel?.scope != newScope {
-            browserTunnel = nil
+        if let browserTunnel, browserTunnel.scope != newScope {
+            rememberPendingBrowserTunnelRevocation(browserTunnel)
         }
+        scope = newScope
         // A device that cannot run the VPN never saved one, so there is
         // nothing to load or remove.
         guard manager.isAvailable else {
@@ -112,6 +113,11 @@ public final class CloudSystemVPNController {
         cleanupPending = removesExistingConfiguration
         enqueue { [self] generation in
             do {
+                if !pendingBrowserTunnelRevocations.isEmpty {
+                    try await revokePendingBrowserTunnel()
+                    guard self.isCurrent(generation) else { return }
+                    browserTunnel = nil
+                }
                 if removesExistingConfiguration {
                     try await removeConfigurationWithRetry()
                     guard self.isCurrent(generation) else { return }
@@ -137,9 +143,14 @@ public final class CloudSystemVPNController {
     public func refresh() async {
         guard manager.isAvailable, operation == nil else { return }
         guard let scope else {
-            guard cleanupPending else { return }
+            guard cleanupPending || !pendingBrowserTunnelRevocations.isEmpty else { return }
             enqueue { [self] generation in
                 do {
+                    if !pendingBrowserTunnelRevocations.isEmpty {
+                        try await revokePendingBrowserTunnel()
+                        guard self.isCurrent(generation) else { return }
+                        browserTunnel = nil
+                    }
                     try await removeConfigurationWithRetry()
                     guard self.isCurrent(generation) else { return }
                     cleanupPending = false
@@ -243,9 +254,14 @@ public final class CloudSystemVPNController {
                         throw CloudSystemVPNError.enrollment
                     }
                     guard self.isCurrent(generation), self.scope == scope else {
+                        await self.revokeEnrollmentIfOwned(enrollment, scope: scope)
                         throw CancellationError()
                     }
                     try await self.install(enrollment: enrollment, privateKey: keyPair.privateKey, scope: scope)
+                    guard self.isCurrent(generation), self.scope == scope else {
+                        await self.revokeEnrollmentIfOwned(enrollment, scope: scope)
+                        throw CancellationError()
+                    }
                     self.browserTunnel = (scope: scope, deviceFingerprint: enrollment.deviceFingerprint)
                 }
                 guard self.isCurrent(generation) else { return }
@@ -299,30 +315,33 @@ public final class CloudSystemVPNController {
     /// Returns the sign-out teardown that revokes this phone's browser role
     /// with the tokens captured before auth clears them.
     public func serverTeardown() -> @Sendable (String?, String?) async -> Void {
-        let enrolled = browserTunnel
+        let controller = self
         let identityResolver = self.identityResolver
         let service = self.service
         let attempts = cleanupRetryCount
         return { accessToken, refreshToken in
             guard let accessToken, let refreshToken else { return }
-            let fingerprint: String?
-            if let enrolled {
-                fingerprint = enrolled.deviceFingerprint
+            let enrolled = await controller.browserTunnelsForTeardown()
+            let fingerprints: [String]
+            if enrolled.isEmpty {
+                guard let fingerprint = try? await identityResolver.stored()?.fingerprint else { return }
+                fingerprints = [fingerprint]
             } else {
-                fingerprint = try? await identityResolver.stored()?.fingerprint
+                fingerprints = enrolled.map(\.deviceFingerprint)
             }
-            guard let fingerprint else { return }
-            for _ in 0..<attempts {
-                do {
-                    try await service.revokeTunnel(
-                        deviceFingerprint: fingerprint,
-                        tunnelPurpose: .browser,
-                        accessToken: accessToken,
-                        refreshToken: refreshToken
-                    )
-                    return
-                } catch {
-                    continue
+            for fingerprint in fingerprints {
+                for _ in 0..<attempts {
+                    do {
+                        try await service.revokeTunnel(
+                            deviceFingerprint: fingerprint,
+                            tunnelPurpose: .browser,
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                        break
+                    } catch {
+                        continue
+                    }
                 }
             }
         }
@@ -429,6 +448,83 @@ public final class CloudSystemVPNController {
         throw lastError ?? CloudSystemVPNError.configuration
     }
 
+    private func rememberPendingBrowserTunnelRevocation(
+        _ tunnel: (scope: String, deviceFingerprint: String)
+    ) {
+        guard !pendingBrowserTunnelRevocations.contains(where: {
+            $0.scope == tunnel.scope && $0.deviceFingerprint == tunnel.deviceFingerprint
+        }) else { return }
+        pendingBrowserTunnelRevocations.append(tunnel)
+    }
+
+    private func removePendingBrowserTunnelRevocation(
+        _ tunnel: (scope: String, deviceFingerprint: String)
+    ) {
+        pendingBrowserTunnelRevocations.removeAll {
+            $0.scope == tunnel.scope && $0.deviceFingerprint == tunnel.deviceFingerprint
+        }
+    }
+
+    private func browserTunnelsForTeardown() -> [(scope: String, deviceFingerprint: String)] {
+        var tunnels = pendingBrowserTunnelRevocations
+        if let browserTunnel,
+           !tunnels.contains(where: {
+               $0.scope == browserTunnel.scope && $0.deviceFingerprint == browserTunnel.deviceFingerprint
+           }) {
+            tunnels.append(browserTunnel)
+        }
+        return tunnels
+    }
+
+    private func revokePendingBrowserTunnel() async throws {
+        for tunnel in pendingBrowserTunnelRevocations {
+            var lastError: (any Error)?
+            for _ in 0..<cleanupRetryCount {
+                do {
+                    try await service.revokeTunnel(
+                        deviceFingerprint: tunnel.deviceFingerprint,
+                        tunnelPurpose: .browser
+                    )
+                    removePendingBrowserTunnelRevocation(tunnel)
+                    lastError = nil
+                    break
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    lastError = error
+                }
+            }
+            if let lastError {
+                throw lastError
+            }
+        }
+    }
+
+    private func revokeEnrollmentIfOwned(
+        _ enrollment: CloudTunnelEnrollment,
+        scope: String
+    ) async {
+        guard enrollment.created || enrollment.rotated else { return }
+        let tunnel = (scope: scope, deviceFingerprint: enrollment.deviceFingerprint)
+        rememberPendingBrowserTunnelRevocation(tunnel)
+        let service = self.service
+        let fingerprint = enrollment.deviceFingerprint
+        let revoked = await Task.detached(priority: .utility) {
+            do {
+                try await service.revokeTunnel(
+                    deviceFingerprint: fingerprint,
+                    tunnelPurpose: .browser
+                )
+                return true
+            } catch {
+                return false
+            }
+        }.value
+        if revoked {
+            removePendingBrowserTunnelRevocation(tunnel)
+        }
+    }
+
     private func retryPendingCleanup() {
         guard manager.isAvailable, cleanupPending else { return }
         publish(.disconnecting)
@@ -438,6 +534,11 @@ public final class CloudSystemVPNController {
         }
         enqueue { [self] generation in
             do {
+                if !pendingBrowserTunnelRevocations.isEmpty {
+                    try await revokePendingBrowserTunnel()
+                    guard self.isCurrent(generation) else { return }
+                    browserTunnel = nil
+                }
                 try await removeConfigurationWithRetry()
                 guard self.isCurrent(generation) else { return }
                 cleanupPending = false
