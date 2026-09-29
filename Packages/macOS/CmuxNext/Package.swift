@@ -100,6 +100,9 @@ let package = Package(
         .target(
             name: "CmuxNextSidebar",
             dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
