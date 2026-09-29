@@ -47,6 +47,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CmuxGhosttyKit"),
+        .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxIrxTransport"),
     ],
     targets: [
         .target(
@@ -200,6 +202,30 @@ let package = Package(
             dependencies: ["CmuxNextApp", "CmuxNextActions"],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
+        ),
+        // Phone access (plans/cmux-next/cloud-ios.md): irx host, the daemon
+        // lane splice, and the mobile.* compat adapter for shipped iOS builds.
+        // No UI; the App wires it to the daemon connection and auth.
+        .target(
+            name: "CmuxNextMobile",
+            dependencies: [
+                "CmuxNextDaemon",
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                .product(name: "CmuxIrxTransport", package: "CmuxIrxTransport"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextMobileTests",
+            dependencies: [
+                "CmuxNextMobile",
+                "CmuxNextDaemon",
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+            ],
+            resources: [
+                .copy("Fixtures"),
+            ],
+            swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
