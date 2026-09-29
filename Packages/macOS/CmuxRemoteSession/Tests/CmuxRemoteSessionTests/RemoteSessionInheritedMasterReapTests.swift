@@ -170,8 +170,10 @@ struct RemoteSessionInheritedMasterReapTests {
 
     @Test("Stopping detaches from an in-flight inherited-master reap")
     func stopDetachesFromInheritedMasterReap() async throws {
-        let runner = BlockingInheritedMasterReapRunner()
         let identity = ResolvedControlPathFixture.uniqueIdentity()
+        let runner = BlockingInheritedMasterReapRunner(
+            relayPort: identity.relayPort
+        )
         let fixture = try await RemoteSessionReverseRelayStartupTests
             .makeCoordinator(
                 runner: runner,
