@@ -398,11 +398,15 @@ public actor IrxConnection {
     /// (Settings and the release gate's path-policy check). `remoteAddress`
     /// is the relay URL for relayed paths and the socket address otherwise.
     public nonisolated func selectedPath() -> (isRelay: Bool, remoteAddress: String)? {
-        let paths = connection.paths()
-        guard let selected = paths.first(where: { $0.isSelected }) else {
+        let selected = connection.selectedPath()
+        switch selected.kind {
+        case .relay:
+            return (true, selected.description)
+        case .direct:
+            return (false, selected.description)
+        case .unknown:
             return nil
         }
-        return (selected.isRelay, "\(selected.remoteAddr)")
     }
 
     /// The selected QUIC path right now, for relay attribution evidence.
