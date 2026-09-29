@@ -3989,9 +3989,15 @@ impl Mux {
             });
         }
         if operation == ResourceOperation::TabCreateBrowser {
+            // A frontend-rendered browser registers its content id before
+            // the tab commits, so the creation must use that exact id.
+            let browser_id = match fields.get("frontend_browser_id").and_then(Value::as_str) {
+                Some(id) => BrowserPublicId::parse(id.to_string())?,
+                None => BrowserPublicId::random()?,
+            };
             intent["browser_reservation"] = json!({
                 "tab_id":TabPublicId::random()?,
-                "browser_id":BrowserPublicId::random()?,
+                "browser_id":browser_id,
             });
         }
         if operation == ResourceOperation::WorkspaceLayoutApply {

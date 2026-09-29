@@ -125,6 +125,15 @@ Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. 
 
 Ratios are clamped to `0.05..0.95`. A live split in a horizontal viewport can still imply a column width outside the supported `0.1..1.0` range. The server rejects that request with `error_code:"layout-ratio-out-of-range"` and keeps the split and layout unchanged; `layout-ratio-target-missing` is reserved for an absent pane or split.
 
+`frontend-browser-tabs-v1` adds browser tabs whose page the frontend
+renders with WebKit or CEF. `new-frontend-browser-tab` creates one in the
+durable tree with `url`, `engine`, and optional `title`, `favicon_url`, and
+`profile_id`; `update-frontend-browser-tab` records navigation. The daemon
+persists and restores these tabs but never attaches a CDP target or renders
+frames for them, and `attach-surface` refuses them. Tabs report
+`browser_renderer:"frontend"` and `browser_engine`. CDP browser tabs keep
+their existing behavior and report `browser_renderer:"daemon"`.
+
 ## Events
 
 `subscribe` starts event streaming:

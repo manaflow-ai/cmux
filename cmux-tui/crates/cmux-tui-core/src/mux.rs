@@ -3225,10 +3225,12 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let opts = self.surface_options.lock().unwrap().clone();
         let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let presentation = self.presentation_snapshot();
         for content in contents {
             let Some(browser) = content.browser.clone() else { continue };
             let size = (browser.cols, browser.rows);
-            let url = browser.url;
+            let frontend = presentation.frontend_browsers.get(browser.public_id.as_str());
+            let url = frontend.map(|record| record.url.clone()).unwrap_or(browser.url);
             let surface = browser::new_surface_with_resource_identity(
                 content.slot,
                 url.clone(),
@@ -3239,6 +3241,9 @@ impl Mux {
                 content.identity.clone(),
             )?;
             surface.set_name(content.name.clone());
+            if let (Some(record), Some(runtime)) = (frontend, surface.as_browser()) {
+                runtime.set_frontend_location(None, record.title.clone());
+            }
             insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
             match browser.reconnect {
                 RegistryBrowserReconnect::Recreate => {
@@ -9388,6 +9393,11 @@ impl Mux {
         runtime: Option<Arc<BrowserRuntime>>,
     ) {
         let provider_bootstrap = matches!(&bootstrap, BrowserBootstrap::Provider { .. });
+        // The frontend renders this page itself; the daemon never waits for
+        // or attaches a CDP target for it.
+        if provider_bootstrap && self.is_frontend_browser_surface(&surface) {
+            return;
+        }
         let weak_mux = Arc::downgrade(self);
         let providers = self.browser_providers.clone();
         let id = surface.id;
@@ -13779,6 +13789,16 @@ impl Mux {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_browser_tab_with_fields(url, pane, size, Map::new())
+    }
+
+    fn new_browser_tab_with_fields(
+        self: &Arc<Self>,
+        url: String,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+        extra_fields: Map<String, Value>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -13805,6 +13825,7 @@ impl Mux {
             }
         };
         let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
+        fields.extend(extra_fields);
         if let Some((cols, rows)) = size {
             let (cell_width, cell_height) = self.cell_pixel_size();
             fields.insert("width_px".into(), Value::from(u64::from(cols) * u64::from(cell_width)));

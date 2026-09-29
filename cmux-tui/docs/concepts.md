@@ -75,4 +75,9 @@ Closing a pane removes all tab placements in that pane. Closing a screen removes
 
 A terminal runtime parses child-process output once with libghostty-vt. Every PTY tab or attached frontend renders a view of that shared terminal state while keeping its own selection, scroll offset, crop, pan, and scale. Inline Kitty image storage, aliases, quota, cell pixels, and placement anchors belong to the terminal runtime rather than any one view. Attach clients receive a VT replay first, then a base64 stream of subsequent PTY bytes, plus ordered resize frames when canonical geometry changes. Graphics survive projection, attach, remote mirroring, scrolling, and resize within the configured replay and transport byte limits; graphics beyond the replay budget may be omitted.
 
+A frontend-rendered browser tab is a browser placement whose page a native
+frontend draws with WebKit or CEF. The daemon stores its URL, title, favicon,
+engine, and profile so the tab restores with the tree, but it never attaches
+a CDP target or renders frames for it; the frontend reports navigation back.
+
 A browser surface is a local Chrome/Chromium target controlled through the Chrome DevTools Protocol. The local TUI draws browser frames with kitty graphics and forwards keyboard, mouse, and wheel input over CDP. Protocol-v7 attach clients receive an initial `browser-state` event with the latest optional frame, followed by updated `browser-state` and base64 PNG `frame` events.

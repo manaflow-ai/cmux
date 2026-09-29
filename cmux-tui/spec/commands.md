@@ -142,6 +142,13 @@ the seven-character commit when `git_detached` is true. Browser tabs report
 null. A changed `cwd` emits `tab-changed`; a branch switch without a directory
 change appears at the next snapshot (HEAD lookups are cached for two seconds).
 
+Servers advertising `frontend-browser-tabs-v1` add `browser_renderer` to
+every tab: `"daemon"` for a CDP browser, `"frontend"` for a browser whose page
+the frontend renders, and null for a PTY. Frontend browsers also report
+`browser_engine` (`"webkit"` or `"cef"`), `favicon_url`, and
+`browser_profile_id`, and report null `browser_status`/`browser_error`. Their
+`url` and `title` are the values the frontend last recorded.
+
 The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
 
 ## Sizing
@@ -247,7 +254,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`.
 
 Errors:
 
@@ -1342,6 +1349,72 @@ Example:
 ```json
 {"id":7,"cmd":"new-browser-tab","url":"https://example.com","pane":2}
 {"id":7,"ok":true,"data":{"surface":8}}
+```
+
+### new-frontend-browser-tab
+
+| Field | Value |
+| --- | --- |
+| name | `new-frontend-browser-tab` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `frontend-browser-tabs-v1` |
+
+Creates a browser tab whose page the frontend renders with WebKit or CEF. The
+tab is an ordinary `kind:"browser"` placement in the durable tree, so it
+restores after a restart and moves like any tab, but the daemon never waits
+for, attaches, or drives a CDP target for it and never renders frames.
+`attach-surface` on it fails. The frontend reports navigation with
+`update-frontend-browser-tab`. Existing CDP browser tabs (`new-browser-tab`)
+are unchanged.
+
+The daemon registers the record before the tab commits, under the browser id
+the creation uses, so a daemon restart between the two steps never
+bootstraps a CDP target for the tab.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `url` | string | required | Nonempty, at most 32 KiB, no control characters |
+| `engine` | string | required | `"webkit"` or `"cef"` |
+| `pane` | `Id` | default active pane | Destination pane |
+| `title` | string | optional | At most 2048 characters |
+| `favicon_url` | string | optional | As `url` |
+| `profile_id` | string | optional | 1-128 printable ASCII characters; frontend profile (cookies, extensions) |
+| `cols`, `rows` | uint16 | optional, together | Initial size hint |
+
+Result:
+
+```text
+object{surface:Id, tab_resource_id:string, content_resource_id:string}
+```
+
+### update-frontend-browser-tab
+
+| Field | Value |
+| --- | --- |
+| name | `update-frontend-browser-tab` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `frontend-browser-tabs-v1` |
+
+Records the URL, title, or favicon a frontend-rendered browser reports. An
+absent field is unchanged and `favicon_url:null` clears the favicon. A change
+persists durably and emits `title-changed` (when the title changed) and
+`tab-changed`. Fails for a tab that is not frontend-rendered.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Frontend browser tab |
+| `url` | string | optional | As in `new-frontend-browser-tab` |
+| `title` | string | optional | As in `new-frontend-browser-tab` |
+| `favicon_url` | string or null | optional | As `url`; null clears |
+
+Result:
+
+```text
+object{surface:Id, url:string, title:string|null, favicon_url:string|null, changed:bool}
 ```
 
 ### new-workspace

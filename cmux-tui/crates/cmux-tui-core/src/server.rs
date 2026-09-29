@@ -136,6 +136,10 @@ pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
 /// `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
+/// Frontend-rendered browser tabs (WebKit or CEF): `new-frontend-browser-tab`,
+/// `update-frontend-browser-tab`, and the `browser_renderer`,
+/// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
+pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -241,6 +245,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
         TAB_METADATA_CAPABILITY,
+        FRONTEND_BROWSER_TABS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -990,6 +995,34 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+    },
+    /// New browser tab whose page the frontend renders (WebKit or CEF).
+    /// The daemon persists its location and never attaches a CDP target.
+    NewFrontendBrowserTab {
+        url: String,
+        engine: String,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        favicon_url: Option<String>,
+        #[serde(default)]
+        profile_id: Option<String>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    /// Record a frontend-rendered browser's URL, title, or favicon.
+    UpdateFrontendBrowserTab {
+        surface: SurfaceId,
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        favicon_url: Option<Option<String>>,
     },
     NewBrowserTab {
         url: String,
@@ -9975,6 +10008,14 @@ fn pane_json(
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.as_str());
             let directory = notifications.directories.get(sid);
+            let frontend_browser = surface
+                .and_then(|surface| surface.resource_identity())
+                .and_then(|identity| match &identity.content_id {
+                    ContentPublicId::Browser(id) => {
+                        notifications.presentation.frontend_browsers.get(id.as_str())
+                    }
+                    ContentPublicId::Terminal(_) => None,
+                });
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
@@ -9994,8 +10035,18 @@ fn pane_json(
                 "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
                 "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
                 "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
-                "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
-                "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
+                "browser_status": surface
+                    .filter(|_| frontend_browser.is_none())
+                    .and_then(|s| s.browser_status().map(|status| status.as_str())),
+                "browser_error": surface
+                    .filter(|_| frontend_browser.is_none())
+                    .and_then(|s| s.browser_status().and_then(|status| status.error())),
+                "browser_renderer": surface
+                    .filter(|surface| surface.kind() == SurfaceKind::Browser)
+                    .map(|_| if frontend_browser.is_some() { "frontend" } else { "daemon" }),
+                "browser_engine": frontend_browser.map(|record| record.engine.as_str()),
+                "favicon_url": frontend_browser.and_then(|record| record.favicon_url.as_deref()),
+                "browser_profile_id": frontend_browser.and_then(|record| record.profile_id.as_deref()),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
                 "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
@@ -12131,6 +12182,46 @@ fn handle_command_with_cancellation(
                     .map(|identity| &identity.incarnation),
             }))
         }
+        Command::NewFrontendBrowserTab {
+            url,
+            engine,
+            pane,
+            title,
+            favicon_url,
+            profile_id,
+            cols,
+            rows,
+        } => {
+            let record = crate::workspace_registry::FrontendBrowserRecord {
+                engine,
+                url,
+                title,
+                favicon_url,
+                profile_id,
+            };
+            let surface = mux.new_frontend_browser_tab(
+                pane,
+                record,
+                paired_surface_size("new-frontend-browser-tab", cols, rows)?,
+            )?;
+            let identity = surface.resource_identity();
+            Ok(json!({
+                "surface": surface.id,
+                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
+                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
+            }))
+        }
+        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url } => {
+            let (record, changed) =
+                mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
+            Ok(json!({
+                "surface": surface,
+                "url": record.url,
+                "title": record.title,
+                "favicon_url": record.favicon_url,
+                "changed": changed,
+            }))
+        }
         Command::NewBrowserTab { url, pane, cols, rows } => {
             let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
@@ -13219,6 +13310,10 @@ fn handle_command_with_cancellation(
                 }
             };
             let surface = get_surface(mux, surface_id)?;
+            anyhow::ensure!(
+                !mux.is_frontend_browser_surface(&surface),
+                "surface {surface_id} is a frontend-rendered browser and has no daemon stream"
+            );
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
                     anyhow::ensure!(
@@ -21300,6 +21395,58 @@ mod tests {
             run_json_command(&mux, json!({"cmd":"set-tab-pinned","surface":999999,"pinned":true}))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn cmux_next_frontend_browser_tab_commands_and_attach_refusal() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&FRONTEND_BROWSER_TABS_CAPABILITY));
+        let terminal = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"new-frontend-browser-tab",
+                "pane": pane,
+                "url":"https://cmux.com",
+                "engine":"cef",
+                "title":"cmux",
+            }),
+        )
+        .unwrap();
+        let surface = created["surface"].as_u64().unwrap();
+        assert!(created["content_resource_id"].as_str().unwrap().starts_with("browser_"));
+        let updated = run_json_command(
+            &mux,
+            json!({
+                "cmd":"update-frontend-browser-tab",
+                "surface": surface,
+                "title":"cmux docs",
+                "favicon_url":"https://cmux.com/icon.png",
+            }),
+        )
+        .unwrap();
+        assert_eq!(updated["changed"], true);
+        assert_eq!(updated["url"], "https://cmux.com");
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"update-frontend-browser-tab","surface":surface,"favicon_url":null}),
+        )
+        .unwrap();
+        assert!(cleared["favicon_url"].is_null());
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let tabs = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap();
+        let browser = tabs.iter().find(|tab| tab["surface"] == json!(surface)).unwrap();
+        assert_eq!(browser["browser_renderer"], "frontend");
+        assert_eq!(browser["browser_engine"], "cef");
+        assert_eq!(browser["title"], "cmux docs");
+        let terminal_tab = tabs.iter().find(|tab| tab["surface"] == json!(terminal)).unwrap();
+        assert!(terminal_tab["browser_renderer"].is_null());
+        let attach = run_json_command(
+            &mux,
+            json!({"cmd":"attach-surface","surface":surface,"cols":80,"rows":24}),
+        );
+        assert!(attach.unwrap_err().to_string().contains("frontend-rendered"));
     }
 
     #[cfg(unix)]

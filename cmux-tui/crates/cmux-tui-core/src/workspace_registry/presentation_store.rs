@@ -52,6 +52,14 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
          CREATE TABLE IF NOT EXISTS tab_presentation (
            tab_id TEXT PRIMARY KEY NOT NULL,
            pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))
+         );
+         CREATE TABLE IF NOT EXISTS frontend_browser_tabs (
+           browser_id TEXT PRIMARY KEY NOT NULL,
+           engine TEXT NOT NULL CHECK(engine IN ('webkit','cef')),
+           url TEXT NOT NULL,
+           title TEXT,
+           favicon_url TEXT,
+           profile_id TEXT
          );",
     )?;
     Ok(())
@@ -134,6 +142,113 @@ pub struct PresentationSnapshot {
     pub workspaces: HashMap<String, WorkspacePresentationRecord>,
     /// Public ids (`tab_...`) of pinned live tabs.
     pub pinned_tabs: HashSet<String>,
+    /// Frontend-rendered browser contents keyed by public browser id
+    /// (`browser_...`). Rows exist before their browser commits, so a
+    /// pending creation is already known when its surface spawns.
+    pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
+}
+
+/// Longest accepted frontend browser URL or favicon URL, in bytes.
+pub const MAX_FRONTEND_BROWSER_URL_BYTES: usize = 32 * 1024;
+/// Longest accepted frontend browser page title, in characters.
+pub const MAX_FRONTEND_BROWSER_TITLE_CHARS: usize = 2048;
+
+/// A browser tab whose page the frontend renders itself (WebKit or CEF).
+/// The daemon stores its location and presentation and never attaches a
+/// CDP target or renders frames for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FrontendBrowserRecord {
+    pub engine: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub favicon_url: Option<String>,
+    pub profile_id: Option<String>,
+}
+
+impl FrontendBrowserRecord {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            matches!(self.engine.as_str(), "webkit" | "cef"),
+            "bad request: engine must be \"webkit\" or \"cef\""
+        );
+        validate_frontend_browser_url("url", &self.url)?;
+        if let Some(favicon_url) = &self.favicon_url {
+            validate_frontend_browser_url("favicon_url", favicon_url)?;
+        }
+        if let Some(title) = &self.title {
+            validate_frontend_browser_title(title)?;
+        }
+        if let Some(profile_id) = &self.profile_id {
+            anyhow::ensure!(
+                !profile_id.is_empty()
+                    && profile_id.len() <= 128
+                    && profile_id.bytes().all(|byte| byte.is_ascii_graphic()),
+                "bad request: profile_id must be 1-128 printable ASCII characters"
+            );
+        }
+        Ok(())
+    }
+}
+
+pub fn validate_frontend_browser_url(label: &str, value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(!value.trim().is_empty(), "bad request: {label} cannot be empty");
+    anyhow::ensure!(
+        value.len() <= MAX_FRONTEND_BROWSER_URL_BYTES,
+        "bad request: {label} exceeds {MAX_FRONTEND_BROWSER_URL_BYTES} bytes"
+    );
+    anyhow::ensure!(
+        !value.chars().any(char::is_control),
+        "bad request: {label} contains a control character"
+    );
+    Ok(())
+}
+
+pub fn validate_frontend_browser_title(value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        value.chars().count() <= MAX_FRONTEND_BROWSER_TITLE_CHARS,
+        "bad request: title exceeds {MAX_FRONTEND_BROWSER_TITLE_CHARS} characters"
+    );
+    anyhow::ensure!(
+        !value.chars().any(char::is_control),
+        "bad request: title contains a control character"
+    );
+    Ok(())
+}
+
+fn browser_subject(browser_id: &str) -> JournalSubject {
+    JournalSubject { kind: "browser".into(), id: browser_id.to_string() }
+}
+
+fn validate_browser_public_id(browser_id: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        browser_id.len() == 40
+            && browser_id.starts_with("browser_")
+            && browser_id[8..].bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "bad request: invalid browser id {browser_id}"
+    );
+    Ok(())
+}
+
+fn read_frontend_browser(
+    connection: &Connection,
+    browser_id: &str,
+) -> anyhow::Result<Option<FrontendBrowserRecord>> {
+    Ok(connection
+        .query_row(
+            "SELECT engine, url, title, favicon_url, profile_id FROM frontend_browser_tabs
+             WHERE browser_id = ?1",
+            [browser_id],
+            |row| {
+                Ok(FrontendBrowserRecord {
+                    engine: row.get(0)?,
+                    url: row.get(1)?,
+                    title: row.get(2)?,
+                    favicon_url: row.get(3)?,
+                    profile_id: row.get(4)?,
+                })
+            },
+        )
+        .optional()?)
 }
 
 impl PresentationSnapshot {
@@ -446,7 +561,34 @@ impl WorkspaceRegistry {
             )?
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<Result<HashSet<_>, _>>()?;
-        Ok(PresentationSnapshot { groups, workspaces, pinned_tabs })
+        let mut frontend_browsers = HashMap::new();
+        {
+            let mut statement = self.connection.prepare(
+                "SELECT f.browser_id, f.engine, f.url, f.title, f.favicon_url, f.profile_id
+                 FROM frontend_browser_tabs AS f
+                 WHERE NOT EXISTS (
+                   SELECT 1 FROM resource_browsers AS b
+                   WHERE b.public_id = f.browser_id AND b.lifecycle = 'tombstoned'
+                 )",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    FrontendBrowserRecord {
+                        engine: row.get(1)?,
+                        url: row.get(2)?,
+                        title: row.get(3)?,
+                        favicon_url: row.get(4)?,
+                        profile_id: row.get(5)?,
+                    },
+                ))
+            })?;
+            for row in rows {
+                let (browser_id, record) = row?;
+                frontend_browsers.insert(browser_id, record);
+            }
+        }
+        Ok(PresentationSnapshot { groups, workspaces, pinned_tabs, frontend_browsers })
     }
 
     /// Create a group at `index` (default: last). Creating an id that
@@ -652,5 +794,95 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         Ok(true)
+    }
+
+    /// Register a frontend-rendered browser before its tab commits, so the
+    /// daemon never bootstraps a CDP target for it. The browser id must be
+    /// fresh.
+    pub fn put_frontend_browser(
+        &mut self,
+        browser_id: &str,
+        record: &FrontendBrowserRecord,
+    ) -> anyhow::Result<()> {
+        validate_browser_public_id(browser_id)?;
+        record.validate()?;
+        let tx = self.connection.transaction()?;
+        let exists = tx
+            .query_row("SELECT 1 FROM resource_browsers WHERE public_id = ?1", [browser_id], |_| {
+                Ok(())
+            })
+            .optional()?
+            .is_some();
+        anyhow::ensure!(!exists, "browser {browser_id} already exists");
+        tx.execute(
+            "INSERT INTO frontend_browser_tabs(browser_id, engine, url, title, favicon_url, profile_id)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                browser_id,
+                record.engine,
+                record.url,
+                record.title,
+                record.favicon_url,
+                record.profile_id
+            ],
+        )?;
+        append_presentation_record(
+            &tx,
+            "browser.frontend.registered",
+            vec![browser_subject(browser_id)],
+            &json!({"browser_id": browser_id, "browser": record}),
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Update a frontend browser's location and presentation. `None` leaves
+    /// a field unchanged; `favicon_url: Some(None)` clears the favicon.
+    pub fn update_frontend_browser(
+        &mut self,
+        browser_id: &str,
+        url: Option<&str>,
+        title: Option<&str>,
+        favicon_url: Option<Option<&str>>,
+    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
+        validate_browser_public_id(browser_id)?;
+        let tx = self.connection.transaction()?;
+        let before = read_frontend_browser(&tx, browser_id)?
+            .ok_or_else(|| anyhow::anyhow!("browser {browser_id} is not frontend-rendered"))?;
+        let mut record = before.clone();
+        if let Some(url) = url {
+            record.url = url.to_string();
+        }
+        if let Some(title) = title {
+            record.title = Some(title.to_string());
+        }
+        if let Some(favicon_url) = favicon_url {
+            record.favicon_url = favicon_url.map(str::to_string);
+        }
+        record.validate()?;
+        if record == before {
+            tx.commit()?;
+            return Ok((record, false));
+        }
+        tx.execute(
+            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4
+             WHERE browser_id = ?1",
+            params![browser_id, record.url, record.title, record.favicon_url],
+        )?;
+        append_presentation_record(
+            &tx,
+            "browser.frontend.updated",
+            vec![browser_subject(browser_id)],
+            &json!({"browser_id": browser_id, "browser": record}),
+        )?;
+        tx.commit()?;
+        Ok((record, true))
+    }
+
+    /// Forget a frontend browser whose tab creation failed.
+    pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
+        self.connection
+            .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
+        Ok(())
     }
 }

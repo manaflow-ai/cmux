@@ -60,7 +60,7 @@ pub(crate) use journal_extensions::{
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use presentation_store::{
-    PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
+    FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_workspace_group_id, validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;

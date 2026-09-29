@@ -7,8 +7,9 @@
 //! held, so tree serialization never reads SQLite.
 
 use super::*;
+use crate::resource::BrowserPublicId;
 use crate::workspace_registry::{
-    PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
+    FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_workspace_group_id, validate_workspace_group_id,
 };
 
@@ -708,6 +709,107 @@ impl Mux {
     }
 }
 
+impl Mux {
+    /// Whether this browser surface's page is rendered by a frontend
+    /// (WebKit or CEF) instead of a daemon-attached CDP target.
+    pub(crate) fn is_frontend_browser_surface(&self, surface: &Surface) -> bool {
+        self.frontend_browser_id(surface).is_some()
+    }
+
+    fn frontend_browser_id(&self, surface: &Surface) -> Option<BrowserPublicId> {
+        let identity = surface.resource_identity()?;
+        let ContentPublicId::Browser(id) = &identity.content_id else { return None };
+        self.presentation_snapshot().frontend_browsers.contains_key(id.as_str()).then(|| id.clone())
+    }
+
+    /// The frontend record of a browser surface, if it is frontend-rendered.
+    pub fn frontend_browser(&self, surface: &Surface) -> Option<FrontendBrowserRecord> {
+        let id = self.frontend_browser_id(surface)?;
+        self.presentation_snapshot().frontend_browsers.get(id.as_str()).cloned()
+    }
+
+    /// Create a browser tab whose page the frontend renders. The record is
+    /// registered durably before the tab commits, under the browser id the
+    /// creation then uses, so neither a live daemon nor a restarted one ever
+    /// bootstraps a CDP target for it. A failed creation removes the record.
+    pub fn new_frontend_browser_tab(
+        self: &Arc<Self>,
+        pane: Option<PaneId>,
+        record: FrontendBrowserRecord,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        record.validate()?;
+        let browser_id = BrowserPublicId::random()?;
+        {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            registry.put_frontend_browser(browser_id.as_str(), &record)?;
+            self.reload_presentation(&registry)?;
+        }
+        let fields = Map::from_iter([(
+            "frontend_browser_id".to_string(),
+            Value::String(browser_id.as_str().to_string()),
+        )]);
+        match self.new_browser_tab_with_fields(record.url.clone(), pane, size, fields) {
+            Ok(surface) => {
+                if let Some(runtime) = surface.as_browser()
+                    && runtime.set_frontend_location(None, record.title)
+                {
+                    self.emit_tab_changed(surface.id);
+                }
+                self.publish_journal_event();
+                Ok(surface)
+            }
+            Err(error) => {
+                let mut registry = self.workspace_registry.lock().unwrap();
+                if registry.delete_frontend_browser(browser_id.as_str()).is_ok() {
+                    let _ = self.reload_presentation(&registry);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// Record the URL, title, or favicon a frontend-rendered browser
+    /// reports. `favicon_url: Some(None)` clears the favicon.
+    pub fn update_frontend_browser_tab(
+        &self,
+        surface: SurfaceId,
+        url: Option<String>,
+        title: Option<String>,
+        favicon_url: Option<Option<String>>,
+    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
+        let runtime =
+            self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+        let browser_id = self.frontend_browser_id(&runtime).ok_or_else(|| {
+            anyhow::anyhow!("surface {surface} is not a frontend-rendered browser")
+        })?;
+        let (record, changed) = {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let result = registry.update_frontend_browser(
+                browser_id.as_str(),
+                url.as_deref(),
+                title.as_deref(),
+                favicon_url.as_ref().map(Option::as_deref),
+            )?;
+            if result.1 {
+                self.reload_presentation(&registry)?;
+            }
+            result
+        };
+        if changed {
+            if let Some(browser) = runtime.as_browser() {
+                browser.set_frontend_location(url, title.clone());
+            }
+            self.publish_journal_event();
+            if let Some(title) = title {
+                self.emit(MuxEvent::TitleChanged { surface, title: Arc::from(title) });
+            }
+            self.emit_tab_changed(surface);
+        }
+        Ok((record, changed))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1030,6 +1132,81 @@ mod tests {
         let unknown = mux.resolve_tab_directories(vec![(9, "/nonexistent-cmux".into())], false);
         assert_eq!(unknown[&9].git_branch, None);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn tab_json(mux: &Mux, surface: SurfaceId) -> Value {
+        let decorations = mux.tree_decorations();
+        mux.with_state(|state| {
+            crate::server::tree_entity_json(state, &decorations, TreeDeltaKind::TabChanged, surface)
+        })
+        .expect("tab is present in the tree")
+    }
+
+    #[test]
+    fn cmux_next_frontend_browser_tabs_persist_without_a_cdp_target() {
+        let session = PresentationTestSession::new("frontend-browser");
+        let mux = session.open();
+        let terminal = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+        let record = FrontendBrowserRecord {
+            engine: "webkit".into(),
+            url: "https://example.com/start".into(),
+            title: Some("Example".into()),
+            favicon_url: None,
+            profile_id: Some("default".into()),
+        };
+        assert!(
+            mux.new_frontend_browser_tab(
+                Some(pane),
+                FrontendBrowserRecord { engine: "gecko".into(), ..record.clone() },
+                None,
+            )
+            .is_err()
+        );
+        let browser = mux.new_frontend_browser_tab(Some(pane), record, None).unwrap();
+        assert_eq!(browser.kind(), SurfaceKind::Browser);
+        assert!(mux.is_frontend_browser_surface(&browser));
+        assert_eq!(mux.presentation_snapshot().frontend_browsers.len(), 1);
+        let tab = tab_json(&mux, browser.id);
+        assert_eq!(tab["kind"], "browser");
+        assert_eq!(tab["browser_renderer"], "frontend");
+        assert_eq!(tab["browser_engine"], "webkit");
+        assert_eq!(tab["browser_profile_id"], "default");
+        assert_eq!(tab["url"], "https://example.com/start");
+        assert_eq!(tab["title"], "Example");
+        assert!(tab["browser_status"].is_null());
+
+        let (updated, changed) = mux
+            .update_frontend_browser_tab(
+                browser.id,
+                Some("https://example.com/next".into()),
+                Some("Next".into()),
+                Some(Some("https://example.com/favicon.ico".into())),
+            )
+            .unwrap();
+        assert!(changed);
+        assert_eq!(updated.url, "https://example.com/next");
+        let tab = tab_json(&mux, browser.id);
+        assert_eq!(tab["url"], "https://example.com/next");
+        assert_eq!(tab["title"], "Next");
+        assert_eq!(tab["favicon_url"], "https://example.com/favicon.ico");
+        // A PTY tab is not a frontend browser.
+        assert!(mux.update_frontend_browser_tab(terminal, None, Some("x".into()), None).is_err());
+        let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&browser.id].clone());
+        drop(browser);
+        drop(mux);
+
+        let mux = session.open();
+        let restored = mux
+            .with_state(|state| state.resource_indexes.tabs.get(&tab_id).copied())
+            .and_then(|surface| mux.surface(surface))
+            .expect("frontend browser tab restored");
+        assert!(mux.is_frontend_browser_surface(&restored));
+        let tab = tab_json(&mux, restored.id);
+        assert_eq!(tab["url"], "https://example.com/next");
+        assert_eq!(tab["title"], "Next");
+        assert_eq!(tab["browser_renderer"], "frontend");
+        assert_eq!(tab["favicon_url"], "https://example.com/favicon.ico");
     }
 
     #[test]
