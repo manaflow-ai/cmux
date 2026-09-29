@@ -13,13 +13,17 @@ public struct CloudPortScanResult: Equatable, Sendable {
     }
 
     public init?(socketListing: String) {
+        var applicationListings: [String] = []
         for line in socketListing.split(separator: "\n") {
             let text = line.trimmingCharacters(in: .whitespaces)
             if text.isEmpty || text.hasPrefix("State ") || text.hasPrefix("Proto ") || text.hasPrefix("Active Internet") { continue }
             guard text.split(whereSeparator: { $0.isWhitespace }).contains("LISTEN"),
                   !CmuxTuiSnapshotParser.listeningPortBindings(fromSocketListing: text).isEmpty else { return nil }
+            if !Self.isContainerRuntimeListener(text) {
+                applicationListings.append(text)
+            }
         }
-        let bindings = CmuxTuiSnapshotParser.listeningPortBindings(fromSocketListing: socketListing)
+        let bindings = CmuxTuiSnapshotParser.listeningPortBindings(fromSocketListing: applicationListings.joined(separator: "\n"))
             .filter { !CmuxTuiSnapshotParser.internalPorts.contains($0.port) }
         var reachable = Set<Int>()
         var wildcard = Set<Int>()
@@ -42,6 +46,24 @@ public struct CloudPortScanResult: Equatable, Sendable {
         ports = reachable.sorted()
         loopbackOnlyPorts = reachable.subtracting(wildcard).sorted()
         otherBindingPorts = other.subtracting(reachable).sorted()
+    }
+
+    /// Runtime management APIs choose ephemeral ports; their owner, not the port number,
+    /// distinguishes them from an application. Missing ownership never hides a listener.
+    private static func isContainerRuntimeListener(_ line: String) -> Bool {
+        let owners: [String]
+        if let start = line.range(of: "users:((") {
+            owners = line[start.lowerBound...].components(separatedBy: "(\"").dropFirst().compactMap {
+                guard let end = $0.firstIndex(of: "\"") else { return nil }
+                return String($0[..<end])
+            }
+        } else if let field = line.split(whereSeparator: { $0.isWhitespace }).last,
+                  let slash = field.firstIndex(of: "/"), Int(field[..<slash]) != nil {
+            owners = [String(field[field.index(after: slash)...])]
+        } else {
+            owners = []
+        }
+        return !owners.isEmpty && owners.allSatisfy { $0 == "containerd" || $0 == "dockerd" }
     }
 
     public var state: CloudPortDiscoveryState {

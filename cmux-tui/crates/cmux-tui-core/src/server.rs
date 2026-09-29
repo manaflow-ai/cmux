@@ -168,7 +168,13 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
     #[cfg(unix)]
     {
         const MAX_LISTING_BYTES: usize = 512 * 1024;
-        let candidates: [(&str, &[&str]); 2] = [("ss", &["-H", "-ltn"]), ("netstat", &["-ltn"])];
+        // Process ownership lets clients distinguish dynamic runtime management
+        // listeners from app ports. netstat's -p means protocol on BSD/macOS.
+        #[cfg(target_os = "linux")]
+        let netstat_arguments: &[&str] = &["-ltnp"];
+        #[cfg(not(target_os = "linux"))]
+        let netstat_arguments: &[&str] = &["-ltn"];
+        let candidates: [(&str, &[&str]); 2] = [("ss", &["-H", "-ltnp"]), ("netstat", netstat_arguments)];
         let mut failures = Vec::new();
         for (program, arguments) in candidates {
             let output = match std::process::Command::new(program).args(arguments).output() {
