@@ -20,6 +20,14 @@ public struct TerminalRenderedFrameDeliveryReasons: OptionSet, Sendable {
     /// Refresh only the surface's keyboard-copy cursor overlay.
     public static let keyboardCopyModeCursor = Self(rawValue: 1 << 1)
 
+    /// cmux fork: (C) ExternalHover diagnostics — drain the surface's
+    /// diagnostic ring on the next delivered frame. Demand-gated: a
+    /// surface only retains this while it has an unresolved hover
+    /// activation whose first render-validation entry hasn't been
+    /// recovered yet (design-hover-diagnostics-v4-final.md §3.4's
+    /// "render 後" trigger) — see `GhosttyNSView`'s
+    /// `setExternalHoverDiagnosticsRenderTrackingActive`.
+    public static let externalHoverDiagnostics = Self(rawValue: 1 << 3)
     /// Retire predicted-echo glyphs whose character is now painted, and
     /// reposition the rest. Requested only while a prediction is on screen.
     public static let predictedEcho = Self(rawValue: 1 << 2)

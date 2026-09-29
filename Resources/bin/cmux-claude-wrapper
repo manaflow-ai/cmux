@@ -1554,7 +1554,10 @@ $SIG{TERM} = sub { $stop_probe->(); exit 143; };
 my $output = "";
 my $success = eval {
     local $SIG{ALRM} = sub { die "help deadline\n" };
-    alarm(0.75);
+    # Cold-started launchers may need more than a scheduler slice to exec on
+    # a busy host. Keep discovery bounded, but leave enough time for the
+    # launcher to start and emit its help before treating it as unavailable.
+    alarm(2.0);
     while (1) {
         my $read = sysread($reader, my $chunk, 8192);
         die "help read\n" unless defined $read;

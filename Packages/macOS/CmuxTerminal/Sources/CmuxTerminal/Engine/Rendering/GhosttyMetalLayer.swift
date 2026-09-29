@@ -14,6 +14,9 @@ public final class GhosttyMetalLayer: CAMetalLayer {
     private let renderDemand: (any RenderDemandGating)?
     private let localRenderDemand: (any RenderDemandGating)?
     private let keyboardCopyModeCursorDemand: (any RenderDemandGating)?
+    // cmux fork: (C) ExternalHover diagnostics — see
+    // `TerminalRenderedFrameDeliveryReasons.externalHoverDiagnostics`'s doc.
+    private let externalHoverDiagnosticsDemand: (any RenderDemandGating)?
     private let predictedEchoDemand: (any RenderDemandGating)?
     private let frameDeliveryCoordinator: RenderedFrameDeliveryCoordinator
     private let drawableCount: AtomicUInt64Value
@@ -25,17 +28,20 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         renderDemand: (any RenderDemandGating)?,
         localRenderDemand: (any RenderDemandGating)?,
         keyboardCopyModeCursorDemand: (any RenderDemandGating)?,
+        externalHoverDiagnosticsDemand: (any RenderDemandGating)? = nil,
         predictedEchoDemand: (any RenderDemandGating)?,
         receiver: (any TerminalRenderedFrameReceiving)?
     ) {
         self.renderDemand = renderDemand
         self.localRenderDemand = localRenderDemand
         self.keyboardCopyModeCursorDemand = keyboardCopyModeCursorDemand
+        self.externalHoverDiagnosticsDemand = externalHoverDiagnosticsDemand
         self.predictedEchoDemand = predictedEchoDemand
         self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator(
             renderDemand: renderDemand,
             localRenderDemand: localRenderDemand,
             keyboardCopyModeCursorDemand: keyboardCopyModeCursorDemand,
+            externalHoverDiagnosticsDemand: externalHoverDiagnosticsDemand,
             predictedEchoDemand: predictedEchoDemand,
             receiver: receiver
         )
@@ -49,6 +55,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
             self.renderDemand = source.renderDemand
             self.localRenderDemand = source.localRenderDemand
             self.keyboardCopyModeCursorDemand = source.keyboardCopyModeCursorDemand
+            self.externalHoverDiagnosticsDemand = source.externalHoverDiagnosticsDemand
             self.predictedEchoDemand = source.predictedEchoDemand
             self.frameDeliveryCoordinator = source.frameDeliveryCoordinator
             self.drawableCount = source.drawableCount
@@ -57,6 +64,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
             self.renderDemand = nil
             self.localRenderDemand = nil
             self.keyboardCopyModeCursorDemand = nil
+            self.externalHoverDiagnosticsDemand = nil
             self.predictedEchoDemand = nil
             self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
             self.drawableCount = AtomicUInt64Value()
@@ -70,6 +78,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         self.renderDemand = nil
         self.localRenderDemand = nil
         self.keyboardCopyModeCursorDemand = nil
+        self.externalHoverDiagnosticsDemand = nil
         self.predictedEchoDemand = nil
         self.frameDeliveryCoordinator = RenderedFrameDeliveryCoordinator()
         self.drawableCount = AtomicUInt64Value()

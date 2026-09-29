@@ -188,6 +188,7 @@ extension TerminalSurface {
                 }
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
+            attachedView?.retireExternalHoverLifetime()
             self.surface = nil
             paneHost.terminalSurfaceRuntimeDidRelease()
             activePortalHostLease = nil
@@ -323,9 +324,14 @@ extension TerminalSurface {
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
+
+        // Captured before `surface = nil` advances runtimeSurfaceGeneration —
+        // this is the lifetime that's actually ending (see RuntimeSurfaceLifetimeID).
+        let installedGeneration = runtimeSurfaceGeneration
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        attachedView?.retireExternalHoverLifetime()
         surface = nil
         if surfaceToFree != nil {
             paneHost.terminalSurfaceRuntimeDidRelease()
@@ -356,6 +362,7 @@ extension TerminalSurface {
                 workspaceId: tabId,
                 reason: "teardown",
                 surface: surfaceToFree,
+                runtimeSurfaceGeneration: installedGeneration,
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
@@ -368,11 +375,27 @@ extension TerminalSurface {
         }
 #endif
 
+        // cmux fork: (B) ExternalHover review Blocking 1 — this used to free
+        // directly (`Task { @MainActor in ghostty_surface_free(surfaceToFree) } `),
+        // bypassing the lease gate entirely: a hover work item holding a
+        // lease for this lifetime could have its borrowed pointer freed out
+        // from under it. Routed through the SAME coordinator deinit already
+        // uses (`.boundedClose`, its default lane) — that lane frees off-main
+        // on a bounded set of utility slots (see the coordinator's own doc
+        // comment: "Close/deinit frees run on a bounded set of utility slots
+        // so one stuck native join cannot strand later closes"), so the free
+        // never re-enters this main-actor teardown path, which satisfies the
+        // "non-reentrant" half of the original comment's intent at least as
+        // well as a bare
+        // `Task { @MainActor in ... }` hop did; the "next main-actor turn"
+        // wording described how deinit already worked, not a hard
+        // requirement unique to this call site.
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
             reason: "teardown",
             surface: surfaceToFree,
+            runtimeSurfaceGeneration: installedGeneration,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
@@ -421,9 +444,13 @@ extension TerminalSurface {
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
 
+        // Captured before `surface = nil` advances runtimeSurfaceGeneration —
+        // this is the lifetime that's actually ending (see RuntimeSurfaceLifetimeID).
+        let installedGeneration = runtimeSurfaceGeneration
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        attachedView?.retireExternalHoverLifetime()
         surface = nil
         if surfaceToFree != nil {
             paneHost.terminalSurfaceRuntimeDidRelease()
@@ -463,6 +490,7 @@ extension TerminalSurface {
                 workspaceId: tabId,
                 reason: reason,
                 surface: surfaceToFree,
+                runtimeSurfaceGeneration: installedGeneration,
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
@@ -482,6 +510,7 @@ extension TerminalSurface {
             workspaceId: tabId,
             reason: reason,
             surface: surfaceToFree,
+            runtimeSurfaceGeneration: installedGeneration,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,

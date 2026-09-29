@@ -33,6 +33,14 @@ private final class CanvasViewportSpy: CanvasViewportControlling {
 @MainActor
 @Suite(.serialized)
 struct AppDelegateSurfaceShortcutRoutingTests {
+    private func prepareSplitAdmissionGeometry(window: NSWindow, workspace: Workspace) {
+        window.setContentSize(NSSize(width: 1_000, height: 700))
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1_000, height: 700)
+        )
+    }
+
     @Test func rightSidebarModeShortcutsDoNotFallThroughWhenResponderTemporarilyClears() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
@@ -218,6 +226,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let workspace = try #require(manager.selectedWorkspace)
             let foregroundPanelId = try #require(workspace.focusedPanelId)
             let foregroundPanel = try #require(workspace.terminalPanel(for: foregroundPanelId))
+            prepareSplitAdmissionGeometry(window: window, workspace: workspace)
             let backgroundPanel = try #require(workspace.newTerminalSplit(
                 from: foregroundPanelId,
                 orientation: .horizontal,
@@ -379,7 +388,11 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let leftPanelId = try #require(workspace.focusedPanelId)
-            _ = try #require(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal))
+            prepareSplitAdmissionGeometry(window: window, workspace: workspace)
+            _ = try #require(workspace.newTerminalSplit(
+                from: leftPanelId,
+                orientation: .horizontal
+            ))
             let event = try #require(makeKeyDownEvent(
                 key: "\r",
                 modifiers: [.command, .shift],

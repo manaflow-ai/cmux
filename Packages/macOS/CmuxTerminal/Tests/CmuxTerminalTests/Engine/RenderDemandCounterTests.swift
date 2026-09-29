@@ -101,6 +101,30 @@ struct RenderDemandCounterTests {
         #expect(coordinator.activeDeliveryReasons.isEmpty)
     }
 
+    @Test func hoverDiagnosticsAndPredictedEchoHaveIndependentDemand() {
+        let hover = RenderDemandCounter()
+        let prediction = RenderDemandCounter()
+        let coordinator = RenderedFrameDeliveryCoordinator(
+            externalHoverDiagnosticsDemand: hover,
+            predictedEchoDemand: prediction,
+            startConsumer: false
+        )
+
+        let hoverRetention = hover.retain()
+        #expect(coordinator.activeDeliveryReasons.contains(.externalHoverDiagnostics))
+        #expect(!coordinator.activeDeliveryReasons.contains(.predictedEcho))
+        #expect(!coordinator.activeDeliveryReasons.contains(.notification))
+
+        let predictionRetention = prediction.retain()
+        #expect(coordinator.activeDeliveryReasons == [.externalHoverDiagnostics, .predictedEcho])
+        hoverRetention.release()
+        #expect(coordinator.activeDeliveryReasons.contains(.predictedEcho))
+        #expect(!coordinator.activeDeliveryReasons.contains(.externalHoverDiagnostics))
+
+        predictionRetention.release()
+        #expect(coordinator.activeDeliveryReasons.isEmpty)
+    }
+
     @Test @MainActor
     func renderedFrameDeliveryBuffersOnlyTheNewestMainActorHop() {
         let demand = RenderDemandCounter()

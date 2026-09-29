@@ -169,10 +169,86 @@ extension String {
             candidates.append(trimmed)
         }
 
+        // Terminal rows commonly put a path in the first column, optionally
+        // after a list marker (`- `). Treat the marker as presentation, while
+        // keeping every space in the filename. This must run before the
+        // ordinary whitespace segment so a real file such as "Standard -
+        // Consultant Agreement.docx" wins over an existing suffix decoy such
+        // as "Agreement.docx".
+        for candidate in columnDelimitedPathCandidates(containingColumn: column) {
+            append(candidate)
+        }
         append(rawPathSegment(containingColumn: column))
         append(shellEscapedToken(containingColumn: column))
 
         return candidates
+    }
+
+    private func columnDelimitedPathCandidates(containingColumn column: Int) -> [String] {
+        let characters = Array(self)
+        guard !characters.isEmpty, column >= 0, column < characters.count else { return [] }
+
+        var marker = 0
+        while marker < characters.count, characters[marker] == " " {
+            marker += 1
+        }
+        let hasListMarker = marker < characters.count && characters[marker] == "-"
+            && marker + 1 < characters.count && characters[marker + 1].isWhitespace
+
+        var bodyStart = 0
+        if hasListMarker {
+            bodyStart = marker + 1
+            while bodyStart < characters.count, characters[bodyStart].isWhitespace {
+                bodyStart += 1
+            }
+        }
+        guard bodyStart < characters.count, column >= bodyStart else { return [] }
+
+        // A run of two or more spaces is the column delimiter in common
+        // `ls`-style output, but the same spelling is valid inside a filename.
+        // Keep every prefix ending at a possible delimiter after the click;
+        // the resolver's file-existence probe picks the longest real path.
+        let delimiterStarts = characters.indices.dropFirst(bodyStart).filter {
+            $0 + 1 < characters.count
+                && characters[$0] == " "
+                && characters[$0 + 1] == " "
+        }
+        guard column < characters.count else { return [] }
+
+        let bodyEnd = delimiterStarts.first(where: { column < $0 })
+            ?? characters.count
+        let bodyCharacters = Array(characters[bodyStart..<bodyEnd])
+        let body = String(bodyCharacters).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let labelColon = bodyCharacters.firstIndex(of: ":") {
+            let prefix = bodyCharacters[..<labelColon]
+            let suffixStart = bodyCharacters.index(after: labelColon)
+            let suffix = String(bodyCharacters[suffixStart...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let suffixLooksLikePath = suffix.hasPrefix("/")
+                || suffix.hasPrefix("./")
+                || suffix.hasPrefix("../")
+                || suffix.hasPrefix("~/")
+            let colonFollowedByWhitespace = suffixStart < bodyCharacters.endIndex
+                && bodyCharacters[suffixStart].isWhitespace
+            if !prefix.contains(where: \.isWhitespace),
+               !suffix.isEmpty,
+               (colonFollowedByWhitespace || suffixLooksLikePath) {
+                let suffixOffset = bodyCharacters.distance(from: bodyCharacters.startIndex, to: suffixStart)
+                guard column >= bodyStart + suffixOffset else { return [] }
+                return [suffix]
+            }
+        }
+        guard !delimiterStarts.isEmpty else { return hasListMarker ? [body] : [] }
+
+        // Try the farthest prefix first so a filename containing doubled
+        // spaces wins over a shorter existing suffix or prefix decoy.
+        let prefixes = delimiterStarts.reversed().compactMap { delimiterStart -> String? in
+            guard column < delimiterStart else { return nil }
+            let prefix = String(characters[bodyStart..<delimiterStart])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return prefix.isEmpty ? nil : prefix
+        }
+        return prefixes + (body.isEmpty ? [] : [body])
     }
 
     private func rawPathSegment(containingColumn column: Int) -> String? {
@@ -236,6 +312,261 @@ extension String {
     }
 }
 
+extension String {
+    /// Whether the receiver starts with an explicit root or relative marker
+    /// (`/`, `./`, `../`, `~/`) rather than being a bare relative token.
+    fileprivate var hasExplicitTerminalRelativeMarker: Bool {
+        hasPrefix("/") || hasPrefix("./") || hasPrefix("../") || hasPrefix("~/")
+    }
+
+    /// The token touching `column` on a hard-wrapped row, plus which
+    /// adjacent row(s) could complete it.
+    ///
+    /// A token with an explicit root/relative marker (`/`, `./`, `../`,
+    /// `~/`) only ever tries `.next` (continuation below), and only when it
+    /// touches the row's trailing boundary — it never tries both
+    /// directions, since a real wrap after `/` is indistinguishable from an
+    /// independent absolute path on the next row (see
+    /// `resolveWrappedCandidate`'s doc comment).
+    ///
+    /// A bare-relative token (no explicit marker) tries whichever
+    /// boundaries it touches: leading only → `.previous`; trailing only →
+    /// `.next`; both → `.previous` **and** `.next` (ambiguous; the caller
+    /// resolves both and keeps the result only if exactly one succeeds);
+    /// neither → `nil`. The trailing boundary is nothing but whitespace
+    /// after the token (the logical line end, not necessarily the physical
+    /// grid width); the leading boundary is nothing but `maxIndentation` or
+    /// fewer ASCII spaces before it.
+    ///
+    /// Returns `nil` for non-ASCII rows (fail-closed: `column` is a
+    /// terminal-cell index, which only lines up with `String` character
+    /// indices when every character occupies exactly one cell), or when the
+    /// clicked cell is itself a delimiter.
+    func wrapContinuationToken(
+        atColumn column: Int,
+        maxIndentation: Int
+    ) -> (token: String, directions: [TerminalWrapDirection], startColumn: Int, endColumn: Int)? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        let characters = Array(self)
+        guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
+        guard !characters.isWrapTokenBoundary(at: column) else { return nil }
+
+        var start = column
+        while start > 0, !characters.isWrapTokenBoundary(at: start - 1) {
+            start -= 1
+        }
+        var end = column
+        while (end + 1) < characters.count, !characters.isWrapTokenBoundary(at: end + 1) {
+            end += 1
+        }
+
+        let token = String(characters[start...end])
+        guard !token.isEmpty else { return nil }
+        // ASCII-only (guarded above), so character index == terminal column.
+        let startColumn = start
+        let endColumn = end + 1
+
+        let touchesTrailingBoundary = characters[(end + 1)...].allSatisfy(\.isWhitespace)
+        let leadingRun = characters[..<start]
+        let touchesLeadingBoundary = leadingRun.count <= maxIndentation &&
+            leadingRun.allSatisfy { $0 == " " }
+
+        if token.hasExplicitTerminalRelativeMarker {
+            guard touchesTrailingBoundary else { return nil }
+            return (token, [.next], startColumn, endColumn)
+        }
+
+        switch (touchesLeadingBoundary, touchesTrailingBoundary) {
+        case (true, true):
+            return (token, [.previous, .next], startColumn, endColumn)
+        case (true, false):
+            return (token, [.previous], startColumn, endColumn)
+        case (false, true):
+            return (token, [.next], startColumn, endColumn)
+        case (false, false):
+            return nil
+        }
+    }
+
+    /// The first token on a continuation row, provided it starts within
+    /// `maxIndentation` ASCII spaces of the row's start.
+    ///
+    /// - Returns: The leading token, or `nil` for non-ASCII rows or rows
+    ///   with no token within the indentation bound.
+    func leadingContinuationFragment(maxIndentation: Int) -> String? {
+        leadingContinuationFragmentWithRange(maxIndentation: maxIndentation)?.fragment
+    }
+
+    /// Same as ``leadingContinuationFragment(maxIndentation:)``, but also
+    /// returns the fragment's column range (half-open) for (B) ExternalHover
+    /// underlining — see ``TerminalWrappedPathCellSpan``.
+    func leadingContinuationFragmentWithRange(
+        maxIndentation: Int
+    ) -> (fragment: String, startColumn: Int, endColumn: Int)? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        let characters = Array(self)
+
+        var index = 0
+        while index < characters.count, characters[index] == " " {
+            index += 1
+        }
+        guard index <= maxIndentation,
+              index < characters.count,
+              !characters.isWrapTokenBoundary(at: index) else {
+            return nil
+        }
+
+        var end = index
+        while (end + 1) < characters.count, !characters.isWrapTokenBoundary(at: end + 1) {
+            end += 1
+        }
+        let fragment = String(characters[index...end])
+        guard !fragment.isEmpty else { return nil }
+        return (fragment, index, end + 1)
+    }
+
+    /// The last token on a continuation row, ignoring trailing grid
+    /// padding (physical rows are read unpadded-but-untrimmed, so the tail
+    /// of a shorter line is trailing ASCII spaces, not the wrapped text).
+    ///
+    /// - Returns: The trailing token, or `nil` for non-ASCII rows or rows
+    ///   with no trailing token.
+    func trailingContinuationFragment() -> String? {
+        trailingContinuationFragmentWithRange()?.fragment
+    }
+
+    /// Same as ``trailingContinuationFragment()``, but also returns the
+    /// fragment's column range (half-open) for (B) ExternalHover
+    /// underlining — see ``TerminalWrappedPathCellSpan``.
+    func trailingContinuationFragmentWithRange() -> (fragment: String, startColumn: Int, endColumn: Int)? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        return trailingContinuationFragmentScan()
+    }
+
+    /// design-next-round-bundle-8810.md §1 — the same trailing token
+    /// ``trailingContinuationFragmentWithRange()`` extracts, but with
+    /// neither its ASCII guard nor a column range. That guard exists
+    /// ONLY to keep `startColumn`/`endColumn` valid terminal-cell indices
+    /// (a non-ASCII character can occupy a different number of cells
+    /// than `String` character indices assume) — the token's TEXT itself
+    /// never depends on any column projection: trimming trailing
+    /// grid-padding spaces and walking back to the nearest whitespace
+    /// boundary is purely textual, Character-indexed work.
+    ///
+    /// Exists so `TerminalPathResolver`'s `.previous`-direction
+    /// resolution can still extract a real fragment from a non-ASCII
+    /// previous row when the caller has no use for a column range — the
+    /// click-only fallback design-next-round-bundle-8810.md §1
+    /// specifies. (B) ExternalHover's underline is the one thing that
+    /// DOES need columns, so it never resolves through this path (see
+    /// ``TerminalWrappedCellSpans/unavailableNonASCIIRow``).
+    ///
+    /// - Returns: The trailing fragment, or `nil` for a row that's empty
+    ///   or entirely whitespace.
+    func trailingContinuationFragmentText() -> String? {
+        trailingContinuationFragmentScan()?.fragment
+    }
+
+    private func trailingContinuationFragmentScan()
+        -> (fragment: String, startColumn: Int, endColumn: Int)?
+    {
+        let characters = Array(self)
+        guard !characters.isEmpty else { return nil }
+
+        var end = characters.count - 1
+        while end >= 0, characters[end] == " " {
+            end -= 1
+        }
+        guard end >= 0, !characters.isWrapTokenBoundary(at: end) else { return nil }
+
+        var start = end
+        while start > 0, !characters.isWrapTokenBoundary(at: start - 1) {
+            start -= 1
+        }
+        let fragment = String(characters[start...end])
+        guard !fragment.isEmpty else { return nil }
+        return (fragment, start, end + 1)
+    }
+
+    /// final-spec-scope-expansion-8810.md §1 — the 0-indexed column of the
+    /// row's last non-whitespace character, for the contiguous-span
+    /// evaluator's fullness guard ("does this row reach the strict
+    /// physical right edge"). `nil` for non-ASCII rows (fail-closed, same
+    /// convention as the other wrap-continuation extractors) or a row
+    /// that's empty/entirely whitespace.
+    public var lastNonWhitespaceColumn: Int? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        let characters = Array(self)
+        var index = characters.count - 1
+        while index >= 0, characters[index].isWhitespace {
+            index -= 1
+        }
+        return index >= 0 ? index : nil
+    }
+
+    /// final-spec §4.1 — a *middle* row's full contribution to a
+    /// multi-row wrapped-path span: the whole row, minus leading/trailing
+    /// ASCII-space grid padding. Unlike
+    /// ``trailingContinuationFragmentWithRange()``/
+    /// ``leadingContinuationFragmentWithRange(maxIndentation:)``, this
+    /// never extracts just the last/first *token* bounded by internal
+    /// whitespace — a middle row is fully enclosed within the span (its
+    /// neighbors on both sides are also part of the same candidate), so
+    /// its entire visible content participates, not a sub-token of it.
+    ///
+    /// - Returns: The trimmed content and its column range (half-open),
+    ///   or `nil` for a non-ASCII row or one that's entirely padding.
+    func gridPaddingTrimmedWithRange() -> (fragment: String, startColumn: Int, endColumn: Int)? {
+        guard unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        let characters = Array(self)
+        var start = 0
+        while start < characters.count, characters[start] == " " {
+            start += 1
+        }
+        var end = characters.count - 1
+        while end >= start, characters[end] == " " {
+            end -= 1
+        }
+        guard start <= end else { return nil }
+        return (String(characters[start...end]), start, end + 1)
+    }
+
+    /// The exact-match key used to correlate a wrapped-path candidate
+    /// against a native Ghostty `open_url` callback for the same click.
+    func normalizedTerminalWrapMatchKey() -> String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether a joined wrapped-path candidate is shaped like a real path
+    /// rather than an incidental concatenation of two unrelated tokens.
+    ///
+    /// Absolute paths always qualify. A relative candidate qualifies only
+    /// with an explicit relative marker (`./`, `../`, `~/`), or by both
+    /// containing `/` and having a dotted leaf — mirroring the shape
+    /// Ghostty's own `bare_relative_path_branch` accepts
+    /// (`ghostty/src/config/url.zig`), so this never treats something
+    /// Ghostty's own matcher wouldn't as path-shaped.
+    var isWrappedPathCandidateShaped: Bool {
+        if hasExplicitTerminalRelativeMarker { return true }
+        guard contains("/") else { return false }
+        return contains(".")
+    }
+
+    /// Whether the receiver alone is shaped like a path *prefix*: an
+    /// explicit relative marker, or (for a bare relative piece) at least
+    /// one `/`. Unlike ``isWrappedPathCandidateShaped``, this doesn't
+    /// require a dotted leaf — it's applied to whichever fragment leads a
+    /// joined bidirectional candidate (the clicked token for `.next`, the
+    /// adjacent row's fragment for `.previous`) to require that piece look
+    /// like a real path prefix on its own, not just the concatenation as a
+    /// whole. Without this, two unrelated bare words that happen to
+    /// concatenate into an existing relative path (e.g. adjacent row `foo`,
+    /// clicked token `bar`, with `cwd/foobar` existing) would false-positive.
+    var isWrappedPathPrefixShaped: Bool {
+        hasExplicitTerminalRelativeMarker || contains("/")
+    }
+}
+
 extension ArraySlice<Character> {
     /// Whether an opening `opener` earlier in the slice is still unmatched by
     /// a `closer`, meaning a trailing `closer` belongs to the path.
@@ -268,5 +599,25 @@ extension [Character] {
         let previousIsWhitespace = index > 0 && self[index - 1].isWhitespace
         let nextIsWhitespace = (index + 1) < count && self[index + 1].isWhitespace
         return previousIsWhitespace || nextIsWhitespace
+    }
+
+    /// Whether the character at `index` delimits a hard-wrap continuation
+    /// token or fragment: any whitespace at all, not just doubled runs.
+    ///
+    /// Unlike ``isHardPathDelimiter(at:)`` (used for row-local resolution,
+    /// where a single space must stay tolerable so multi-word filenames
+    /// like "My File.txt" can be clicked directly), the wrap-continuation
+    /// extractors (`wrapContinuationToken`, `leadingContinuationFragment`,
+    /// `trailingContinuationFragment`) mirror Ghostty's own
+    /// `bare_relative_path_branch`, whose `path_chars` class excludes space
+    /// entirely (`ghostty/src/config/url.zig`). Tolerating single spaces
+    /// here let arbitrary same-row prose ahead of a real path (list markers,
+    /// labels — e.g. `- html: /Users/.../file.html`) get swallowed into the
+    /// fragment, producing a garbage-prefixed candidate that can never
+    /// resolve even though the real path underneath exists (issue #8810,
+    /// dogfood repro where `noCandidate` fired for both directions despite
+    /// correct rows and an existing joined path).
+    fileprivate func isWrapTokenBoundary(at index: Int) -> Bool {
+        self[index].isWhitespace
     }
 }

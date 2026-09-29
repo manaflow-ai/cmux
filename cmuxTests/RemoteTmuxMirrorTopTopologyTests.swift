@@ -24,8 +24,11 @@ struct RemoteTmuxMirrorTopTopologyTests {
             workspaceFilter: harness.workspace.id
         )
         let treeWorkspace = try #require(tree.windows.first?.workspaces.first)
-        let expectedPaneIDs = treeWorkspace.panes.map(\.paneID)
-        let expectedSurfaceIDs = treeWorkspace.panes.flatMap(\.surfaceIDs)
+        // `system.top` intentionally omits Dock stores. Compare the same
+        // workspace-owned panes even when another suite leaves a Dock open.
+        let workspacePanes = treeWorkspace.panes.filter { $0.dockScopeRawValue == nil }
+        let expectedPaneIDs = workspacePanes.map(\.paneID)
+        let expectedSurfaceIDs = workspacePanes.flatMap(\.surfaceIDs)
 
         let top = try await TerminalController.shared.taskManagerTopPayload(
             includeProcesses: false
@@ -62,7 +65,7 @@ struct RemoteTmuxMirrorTopTopologyTests {
         #expect(topSurfaceIDs == expectedSurfaceIDs)
         #expect(!topSurfaceIDs.contains(harness.outerPanelID))
 
-        let expectedPanesByID = Dictionary(uniqueKeysWithValues: treeWorkspace.panes.map {
+        let expectedPanesByID = Dictionary(uniqueKeysWithValues: workspacePanes.map {
             ($0.paneID, $0)
         })
         for (index, pane) in topPanes.enumerated() {

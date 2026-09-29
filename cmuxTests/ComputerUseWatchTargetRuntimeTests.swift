@@ -202,6 +202,11 @@ struct ComputerUseWatchTargetRuntimeTests {
 
         #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
         #expect(activatedProcessIdentifiers.isEmpty)
+        let focusDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while focusedTerminalSessions.count < 2,
+              ContinuousClock.now < focusDeadline {
+            await Task.yield()
+        }
         #expect(focusedTerminalSessions.count == 2)
 
         let identity = ComputerUseTargetIdentity(

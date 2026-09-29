@@ -12,6 +12,24 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### ExternalHover integration with current main
+
+- Branch: `cmux/issue-9872-external-hover-main-sync-20260928`
+- Commit: `90d78440f893be35903a71976448d7f0bddddf6e` (ExternalHover
+  integration merged with current fork main, including prompt-input and
+  startup UTF-8 fixes)
+- Summary: keeps the cmux ExternalHover C API and lifecycle diagnostics while
+  carrying Ghostty's current embedded APIs and byte-preserving startup input
+  parsing. The merge must retain `Surface.promptInput` and
+  `Surface.selectPromptInput`; dropping either breaks `apprt/embedded.zig`.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-90d78440f893be35903a71976448d7f0bddddf6e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `42693a67b0455761951f54db228cc6f484d88fc69bc0e3fa7247837727b42e20`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: when merging future Ghostty main changes, resolve
+  `src/Surface.zig` by preserving the ExternalHover setter/clear methods and
+  all embedded APIs added by main; keep `include/ghostty.h` and
+  `src/apprt/embedded.zig` synchronized with those methods.
 ### Cloud VT replay keeps the active viewport anchored
 
 - Branch: `issue-15109-replay-fix`
@@ -37,6 +55,10 @@ When we change the fork, update this document and the parent submodule SHA.
   #241. Its carried `TrailingState.rows = 1` is required for page boundaries;
   duplicating the subtraction under-emits a row and shifts the composer in
   the opposite direction. The styled-row classification is independent.
+- This parent merge retains the documentation and checksum entry from main,
+  while this branch keeps the published ExternalHover integration artifact
+  pinned below; a combined GhosttyKit artifact is required before switching
+  the active submodule to this replay fix.
 
 ### Startup input keeps its bytes
 
@@ -550,6 +572,11 @@ and matched SHA-256
 - Current cmux Ghostty submodule pin and artifact commit:
   - `f76c132e5` (descends from the atomic-paste patch and retains the
     `11aa609d7` VT stream-boundary API required by current cmux TUI code)
+  - On this branch the submodule is temporarily pinned at
+    `90d78440f893be35903a71976448d7f0bddddf6e`; see "ExternalHover integration
+    with current main" above for the matching artifact and checksum. That pin
+    carries the `f76c132e5` paste fix until the fork's follow-up integration
+    work is published.
 - Files:
   - `src/input/paste.zig`
   - `src/Surface.zig`
@@ -1037,6 +1064,11 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     before returning, including serialization with cross-thread app actions.
   - Retains only the outer surface allocation when teardown is reentrant from
     an app action. The live core is still destroyed synchronously.
+  - `external_link_hover` is a renderer-thread callback. Its host handler must
+    not call `ghostty_surface_free` for the reported surface or block waiting
+    for a free issued elsewhere. A handler that wants to tear down the surface
+    must post that work to another queue and return immediately; synchronous
+    free remains the contract on that other queue.
   - Requires the embedder to retain callback userdata until
     `ghostty_surface_free` returns, then release it exactly once.
   - Drops the action's allocation reference before publishing a drained action
