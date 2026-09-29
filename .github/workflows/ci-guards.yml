@@ -83,6 +83,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
 
+      - name: Validate main compile attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_main_compile_attribution.py
+
       - name: Validate CI failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_classify_failures.py
