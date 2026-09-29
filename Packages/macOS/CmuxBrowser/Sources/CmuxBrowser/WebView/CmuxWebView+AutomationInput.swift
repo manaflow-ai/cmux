@@ -26,7 +26,18 @@ extension CmuxWebView {
             case .otherMouseDown: super.otherMouseDown(with: event)
             case .otherMouseUp: super.otherMouseUp(with: event)
             case .otherMouseDragged: super.otherMouseDragged(with: event)
-            case .mouseMoved: super.mouseMoved(with: event)
+            case .mouseMoved:
+                // WebKit ignores a plain `mouseMoved(with:)` that AppKit's
+                // tracking area did not route; its testing entry point feeds
+                // the same event handler (checked on macOS 26 with a stand-alone
+                // WKWebView). Hover still needs an active (key) window, which
+                // the REPL's render window reports.
+                let simulate = NSSelectorFromString("_simulateMouseMove:")
+                if responds(to: simulate) {
+                    perform(simulate, with: event)
+                } else {
+                    super.mouseMoved(with: event)
+                }
             case .scrollWheel: super.scrollWheel(with: event)
             default: break
             }
