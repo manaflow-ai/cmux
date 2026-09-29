@@ -5,8 +5,8 @@ import Foundation
 /// window shows is an App intent.
 enum CompatWorkspaceMethods {
     static let table: [String: CompatHandler] = [
-        "workspace.list": .read(list),
-        "workspace.current": .read(current),
+        "workspace.list": .async(list),
+        "workspace.current": .async(current),
         "workspace.create": .async(create),
         "workspace.select": .async(select),
         "workspace.close": .async(close),
@@ -16,8 +16,8 @@ enum CompatWorkspaceMethods {
         "workspace.reorder": .async(reorder),
     ]
 
-    static func list(_ call: CompatCall) throws -> JSON {
-        let world = try call.snapshotWorld()
+    static func list(_ call: CompatCall) async throws -> JSON {
+        let world = try await call.world()
         let window = try call.target(world).window()
         var result = CompatJSON.ids(window: window, include: ["window"])
         result["workspaces"] = .array(world.workspaces.map {
@@ -26,8 +26,8 @@ enum CompatWorkspaceMethods {
         return .object(result)
     }
 
-    static func current(_ call: CompatCall) throws -> JSON {
-        let world = try call.snapshotWorld()
+    static func current(_ call: CompatCall) async throws -> JSON {
+        let world = try await call.world()
         let window = try call.target(world).window()
         guard let workspace = world.currentWorkspace(window: window) else { throw CompatErrors.notFound("workspace", "selected") }
         var result = CompatJSON.ids(window: window, workspace: workspace)

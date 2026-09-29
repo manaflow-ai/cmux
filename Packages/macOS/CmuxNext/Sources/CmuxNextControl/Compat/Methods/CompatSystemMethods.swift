@@ -7,8 +7,8 @@ enum CompatSystemMethods {
     static let table: [String: CompatHandler] = [
         "system.ping": .read({ _ in ["pong": true] }),
         "system.capabilities": .read(capabilities),
-        "system.identify": .read(identify),
-        "system.tree": .read(tree),
+        "system.identify": .async(identify),
+        "system.tree": .async(tree),
         "window.list": .read({ call in
             let world = try call.snapshotWorld()
             return ["windows": .array(world.windows.map { .object(CompatJSON.window($0, in: world)) })]
@@ -35,7 +35,7 @@ enum CompatSystemMethods {
         ]
     }
 
-    static func identify(_ call: CompatCall) throws -> JSON {
+    static func identify(_ call: CompatCall) async throws -> JSON {
         let service = call.service
         var result: [String: JSON] = [
             "socket_path": service.router?.transportInfo.socketPath.map(JSON.string) ?? .null,
@@ -47,7 +47,7 @@ enum CompatSystemMethods {
             "tag": service.identity.tag.map(JSON.string) ?? .null, "pid": JSON(Int(service.identity.processID)),
             "focused": .null, "caller": .null,
         ]
-        guard let world = try? call.snapshotWorld() else { return .object(result) }
+        guard let world = try? await call.world() else { return .object(result) }
         let target = call.target(world)
         let window = try? target.window()
         if let workspace = world.currentWorkspace(window: window) {
@@ -75,8 +75,8 @@ enum CompatSystemMethods {
         return CompatJSON.focusObject(window: window, workspace: workspace, pane: pane, surface: surface)
     }
 
-    static func tree(_ call: CompatCall) throws -> JSON {
-        let world = try call.snapshotWorld()
+    static func tree(_ call: CompatCall) async throws -> JSON {
+        let world = try await call.world()
         let target = call.target(world)
         if call.params["window_id"] != nil, call.bool("all_windows") == true {
             throw CompatErrors.invalid("window_id and all_windows are mutually exclusive")

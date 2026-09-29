@@ -5,21 +5,21 @@ import Foundation
 /// are App intents.
 enum CompatSurfaceMethods {
     static let table: [String: CompatHandler] = [
-        "surface.list": .read(list),
-        "surface.current": .read(current),
+        "surface.list": .async(list),
+        "surface.current": .async(current),
         "surface.create": .async(create),
         "surface.split": .async(split),
         "surface.close": .async(close),
         "surface.focus": .async(focus),
         "surface.move": .async(move),
         "surface.reorder": .async(move),
-        "surface.health": .read(health),
+        "surface.health": .async(health),
         "surface.action": .async(CompatTabActions.run),
         "tab.action": .async(CompatTabActions.run),
     ]
 
-    static func list(_ call: CompatCall) throws -> JSON {
-        let world = try call.snapshotWorld()
+    static func list(_ call: CompatCall) async throws -> JSON {
+        let world = try await call.world()
         let target = call.target(world)
         let workspace = try target.workspace()
         var result = CompatJSON.ids(window: try target.window(), workspace: workspace)
@@ -27,8 +27,8 @@ enum CompatSurfaceMethods {
         return .object(result)
     }
 
-    static func current(_ call: CompatCall) throws -> JSON {
-        let world = try call.snapshotWorld()
+    static func current(_ call: CompatCall) async throws -> JSON {
+        let world = try await call.world()
         let target = call.target(world)
         let surface = try target.surface()
         var result = CompatJSON.ids(window: try target.window(), workspace: world.workspace(surface.workspaceUUID),
@@ -140,8 +140,8 @@ enum CompatSurfaceMethods {
                                       pane: world.panes[now.paneUUID], surface: now))
     }
 
-    static func health(_ call: CompatCall) throws -> JSON {
-        let world = try call.snapshotWorld()
+    static func health(_ call: CompatCall) async throws -> JSON {
+        let world = try await call.world()
         let target = call.target(world)
         let workspace = try target.workspace()
         let shown = Set(world.windows.compactMap(\.workspaceUUID))

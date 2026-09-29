@@ -4,15 +4,15 @@ import Foundation
 /// `pane.*`: layout forwards to cmux-tui; focus is an App intent.
 enum CompatPaneMethods {
     static let table: [String: CompatHandler] = [
-        "pane.list": .read(list),
-        "pane.surfaces": .read(surfaces),
+        "pane.list": .async(list),
+        "pane.surfaces": .async(surfaces),
         "pane.focus": .async(focus),
         "pane.create": .async(create),
         "pane.swap": .async(swap),
     ]
 
-    static func list(_ call: CompatCall) throws -> JSON {
-        let world = try call.snapshotWorld()
+    static func list(_ call: CompatCall) async throws -> JSON {
+        let world = try await call.world()
         let target = call.target(world)
         let workspace = try target.workspace()
         var result = CompatJSON.ids(window: try target.window(), workspace: workspace)
@@ -20,8 +20,8 @@ enum CompatPaneMethods {
         return .object(result)
     }
 
-    static func surfaces(_ call: CompatCall) throws -> JSON {
-        let world = try call.snapshotWorld()
+    static func surfaces(_ call: CompatCall) async throws -> JSON {
+        let world = try await call.world()
         let target = call.target(world)
         let pane = try target.pane()
         let workspace = world.workspace(pane.workspaceUUID)
