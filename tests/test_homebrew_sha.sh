@@ -97,6 +97,11 @@ HTTP_CODE=$(curl -sL -H 'Cache-Control: no-cache' \
   -w '%{http_code}' "$URL" -o "$TMPFILE" 2>/dev/null || echo "000")
 FILE_SIZE=$(stat -f%z "$TMPFILE" 2>/dev/null || stat --printf="%s" "$TMPFILE" 2>/dev/null || echo 0)
 
+if [ -n "$FIXTURE_DIR" ] && { [ "$HTTP_CODE" != "200" ] || [ "$FILE_SIZE" -lt 1000000 ]; }; then
+  echo "FAIL: local checksum fixture could not be downloaded" >&2
+  exit 1
+fi
+
 if [ "$HTTP_CODE" != "200" ]; then
   case "$HTTP_CODE" in
     000|408|429|5??)
@@ -133,3 +138,20 @@ if [ "$CASK_SHA" != "$ACTUAL_SHA" ]; then
 fi
 
 echo "PASS: homebrew cask SHA256 matches release DMG"
+
+if [ -n "$FIXTURE_DIR" ]; then
+  # Rebuild the same version at the same URL while retaining the old cask SHA.
+  printf '\nrebuilt\n' >> "$FIXTURE_DIR/cmux-macos.dmg"
+  if HOMEBREW_SHA_TEST_MODE= HOMEBREW_SHA_CASK_FILE="$CASK_FILE" HOMEBREW_SHA_URL="$URL" \
+    bash "$0" > "$FIXTURE_DIR/rebuilt.log" 2>&1; then
+    cat "$FIXTURE_DIR/rebuilt.log"
+    echo "FAIL: rebuilt fixture was incorrectly accepted" >&2
+    exit 1
+  fi
+  grep -q 'FAIL: SHA256 mismatch!' "$FIXTURE_DIR/rebuilt.log" || {
+    cat "$FIXTURE_DIR/rebuilt.log"
+    echo "FAIL: rebuilt fixture did not reach checksum validation" >&2
+    exit 1
+  }
+  echo "PASS: rebuilt DMG at the same URL rejects the stale cask checksum"
+fi

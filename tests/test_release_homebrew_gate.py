@@ -38,6 +38,7 @@ def _check(cond, msg):
 
 
 def main():
+    """Check release dependencies and the scoped checksum regression steps."""
     homebrew = yaml.safe_load(open(HOMEBREW, encoding="utf-8"))
     release = yaml.safe_load(open(RELEASE, encoding="utf-8"))
     ci_guards = yaml.safe_load(open(CI_GUARDS, encoding="utf-8"))
@@ -108,11 +109,13 @@ def main():
     )
     _check(
         submodule_step is not None
-        and "release-notary" in str(submodule_step.get("if", "")),
+        and submodule_step.get("if") == "${{ matrix.group == 'release-notary' }}",
         "release-notary initializes the vendored Homebrew tap before hashing",
     )
     _check(
-        sha_step is not None and "release-notary" in str(sha_step.get("if", "")),
+        sha_step is not None
+        and sha_step.get("if") == "${{ matrix.group == 'release-notary' }}"
+        and sha_step.get("run") == "HOMEBREW_SHA_TEST_MODE=fixture ./tests/test_homebrew_sha.sh",
         "release-notary runs the deterministic cask digest regression",
     )
     _check(
