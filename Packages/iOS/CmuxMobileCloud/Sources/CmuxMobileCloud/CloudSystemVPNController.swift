@@ -449,7 +449,7 @@ public final class CloudSystemVPNController {
         let creationTunnels = browserTunnelsForTeardown()
         let creationBrowserTunnelGeneration = browserTunnelGeneration
         return { accessToken, refreshToken in
-            await controller.waitForPendingOperationAndGate()
+            let gateReady = await controller.waitForPendingOperationAndGate()
             var enrolled = creationTunnels.filter { tunnel in
                 tunnel.scope == creationScope
             }
@@ -463,6 +463,12 @@ public final class CloudSystemVPNController {
                     teamID: creationTeamID,
                     credentials: nil
                 )]
+            }
+            guard gateReady else {
+                for tunnel in enrolled {
+                    await controller.rememberAndPersistPendingBrowserTunnelRevocation(tunnel)
+                }
+                return
             }
             guard let accessToken, let refreshToken else {
                 for tunnel in enrolled {
@@ -522,9 +528,22 @@ public final class CloudSystemVPNController {
 
     /// Waits for sign-out cleanup and for any late Cloud or Network Extension
     /// operation that still owns the serialized gate, with a bounded wait.
-    public func waitForPendingOperationAndGate() async {
-        await waitForPendingOperation()
-        _ = await waitForOperationGate()
+    @discardableResult
+    public func waitForPendingOperationAndGate() async -> Bool {
+        if let pendingOperation = operation {
+            let wait = Task<Void, any Error> {
+                await pendingOperation.value
+            }
+            do {
+                try await CloudSystemVPNTaskTimeout(
+                    timeout: max(operationTimeout, .seconds(1))
+                ).value(wait)
+            } catch {
+                wait.cancel()
+                return false
+            }
+        }
+        return await waitForOperationGate()
     }
 
     private func waitForOperationGate() async -> Bool {

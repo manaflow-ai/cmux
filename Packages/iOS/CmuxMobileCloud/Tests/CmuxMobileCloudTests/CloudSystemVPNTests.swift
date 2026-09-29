@@ -192,6 +192,40 @@ import Testing
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
+    @Test func signOutTeardownReturnsWhenAPlatformOperationIgnoresCancellation() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let rig = Rig(
+            operationTimeout: .milliseconds(50),
+            pendingRevocationStore: pendingStore
+        )
+        rig.manager.installDelay = .seconds(3)
+        rig.manager.installIgnoresCancellation = true
+        try? await rig.store.write(
+            CloudDeviceIdentity(
+                fingerprint: "ios-abc",
+                keyPair: WireGuardKeyPair()
+            )
+        )
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        let teardown = rig.controller.serverTeardown()
+        let teardownTask = Task<Void, any Error> {
+            await teardown("captured-access", "captured-refresh")
+        }
+        let completed = (try? await CloudSystemVPNTaskTimeout(
+            timeout: .seconds(2)
+        ).value(teardownTask)) != nil
+
+        #expect(completed)
+        #expect(
+            await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"]
+        )
+        await rig.manager.waitForInstallCompletion()
+        try? await teardownTask.value
+    }
+
     @Test func anOlderSignOutTeardownDoesNotClearANewerBrowserPeer() async {
         let rig = Rig()
         var replacement = Fixtures.enrollment
