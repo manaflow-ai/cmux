@@ -751,6 +751,9 @@ final class RemoteTmuxControlConnection {
             proc.executableURL = URL(fileURLWithPath: transportExecutable)
             proc.arguments = transportArgv
         }
+        proc.environment = transportProfile.childProcessEnvironment(
+            inheriting: ProcessInfo.processInfo.environment
+        )
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         proc.standardInput = inPipe
         proc.standardOutput = outPipe

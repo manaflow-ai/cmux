@@ -219,9 +219,18 @@ protocol RemoteTmuxTransportProfile: Sendable {
     /// stopped. Such a transport keeps retrying with backoff instead, which is what it did before
     /// the login existed.
     var authenticationIsSSHShaped: Bool { get }
+
+    /// The environment the control-stream process runs with, given the app's own.
+    ///
+    /// A GUI app's PATH is launchd's `/usr/bin:/bin:/usr/sbin:/sbin`, and the transport's child
+    /// inherits it. That is harmless while cmux names every binary by absolute path, but a broker
+    /// runs its own client by name.
+    func childProcessEnvironment(inheriting base: [String: String]) -> [String: String]
 }
 
 extension RemoteTmuxTransportProfile {
+    func childProcessEnvironment(inheriting base: [String: String]) -> [String: String] { base }
+
     /// No limit unless a profile declares one.
     func commandLengthOverrun(
         sessionName: String,
@@ -849,6 +858,24 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     }
 
     var requiresPseudoTerminal: Bool { true }
+
+    /// A broker execs `et` by name, so PATH has to reach it. Measured with a broker from an
+    /// app launched from the Dock: `exec: "et": executable file not found in $PATH`, and the attach
+    /// failed before connecting. The user's own entries stay first; the directories et installs to
+    /// are appended when missing.
+    func childProcessEnvironment(inheriting base: [String: String]) -> [String: String] {
+        var environment = base
+        environment["PATH"] = Self.pathReachingClient(base["PATH"])
+        return environment
+    }
+
+    static func pathReachingClient(_ path: String?) -> String {
+        var entries = (path ?? "").split(separator: ":").map(String.init).filter { !$0.isEmpty }
+        for directory in clientSearchDirectories where !entries.contains(directory) {
+            entries.append(directory)
+        }
+        return entries.joined(separator: ":")
+    }
 
     /// `etterminal` outlives the local client on purpose — that is what makes a resume possible —
     /// so the tmux client it holds has to be detached before the transport goes away.

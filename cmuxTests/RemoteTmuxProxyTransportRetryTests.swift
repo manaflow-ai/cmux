@@ -300,6 +300,69 @@ import Testing
 /// by running it.
 @Suite struct RemoteTmuxETTransportTests {
 
+    // MARK: - Child environment
+
+    /// launchd's PATH is what an app started from the Dock or Finder hands its children.
+    private static let launchdPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+    /// A broker runs `et` by name, so under launchd's PATH the control stream failed with
+    /// `exec: "et": executable file not found in $PATH` before it connected.
+    @Test func brokeredChildReachesTheDirectoriesETInstallsTo() {
+        let profile = RemoteTmuxETTransportProfile(
+            port: 2022,
+            broker: RemoteTmuxTransportBroker(executable: "/opt/site/bin/broker", leadingArguments: ["-et"])
+        )
+        let environment = profile.childProcessEnvironment(
+            inheriting: ["PATH": Self.launchdPath, "HOME": "/Users/someone"]
+        )
+        let entries = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        #expect(entries.contains("/usr/local/bin"))
+        #expect(entries.contains("/opt/homebrew/bin"))
+        #expect(environment["HOME"] == "/Users/someone")
+    }
+
+    @Test func childPathKeepsTheUsersOrderAndAddsNoDuplicates() {
+        let path = RemoteTmuxETTransportProfile.pathReachingClient("/Users/someone/bin:/usr/local/bin:/usr/bin")
+        #expect(path == "/Users/someone/bin:/usr/local/bin:/usr/bin:/opt/homebrew/bin:/bin")
+        #expect(RemoteTmuxETTransportProfile.pathReachingClient(nil) == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+    }
+
+    @Test func sshChildInheritsTheEnvironmentUnchanged() {
+        let base = ["PATH": Self.launchdPath, "HOME": "/Users/someone"]
+        #expect(RemoteTmuxSSHTransportProfile().childProcessEnvironment(inheriting: base) == base)
+    }
+
+    /// The profile's environment is only a fix if the spawn uses it. A probe profile adds a marker
+    /// and a stand-in transport writes back what it was started with.
+    @MainActor
+    @Test func controlStreamProcessRunsWithTheProfilesEnvironment() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-transport-env-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let report = directory.appendingPathComponent("environment")
+        let transport = directory.appendingPathComponent("transport")
+        try "#!/bin/sh\nprintf '%s' \"$CMUX_TRANSPORT_ENV_PROBE\" > '\(report.path)'\n"
+            .write(to: transport, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: transport.path)
+
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "somehost"),
+            sessionName: "work",
+            transportProfile: EnvironmentProbeTransportProfile(executable: transport.path)
+        )
+        try connection.start()
+        defer { connection.stop() }
+
+        var written = ""
+        for _ in 0..<200 {
+            written = (try? String(contentsOf: report, encoding: .utf8)) ?? ""
+            if !written.isEmpty { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(written == "from-the-profile")
+    }
+
     // MARK: - Brokered transport
 
     /// A host reached through a wrapper produces a different argv SHAPE, not extra flags.
@@ -2672,5 +2735,19 @@ private final class FuzzPeer {
             }
         }
         return sentBuffer
+    }
+}
+/// Runs a local stand-in for the transport and marks the environment it hands the process.
+private struct EnvironmentProbeTransportProfile: RemoteTmuxTransportProfile {
+    let executable: String
+    func executablePath() -> String { executable }
+    func controlStreamArgv(host: RemoteTmuxHost, sessionName: String, mode: RemoteTmuxControlAttachMode) -> [String] { [] }
+    func oneShotArgv(host: RemoteTmuxHost, remoteCommand: String) -> [String] { [] }
+    var requiresPseudoTerminal: Bool { false }
+    var remoteHalfSurvivesLocalExit: Bool { false }
+    func childProcessEnvironment(inheriting base: [String: String]) -> [String: String] {
+        var environment = base
+        environment["CMUX_TRANSPORT_ENV_PROBE"] = "from-the-profile"
+        return environment
     }
 }
