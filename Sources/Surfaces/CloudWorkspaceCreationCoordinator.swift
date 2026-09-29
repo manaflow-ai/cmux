@@ -34,7 +34,6 @@ final class CloudWorkspaceCreationCoordinator {
         )
         operation.validateOperation = validateOperation
         operation.existingRemoteView = existingRemoteView
-        operation.isExistingWorkspaceOpen = existingWorkspace != nil
         operations[operation.id] = operation
         return try await withTaskCancellationHandler {
             try await perform(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
