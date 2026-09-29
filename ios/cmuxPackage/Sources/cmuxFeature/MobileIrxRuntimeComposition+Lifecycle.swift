@@ -16,6 +16,14 @@ extension MobileIrxRuntimeComposition {
         guard authTask == nil else { return }
         self.auth = auth
         journal.record("v2-lifecycle", "launch")
+        // Cached v2 state is local, encrypted, and scoped to the persisted
+        // account/team tuple. Warm it immediately while Stack restores the
+        // session. This path can render the cached directory and start IROH,
+        // but it cannot issue or authorize any control-plane mutation.
+        cachedWarmupTask = Task { [weak self, weak auth] in
+            guard let self, let auth else { return }
+            await self.warmCachedRuntime(auth: auth)
+        }
         authTask = Task { [weak self, weak auth] in
             guard let auth else { return }
             await auth.awaitBootstrapped()
@@ -26,12 +34,87 @@ extension MobileIrxRuntimeComposition {
         }
     }
 
+    private func warmCachedRuntime(auth: AuthCoordinator) async {
+        guard let cachedIdentity = await auth.cachedTeamIdentity else { return }
+        do {
+            let deviceID = try await installation.deviceID()
+            let tuple = V2Identity(
+                appNamespace: configuration.appNamespace,
+                buildTag: tag,
+                deviceID: deviceID,
+                environment: configuration.environment,
+                projectID: configuration.projectID,
+                teamID: cachedIdentity.teamID,
+                userID: cachedIdentity.accountID
+            )
+            let key = try await installation.key(identity: tuple)
+            let stateStore = V2FileStateStore(
+                rootDirectory: configuration.stateDirectory,
+                fileManager: FileManager(),
+                identityKey: key
+            )
+            let restored = try await stateStore.load(identity: tuple)
+            guard await auth.cachedTeamIdentity == cachedIdentity,
+                  let restored,
+                  !restored.authorityRevoked else { return }
+
+            let identity = IrxIdentity(
+                privateKeyData: key.secretKey,
+                deviceID: deviceID,
+                appInstanceID: key.endpointID
+            )
+            let supervisor = IrxEndpointSupervisor(
+                configuration: IrxEndpointConfiguration(
+                    identity: identity,
+                    pathMode: forceRelayOnly ? .relayOnly : .automatic,
+                    initialRemoteBiStreams: 0,
+                    initialRemoteUniStreams: 0
+                ),
+                journal: journal,
+                diagnosticLog: diagnosticLog
+            )
+            preparedCachedRuntime = PreparedCachedRuntime(
+                identity: identity,
+                key: key,
+                tuple: tuple,
+                stateStore: stateStore,
+                restored: restored,
+                supervisor: supervisor
+            )
+            cache = restored
+            await projectCachedDirectoryForUI(restored.directory, identity: cachedIdentity, auth: auth)
+            let credentials = Self.credentials(restored)
+            if credentials.contains(where: { $0.isUsable(at: Date()) }) {
+                endpointWarmupTask = Task { [weak self] in
+                    do {
+                        _ = try await supervisor.readyEndpoint(credentials: credentials)
+                        await self?.recordEndpointReady(cached: true)
+                    } catch {
+                        // Authoritative provisioning retries through the same
+                        // supervisor after Stack validation completes.
+                    }
+                }
+            }
+            journal.record("v2-lifecycle", "cached-warm-start", [
+                "directory": String(restored.directory?.devices.count ?? 0),
+                "hasCredentials": String(!credentials.isEmpty)
+            ])
+            publish()
+        } catch {
+            journal.record("v2-lifecycle", "cached-warm-start-unavailable")
+        }
+    }
+
     func activate(_ scope: AuthenticatedTeamScope?) async {
         guard scope != activeScope else { return }
         epoch &+= 1
         let currentEpoch = epoch
         activeScope = scope
-        let detached = await detachCurrentRuntime()
+        let preservePrepared = scope.map { candidate in
+            preparedCachedRuntime?.tuple.userID == candidate.session.accountID
+                && preparedCachedRuntime?.tuple.teamID == candidate.teamID
+        } ?? false
+        let detached = await detachCurrentRuntime(preservePrepared: preservePrepared)
         scheduleShutdown(of: detached)
         guard epoch == currentEpoch, let scope else { return }
         provisionTask = Task { [weak self] in
@@ -60,22 +143,37 @@ extension MobileIrxRuntimeComposition {
 
     func provision(scope: AuthenticatedTeamScope, epoch currentEpoch: UInt64) async throws {
         try await assertScope(scope, epoch: currentEpoch)
-        let deviceID = try await installation.deviceID()
         let tuple = V2Identity(appNamespace: configuration.appNamespace, buildTag: tag,
-            deviceID: deviceID, environment: configuration.environment,
+            deviceID: try await installation.deviceID(), environment: configuration.environment,
             projectID: configuration.projectID, teamID: scope.teamID, userID: scope.session.accountID)
-        let key = try await installation.key(identity: tuple)
-        let stateStore = V2FileStateStore(rootDirectory: configuration.stateDirectory,
-            fileManager: FileManager(), identityKey: key)
-        // A corrupt disposable cache is recoverable through a signed v2 setup;
-        // the identity seed and Stack authentication are never erased.
-        let restored = try? await stateStore.load(identity: tuple)
+        let prepared = preparedCachedRuntime?.tuple == tuple ? preparedCachedRuntime : nil
+        preparedCachedRuntime = nil
+        let deviceID = tuple.deviceID
+        let key: V2IdentityKey
+        let stateStore: V2FileStateStore
+        let restored: V2CachedState?
+        let supervisor: IrxEndpointSupervisor
+        let identity: IrxIdentity
+        if let prepared {
+            key = prepared.key
+            stateStore = prepared.stateStore
+            restored = prepared.restored
+            supervisor = prepared.supervisor
+            identity = prepared.identity
+        } else {
+            key = try await installation.key(identity: tuple)
+            stateStore = V2FileStateStore(rootDirectory: configuration.stateDirectory,
+                fileManager: FileManager(), identityKey: key)
+            // A corrupt disposable cache is recoverable through a signed v2 setup;
+            // the identity seed and Stack authentication are never erased.
+            restored = try? await stateStore.load(identity: tuple)
+            identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
+            supervisor = IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
+                identity: identity, pathMode: forceRelayOnly ? .relayOnly : .automatic,
+                initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal,
+                diagnosticLog: diagnosticLog)
+        }
         try await assertScope(scope, epoch: currentEpoch)
-        let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
-        let supervisor = IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
-            identity: identity, pathMode: forceRelayOnly ? .relayOnly : .automatic,
-            initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal,
-            diagnosticLog: diagnosticLog)
         self.identity = identity
         endpointSupervisor = supervisor
         cache = restored ?? V2CachedState(identity: tuple)
@@ -271,16 +369,24 @@ extension MobileIrxRuntimeComposition {
         scheduleShutdown(of: detached)
     }
 
-    private func detachCurrentRuntime() async -> DetachedRuntime {
+    private func detachCurrentRuntime(preservePrepared: Bool = false) async -> DetachedRuntime {
         provisionTask?.cancel(); provisionTask = nil
         controlTask?.cancel(); controlTask = nil
         foregroundTask?.cancel(); foregroundTask = nil
-        endpointWarmupTask?.cancel(); endpointWarmupTask = nil
+        if !preservePrepared {
+            endpointWarmupTask?.cancel(); endpointWarmupTask = nil
+        }
+        if !preservePrepared {
+            cachedWarmupTask?.cancel(); cachedWarmupTask = nil
+        }
         let oldControl = control
-        let oldSupervisor = endpointSupervisor
+        let oldSupervisor = endpointSupervisor ?? (preservePrepared ? nil : preparedCachedRuntime?.supervisor)
         let oldDirectSupervisor = directEndpointSupervisor
         let oldEngines = Array(enginesByPeer.values)
-        control = nil; endpointSupervisor = nil; directEndpointSupervisor = nil; identity = nil; cache = nil
+        control = nil; endpointSupervisor = nil; directEndpointSupervisor = nil
+        if !preservePrepared {
+            identity = nil; cache = nil; preparedCachedRuntime = nil
+        }
         lastLoggedControlState = nil
         lastFailure = nil
         enginesByPeer.removeAll(); dialIntentByPeer.removeAll(); activeDialIntentByPeer.removeAll()
@@ -289,7 +395,9 @@ extension MobileIrxRuntimeComposition {
         eventLaneHubs.removeAll()
         for hub in oldEventLaneHubs { Task { await hub.stop() } }
         publish()
-        await MainActor.run { self.macListAuthState.clear() }
+        if !preservePrepared {
+            await MainActor.run { self.macListAuthState.clear() }
+        }
         return DetachedRuntime(
             control: oldControl,
             endpointSupervisor: oldSupervisor,

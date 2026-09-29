@@ -8,6 +8,15 @@ public import Foundation
 
 /// Owns one v2 control service and endpoint per authenticated team/build identity.
 public actor MobileIrxRuntimeComposition {
+    struct PreparedCachedRuntime: Sendable {
+        let identity: IrxIdentity
+        let key: V2IdentityKey
+        let tuple: V2Identity
+        let stateStore: V2FileStateStore
+        let restored: V2CachedState?
+        let supervisor: IrxEndpointSupervisor
+    }
+
     public enum CompositionError: Error, Sendable {
         case notSignedIn, unsupportedRoute, peerNotDiscovered, directDialUnavailable, scopeChanged
     }
@@ -36,6 +45,8 @@ public actor MobileIrxRuntimeComposition {
     var controlTask: Task<Void, Never>?
     var foregroundTask: Task<Void, Never>?
     var endpointWarmupTask: Task<Void, Never>?
+    var cachedWarmupTask: Task<Void, Never>?
+    var preparedCachedRuntime: PreparedCachedRuntime?
     var control: V2ControlService?
     var endpointSupervisor: IrxEndpointSupervisor?
     var directEndpointSupervisor: IrxEndpointSupervisor?
