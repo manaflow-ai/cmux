@@ -25,6 +25,7 @@ public struct AppSection: View {
     @State private var language: DefaultsValueModel<AppLanguage>
     @State private var appearance: DefaultsValueModel<AppearanceMode>
     @State private var accentColor: DefaultsValueModel<CmuxAccentColorMode>
+    @State private var accentColorCustomHex: DefaultsValueModel<String>
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
@@ -77,6 +78,8 @@ public struct AppSection: View {
     @State private var renameSelects: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
 
+    @Environment(\.colorScheme) private var colorScheme
+
     @State private var languageAtAppear: AppLanguage?
     // Sticky: a picker change can rewrite the OS AppleLanguages override even when the selection returns to its starting value (clearing a preserved foreign override via an explicit pick, then System), so the restart hint must not rely on the value comparison alone.
     @State private var languageOverrideTouched = false
@@ -97,6 +100,7 @@ public struct AppSection: View {
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
         _accentColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.accentColor))
+        _accentColorCustomHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.accentColorCustomHex))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
@@ -171,7 +175,7 @@ public struct AppSection: View {
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, accentColor, accentColorCustomHex, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -190,6 +194,16 @@ public struct AppSection: View {
             localized: "settings.app.globalFontMagnification.subtitle",
             defaultValue: "Scales all text in cmux. Command-Plus and Command-Minus still zoom the focused pane."
         )
+    }
+
+    /// Switching to Custom without a stored color seeds it with the accent
+    /// currently drawn, so the chrome does not jump before a color is picked.
+    private func selectAccentColorMode(_ mode: CmuxAccentColorMode) {
+        if mode == .custom, CmuxAccentColorMode.normalizedCustomHex(accentColorCustomHex.current) == nil {
+            let current = CmuxAccentColor(mode: accentColor.current, customHex: accentColorCustomHex.current)
+            accentColorCustomHex.set(current.nsColor(isDark: colorScheme == .dark).hexString())
+        }
+        accentColor.set(mode)
     }
 
     private func setGlobalFontMagnification(_ percent: Int) {
@@ -232,13 +246,26 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.app.accentColor.subtitle", defaultValue: "Color of the selected workspace, attention ring, agent status, and other cmux highlights. System follows the macOS accent color."),
                 controlWidth: Self.columnWidth
             ) {
-                Picker("", selection: Binding(get: { accentColor.current }, set: { accentColor.set($0) })) {
-                    Text(String(localized: "settings.app.accentColor.cmux", defaultValue: "cmux Blue")).tag(CmuxAccentColorMode.cmux)
-                    Text(String(localized: "settings.app.accentColor.system", defaultValue: "System")).tag(CmuxAccentColorMode.system)
+                HStack(spacing: 8) {
+                    Picker("", selection: Binding(get: { accentColor.current }, set: { selectAccentColorMode($0) })) {
+                        Text(String(localized: "settings.app.accentColor.cmux", defaultValue: "cmux Blue")).tag(CmuxAccentColorMode.cmux)
+                        Text(String(localized: "settings.app.accentColor.system", defaultValue: "System")).tag(CmuxAccentColorMode.system)
+                        Text(String(localized: "settings.app.accentColor.custom", defaultValue: "Custom")).tag(CmuxAccentColorMode.custom)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("SettingsAccentColorPicker")
+                    if accentColor.current == .custom {
+                        HexColorPicker(
+                            storedHex: accentColorCustomHex.current,
+                            fallback: Color(nsColor: CmuxAccentColor.cmuxBlue(isDark: colorScheme == .dark)),
+                            reconcileRevision: accentColorCustomHex.revision
+                        ) { hex in
+                            accentColorCustomHex.set(hex)
+                        }
+                        .accessibilityIdentifier("SettingsAccentColorCustomPicker")
+                    }
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("SettingsAccentColorPicker")
             }
             SettingsCardDivider()
 
