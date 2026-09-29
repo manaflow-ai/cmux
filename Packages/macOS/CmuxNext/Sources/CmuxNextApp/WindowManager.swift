@@ -74,7 +74,8 @@ final class WindowManager {
         controller.sidebar.restore(width: record?.sidebarWidth, collapsed: record?.sidebarCollapsed ?? false)
         controllers.append(controller)
         if services.environment.noActivate {
-            controller.window?.orderFront(nil)
+            // Behind every other window, not key, app not activated.
+            controller.window?.orderBack(nil)
         } else {
             controller.showWindow(nil)
         }

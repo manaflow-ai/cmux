@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define CMUX_CEF_SHIM_ABI 1
+#define CMUX_CEF_SHIM_ABI 2
 
 #define CMUX_SHIM_EXPORT __attribute__((visibility("default")))
 
@@ -74,9 +74,10 @@ CMUX_SHIM_EXPORT int cmux_shim_fork_api_version(void);
 // Chromium disables unpacked (--load-extension) extensions without it.
 // Development and verification only; call before cmux_shim_initialize.
 CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled);
-// Makes NSApp conform to CefAppProtocol (dynamic subclass of its class) if it
-// does not already. Must run before cmux_shim_initialize.
-CMUX_SHIM_EXPORT void cmux_shim_prepare_application(void);
+// Returns 1 when NSApp conforms to CefAppProtocol and implements its
+// methods (the host app's NSApplication subclass must), 0 otherwise. The shim
+// no longer patches NSApp. Check before cmux_shim_initialize.
+CMUX_SHIM_EXPORT int cmux_shim_prepare_application(void);
 // CefInitialize with external_message_pump. CONTEXT_INITIALIZED arrives
 // before this returns. Returns 1 on success.
 //   framework_dir     .../Chromium Embedded Framework.framework

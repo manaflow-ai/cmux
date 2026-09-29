@@ -1,3 +1,4 @@
+import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -16,13 +17,15 @@ final class DaemonService {
     @ObservationIgnored private let scheduler = DisplayLinkFrameScheduler()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
 
-    func start() {
+    func start(launch: LaunchIdentity) {
         guard runTask == nil else { return }
         let store = store
         runTask = Task { [weak self, scheduler, logger] in
             do {
-                let launcher = try DaemonLauncher.forApp()
-                let connection = DaemonConnection(configuration: AppTerminalIdentity.configuration(), endpointProvider: launcher.endpointProvider)
+                let launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: launch.terminalEnvironment)
+                let configuration = DaemonConnection.Configuration(
+                    terminalEnvironment: TerminalEnvironment.shared(overrides: launch.terminalEnvironment))
+                let connection = DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
                 let identity = try await connection.start()
                 self?.connection = connection
                 self?.identity = identity

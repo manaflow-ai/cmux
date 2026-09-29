@@ -21,11 +21,12 @@ enum CompatSpawn {
         call.string("initial_command").flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
     }
 
-    /// The allowlisted login environment (`TerminalEnvironment`), the
-    /// caller's `initial_env`, and the cmux identity keys hooks and the
-    /// CLI read (`CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`, `CMUX_SOCKET_PATH`).
+    /// The allowlisted login environment (`TerminalEnvironment`) with this
+    /// app's launch identity (`CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`,
+    /// `CMUX_TAG`), the caller's `initial_env`, and the placement keys hooks
+    /// read (`CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`).
     static func environment(_ call: CompatCall, workspaceUUID: String?, surfaceUUID: String?) async -> [String: String] {
-        var env = await TerminalEnvironment.shared()()
+        var env = await TerminalEnvironment.shared(overrides: call.service.terminalEnvironment)()
         for key in ["initial_env", "startup_environment"] {
             for (name, value) in call.params[key]?.objectValue ?? [:] {
                 if let text = value.stringValue { env[name] = text }
@@ -36,7 +37,7 @@ enum CompatSpawn {
             env["CMUX_SURFACE_ID"] = surfaceUUID
             env["CMUX_PANEL_ID"] = surfaceUUID
         }
-        if let socket = call.service.router?.transportInfo.socketPath { env["CMUX_SOCKET_PATH"] = socket }
+        if env["CMUX_SOCKET_PATH"] == nil, let socket = call.service.router?.transportInfo.socketPath { env["CMUX_SOCKET_PATH"] = socket }
         return env
     }
 }

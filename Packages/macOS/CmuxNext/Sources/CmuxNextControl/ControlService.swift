@@ -13,10 +13,11 @@ public import Foundation
 /// control?.stop()
 /// ```
 ///
-/// Path: `CMUX_SOCKET_PATH`, else the tag/bundle convention
-/// (`ControlSocketPath`). Access mode: `CMUX_SOCKET_MODE`, else cmux.json
+/// Path: ``LaunchIdentity/socketPath`` (the bundle/tag convention, or
+/// `CMUX_NEXT_SOCKET_PATH`). Inherited `CMUX_*` variables never choose it.
+/// Access mode: `CMUX_NEXT_SOCKET_MODE`, else cmux.json
 /// `automation.socketControlMode`, else `cmuxOnly`. Password mode checks
-/// `CMUX_SOCKET_PASSWORD` unless the App passes its own verifier.
+/// `CMUX_NEXT_SOCKET_PASSWORD` unless the App passes its own verifier.
 @MainActor
 public final class ControlService {
     public let server: ControlSocketServer
@@ -35,34 +36,32 @@ public final class ControlService {
     public static func start(
         registry: ActionRegistry,
         settings: SettingsController?,
+        launch: LaunchIdentity,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
-        isDebugBuild: Bool = ControlService.isDebugBuild,
         accessMode explicitMode: ControlAccessMode? = nil,
         passwordVerifier: (@Sendable (String) -> Bool)? = nil
     ) throws -> ControlService {
-        let bundleID = bundle.bundleIdentifier ?? environment["CMUX_BUNDLE_ID"]
-        let path = ControlSocketPath.resolve(bundleID: bundleID, environment: environment, isDebugBuild: isDebugBuild)
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = explicitMode
-            ?? environment["CMUX_SOCKET_MODE"].flatMap(parseAccessMode)
+            ?? environment["CMUX_NEXT_SOCKET_MODE"].flatMap(parseAccessMode)
             ?? configuredMode.flatMap(parseAccessMode)
             ?? .cmuxOnly
         var verifier = passwordVerifier
-        if verifier == nil, let expected = environment["CMUX_SOCKET_PASSWORD"], !expected.isEmpty {
+        if verifier == nil, let expected = environment["CMUX_NEXT_SOCKET_PASSWORD"], !expected.isEmpty {
             verifier = { @Sendable candidate in candidate == expected }
         }
         let identity = ControlIdentity(
             version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
             build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0",
-            bundleID: bundleID,
-            tag: environment["CMUX_TAG"].flatMap { $0.isEmpty ? nil : $0 },
+            bundleID: launch.bundleID,
+            tag: launch.tag,
             processID: getpid()
         )
         return try start(
             registry: registry,
             settingsStore: settings?.file,
-            configuration: ControlSocketServer.Configuration(path: path, accessMode: mode, passwordVerifier: verifier),
+            configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode, passwordVerifier: verifier),
             identity: identity
         )
     }

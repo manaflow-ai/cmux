@@ -21,13 +21,17 @@ public final class CompatService: ControlMethodProvider {
     let refs = CompatRefRegistry()
     let sidebar = CompatSidebarStore()
     let identity: ControlIdentity
+    /// cmux keys every terminal this app spawns gets (`LaunchIdentity.terminalEnvironment`).
+    let terminalEnvironment: [String: String]
     /// Set by `install(on:)`; used for `system.identify` transport fields.
     private let routerRef = Mutex(WeakRouter())
 
     var router: ControlRouter? { routerRef.withLock { $0.router } }
 
-    public init(identity: ControlIdentity, frontend: any CompatFrontend, connection: @escaping ConnectionProvider) {
+    public init(identity: ControlIdentity, frontend: any CompatFrontend, terminalEnvironment: [String: String] = [:],
+                connection: @escaping ConnectionProvider) {
         self.identity = identity
+        self.terminalEnvironment = terminalEnvironment
         self.frontend = frontend
         self.connectionProvider = connection
     }

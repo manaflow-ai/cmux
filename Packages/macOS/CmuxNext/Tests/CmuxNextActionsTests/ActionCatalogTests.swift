@@ -60,12 +60,14 @@ import Testing
     /// switcher rows, per-app open targets, per-setting toggles) are served by
     /// palette providers and appear here once as their parent list action.
     /// Workspace and tab include the group families (architecture.md section 7).
+    /// Pane, tab, and terminal also count the cmux-next rows in
+    /// `ActionCatalog+Layout.swift` (26 pane/column/screen, 6 tab, 10 terminal).
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 22,
         .workspace: 79,
-        .pane: 46,
-        .tab: 63,
-        .terminal: 22,
+        .pane: 72,
+        .tab: 69,
+        .terminal: 32,
         .browser: 51,
         .sidebar: 30,
         .notifications: 10,

@@ -26,10 +26,15 @@ public final class TerminalSurfaceView: NSView {
         didSet { if ownsGeometry != oldValue { updateSurfaceSize(forceReport: true) } }
     }
 
-    /// Grid decided elsewhere; applied while ``ownsGeometry`` is false.
-    var canonicalGrid: TerminalGridSize? {
-        didSet { if canonicalGrid != oldValue, !ownsGeometry { updateSurfaceSize() } }
-    }
+    /// Grid decided by the daemon (``applyCanonicalGrid(_:)``).
+    private(set) var canonicalGrid: TerminalGridSize?
+    /// Grid the view's own pixel size produced at the last sizing.
+    private(set) var viewGrid: TerminalGridSize?
+    /// Backing pixel size of the last owner sizing.
+    private var viewPixels: CGSize?
+    /// An owner is rendering ``canonicalGrid`` instead of its view grid
+    /// because another client sized the terminal differently.
+    private var showsCanonicalGrid = false
 
     /// App-controlled pause (off-screen niri column, unselected tab).
     var isRenderingSuspended = false {
@@ -194,26 +199,67 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
+    /// Makes the mirror's grid match the daemon's. Call only when every
+    /// earlier output chunk has been parsed (``TerminalSession`` drains the
+    /// lane first), so the reflow happens at the same point in the byte
+    /// stream as the daemon's.
+    ///
+    /// A follower always renders the canonical grid. An owner keeps its view
+    /// grid when they match (the usual echo of its own report) and otherwise
+    /// renders the canonical grid until its view size changes again.
+    func applyCanonicalGrid(_ grid: TerminalGridSize) {
+        canonicalGrid = grid
+        guard surface != nil else { return }
+        if !ownsGeometry {
+            renderCanonicalGrid()
+        } else if grid == viewGrid {
+            guard showsCanonicalGrid else { return }
+            showsCanonicalGrid = false
+            updateSurfaceSize(forceReport: false, viewChanged: true)
+        } else {
+            showsCanonicalGrid = true
+            renderCanonicalGrid()
+        }
+    }
+
+    /// `ghostty_surface_set_grid_size` (ghostty.h:1464): resizes the live
+    /// terminal in place; Ghostty reflows it exactly like the daemon's core.
+    private func renderCanonicalGrid() {
+        guard let surface, let canonicalGrid,
+              let columns = UInt16(exactly: canonicalGrid.columns), let rows = UInt16(exactly: canonicalGrid.rows)
+        else { return }
+        var resolved = ghostty_surface_size_s()
+        if ghostty_surface_set_grid_size(surface, columns, rows, &resolved) {
+            publish(size: resolved)
+        }
+    }
+
     /// Owner: size the surface to the view and report a changed grid.
-    /// Follower: render the canonical grid (`ghostty_surface_set_grid_size`,
-    /// ghostty.h:1464) regardless of the view size.
-    func updateSurfaceSize(forceReport: Bool = false) {
+    /// Follower: render the canonical grid regardless of the view size.
+    /// An owner showing a canonical grid keeps it until the view's pixel
+    /// size actually changes (a layout pass at the same size is not a
+    /// resize).
+    func updateSurfaceSize(forceReport: Bool = false, viewChanged: Bool = false) {
         guard let surface else { return }
-        if !ownsGeometry, let canonicalGrid,
-           let columns = UInt16(exactly: canonicalGrid.columns), let rows = UInt16(exactly: canonicalGrid.rows) {
-            var resolved = ghostty_surface_size_s()
-            if ghostty_surface_set_grid_size(surface, columns, rows, &resolved) {
-                publish(size: resolved)
-            }
+        if !ownsGeometry {
+            if canonicalGrid != nil { renderCanonicalGrid() }
             return
         }
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
+        if showsCanonicalGrid, !viewChanged, !forceReport, pixels == viewPixels {
+            // Same view size; cell metrics may have changed (font size).
+            renderCanonicalGrid()
+            return
+        }
+        showsCanonicalGrid = false
+        viewPixels = pixels
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
         let size = ghostty_surface_size(surface)
         publish(size: size)
-        guard ownsGeometry, size.columns > 0, size.rows > 0 else { return }
+        guard size.columns > 0, size.rows > 0 else { return }
         let grid = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+        viewGrid = grid
         if forceReport || grid != reportedGrid {
             reportedGrid = grid
             session?.surfaceDidReport(grid: grid, pixelWidth: Int(size.width_px), pixelHeight: Int(size.height_px))
@@ -226,6 +272,13 @@ public final class TerminalSurfaceView: NSView {
         if model.grid != grid { model.grid = grid }
         let cell = CGSize(width: Int(size.cell_width_px), height: Int(size.cell_height_px))
         if model.cellPixelSize != cell { model.cellPixelSize = cell }
+    }
+
+    /// The grid the surface renders now.
+    var currentGrid: TerminalGridSize? {
+        guard let surface else { return nil }
+        let size = ghostty_surface_size(surface)
+        return TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
     }
 
     /// Cell size in points, for IME rectangles.
@@ -283,7 +336,7 @@ public final class TerminalSurfaceView: NSView {
     /// Runs a Ghostty binding action such as `copy_to_clipboard` or
     /// `search:foo` (ghostty.h:1665).
     @discardableResult
-    func performBindingAction(_ action: String) -> Bool {
+    public func performBindingAction(_ action: String) -> Bool {
         guard let surface else { return false }
         return action.withCString { pointer in
             ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))

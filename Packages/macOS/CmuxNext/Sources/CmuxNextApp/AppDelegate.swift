@@ -15,12 +15,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let services = AppServices(environment: environment)
         self.services = services
         AppActions.bind(services)
+        HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
         startSettingsAndControl(registry: services.registry)
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         if !environment.noActivate { NSApp.activate() }
-        services.daemon.start()
+        services.daemon.start(launch: environment.launch)
         services.windows.restoreWhenLoaded()
     }
 
@@ -34,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {
-                let control = try ControlService.start(registry: registry, settings: settings)
+                let control = try ControlService.start(registry: registry, settings: settings, launch: environment.launch)
                 self.control = control
                 installCompat(on: control)
                 logger.info("control socket \(self.control?.socketPath ?? "", privacy: .public)")
@@ -47,7 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The old `cmux` CLI's v2/v1 verbs (plans/cmux-next/cli-compat.md).
     private func installCompat(on control: ControlService) {
         let frontend = services.compat!
-        let compat = CompatService(identity: control.router.identity, frontend: frontend) { frontend.currentConnection() }
+        let compat = CompatService(identity: control.router.identity, frontend: frontend,
+                                   terminalEnvironment: environment.launch.terminalEnvironment) { frontend.currentConnection() }
         compat.install(on: control.router)
     }
 

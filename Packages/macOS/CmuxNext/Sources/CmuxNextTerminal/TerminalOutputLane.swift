@@ -38,6 +38,14 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         }
     }
 
+    /// Blocks until every chunk queued so far has been parsed. The main
+    /// actor calls this before a call that must observe the parsed state
+    /// but is not lane-safe (`ghostty_surface_set_grid_size` resizes through
+    /// the apprt, which runs on the main thread).
+    func drain() {
+        queue.sync {}
+    }
+
     /// Waits for queued work, then drops the surface so nothing else touches
     /// it. Call on the main actor immediately before `ghostty_surface_free`.
     func close() {
