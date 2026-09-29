@@ -30,6 +30,27 @@ struct CloudVMServiceTests {
         #expect(body["privateKey"] == nil)
     }
 
+    @Test func revokeSendsTheRequestedTunnelRole() async throws {
+        TeamHeaderURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TeamHeaderURLProtocol.self]
+        let service = CloudVMService(
+            baseURL: "https://cmux.example",
+            tokens: .fixed(accessToken: "access", refreshToken: "refresh", teamID: "team-123"),
+            deviceID: { "saved-phone-id" },
+            sessionConfiguration: configuration
+        )
+
+        try await service.revokeTunnel(deviceFingerprint: "role-fingerprint", tunnelPurpose: .browser)
+
+        let request = try #require(TeamHeaderURLProtocol.capturedRequest())
+        #expect(request.httpMethod == "DELETE")
+        let data = try #require(TeamHeaderURLProtocol.capturedBody())
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(body["deviceFingerprint"] == "role-fingerprint")
+        #expect(body["tunnelPurpose"] == "browser")
+    }
+
     @Test func lockedDeviceIdentityDoesNotSendEnrollment() async {
         TeamHeaderURLProtocol.reset()
         let configuration = URLSessionConfiguration.ephemeral

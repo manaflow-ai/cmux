@@ -32,6 +32,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         var list = 0
         var create: [(options: CloudMachineCreateOptions, idempotencyKey: String)] = []
         var enroll: [(publicKey: String, fingerprint: String, purpose: CloudTunnelPurpose, deviceName: String?)] = []
+        var revoke: [(fingerprint: String, purpose: CloudTunnelPurpose)] = []
         var attach: [(machineID: String, fingerprint: String)] = []
         var approve: [(machineID: String, invitationId: String)] = []
         var pause: [String] = []
@@ -47,6 +48,8 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     var enrollment: Result<CloudTunnelEnrollment, any Error> = .success(Fixtures.enrollment)
     var enrollmentDelay: Duration?
     private let enrollmentCompletion = TestSignal()
+    private let revocationCompletion = TestSignal()
+    var revocationFailure: (any Error)?
     var attach: Result<CloudAttachEndpoint, any Error> = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
     var approvals: [Bool] = [true]
     /// Thrown by pause, resume and delete when set.
@@ -73,6 +76,16 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
 
     func waitForEnrollmentCompletion() async {
         await enrollmentCompletion.wait()
+    }
+
+    func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws {
+        lock.withLock { $0.revoke.append((deviceFingerprint, tunnelPurpose)) }
+        await revocationCompletion.signal()
+        if let revocationFailure { throw revocationFailure }
+    }
+
+    func waitForRevocation() async {
+        await revocationCompletion.wait()
     }
 
     func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {

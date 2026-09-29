@@ -203,6 +203,9 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         #expect(rig.manager.installed.isEmpty)
         #expect(rig.controller.phase == .failed(.configuration))
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
     @Test func aPublicRouteInsideServerConfigTextIsRefused() async {
@@ -225,6 +228,9 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         #expect(rig.manager.installed.isEmpty)
         #expect(rig.controller.phase == .failed(.configuration))
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
     @Test func enrollmentFailureIsReportedAsEnrollment() async {
@@ -237,6 +243,21 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.manager.installed.isEmpty)
         #expect(rig.controller.phase == .failed(.enrollment))
         #expect(rig.controller.phase != .off)
+        #expect(rig.service.calls.revoke.isEmpty)
+    }
+
+    @Test func aPlatformInstallFailureRevokesANewBrowserPeer() async {
+        let rig = Rig()
+        rig.manager.installFailure = .permissionRequired
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.controller.phase == .failed(.permissionRequired))
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
     @Test func aStalledInstallTimesOutAndLeavesTheSwitchRecoverable() async {
@@ -248,6 +269,12 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         #expect(rig.controller.phase == .failed(.configuration))
         #expect(rig.manager.installed.isEmpty)
+
+        await rig.manager.waitForCancellation()
+        await rig.service.waitForRevocation()
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
     @Test func aTimedOutInstallCanBeReplacedAfterPlatformCancellation() async {

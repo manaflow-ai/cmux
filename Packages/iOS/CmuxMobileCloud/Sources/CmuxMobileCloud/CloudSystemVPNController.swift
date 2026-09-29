@@ -30,6 +30,7 @@ public final class CloudSystemVPNController {
     private var scope: String?
     private var hasLoadedScope = false
     private var cleanupPending = false
+    private var pendingTunnelRevocation: (deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose)?
     private var needsPlatformReconciliation = false
     private var generation: UInt64 = 0
     private var operation: Task<Void, Never>?
@@ -214,6 +215,13 @@ public final class CloudSystemVPNController {
                 }
                 let keyPair = WireGuardKeyPair()
                 try await performBounded(reconcilePlatformOnTimeout: true) {
+                    if let pending = self.pendingTunnelRevocation {
+                        try await self.service.revokeTunnel(
+                            deviceFingerprint: pending.deviceFingerprint,
+                            tunnelPurpose: pending.tunnelPurpose
+                        )
+                        self.pendingTunnelRevocation = nil
+                    }
                     let identity: CloudDeviceIdentity
                     do {
                         identity = try await self.identityResolver.resolve()
@@ -238,25 +246,7 @@ public final class CloudSystemVPNController {
                     guard self.isCurrent(generation), self.scope == scope else {
                         throw CancellationError()
                     }
-                    guard self.permitsOnlyPrivateRoutes(enrollment) else {
-                        throw CloudSystemVPNError.configuration
-                    }
-                    let configuration: WireGuardQuickConfig
-                    do {
-                        configuration = try WireGuardQuickConfig.make(
-                            enrollment: enrollment,
-                            privateKey: keyPair.privateKey
-                        )
-                    } catch {
-                        throw CloudSystemVPNError.configuration
-                    }
-                    // The text is what gets installed, and the server may
-                    // have supplied it whole; the enrollment-field check
-                    // above cannot vouch for it.
-                    guard self.routePolicy.permitsOnlyPrivateRoutes(inQuickConfig: configuration.text) else {
-                        throw CloudSystemVPNError.configuration
-                    }
-                    try await self.manager.installAndStart(configuration: configuration.text, scope: scope)
+                    try await self.install(enrollment: enrollment, privateKey: keyPair.privateKey, scope: scope)
                 }
                 guard self.isCurrent(generation) else { return }
                 publish(manager.phase == .off ? .connecting : manager.phase)
@@ -264,6 +254,49 @@ public final class CloudSystemVPNController {
                 guard self.isCurrent(generation) else { return }
                 publish(.failed((error as? CloudSystemVPNError) ?? .configuration))
             }
+        }
+    }
+
+    private func install(
+        enrollment: CloudTunnelEnrollment,
+        privateKey: String,
+        scope: String
+    ) async throws {
+        do {
+            guard permitsOnlyPrivateRoutes(enrollment) else {
+                throw CloudSystemVPNError.configuration
+            }
+            let configuration: WireGuardQuickConfig
+            do {
+                configuration = try WireGuardQuickConfig.make(
+                    enrollment: enrollment,
+                    privateKey: privateKey
+                )
+            } catch {
+                throw CloudSystemVPNError.configuration
+            }
+            // The text is what gets installed, and the server may have
+            // supplied it whole; the enrollment-field check above cannot
+            // vouch for it.
+            guard routePolicy.permitsOnlyPrivateRoutes(inQuickConfig: configuration.text) else {
+                throw CloudSystemVPNError.configuration
+            }
+            try await manager.installAndStart(configuration: configuration.text, scope: scope)
+        } catch {
+            guard enrollment.created else { throw error }
+            do {
+                try await service.revokeTunnel(
+                    deviceFingerprint: enrollment.deviceFingerprint,
+                    tunnelPurpose: .browser
+                )
+            } catch {
+                pendingTunnelRevocation = (
+                    deviceFingerprint: enrollment.deviceFingerprint,
+                    tunnelPurpose: .browser
+                )
+                throw CloudSystemVPNError.configuration
+            }
+            throw error
         }
     }
 

@@ -77,6 +77,16 @@ public actor CloudVMService: CloudVMServing {
         return enrollment
     }
 
+    public func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws {
+        let (access, refresh) = try await credentials()
+        _ = try await send(requests.revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: access,
+            refreshToken: refresh
+        ))
+    }
+
     public func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {
         let (access, refresh) = try await credentials()
         let data = try await send(requests.openAttach(
