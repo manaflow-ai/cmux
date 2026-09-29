@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove profile-only capabilities that are unsupported on the iOS app."""
+"""Remove unsupported capability values from the iOS App Store app."""
 
 from __future__ import annotations
 
@@ -9,20 +9,26 @@ import sys
 from pathlib import Path
 
 
-UNSUPPORTED_IOS_MAIN_APP_ENTITLEMENTS = (
-    "com.apple.developer.networking.networkextension",
-    "com.apple.developer.networking.vpn.api",
-)
+NETWORK_EXTENSION_KEY = "com.apple.developer.networking.networkextension"
+UNSUPPORTED_NETWORK_EXTENSION_VALUES = frozenset({"hotspot-provider"})
 
 
 def filter_app_store_entitlements(entitlements: dict) -> tuple[dict, list[str]]:
     """Return the signed iOS app entitlements and keys removed from them."""
     filtered = dict(entitlements)
     removed = []
-    for key in UNSUPPORTED_IOS_MAIN_APP_ENTITLEMENTS:
-        if key in filtered:
-            del filtered[key]
-            removed.append(key)
+    values = filtered.get(NETWORK_EXTENSION_KEY)
+    if isinstance(values, list):
+        kept = [value for value in values if value not in UNSUPPORTED_NETWORK_EXTENSION_VALUES]
+        removed.extend(
+            f"{NETWORK_EXTENSION_KEY}[{value}]"
+            for value in values
+            if value in UNSUPPORTED_NETWORK_EXTENSION_VALUES
+        )
+        if kept:
+            filtered[NETWORK_EXTENSION_KEY] = kept
+        else:
+            filtered.pop(NETWORK_EXTENSION_KEY, None)
     return filtered, removed
 
 

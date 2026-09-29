@@ -46,18 +46,24 @@ class AppStoreEntitlementTests(unittest.TestCase):
         self.assertEqual(
             removed,
             [
-                "com.apple.developer.networking.networkextension",
-                "com.apple.developer.networking.vpn.api",
+                "com.apple.developer.networking.networkextension[hotspot-provider]",
             ],
         )
-        self.assertNotIn("com.apple.developer.networking.networkextension", filtered)
-        self.assertNotIn("com.apple.developer.networking.vpn.api", filtered)
+        self.assertEqual(
+            filtered["com.apple.developer.networking.networkextension"],
+            ["packet-tunnel-provider"],
+        )
+        self.assertEqual(filtered["com.apple.developer.networking.vpn.api"], ["allow-vpn"])
         self.assertEqual(filtered["aps-environment"], "production")
         self.assertEqual(filtered["keychain-access-groups"], ["7WLXT3NR37.com.cmux.app"])
 
     def test_filter_cli_rewrites_a_profile_baseline(self):
         source = {
-            "com.apple.developer.networking.networkextension": ["hotspot-provider"],
+            "com.apple.developer.networking.networkextension": [
+                "packet-tunnel-provider",
+                "hotspot-provider",
+            ],
+            "com.apple.developer.networking.vpn.api": ["allow-vpn"],
             "aps-environment": "production",
         }
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -73,7 +79,11 @@ class AppStoreEntitlementTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             filtered = plistlib.loads(path.read_bytes())
-            self.assertNotIn("com.apple.developer.networking.networkextension", filtered)
+            self.assertEqual(
+                filtered["com.apple.developer.networking.networkextension"],
+                ["packet-tunnel-provider"],
+            )
+            self.assertEqual(filtered["com.apple.developer.networking.vpn.api"], ["allow-vpn"])
             self.assertIn("removed unsupported iOS main-app entitlement", result.stderr)
 
 
