@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"net"
 	"net/http"
@@ -61,5 +63,30 @@ func TestAdminLeaseInstallRejectsUnauthenticatedRequestWithoutWaitingForBody(t *
 	status = sendAdminLeaseHeadersWithoutBody(t, server.URL, "Authorization: Bearer wrong-token\r\n")
 	if status != http.StatusForbidden {
 		t.Fatalf("wrong bearer status = %d, want %d", status, http.StatusForbidden)
+	}
+}
+
+func TestAdminLeaseInstallBoundsSignedBodyRead(t *testing.T) {
+	previous := adminLeaseBodyReadTimeout
+	adminLeaseBodyReadTimeout = 200 * time.Millisecond
+	defer func() { adminLeaseBodyReadTimeout = previous }()
+
+	publicKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile:   filepath.Join(t.TempDir(), "lease.json"),
+		AdminEd25519PubKey: base64.StdEncoding.EncodeToString(publicKey),
+		Shell:              "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	// A well-formed signature header forces the body read; withholding the
+	// body must end at the read deadline instead of pinning the handler.
+	signature := base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+	status := sendAdminLeaseHeadersWithoutBody(t, server.URL, "X-Cmux-Admin-Signature-Ed25519: "+signature+"\r\n")
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", status, http.StatusBadRequest)
 	}
 }
