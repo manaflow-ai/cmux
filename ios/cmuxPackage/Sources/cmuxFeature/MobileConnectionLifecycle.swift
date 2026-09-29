@@ -59,7 +59,11 @@ public final class MobileConnectionLifecycle: MobileConnectionReadinessProviding
     }
 
     private func update(for notification: Notification.Name) {
-        if applicationState() == .active { hasBeenActive = true }
+        if notification == UIApplication.didEnterBackgroundNotification {
+            hasBeenActive = false
+        } else if notification == UIApplication.didBecomeActiveNotification || applicationState() == .active {
+            hasBeenActive = true
+        }
         dataAvailable = notification != UIApplication.protectedDataWillBecomeUnavailableNotification
             && protectedDataAvailable()
         for subscriber in subscribers.values { subscriber.yield(permitsConnection) }
