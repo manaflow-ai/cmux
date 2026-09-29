@@ -89,15 +89,13 @@ Usage columns: tests_v2 calls/files, skills mentions (via the CLI verb), and whe
 
 ## Verification
 
-Tagged build `clic` (local, clean environment, `CMUX_NEXT_NO_ACTIVATE=1`, `CMUX_NEXT_SOCKET_MODE=automation`), socket `/tmp/cmux-debug-clic.sock`, cmux-tui pinned `4adc02c`, 2026-09-29.
+Tagged build `clic` (local, clean environment, `CMUX_NEXT_NO_ACTIVATE=1`, `CMUX_NEXT_SOCKET_MODE=automation`), socket `/tmp/cmux-debug-clic.sock`, cmux-tui `4adc02c`, 2026-09-29, after merging origin/feat-cmux-next with the concurrency PR (#15575) and the split-actions PR (#15588), with compat mutations on registry actions.
 
-- `swift test --filter CmuxNextControlTests`: 56 tests pass (compat: UUID/ref derivation, resolution by UUID/ref/index/terminal alias, focus from app state, v1 tokenizing, key mapping, sidebar ordering and bounds, typed unsupported errors, fail-fast without a daemon, deadline).
-- `scripts/cmux-next/cli-compat-e2e.py` (40 `cmux …` commands with asserted output: ping, capabilities, identify, windows, workspace create/rename/select/current/list/close, tree, new-split, new-pane, new-surface, list-panes/pane-surfaces/panels, focus-pane, send, send-key, read-screen (plus `--lines --scrollback`), rename-tab, notify, list/clear-notifications, set-status, list-status, set-progress, log, sidebar-state, env caller identify, browser open/eval/url, typed unsupported): **40/40 pass**.
-- `scripts/cmux-next/cli-compat-tests-v2.py` over `tests_v2/test_*.py` (125 files): **17 pass, 81 fail, 2 timeout, 25 not run** (4 drive the user's GUI via osascript or measure the release app, 21 need SSH hosts or Cloud VMs). 39 of the failures call old-app `debug.*` methods (command palette, shortcut simulation, panel snapshots, layout dumps), which cmux-next does not port. The rest are listed below with causes. Counts are merged from two full runs: the last full run hit system-wide `PTY capacity exhausted` from test file 28 on, because other agents' leaked cmux-tui terminal hosts held 409 of the 511 PTYs; its passes count, and its later failures fall back to the previous run on the same code except the snapshot-publish fix, whose two affected files were re-run.
+- `swift test` (whole package): every suite passes; `CmuxNextControlTests` 59 (compat, shared-action path, `action.run wait`), `CmuxNextActionsTests` includes tracked action work.
+- `scripts/cmux-next/cli-compat-e2e.py` (40 `cmux …` commands with asserted output): **40/40 pass**. A manual background check also passed: `new-split right/left/up/down` and `new-pane --type browser --direction left` on a workspace no window shows (the split actions now act on any daemon pane).
+- `scripts/cmux-next/cli-compat-tests-v2.py` over `tests_v2/test_*.py` (125 files), one full run with PTYs healthy (118 in use at the start, 0 capacity errors): **17 pass, 81 fail, 2 timeout, 25 not run**. `rename_tab_cli_parity` failed once in the full run (its cleanup `workspace.close` hit the 2 s deadline) and passed 3/3 alone, so 18 pass with that rerun. 39 failures call old-app `debug.*` methods; 25 files are not run (osascript, release-app probes, SSH, Cloud).
 
-After the final merge of origin/feat-cmux-next (#15574) and the pushed concurrency branch, the e2e re-run passed 26/40: all 14 failures were `PTY capacity exhausted` from the daemon (428 cmux-tui terminal hosts on the machine, 424 of them orphaned with parent pid 1 from other worktrees' daemons, none from this build), and each answered a typed error at once. The 40/40 result above is from the build before that merge.
-
-History: first build 18 pass (daemon reads, own snapshot); moving reads to the published `ControlSnapshot` dropped to 15 because the snapshot lags writes (see Decisions); fresh reads and publish-after-intent restored them.
+History: first build 18 pass (compat daemon code) (daemon reads, own snapshot); moving reads to the published `ControlSnapshot` dropped to 15 because the snapshot lags writes (see Decisions); fresh reads and publish-after-intent restored them.
 
 | File | Result | Cause |
 | --- | --- | --- |
@@ -118,14 +116,14 @@ History: first build 18 pass (daemon reads, own snapshot); moving reads to the p
 | browser_hidden_screenshot_fresh | fail | browser.screenshot unsupported |
 | browser_open_split_reuse_policy | fail | browser.open_split reuse policy not implemented |
 | browser_panel_stability | fail | Results: 0 passed, 2 failed |
-| cli_background_terminal_helpers_start_pty | fail | cmux.cmuxError: CLI failed (/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
+| cli_background_terminal_helpers_start_pty | pass |  |
 | cli_browser_console_errors_text | fail | browser.wait unsupported |
 | cli_global_flags_and_v1_error_contract | fail | bundled CLI crashes on --help (cmuxfoundation resource bundle missing) |
 | cli_id_format_defaults | pass |  |
 | cli_identify_ref_resolution | pass |  |
 | cli_new_workspace_background_metadata | pass |  |
 | cli_new_workspace_command_queue | pass |  |
-| cli_new_workspace_external_git_branch_refresh | fail | sidebar git branch refresh (daemon branch polling differs) |
+| cli_new_workspace_external_git_branch_refresh | fail | cmux.cmuxError: Expected refreshed sidebar cwd=PosixPath('/var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/cmux_issue_91 |
 | cli_new_workspace_layout_command_queue | fail | workspace.create layout unsupported |
 | cli_non_focus_commands_preserve_workspace | fail | cmux.cmuxError: CLI failed (/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
 | cli_sidebar_metadata_commands | pass |  |
@@ -215,7 +213,7 @@ History: first build 18 pass (daemon reads, own snapshot); moving reads to the p
 | terminal_notification_rendering | fail | old-app debug.* methods |
 | terminal_paste_delivery | fail | AssertionError: Use the isolated issue tag |
 | tmux_compat_geometry | fail | pane.list pixel_frame not reported |
-| tmux_compat_matrix | fail | cmux.cmuxError: Timed out waiting for condition |
+| tmux_compat_matrix | fail | cmux.cmuxError: CLI failed (/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux-clic/Build/Products/Debug/cmux DEV  |
 | trigger_flash | fail | old-app debug.* methods |
 | update_timing | fail | source-shape test for the old app |
 | v1_panel_creation_preserves_focus | fail | cmux.cmuxError: 'new_surface' failed: "ERROR: Unknown command 'new_surface'. cmux-next speaks v2 JSON requests only." |
@@ -225,14 +223,17 @@ History: first build 18 pass (daemon reads, own snapshot); moving reads to the p
 | workspace_create_background_starts_terminal | fail | workspace.create layout unsupported |
 | workspace_create_initial_env | pass |  |
 | workspace_create_layout | fail | workspace.create layout unsupported |
-| workspace_relative | fail | stale test: the current CLI keeps workspace ids in default --json output (preservesStableIDsByDefault) |
+| workspace_relative | fail | stale test: the current CLI keeps workspace ids in default --json output |
 
 ## Decisions and follow-ups
 
+- Shared path: compat mutations run the registry actions the keyboard, menu, and palette run (`splitRight/Down/Left/Up`, `newSurface`, `openBrowser`, `tab.moveToNewSplit`, `newTab`, `closeWorkspace`, `renameWorkspace`, `closeTab`, `renameTab`, `palette.clearTabName`, `palette.toggleTabPin`, `palette.moveTabToNewWorkspace`, `tab.moveToWorkspace`, `palette.toggleTabUnread`) on the main actor through the work queue. Handlers report the daemon tasks they start (`ActionRegistry.track`); compat and `action.run {wait: true}` answer after those tasks finish (the daemon replied), and new refs come from a before/after tree diff. Still compat daemon calls because no targeted action exists: terminal input/reads, `notify`, `surface.move` to a pane index, `pane.swap` with a target pane, `workspace.reorder` to an index, group placement on create. Workspace select, pane focus, and tab select stay App intents over the same `WindowManager.show` / `PaneController.select` the sidebar and strip use.
+- The split, new-tab, close-tab, rename, and pin actions now work on a targeted pane or tab that no window shows, for every entrypoint. `newTab` takes optional `name`, `cwd`, `command`, `env`, `focus`; `newSurface` and the splits take `cwd`. New workspaces' first terminals get `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
+
 - Reads that name daemon objects run on the `async` lane with one fresh `list-workspaces` (off the main actor, deadline-bound), joined with the snapshot's app-local state. The published `ControlSnapshot` lags cmux-tui by a frame plus delta delivery, and `surface.list` right after `workspace.create` returned no surfaces (tests_v2 `background_*`). Only `system.ping`, `system.capabilities`, `window.list`, and `window.current` answer from the snapshot. Moving the rest to the snapshot lane needs a write barrier (publish-after-delta for a known mutation), not a timing guess.
 - App intents publish the snapshot synchronously before replying, so `select-workspace` followed by `current-workspace` agrees.
-- `workspace.close` ends each terminal before `close-workspace`: cmux-tui keeps a closed workspace's terminal hosts and PTYs alive (one tests_v2 run leaked 251 hosts). The App's own workspace close has the same leak and needs the same fix or a daemon change.
-- Terminals the App creates (tab strip, splits) get `CMUX_SOCKET_PATH`/`CMUX_TAG` from `LaunchIdentity`, but no `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID`: `new-tab` and `split` cannot reserve a terminal id. Only `workspace.create` terminals get them. Hooks inside App-created terminals fall back to the focused surface. Fix: daemon-injected placement env, or `terminal_id` on `new-tab`/`split`.
+- The `closeWorkspace` action ends each terminal before `close-workspace`: cmux-tui keeps a closed workspace's terminal hosts and PTYs alive (one tests_v2 run leaked 251 hosts). This fixes the App's own close too; a daemon-side fix is still better.
+- Tabs and splits get `CMUX_SOCKET_PATH`/`CMUX_TAG` from `LaunchIdentity`, but no `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID`: `new-tab` and `split` cannot reserve a terminal id. Only a new workspace's first terminal gets them. Hooks inside App-created terminals fall back to the focused surface. Fix: daemon-injected placement env, or `terminal_id` on `new-tab`/`split`.
 - Sidebar status/progress/log is stored and queryable but not rendered by the cmux-next sidebar yet.
 - Agent hooks: `feed.push`, `agent_journal_append`, and `agent.hook.*` answer typed unsupported, so hook notifications, the feed, and permission replies do not reach cmux-next. They belong on cmux-tui `report-agent`.
 - `select-workspace` once exceeded the 2 s deadline while the App rebuilt a workspace's content on the main thread (later switches took 80-500 ms). The watchdog (`debug.hangs`) should show whether content switching stalls the main thread.
