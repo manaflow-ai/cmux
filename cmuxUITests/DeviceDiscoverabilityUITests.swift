@@ -22,54 +22,48 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         }
         let window = openSettings(app)
         navigate(window, to: "Devices")
-        let incoming = toggle(window, id: "SettingsComputersIncomingAccessToggle")
-        let discovery = toggle(window, id: "SettingsComputersDiscoveryToggle")
-        if isOn(incoming) {
-            incoming.click()
-            XCTAssertTrue(poll(timeout: 5) { !self.isOn(incoming) })
+        let settingsIncoming = toggle(window, id: "SettingsComputersIncomingAccessToggle")
+        let settingsDiscovery = toggle(window, id: "SettingsComputersDiscoveryToggle")
+        if isOn(settingsIncoming) {
+            settingsIncoming.click()
+            XCTAssertTrue(poll(timeout: 5) { !self.isOn(settingsIncoming) })
         }
-        if isOn(discovery) {
-            discovery.click()
-            XCTAssertTrue(poll(timeout: 5) { !self.isOn(discovery) })
+        if isOn(settingsDiscovery) {
+            settingsDiscovery.click()
+            XCTAssertTrue(poll(timeout: 5) { !self.isOn(settingsDiscovery) })
         }
-        XCTAssertEqual(incoming.label, "Make this Mac discoverable")
-        XCTAssertEqual(discovery.label, "Discover other Macs")
+        XCTAssertEqual(settingsIncoming.label, "Make this Mac discoverable")
+        XCTAssertEqual(settingsDiscovery.label, "Discover other Macs")
 
-        incoming.click()
+        settingsIncoming.click()
         assertConfirmation(app)
         capture(app, "discoverability-confirmation")
         app.buttons["Cancel"].firstMatch.click()
         XCTAssertTrue(app.sheets.firstMatch.waitForNonExistence(timeout: 5))
-        XCTAssertFalse(isOn(incoming))
+        XCTAssertFalse(isOn(settingsIncoming))
 
-        incoming.click()
+        settingsIncoming.click()
         assertConfirmation(app)
         app.sheets.buttons["Make Discoverable"].firstMatch.click()
-        XCTAssertTrue(poll(timeout: 5) { self.isOn(incoming) })
-        XCTAssertEqual(incoming.label, "Hide this Mac from My Devices")
-        XCTAssertFalse(isOn(discovery))
-        incoming.click()
-        XCTAssertTrue(poll(timeout: 5) { !self.isOn(incoming) })
+        XCTAssertTrue(poll(timeout: 5) { self.isOn(settingsIncoming) })
+        XCTAssertEqual(settingsIncoming.label, "Hide this Mac from My Devices")
+        XCTAssertFalse(isOn(settingsDiscovery))
+        settingsIncoming.click()
+        XCTAssertTrue(poll(timeout: 5) { !self.isOn(settingsIncoming) })
         XCTAssertFalse(app.sheets.firstMatch.exists)
-        XCTAssertEqual(incoming.label, "Make this Mac discoverable")
+        XCTAssertEqual(settingsIncoming.label, "Make this Mac discoverable")
 
-        discovery.click()
-        XCTAssertTrue(poll(timeout: 5) { self.isOn(discovery) })
-        XCTAssertEqual(discovery.label, "Stop discovering other Macs")
+        settingsDiscovery.click()
+        XCTAssertTrue(poll(timeout: 5) { self.isOn(settingsDiscovery) })
+        XCTAssertEqual(settingsDiscovery.label, "Stop discovering other Macs")
         XCTAssertFalse(app.sheets.firstMatch.exists)
         closeSettings(app, window)
         let reopened = openSettings(app)
         navigate(reopened, to: "Devices")
         XCTAssertTrue(isOn(toggle(reopened, id: "SettingsComputersDiscoveryToggle")))
         XCTAssertFalse(isOn(toggle(reopened, id: "SettingsComputersIncomingAccessToggle")))
-    }
+        closeSettings(app, reopened)
 
-    func testSidebarKeepsBothActionsAtRestAndAgreesWithSettings() {
-        let app = launchDevicesApp()
-        defer {
-            app.terminate()
-            _ = app.wait(for: .notRunning, timeout: 10)
-        }
         let mode = app.buttons["RightSidebarModeButton.machines"]
         XCTAssertTrue(mode.waitForExistence(timeout: 10))
         mode.click()
