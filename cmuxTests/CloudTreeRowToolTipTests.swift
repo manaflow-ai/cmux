@@ -266,15 +266,16 @@ struct CloudTreeRowToolTipTests {
         #expect(cell.accessibilityLabel()?.isEmpty == false)
     }
 
-    @Test("A port row whose link is its whole title has no hover text")
-    func barePortRowHasNoToolTip() {
+    @Test("A port without a process name still explains that no VPN setup is needed")
+    func barePortRowExplainsOpenAction() {
         let cell = Self.cell(presence: [])
         cell.configure(
             node: Self.barePortNode(),
             machineActions: Self.machineActions(),
             nodeActions: Self.nodeActions()
         )
-        #expect(cell.toolTip == nil)
+        #expect(cell.toolTip == "Open in cmux. No VPN setup needed.")
+        #expect(cell.accessibilityLabel() == "Port 3000, Open in cmux")
     }
 
     // MARK: - Fixtures
@@ -410,8 +411,7 @@ struct CloudTreeRowToolTipTests {
         )
     }
 
-    /// A forwarded port the daemon reported with no process name and no detail,
-    /// so its link is the only fact the row has and the row already draws it.
+    /// A forwarded port the daemon reported with no process name or detail.
     private static func barePortNode() -> CloudTreeNode {
         let resource = SurfaceResource(
             id: SurfaceResourceID(
