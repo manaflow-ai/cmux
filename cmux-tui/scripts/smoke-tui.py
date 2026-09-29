@@ -922,8 +922,10 @@ ws0 = tree()[0]
 assert ws0["name"] == "smoke-ws", ws0
 local_screen = next(screen for screen in ws0["screens"] if screen["id"] == screen_id)
 assert next(pane for pane in local_screen["panes"] if pane["id"] == target_pane)["name"] == "smoke-pane", ws0
+# Check the rendered screen, not the raw byte stream: the renderer redraws
+# only changed cells, and "workspace-1" -> "smoke-ws" keeps the shared "k".
+wait_render_contains("smoke-ws")
 text = output.decode("utf-8", "replace")
-assert "smoke-ws" in text, text[-500:]
 print("rename pane/workspace ok")
 
 # Sidebar rendered: the new-workspace row is a sidebar-only string.
