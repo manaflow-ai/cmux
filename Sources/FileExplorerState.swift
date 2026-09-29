@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFileTree
 import SwiftUI
 
 // MARK: - State (visibility toggle)
@@ -30,10 +31,26 @@ final class FileExplorerState: ObservableObject {
         didSet { UserDefaults.standard.set(Double(dividerPosition), forKey: "fileExplorer.dividerPosition") }
     }
 
-    /// Whether hidden files (dotfiles) are shown in the tree.
+    /// Whether hidden files (dotfiles and `UF_HIDDEN` items) are shown in the tree.
+    ///
+    /// Stored under a new key: the legacy `fileExplorer.showHidden` value was
+    /// written by an old toggle but ignored for many releases, so honoring it
+    /// now could hide dotfiles for people who never chose that.
     @Published var showHiddenFiles: Bool {
-        didSet { UserDefaults.standard.set(showHiddenFiles, forKey: "fileExplorer.showHidden") }
+        didSet { UserDefaults.standard.set(showHiddenFiles, forKey: Self.showHiddenFilesKey) }
     }
+
+    /// Sibling order for the Files tree.
+    @Published var sortOrder: FileTreeSortOrder {
+        didSet {
+            if let data = try? JSONEncoder().encode(sortOrder) {
+                UserDefaults.standard.set(data, forKey: Self.sortOrderKey)
+            }
+        }
+    }
+
+    private static let showHiddenFilesKey = "fileExplorer.showsHiddenFiles.v2"
+    private static let sortOrderKey = "fileExplorer.sortOrder.v1"
 
     @Published private var storedMode: RightSidebarMode
     @Published private var storedCustomSidebarName: String?
@@ -66,8 +83,10 @@ final class FileExplorerState: ObservableObject {
         self.width = storedWidth > 0 ? CGFloat(storedWidth) : 220
         let storedPosition = defaults.double(forKey: "fileExplorer.dividerPosition")
         self.dividerPosition = storedPosition > 0 ? CGFloat(storedPosition) : 0.6
-        let storedShowHidden = defaults.object(forKey: "fileExplorer.showHidden")
-        self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
+        let storedShowHidden = defaults.object(forKey: Self.showHiddenFilesKey)
+        self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: Self.showHiddenFilesKey)
+        self.sortOrder = defaults.data(forKey: Self.sortOrderKey)
+            .flatMap { try? JSONDecoder().decode(FileTreeSortOrder.self, from: $0) } ?? .standard
         let customSidebarName = defaults.string(forKey: Self.customSidebarNameKey)?.nilIfEmpty
         self.storedCustomSidebarName = customSidebarName
         let storedMode = RightSidebarMode.from(cliArgument: defaults.string(forKey: Self.modeKey) ?? "") ?? .files

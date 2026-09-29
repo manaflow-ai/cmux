@@ -3449,5 +3449,11 @@
       "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
     }
+  },
+  "fileExplorer.sort.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Finder's German Sort By menu uses the same word, Name."
+    }
   }
 }

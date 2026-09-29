@@ -1,3 +1,4 @@
+import CmuxFileTree
 import Foundation
 
 /// An immutable Cloud filesystem identity with I/O owned by its service actor.
@@ -56,9 +57,23 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
     }
 
     /// Lists a directory on the Cloud machine.
-    nonisolated func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
-        guard isAvailable else { throw FileExplorerError.providerUnavailable }
-        return try await service.listDirectory(vmID: vmID, path: path, showHidden: showHidden)
+    nonisolated func listDirectory(at path: String) async throws -> FileTreeListing {
+        guard let result = await listDirectories(at: [path])[path] else {
+            throw FileExplorerError.providerUnavailable
+        }
+        return try result.get()
+    }
+
+    /// Lists several directories in one guest exec.
+    nonisolated func listDirectories(at paths: [String]) async -> [String: Result<FileTreeListing, any Error>] {
+        guard isAvailable else {
+            return Dictionary(uniqueKeysWithValues: paths.map { ($0, .failure(FileExplorerError.providerUnavailable)) })
+        }
+        do {
+            return try await service.listDirectories(vmID: vmID, paths: paths)
+        } catch {
+            return Dictionary(uniqueKeysWithValues: paths.map { ($0, .failure(error)) })
+        }
     }
 
     nonisolated func search(query: String, rootPath: String) async throws -> FileSearchSnapshot {

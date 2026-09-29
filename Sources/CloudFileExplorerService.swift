@@ -1,9 +1,11 @@
+import CmuxFileTree
 import Foundation
 
 /// Runs bounded filesystem operations on one Cloud VM.
 actor CloudFileExplorerService {
     private static let maxSearchResults = 500
     private static let maxPreviewBytes = 1_048_576
+    private static let maxEntriesPerDirectory = 10_000
     private let commandRunner: any CloudFileExplorerCommandRunning
     private let searchQueue = CloudFileExplorerSearchQueue()
 
@@ -25,39 +27,84 @@ actor CloudFileExplorerService {
         return home
     }
 
-    /// Lists one remote directory without crossing the local filesystem boundary.
-    func listDirectory(vmID: String, path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
+    /// Lists remote directories in one guest exec without crossing the local
+    /// filesystem boundary. Each directory returns at most
+    /// ``maxEntriesPerDirectory`` entries; the rest are counted as omitted so
+    /// a huge `node_modules` shows a partial tree instead of an error.
+    func listDirectories(vmID: String, paths: [String]) async throws -> [String: Result<FileTreeListing, any Error>] {
+        guard !paths.isEmpty else { return [:] }
         let script = #"""
-import json, os, sys
-path = sys.argv[1]
-show_hidden = sys.argv[2] == "1"
-entries = []
-with os.scandir(path) as directory:
-    for entry in directory:
-        if not show_hidden and entry.name.startswith("."):
-            continue
-        try:
-            is_directory = entry.is_dir(follow_symlinks=True)
-        except OSError:
-            is_directory = False
-        entries.append({"name": entry.name, "path": entry.path, "directory": is_directory})
-        if len(entries) > 10000:
-            sys.exit(74)
-json.dump(entries, sys.stdout, separators=(",", ":"))
+import json, os, stat, sys
+limit = int(sys.argv[1])
+results = []
+for path in sys.argv[2:]:
+    entries = []
+    omitted = 0
+    try:
+        with os.scandir(path) as directory:
+            for entry in directory:
+                if len(entries) >= limit:
+                    omitted += 1
+                    continue
+                kind = "f"
+                size = None
+                mtime = None
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                    mtime = info.st_mtime
+                    if stat.S_ISDIR(info.st_mode):
+                        kind = "d"
+                    elif stat.S_ISLNK(info.st_mode):
+                        kind = "L" if entry.is_dir(follow_symlinks=True) else "l"
+                    elif stat.S_ISREG(info.st_mode):
+                        size = info.st_size
+                    else:
+                        kind = "o"
+                except OSError:
+                    kind = "o"
+                entries.append([entry.name, kind, size, mtime])
+        results.append({"ok": True, "entries": entries, "omitted": omitted})
+    except OSError as error:
+        results.append({"ok": False, "error": error.strerror or "error"})
+json.dump(results, sys.stdout, separators=(",", ":"))
 """#
-        let command = "python3 -c \(Self.shellQuote(script)) \(Self.shellQuote(path)) \(showHidden ? "1" : "0")"
+        let quotedPaths = paths.map(Self.shellQuote).joined(separator: " ")
+        let command = "python3 -c \(Self.shellQuote(script)) \(Self.maxEntriesPerDirectory) \(quotedPaths)"
         let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
         guard result.exitCode == 0,
               let data = result.stdout.data(using: .utf8),
-              let rawEntries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+              let rawResults = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              rawResults.count == paths.count else {
             throw FileExplorerError.remoteCommandFailed("")
         }
-        return rawEntries.compactMap { raw in
-            guard let name = raw["name"] as? String,
-                  let entryPath = raw["path"] as? String,
-                  let isDirectory = raw["directory"] as? Bool else { return nil }
-            return FileExplorerEntry(name: name, path: entryPath, isDirectory: isDirectory)
+        var listings: [String: Result<FileTreeListing, any Error>] = [:]
+        for (path, raw) in zip(paths, rawResults) {
+            guard raw["ok"] as? Bool == true, let rawEntries = raw["entries"] as? [[Any]] else {
+                listings[path] = .failure(FileExplorerError.remoteCommandFailed((raw["error"] as? String) ?? ""))
+                continue
+            }
+            let parent = path.hasSuffix("/") ? path : path + "/"
+            let entries = rawEntries.compactMap { fields -> FileTreeEntry? in
+                guard fields.count == 4, let name = fields[0] as? String, let code = fields[1] as? String else { return nil }
+                let kind: FileTreeEntryKind
+                switch code {
+                case "d": kind = .directory
+                case "L": kind = .symbolicLinkToDirectory
+                case "l": kind = .symbolicLink
+                case "o": kind = .other
+                default: kind = .file
+                }
+                return FileTreeEntry(
+                    name: name,
+                    path: parent + name,
+                    kind: kind,
+                    size: (fields[2] as? NSNumber)?.int64Value,
+                    modificationTime: (fields[3] as? NSNumber)?.doubleValue
+                )
+            }
+            listings[path] = .success(FileTreeListing(entries: entries, omittedCount: (raw["omitted"] as? Int) ?? 0))
         }
+        return listings
     }
 
     /// Downloads one bounded remote file to a local preview cache.

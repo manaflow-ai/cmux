@@ -56,6 +56,34 @@ extension FileExplorerNSOutlineView {
         fileExplorerCoordinator?.openSelectedNode(in: self)
         return true
     }
+
+    /// Finder actions bound in Settings: Quick Look, Rename, Show Hidden
+    /// Files and Enclosing Folder, plus Command-Delete for Move to Trash.
+    func handleFinderActionShortcut(_ event: NSEvent) -> Bool {
+        guard let coordinator = fileExplorerCoordinator else { return false }
+        if event.isFileExplorerMoveToTrashKey {
+            endQuickSearch()
+            coordinator.moveToTrash(coordinator.selectedNodes(in: self))
+            return true
+        }
+        guard let action = event.fileExplorerFinderAction(in: fileExplorerPanelPlacement) else { return false }
+        endQuickSearch()
+        switch action {
+        case .fileExplorerQuickLook:
+            toggleQuickLook()
+        case .fileExplorerRenameSelection:
+            if let node = coordinator.selectedNodes(in: self).first {
+                coordinator.beginRenaming(node)
+            }
+        case .fileExplorerToggleHiddenFiles:
+            coordinator.toggleHiddenFiles(nil)
+        case .fileExplorerSelectParent:
+            coordinator.selectParentOfSelection(in: self)
+        default:
+            return false
+        }
+        return true
+    }
 }
 
 extension FileExplorerSearchResultsTableView {
@@ -89,6 +117,24 @@ extension NSEvent {
                 KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(context)
         }
     }
+
+    /// The Settings-backed Finder action this key event triggers in the tree.
+    func fileExplorerFinderAction(in placement: FileExplorerPanelPlacement) -> KeyboardShortcutSettings.Action? {
+        guard type == .keyDown else { return nil }
+        let context = placement.openSelectionShortcutContext(for: self)
+        return KeyboardShortcutSettings.Action.fileExplorerFinderActions.first { action in
+            KeyboardShortcutSettings.shortcut(for: action).matches(event: self) &&
+                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(context)
+        }
+    }
+
+    /// Command-Delete, Finder's Move to Trash. Delete has no representation
+    /// in the shortcut recorder, so this standard editing key stays fixed.
+    var isFileExplorerMoveToTrashKey: Bool {
+        guard type == .keyDown, keyCode == 51 || keyCode == 117 else { return false }
+        let flags = modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+        return flags == .command
+    }
 }
 
 @MainActor
@@ -107,8 +153,13 @@ private extension FileExplorerPanelPlacement {
     }
 }
 
-private extension KeyboardShortcutSettings.Action {
+extension KeyboardShortcutSettings.Action {
     static var fileExplorerOpenSelectionActions: [Self] {
         [.fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias]
+    }
+
+    /// Tree actions matched inside the Files outline, in match priority order.
+    static var fileExplorerFinderActions: [Self] {
+        [.fileExplorerQuickLook, .fileExplorerRenameSelection, .fileExplorerToggleHiddenFiles, .fileExplorerSelectParent]
     }
 }

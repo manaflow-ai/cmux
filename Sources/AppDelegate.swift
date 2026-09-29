@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxFileTree
 import CmuxCloudTui
 import CmuxComputerUse
 import CmuxCloudMachines
@@ -856,6 +857,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var computerUseRuntimeService: ComputerUseRuntimeService?
     private(set) var browserDataImportCoordinator: BrowserDataImportCoordinator?
     weak var fileExplorerState: FileExplorerState?
+    /// Files tree expansion, selection and scroll per workspace root, shared
+    /// by every window's store so the state survives restarts.
+    let fileExplorerViewStateRepository = FileTreeViewStateRepository(defaults: .standard)
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
@@ -18070,6 +18074,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func canCurrentShortcutPreventStaleMenuSuppression(_ action: KeyboardShortcutSettings.Action) -> Bool {
         action != .fileExplorerOpenSelection && action != .fileExplorerOpenSelectionFinderAlias
+            && action != .fileExplorerQuickLook
+            && action != .fileExplorerRenameSelection
+            && action != .fileExplorerToggleHiddenFiles
+            && action != .fileExplorerSelectParent
     }
 
     private func isCloseShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
