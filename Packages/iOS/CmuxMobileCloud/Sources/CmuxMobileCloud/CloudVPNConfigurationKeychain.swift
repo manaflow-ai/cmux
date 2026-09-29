@@ -1,4 +1,8 @@
+#if swift(>=6.0)
+public import Foundation
+#else
 import Foundation
+#endif
 import Security
 
 /// The system VPN's wg-quick configuration, shared by the app and the packet
