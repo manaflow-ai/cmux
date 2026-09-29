@@ -1,0 +1,78 @@
+import Foundation
+
+// Windows are frontend-local, so which workspace each window shows (and its
+// frame) lives in a `personal` frontend projection, not the shared tree
+// (plans/cmux-next/cmux-tui-contract.md 2.6, REWRITE.md "Tab drag"). The
+// projection has its own CAS and exactly-once ledger and does not bump
+// `workspace_revision`. Save on settle (window moved/resized, workspace
+// switched), not per frame.
+
+public struct WindowFrame: Codable, Sendable, Hashable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+/// One restorable window.
+public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
+    /// Stable frontend-chosen window id (survives relaunch).
+    public var id: String
+    /// Workspace this window shows (durable key).
+    public var workspaceKey: WorkspaceKey?
+    /// Selected screen within that workspace (screen resource id).
+    public var screenID: ResourceID?
+    /// Screen coordinates (AppKit, bottom-left origin).
+    public var frame: WindowFrame?
+    public var isFullScreen: Bool
+    public var sidebarWidth: Double?
+    public var sidebarCollapsed: Bool
+    /// Selected tab per pane (pane resource id -> tab resource id).
+    public var selectedTabs: [String: String]
+    /// Front-to-back order key; lower is further front.
+    public var order: Int
+
+    public init(id: String, workspaceKey: WorkspaceKey? = nil, screenID: ResourceID? = nil, frame: WindowFrame? = nil,
+                isFullScreen: Bool = false, sidebarWidth: Double? = nil, sidebarCollapsed: Bool = false,
+                selectedTabs: [String: String] = [:], order: Int = 0) {
+        self.id = id
+        self.workspaceKey = workspaceKey
+        self.screenID = screenID
+        self.frame = frame
+        self.isFullScreen = isFullScreen
+        self.sidebarWidth = sidebarWidth
+        self.sidebarCollapsed = sidebarCollapsed
+        self.selectedTabs = selectedTabs
+        self.order = order
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, frame, order
+        case workspaceKey = "workspace_key"
+        case screenID = "screen_id"
+        case isFullScreen = "full_screen"
+        case sidebarWidth = "sidebar_width"
+        case sidebarCollapsed = "sidebar_collapsed"
+        case selectedTabs = "selected_tabs"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        workspaceKey = try c.decodeIfPresent(WorkspaceKey.self, forKey: .workspaceKey)
+        screenID = try c.decodeIfPresent(ResourceID.self, forKey: .screenID)
+        frame = try c.decodeIfPresent(WindowFrame.self, forKey: .frame)
+        isFullScreen = try c.decodeIfPresent(Bool.self, forKey: .isFullScreen) ?? false
+        sidebarWidth = try c.decodeIfPresent(Double.self, forKey: .sidebarWidth)
+        sidebarCollapsed = try c.decodeIfPresent(Bool.self, forKey: .sidebarCollapsed) ?? false
+        selectedTabs = try c.decodeIfPresent([String: String].self, forKey: .selectedTabs) ?? [:]
+        order = try c.decodeIfPresent(Int.self, forKey: .order) ?? 0
+    }
+}

@@ -1,0 +1,67 @@
+import Foundation
+
+/// Marker for the entity a durable string id names.
+public protocol DaemonStringIDKind: Sendable {}
+
+/// Durable string id (survives daemon restarts), typed by a phantom `Kind`.
+public struct DaemonStringID<Kind: DaemonStringIDKind>: RawRepresentable, Hashable, Sendable, Codable,
+    CustomStringConvertible, ExpressibleByStringLiteral {
+    public let rawValue: String
+
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public init(stringLiteral value: String) { self.init(rawValue: value) }
+
+    public init(from decoder: any Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    public var description: String { rawValue }
+}
+
+public enum StringIDKind {
+    public enum WorkspaceKey: DaemonStringIDKind {}
+    public enum Terminal: DaemonStringIDKind {}
+    public enum TerminalIncarnation: DaemonStringIDKind {}
+    public enum Resource: DaemonStringIDKind {}
+    public enum Generation: DaemonStringIDKind {}
+    public enum WorkspaceGroup: DaemonStringIDKind {}
+    public enum ClientTransaction: DaemonStringIDKind {}
+}
+
+/// Durable workspace identity: lowercase canonical UUID.
+public typealias WorkspaceKey = DaemonStringID<StringIDKind.WorkspaceKey>
+/// Durable terminal identity (32 hex characters), survives restarts and moves.
+public typealias TerminalID = DaemonStringID<StringIDKind.Terminal>
+/// Changes each time a terminal's process is (re)spawned under the same id.
+public typealias TerminalIncarnation = DaemonStringID<StringIDKind.TerminalIncarnation>
+/// Durable `resource_id` of a workspace, screen, pane, tab, or terminal
+/// (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`).
+public typealias ResourceID = DaemonStringID<StringIDKind.Resource>
+/// Daemon boot UUID. A change means every numeric handle is invalid.
+public typealias DaemonGeneration = DaemonStringID<StringIDKind.Generation>
+/// Sidebar group id (`workspace-groups-v1`): 1-64 of `[A-Za-z0-9_.:-]`;
+/// the daemon generates `grp_<32 hex>` when the caller omits it.
+public typealias WorkspaceGroupID = DaemonStringID<StringIDKind.WorkspaceGroup>
+/// Client-chosen id echoed as `client_transaction_id` on resulting deltas.
+public typealias ClientTransactionID = DaemonStringID<StringIDKind.ClientTransaction>
+
+extension DaemonStringID where Kind == StringIDKind.WorkspaceKey {
+    /// A fresh key in the daemon's canonical form.
+    public static func generate() -> Self { Self(rawValue: UUID().uuidString.lowercased()) }
+}
+
+extension DaemonStringID where Kind == StringIDKind.Terminal {
+    /// A caller-reserved id for `create-terminal` (canonical 32-character UUID).
+    public static func generate() -> Self {
+        Self(rawValue: UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: ""))
+    }
+}
+
+extension DaemonStringID where Kind == StringIDKind.ClientTransaction {
+    public static func generate() -> Self { Self(rawValue: UUID().uuidString.lowercased()) }
+}

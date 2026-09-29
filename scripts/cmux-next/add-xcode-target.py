@@ -50,6 +50,7 @@ BF_PKG = oid(18)
 PKG_REF = oid(19)
 PRODUCT_DEP = oid(20)
 BF_ASSETS = oid(21)
+PHASE_BUNDLE_TUI = oid(22)
 
 # Existing objects reused by reference.
 LEGACY_DEBUG = "A5001082"
@@ -98,12 +99,54 @@ def derive_config(block: str, legacy_id: str, new_id: str) -> str:
     return block
 
 
+def add_bundle_tui_phase(text: str) -> str:
+    """Add the "Bundle cmux-tui" script phase (scripts/cmux-next/bundle-cmux-tui.sh).
+
+    Idempotent on its own, so it also upgrades projects that already have
+    the target from an earlier run of this script.
+    """
+    if PHASE_BUNDLE_TUI in text:
+        return text
+    text = insert_before(text, "/* End PBXShellScriptBuildPhase section */", (
+        f"\t\t{PHASE_BUNDLE_TUI} /* Bundle cmux-tui */ = {{\n"
+        "\t\t\tisa = PBXShellScriptBuildPhase;\n"
+        "\t\t\talwaysOutOfDate = 1;\n"
+        "\t\t\tbuildActionMask = 2147483647;\n"
+        "\t\t\tfiles = (\n"
+        "\t\t\t);\n"
+        "\t\t\tinputFileListPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\tinputPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\tname = \"Bundle cmux-tui\";\n"
+        "\t\t\toutputFileListPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\toutputPaths = (\n"
+        "\t\t\t);\n"
+        "\t\t\trunOnlyForDeploymentPostprocessing = 0;\n"
+        "\t\t\tshellPath = /bin/sh;\n"
+        "\t\t\tshellScript = \"exec \\\"${SRCROOT}/scripts/cmux-next/bundle-cmux-tui.sh\\\"\\n\";\n"
+        "\t\t};\n"
+    ))
+    return append_to_list(
+        text,
+        f"\t\t{TARGET} /* cmux-next */ = {{\n",
+        "buildPhases",
+        f"\t\t\t\t{PHASE_BUNDLE_TUI} /* Bundle cmux-tui */,\n",
+    )
+
+
 def main() -> int:
     text = PBXPROJ.read_text()
     if TARGET in text:
-        print("cmux-next target already present; nothing to do")
+        upgraded = add_bundle_tui_phase(text)
+        if upgraded == text:
+            print("cmux-next target already present; nothing to do")
+        else:
+            PBXPROJ.write_text(upgraded)
+            print(f"added Bundle cmux-tui phase {PHASE_BUNDLE_TUI}")
         return 0
-    for n in range(1, 22):
+    for n in range(1, 23):
         assert oid(n) not in text, f"ID collision: {oid(n)}"
 
     text = insert_before(text, "/* End PBXBuildFile section */", "".join([
@@ -270,6 +313,7 @@ def main() -> int:
         "\t\t};\n"
     ))
 
+    text = add_bundle_tui_phase(text)
     PBXPROJ.write_text(text)
     print(f"added cmux-next target {TARGET}")
     return 0
