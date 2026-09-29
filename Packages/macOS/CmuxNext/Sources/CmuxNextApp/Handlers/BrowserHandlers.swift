@@ -17,7 +17,7 @@ enum BrowserHandlers {
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("browserHardReload", run: { invocation in
             guard let webKit = try context.page(invocation).tab as? WebKitTab else {
-                throw ActionFailure(message: HandlerStrings.hardReloadEngine)
+                throw ActionFailure(message: MiscHandlerStrings.hardReloadEngine)
             }
             webKit.webView.reloadFromOrigin()
         })
@@ -29,7 +29,7 @@ enum BrowserHandlers {
         })
         registry.bind("palette.browserOpenDefault", run: { invocation in
             guard let url = try context.page(invocation).tab.state.url, url.scheme != "about" else {
-                throw ActionFailure(message: HandlerStrings.noPageURL)
+                throw ActionFailure(message: MiscHandlerStrings.noPageURL)
             }
             try context.open(url)
         })
@@ -64,7 +64,7 @@ enum BrowserHandlers {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
             registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
                 let handle = try context.pane(invocation).pane.handle
-                _ = try context.connection()
+                _ = try context.requireConnection()
                 context.daemon.send("split-browser") { connection in
                     let created = try await connection.newFrontendBrowserTab(url: "about:blank", engine: .webkit, in: handle)
                     try await connection.split(handle, direction: direction, movingTab: created.surface)
@@ -75,23 +75,23 @@ enum BrowserHandlers {
 
     private static func bindUnavailable(_ registry: ActionRegistry) {
         func unavailable(_ ids: [ActionID], _ reason: String) { registry.bindUnavailable(ids, ActionFailure(message: reason)) }
-        unavailable(["toggleBrowserFocusMode"], HandlerStrings.browserFocusMode)
-        unavailable(["toggleReactGrab"], HandlerStrings.reactGrab)
-        unavailable(["palette.browserToggleOmnibar"], HandlerStrings.omnibarToggle)
-        unavailable(["palette.browserClearHistory"], HandlerStrings.browserHistory)
-        unavailable(["importFromBrowser"], HandlerStrings.browserImport)
-        unavailable(["palette.enableBrowser", "palette.disableBrowser"], HandlerStrings.browserToggle)
-        unavailable(["openLinkInNewTab", "openLinkInDefaultBrowser"], HandlerStrings.linkTarget)
-        unavailable(["browserScreenshotSection"], HandlerStrings.sectionScreenshot)
-        unavailable(["browserNewProfile", "browserRenameProfile"], HandlerStrings.browserProfiles)
-        unavailable(["saveFilePreview", "toggleFileEditorWordWrap"], HandlerStrings.filePreview)
-        unavailable(["markdownZoomIn", "markdownZoomOut", "markdownZoomReset"], HandlerStrings.markdownViewer)
-        unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], HandlerStrings.vscodeServer)
+        unavailable(["toggleBrowserFocusMode"], MiscHandlerStrings.browserFocusMode)
+        unavailable(["toggleReactGrab"], MiscHandlerStrings.reactGrab)
+        unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
+        unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
+        unavailable(["importFromBrowser"], MiscHandlerStrings.browserImport)
+        unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
+        unavailable(["openLinkInNewTab", "openLinkInDefaultBrowser"], MiscHandlerStrings.linkTarget)
+        unavailable(["browserScreenshotSection"], MiscHandlerStrings.sectionScreenshot)
+        unavailable(["browserNewProfile", "browserRenameProfile"], MiscHandlerStrings.browserProfiles)
+        unavailable(["saveFilePreview", "toggleFileEditorWordWrap"], MiscHandlerStrings.filePreview)
+        unavailable(["markdownZoomIn", "markdownZoomOut", "markdownZoomReset"], MiscHandlerStrings.markdownViewer)
+        unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)
         unavailable([
             "openDiffViewer", "palette.openDirectoryDiffViewer",
             "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp",
             "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop",
             "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile",
-        ], HandlerStrings.diffViewer)
+        ], MiscHandlerStrings.diffViewer)
     }
 }

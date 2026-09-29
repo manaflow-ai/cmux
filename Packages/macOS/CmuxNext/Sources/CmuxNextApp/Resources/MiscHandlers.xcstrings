@@ -1,0 +1,533 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "handlers.misc.failed.appNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No app named %@ was found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ という名前のアプリが見つかりません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.daemonOffline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux-tui daemon is not connected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui デーモンに接続されていません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.forkClaudeOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forking is supported for Claude sessions only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォークは Claude のセッションでのみ使えます。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.hardReloadEngine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This browser engine cannot bypass the cache; use Reload Page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブラウザエンジンはキャッシュを無視できません。「ページを再読み込み」を使ってください。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.markUnread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The daemon cannot mark a notification unread."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デーモンは通知を未読に戻せません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noAgentSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused terminal has no agent session to fork."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたターミナルにはフォークできるエージェントセッションがありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No browser tab is focused."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたブラウザタブがありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No file is focused."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたファイルがありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noPageURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The page has no URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページには URL がありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pane is focused."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたペインがありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal tab is focused."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたターミナルタブがありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noUnread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are no unread notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読の通知はありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.agentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent chat views are not ported to cmux-next yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャット表示はまだ cmux-next に移植されていません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.agentTeams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Claude and Codex Teams launcher is not ported to cmux-next yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude / Codex Teams の起動はまだ cmux-next に移植されていません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.browserFocusMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser focus mode is not built yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのフォーカスモードはまだ実装されていません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.browserHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next keeps no browser history store yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next にはまだブラウザ履歴の保存先がありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.browserImport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing browser data is not ported yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザデータの読み込みはまだ移植されていません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.browserProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profile management is not built yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザプロファイルの管理はまだ実装されていません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.browserToggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux browser is always on in cmux-next; there is no setting to turn it off yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next ではブラウザは常に有効です。無効にする設定はまだありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.clearLedger": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The daemon has no command to clear the notification ledger; use Mark All Notifications as Read."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デーモンには通知履歴を消去するコマンドがありません。「すべての通知を既読にする」を使ってください。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.cloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud actions arrive with the Cloud wave; cmux-next has no Cloud client yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウド操作はクラウド対応のフェーズで追加されます。cmux-next にはまだクラウドクライアントがありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.computerUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use integration is not ported to cmux-next yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use 連携はまだ cmux-next に移植されていません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.diffViewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next has no diff viewer yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next にはまだ差分ビューアがありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.filePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next has no file preview surface yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next にはまだファイルプレビューがありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.linkTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link context menus do not pass a link to actions yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクのコンテキストメニューはまだリンクを操作に渡しません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.markdownViewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next has no Markdown viewer yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next にはまだ Markdown ビューアがありません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.notificationsPanel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The notifications panel is not built yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知パネルはまだ実装されていません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.omnibarToggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The address bar cannot be hidden yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスバーはまだ非表示にできません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.reactGrab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab injection is not ported yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab の挿入はまだ移植されていません。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.sectionScreenshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section screenshots need a selection overlay that is not built yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲スクリーンショットには未実装の選択オーバーレイが必要です。"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.vscodeServer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The inline VS Code server is not ported to cmux-next yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インライン VS Code サーバーはまだ cmux-next に移植されていません。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

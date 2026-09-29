@@ -22,11 +22,11 @@ enum AgentHandlers {
         }
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
-        registry.bindUnavailable(["palette.newAgentChat", "palette.openTerminalChatView"], ActionFailure(message: HandlerStrings.agentChat))
-        registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: HandlerStrings.agentTeams))
+        registry.bindUnavailable(["palette.newAgentChat", "palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
+        registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
         registry.bindUnavailable(
             ["palette.computerUse.setup", "computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
-            ActionFailure(message: HandlerStrings.computerUse)
+            ActionFailure(message: MiscHandlerStrings.computerUse)
         )
     }
 
@@ -40,13 +40,13 @@ enum AgentHandlers {
 
     private static func fork(_ placement: Placement, invocation: ActionInvocation, context: AppActionContext) throws {
         guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id), tab.kind == .pty else {
-            throw ActionFailure(message: HandlerStrings.noTerminal)
+            throw ActionFailure(message: MiscHandlerStrings.noTerminal)
         }
-        guard let status = tab.agent, status.session?.isEmpty == false else { throw ActionFailure(message: HandlerStrings.noAgentSession) }
+        guard let status = tab.agent, status.session?.isEmpty == false else { throw ActionFailure(message: MiscHandlerStrings.noAgentSession) }
         guard let command = forkCommand(agent: status.agent, session: status.session) else {
-            throw ActionFailure(message: HandlerStrings.forkClaudeOnly)
+            throw ActionFailure(message: MiscHandlerStrings.forkClaudeOnly)
         }
-        let connection = try context.connection()
+        let connection = try context.requireConnection()
         let handle = pane.pane.handle
         let options = SpawnOptions(cwd: tab.cwd)
         let line = command + "\n"

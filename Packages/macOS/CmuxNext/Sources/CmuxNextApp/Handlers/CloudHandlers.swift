@@ -6,6 +6,6 @@ import CmuxNextActions
 /// rows covered until a real handler replaces them.
 enum CloudHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: HandlerStrings.cloud))
+        registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: MiscHandlerStrings.cloud))
     }
 }

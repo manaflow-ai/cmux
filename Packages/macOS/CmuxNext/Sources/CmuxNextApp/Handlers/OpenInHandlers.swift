@@ -13,14 +13,14 @@ enum OpenInHandlers {
         registry.bind("filePreviewOpenWith", run: { invocation in
             let file = try focusedFile(context, invocation)
             let name = invocation["app"]?.stringValue ?? ""
-            guard let app = applicationURL(named: name) else { throw ActionFailure(message: HandlerStrings.appNotFound(name)) }
+            guard let app = applicationURL(named: name) else { throw ActionFailure(message: MiscHandlerStrings.appNotFound(name)) }
             NSWorkspace.shared.open([file], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
         })
     }
 
     static func focusedFile(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> URL {
         guard case .browser(let entry) = context.scope(invocation).pane?.currentContent,
-              let url = entry.tab.state.url, url.isFileURL else { throw ActionFailure(message: HandlerStrings.noFile) }
+              let url = entry.tab.state.url, url.isFileURL else { throw ActionFailure(message: MiscHandlerStrings.noFile) }
         return url
     }
 

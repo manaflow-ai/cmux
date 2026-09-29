@@ -11,21 +11,21 @@ extension AppActionContext {
     var daemon: DaemonService { services.daemon }
 
     /// The daemon connection.
-    func connection() throws -> DaemonConnection {
-        guard let connection = daemon.connection else { throw ActionFailure(message: HandlerStrings.daemonOffline) }
+    func requireConnection() throws -> DaemonConnection {
+        guard let connection = daemon.connection else { throw ActionFailure(message: MiscHandlerStrings.daemonOffline) }
         return connection
     }
 
     /// The targeted (or focused) pane.
     func pane(_ invocation: ActionInvocation) throws -> PaneController {
-        guard let pane = scope(invocation).pane else { throw ActionFailure(message: HandlerStrings.noPane) }
+        guard let pane = scope(invocation).pane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
         return pane
     }
 
     /// The targeted (or focused) pane's browser page.
     func page(_ invocation: ActionInvocation) throws -> BrowserEntry {
         guard case .browser(let entry) = scope(invocation).pane?.currentContent else {
-            throw ActionFailure(message: HandlerStrings.noBrowser)
+            throw ActionFailure(message: MiscHandlerStrings.noBrowser)
         }
         return entry
     }

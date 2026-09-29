@@ -8,7 +8,7 @@ import Foundation
 /// tabs never maps the shim or the 367 MiB Chromium framework, and SwiftPM
 /// builds need no CEF headers.
 struct CEFShimLibrary {
-    static let abiVersion: Int32 = 1
+    static let abiVersion: Int32 = 2
 
     typealias ScheduleFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void
     typealias EventFn = @convention(c) (
@@ -20,7 +20,7 @@ struct CEFShimLibrary {
     let abiVersionFn: @convention(c) () -> Int32
     let load: @convention(c) (UnsafePointer<CChar>?, UnsafeMutablePointer<CChar>?, Int) -> Int32
     let forkAPIVersion: @convention(c) () -> Int32
-    let prepareApplication: @convention(c) () -> Void
+    let prepareApplication: @convention(c) () -> Int32
     let setExtensionDeveloperMode: @convention(c) (Int32) -> Void
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,

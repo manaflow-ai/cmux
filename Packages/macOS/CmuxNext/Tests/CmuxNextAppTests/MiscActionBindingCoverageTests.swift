@@ -16,17 +16,24 @@ struct MiscActionBindingCoverageTests {
         #expect(unbound.isEmpty, "unbound: \(unbound.map(\.rawValue).sorted())")
     }
 
+    /// With the tab, workspace, and misc binders merged, no catalog action
+    /// is left without a handler anywhere in the registry.
+    @Test func registryHasNoUnboundActions() {
+        let unbound = ActionBindingCoverageTests.boundServices().registry.unboundActionIDs()
+        #expect(unbound.isEmpty, "unbound: \(unbound.map(\.rawValue).sorted())")
+    }
+
     @Test func everyCloudActionIsUnavailableWithTheCloudReason() {
         let registry = ActionBindingCoverageTests.boundServices().registry
         let cloud = registry.descriptors.filter { $0.category == .cloud }.map(\.id)
         #expect(!cloud.isEmpty)
-        #expect(cloud.allSatisfy { registry.unavailableReason(for: $0) == HandlerStrings.cloud })
+        #expect(cloud.allSatisfy { registry.unavailableReason(for: $0) == MiscHandlerStrings.cloud })
     }
 
     @Test func unportedViewerReportsItsReasonOutOfContext() {
         let services = ActionBindingCoverageTests.boundServices()
         services.registry.context = []
-        #expect(ActionBindingCoverageTests.run(services, "diffViewerNextHunk") == .refused(HandlerStrings.diffViewer))
+        #expect(ActionBindingCoverageTests.run(services, "diffViewerNextHunk") == .refused(MiscHandlerStrings.diffViewer))
     }
 
     @Test func splitBrowserNeedsFrontendBrowserTabs() {
@@ -37,9 +44,9 @@ struct MiscActionBindingCoverageTests {
 
     @Test func handlersRefuseWithoutATarget() {
         let services = ActionBindingCoverageTests.boundServices()
-        #expect(ActionBindingCoverageTests.run(services, "jumpToUnread") == .refused(HandlerStrings.noUnread))
+        #expect(ActionBindingCoverageTests.run(services, "jumpToUnread") == .refused(MiscHandlerStrings.noUnread))
         services.registry.context = [.terminalFocused]
-        #expect(ActionBindingCoverageTests.run(services, "palette.forkAgentConversationNewTab") == .refused(HandlerStrings.noTerminal))
+        #expect(ActionBindingCoverageTests.run(services, "palette.forkAgentConversationNewTab") == .refused(MiscHandlerStrings.noTerminal))
     }
 
     @Test func forkCommandOnlyForClaudeWithPlainSessionIDs() {

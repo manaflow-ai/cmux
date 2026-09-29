@@ -74,6 +74,22 @@ Mechanisms:
 
 Mechanisms: event-driven only (daemon deltas, AppKit events, file watchers); display link runs only while an animation or scroll is active and stops itself; delta coalescing per frame; JSON decode off main; git/cwd/agent status computed by the daemon, not the app.
 
+## 5a. Concurrency: no hangs, no UI lag (user requirement 2026-09-29)
+
+The old app hangs and lags under CLI load. The new app must never block the main thread, and heavy CLI traffic must not drop frames.
+
+Rules (enforced by `scripts/cmux-next/check-concurrency.sh` in the merge gate, plus review):
+- The main thread never waits. Banned in CmuxNext sources: `DispatchQueue.main.sync`, `DispatchSemaphore.wait`/`DispatchGroup.wait`, `Thread.sleep`, `usleep`, blocking `FileHandle`/`read`/`write`/`connect` on the main actor, `Process.waitUntilExit` on main, `NSLock`/`os_unfair_lock` held across an `await` or across IO, synchronous XPC. Exceptions need an inline `// concurrency-allow: <reason>` reviewed comment.
+- Every cross-process call is async with a deadline: daemon requests, socket replies, git, shell env capture. A deadline miss is a typed error, never a hang. Default 2 s for control-plane requests, no deadline for streaming attach.
+- Read-only CLI queries (`identify`, `list-*`, `tree`, `action.list`, `read-screen`, status) are answered off the main actor from an immutable `ControlSnapshot` that the main actor publishes after each model settle (copy-on-write value types, published via an atomic reference). They never touch `@MainActor` state.
+- Mutating CLI requests go through one bounded `MainActorWorkQueue`: FIFO per client connection, global cap (e.g. 1024 pending; beyond that the request fails fast with `busy`). The queue drains at most ~4 ms of work per display frame, then yields to the run loop, so input and rendering always get the frame. Bursts are coalesced where the daemon supports batching.
+- The daemon is the serialization point for layout mutations. The app sends commands and applies optimistic patches; it never waits for a reply on the main actor.
+- The control socket server runs on its own queue/actors: accept, read, parse, and write off main. A slow or stuck CLI client can only block its own connection (per-connection write buffer cap, then disconnect).
+- No unbounded buffers anywhere (terminal output, socket queues, event streams): each has a cap and an overflow policy (drop-oldest for telemetry, disconnect/reattach for streams, `busy` for commands).
+- Hang instrumentation: a main-run-loop watchdog (CFRunLoopObserver + background timer thread) records any main-thread stall > 50 ms with a stack sample to a ring buffer, exposed as `debug.hangs` over the socket and logged in debug builds. Dogfood builds report the count.
+
+Verification (bench harness, section 6): a CLI storm test fires 2,000 mixed CLI requests from 32 concurrent clients (reads, creates, sends, renames, closes) while the app renders and a terminal streams output. Pass criteria: 0 main-thread stalls > 50 ms, p99 frame time < 16.7 ms, every request answered or failed fast (no request waits > deadline), app RSS back within 10% of baseline afterwards.
+
 ## 6. Verification
 
 A `cmux-next-bench` harness (scripted through the app control socket) records the metrics above into `artifacts/cmux-next-bench/<sha>.json` and compares against the old app baseline. Every dogfood build reports them. Regressions over 10% block the merge into feat-cmux-next.
