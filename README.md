@@ -455,7 +455,9 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
 
 ## Contributing
 
-For code contributions, start with the [contributor guide](CONTRIBUTING.md) and
+New here? [Start here](docs/start-here.md) is the short path from "I want to
+change something" to a merged pull request, including what you can fix without a
+Mac. Then the [contributor guide](CONTRIBUTING.md) and
 [fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
 
 Ways to get involved:
