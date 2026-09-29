@@ -13,6 +13,7 @@
 # Usage:
 #   scripts/cmux-next/bench-cli-storm.sh <tag> [--socket PATH] [--clients 32]
 #       [--requests 2000] [--stream-bytes 52428800] [--seed 1] [--out DIR]
+#       [--prewarm-tabs 16] [--measure-seconds 10]
 #       [--label NAME] [--no-fail]
 #
 # Launch the tagged app first with a clean environment, for example:
@@ -23,7 +24,7 @@
 # criterion fails (unless --no-fail).
 set -euo pipefail
 if [[ $# -lt 1 || "$1" == -* ]]; then
-  sed -n '2,23p' "$0"
+  sed -n '2,24p' "$0"
   exit 2
 fi
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"

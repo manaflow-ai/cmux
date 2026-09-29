@@ -167,7 +167,7 @@ class Storm:
         rng = random.Random(self.args.seed * 1000 + index)
         client = Client(self.profile.socket_path)
         daemon = None
-        candidates = []
+        candidates = self.closable(self.profile.topology(client))
         try:
             while self.take():
                 roll = rng.random()
@@ -214,7 +214,8 @@ class Storm:
                 started = time.monotonic()
                 try:
                     response = call()
-                    outcome = "ok" if ok(response) else (response.get("error") or {}).get("code", "error")
+                    error = response.get("error")
+                    outcome = "ok" if ok(response) else (error.get("code", "error") if isinstance(error, dict) else "daemon_error")
                     if method == "snapshot.get" and ok(response):
                         candidates = self.closable(response["result"]["topology"])
                 except (socket.timeout, TimeoutError):
@@ -285,6 +286,8 @@ def main():
     parser.add_argument("--requests", type=int, default=2000)
     parser.add_argument("--stream-bytes", type=int, default=50 * 1024 * 1024)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--prewarm-tabs", type=int, default=16)
+    parser.add_argument("--measure-seconds", type=float, default=10.0)
     parser.add_argument("--out")
     parser.add_argument("--label", default="cli-storm")
     parser.add_argument("--profile", choices=["next"], default="next")
@@ -329,6 +332,10 @@ def main():
 
     time.sleep(1.0)
     baseline_rss = rss_kb(pid)
+    # Pre-create tabs so sends, renames and closes have targets from the start.
+    for _ in range(args.prewarm_tabs):
+        profile.run_action(control, "tab new-terminal")
+    settle_tabs(profile, control, left_pane)
     result(control.call("debug.hangs", {"clear": True}))
     result(control.call("debug.queue", {"reset": True}))
     result(control.call("debug.frames", {"action": "start"}))
@@ -343,6 +350,13 @@ def main():
     for thread in threads:
         thread.join()
     storm_seconds = time.monotonic() - started
+    # The storm's effects (daemon creates, closes, UI updates) and the
+    # stream outlast the requests: keep measuring until tabs settle and at
+    # least --measure-seconds passed since the storm began.
+    settle_tabs(profile, control, left_pane)
+    while time.monotonic() - started < args.measure_seconds:
+        time.sleep(0.25)
+    measured_seconds = time.monotonic() - started
 
     frames = result(control.call("debug.frames", {"action": "stop"}))
     hangs = result(control.call("debug.hangs"))
@@ -390,7 +404,7 @@ def main():
     output = {
         "bench": "cli-storm", "label": args.label, "sha": args.sha, "tag": args.tag, "app": identity.get("app"),
         "pid": pid, "clients": args.clients, "requests": args.requests, "stream_bytes": args.stream_bytes,
-        "storm_seconds": storm_seconds, "throughput_rps": args.requests / storm_seconds if storm_seconds else 0,
+        "storm_seconds": storm_seconds, "measured_seconds": measured_seconds, "prewarm_tabs": args.prewarm_tabs, "throughput_rps": args.requests / storm_seconds if storm_seconds else 0,
         "latency": report, "frames": frames, "hangs": hangs, "hangs_after_cleanup": after_hangs, "queue": queue,
         "rss_kb": {"baseline": baseline_rss, "peak": peak_rss, "after": after_rss}, "leftover_tabs": leftover,
         "criteria": {"stalls_over_50ms": hangs.get("count", 0), "p99_frame_ms": frames.get("p99_ms"),

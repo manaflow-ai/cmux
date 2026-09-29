@@ -33,6 +33,10 @@ public final class MainThreadWatchdog: Sendable {
     public let configuration: Configuration
     public let log: HangLog
     private let thresholdNanos: UInt64
+    /// The stack is sampled this long into a stall (60% of the threshold),
+    /// so a stall that ends just past the threshold still has one; the
+    /// sample is dropped when the stall ends below the threshold.
+    private let sampleAfterNanos: UInt64
     // Heartbeat, written by the main-thread observer.
     private let beatNanos = Atomic<UInt64>(0)
     private let beatSequence = Atomic<UInt64>(0)
@@ -50,6 +54,7 @@ public final class MainThreadWatchdog: Sendable {
         self.configuration = configuration
         self.log = HangLog(capacity: configuration.capacity)
         self.thresholdNanos = UInt64(max(configuration.threshold.wholeMilliseconds, 1)) * 1_000_000
+        self.sampleAfterNanos = thresholdNanos * 3 / 5
     }
 
     public var isRunning: Bool { running.load(ordering: .relaxed) }
@@ -131,14 +136,14 @@ public final class MainThreadWatchdog: Sendable {
                 continue
             }
             let beat = beatSequence.load(ordering: .acquiring)
-            let due = beatNanos.load(ordering: .acquiring) &+ thresholdNanos
+            let due = beatNanos.load(ordering: .acquiring) &+ (beat == sampledBeat ? thresholdNanos : sampleAfterNanos)
             let now = Self.now()
             if now < due {
                 // concurrency-allow: dedicated watchdog thread; bounded wait until the next heartbeat check.
                 _ = wake.wait(timeout: .now() + .nanoseconds(Int(due - now)))
                 continue
             }
-            // The heartbeat is at least one threshold old: the main thread is stalled.
+            // The heartbeat is old enough that the main thread may be stalling.
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
                 if let sampler {

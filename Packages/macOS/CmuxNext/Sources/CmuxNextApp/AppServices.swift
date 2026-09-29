@@ -19,6 +19,7 @@ final class AppServices {
     private(set) var dragSession: TabDragSession!
     private(set) var palette: PaletteController!
     private(set) var previews: TabPreviewSource!
+    let presentation = ContentPresentationScheduler()
     private let terminalDelegate = TerminalHostDelegate()
 
     init(environment: AppEnvironment) {
