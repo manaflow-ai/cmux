@@ -3472,7 +3472,7 @@
       "data3": "ペアリングとデバイスのメタデータ。スマートフォンとMacを接続するため。",
       "dataNot": "インタラクティブなターミナルセッション（その内容とキー入力）は、あなた自身のネットワークを通じてスマートフォンとMacの間を直接流れ、cmuxサーバーを経由したり保存されたりすることはありません。唯一の例外は転送される通知テキストで、これはスマートフォンに届くためにcmuxとAppleのプッシュサービスを経由します（「コンテンツを隠す」を有効にしている場合を除く。上記の「通知」を参照）。",
       "enterpriseTitle": "エンタープライズとセルフホスト",
-      "enterpriseDesc": "セルフホストまたはエアギャップ環境での導入については、<link>founders@manaflow.com</link>までご連絡ください。"
+      "enterpriseDesc": "セルフホストまたはエアギャップ環境での導入については、<link>founders@cmux.com</link>までご連絡ください。"
     },
     "vault": {
       "title": "Vault",
@@ -5807,8 +5807,8 @@
       "privacy": "この情報は Enterprise のご相談への返信と、適切な創業者への共有に使用します。連絡先情報を販売することはありません。",
       "submit": "送信",
       "submitting": "送信中...",
-      "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
-      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+      "success": "ありがとうございます。リクエストを受け付けました。founders@cmux.com から返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@cmux.com にメールしてください。"
     }
   },
   "support": {
@@ -5831,7 +5831,7 @@
         "description": "バグ報告や機能リクエストを公開の場で送れます。"
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "メールでの問い合わせはこちらに直接どうぞ。"
       }
     },
@@ -5853,8 +5853,8 @@
       "privacy": "メールアドレスはサポートへの返信のみに使用します。連絡先情報を販売することはありません。",
       "submit": "送信",
       "submitting": "送信中...",
-      "success": "ありがとうございます。メッセージを受け付けました。founders@manaflow.com からメールで返信します。",
-      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+      "success": "ありがとうございます。メッセージを受け付けました。founders@cmux.com からメールで返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@cmux.com にメールしてください。"
     }
   },
   "emails": {
