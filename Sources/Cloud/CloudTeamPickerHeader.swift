@@ -4,7 +4,8 @@ import CmuxFoundation
 import SwiftUI
 
 /// Team scope and machine actions share the Cloud header. Fleet status keeps its
-/// own row so it cannot squeeze the active team's name out of a narrow sidebar.
+/// own row so it cannot squeeze the active team's name out of a narrow sidebar;
+/// the status view owns that row, so an idle fleet adds no gap under the toolbar.
 struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
     let accountFlow: HostAccountFlow?
     let presentation: CloudTeamPickerPresentation?
@@ -46,12 +47,7 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
             if let teamChangeError = picker.teamChangeError {
                 teamChangeErrorRow(teamChangeError) { picker.teamChangeError = nil }
             }
-            HStack(spacing: 6) {
-                status()
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            status()
         }
         .onDisappear { picker.isPresented = false }
     }
