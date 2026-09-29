@@ -398,7 +398,7 @@ final class FeedSidebarUITests: XCTestCase {
         let dockButton = app.buttons["RightSidebarModeButton.dock"].firstMatch
         let dockPanel = app.descendants(matching: .any)["DockPanel"].firstMatch
         return pollUntil(timeout: timeout, interval: 0.2) {
-            dockButton.exists && dockButton.isHittable && dockPanel.exists
+            dockButton.exists && dockButton.isHittable && dockButton.isSelected && dockPanel.exists
         }
     }
 

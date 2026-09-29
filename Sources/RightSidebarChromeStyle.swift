@@ -407,6 +407,7 @@ struct ModeBarButton: View {
         .onHover { isHovered = $0 }
         .help(helpText)
         .accessibilityIdentifier("RightSidebarModeButton.\(item.id)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
 

@@ -90,6 +90,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         let dockButton = app.buttons["RightSidebarModeButton.dock"]
         XCTAssertTrue(dockButton.waitForExistence(timeout: 5))
         dockButton.click()
+        XCTAssertTrue(dockButton.isSelected, "Expected Dock mode to be selected after clicking its mode button")
 
         let dockPanel = app.descendants(matching: .any)["DockPanel"].firstMatch
         XCTAssertTrue(dockPanel.waitForExistence(timeout: 5), "Expected Dock panel to render after selecting Dock mode")
