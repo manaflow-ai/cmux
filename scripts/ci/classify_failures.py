@@ -9,7 +9,8 @@ Each failed job gets a verdict from SIGNATURES, one table of log patterns:
 
   machine   the runner or its products failed: a runner hook refused the job,
             the compiled products did not restore, the CLI loaded package
-            frameworks from another build, the runner went away. The job's
+            frameworks from another build, the runner went away, the runner
+            lacks the Xcode the job pins. The job's
             test failures, if any, are not evidence about the code.
   code      a test recorded an issue, a compile or guard failed, and no
             machine signature matched.
@@ -106,6 +107,13 @@ SIGNATURES = (
         r"|The hosted runner encountered an error",
         "the runner went away mid-job"),
     sig("disk-full", MACHINE, r"No space left on device", "the runner's disk is full"),
+    # scripts/select-ci-xcode.sh on a Mac without the Xcode the job pins. The
+    # marker is today's text; the anchored messages are what a pull request
+    # branched before it prints (the classifier runs main's copy on any head).
+    sig("xcode-pin-missing", MACHINE,
+        r"\[cmux-ci machine: xcode-pin-missing\]|^Pinned Xcode developer dir (?:does not exist|has no usable macOS SDK): "
+        r"|^This macOS \d+ runner has no Xcode \S+, the version scripts/ci/xcode-pins\.txt pins",
+        "the runner does not have the Xcode this job pins (install it: scripts/ci/xcode_pin_audit.py)"),
     sig("swift-testing-issue", CODE, r"^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)", "a test failed"),
     sig("xctest-failure", CODE, r"\.swift:\d+: error: -\[", "a test failed"),
     sig("ratchet-new-failure", CODE, r"^RATCHET_NEW_FAILURE ", "a test failed that passes on main"),
