@@ -141,3 +141,10 @@ public nonisolated enum ColumnStripGeometry {
         frames.indices.min { abs(frames[$0].minX - gap - offset) < abs(frames[$1].minX - gap - offset) }
     }
 }
+
+/// A one-shot request to scroll the column holding `pane` to the viewport
+/// center (`LayoutModel.centerColumn(containing:)`).
+public nonisolated struct ColumnCenterRequest: Hashable, Sendable {
+    public var pane: PaneID
+    public var sequence: UInt64
+}

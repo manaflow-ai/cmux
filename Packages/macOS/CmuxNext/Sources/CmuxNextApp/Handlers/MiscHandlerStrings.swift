@@ -33,6 +33,9 @@ enum MiscHandlerStrings {
     static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
     static var forkClaudeOnly: String { String(localized: "handlers.misc.failed.forkClaudeOnly", defaultValue: "Forking is supported for Claude sessions only.", table: "MiscHandlers", bundle: .module) }
     static var noFile: String { String(localized: "handlers.misc.failed.noFile", defaultValue: "No file is focused.", table: "MiscHandlers", bundle: .module) }
+    static func invalidURL(_ text: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.invalidURL", defaultValue: "%@ is not a URL cmux can open.", table: "MiscHandlers", bundle: .module), text)
+    }
     static func appNotFound(_ app: String) -> String {
         String(format: String(localized: "handlers.misc.failed.appNotFound", defaultValue: "No app named %@ was found.", table: "MiscHandlers", bundle: .module), app)
     }

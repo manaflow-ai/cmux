@@ -63,11 +63,22 @@ enum BrowserHandlers {
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
             registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
-                let handle = try context.pane(invocation).pane.handle
-                _ = try context.requireConnection()
-                context.daemon.send("split-browser") { connection in
-                    let created = try await connection.newFrontendBrowserTab(url: "about:blank", engine: .webkit, in: handle)
-                    try await connection.split(handle, direction: direction, movingTab: created.surface)
+                let pane = try context.pane(invocation)
+                let handle = pane.pane.handle
+                let connection = try context.requireConnection()
+                let browserTabs = context.services.cache.browserTabs!
+                let engine = browserTabs.engine(requested: nil)
+                Task {
+                    do {
+                        let surface = try await browserTabs.create(handle, "about:blank", engine)
+                        try await connection.split(handle, direction: direction, movingTab: surface)
+                        // The new pane takes focus and its address bar the keyboard.
+                        pane.workspace?.pendingFocusSurface = surface
+                        pane.workspace?.pendingAddressBarFocus = surface
+                        pane.workspace?.applyCurrent()
+                    } catch {
+                        context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
+                    }
                 }
             })
         }

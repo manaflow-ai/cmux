@@ -81,20 +81,20 @@ final class ClosedTabTracker {
         let panes = services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
         let paneModel = panes.first { $0.id == record.paneID } ?? fallback?.pane
         guard let paneModel else {
-            services.registry.refuse("the closed tab's pane is gone and no pane is focused")
+            services.registry.refuse(RefusalStrings.closedTabPaneGone)
             return
         }
         let controller = services.paneController(for: paneModel)
         switch record.kind {
         case .browser:
             guard let controller else {
-                services.registry.refuse("browser tabs reopen only in a pane shown in a window")
+                services.registry.refuse(RefusalStrings.browserReopenNeedsWindow)
                 return
             }
             controller.newBrowserTab(url: record.url.flatMap(URL.init(string:)))
         case .terminal:
             guard let connection = services.daemon.connection else {
-                services.registry.refuse("cmux-tui daemon is not connected")
+                services.registry.refuse(MiscHandlerStrings.daemonOffline)
                 return
             }
             let handle = paneModel.handle, cwd = record.cwd, index = record.index

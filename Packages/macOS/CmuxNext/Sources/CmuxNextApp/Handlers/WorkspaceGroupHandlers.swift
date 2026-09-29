@@ -24,7 +24,7 @@ enum WorkspaceGroupHandlers {
         })
         registry.bind("moveWorkspaceToGroup", requires: DaemonCapabilities.workspaceGroups, daemon: context.services.daemon, run: { invocation in
             try context.require(DaemonCapabilities.workspaceGroups)
-            guard invocation["group"]?.targetValue != nil else { throw ActionFailure.invalidTarget("group is required") }
+            guard invocation["group"]?.targetValue != nil else { throw ActionFailure.invalidTarget(RefusalStrings.groupRequired) }
             let group = try context.group(ActionInvocation(arguments: invocation.arguments))
             let workspace = try context.workspace(invocation).model
             try context.sidebar().handle(.move([SidebarWorkspaceID(workspace.id)], toGroup: sidebarID(group)))
@@ -43,7 +43,7 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.expand", requires: DaemonCapabilities.workspaceGroups, daemon: context.services.daemon, run: { invocation in try setCollapsed(false, invocation, context) })
         registry.bind("workspaceGroup.setColor", requires: DaemonCapabilities.workspaceGroups, daemon: context.services.daemon, run: { invocation in
             guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
-                throw ActionFailure.invalidTarget("color must be one of \(GroupColor.allCases.map(\.rawValue).joined(separator: ", "))")
+                throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf(GroupColor.allCases.map(\.rawValue).joined(separator: ", ")))
             }
             try edit(invocation, context) { .setGroupColor($0, color) }
         })

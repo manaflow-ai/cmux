@@ -7,6 +7,33 @@ import QuartzCore
 final class ActivityIndicatorView: NSView {
     private let shape = CAShapeLayer()
     private(set) var activity: AgentActivity = .idle
+    /// Whether the window is on screen and not fully covered. The list sets
+    /// this from the window's occlusion state; a hidden window runs no
+    /// animation, so an occluded sidebar costs no frames.
+    var isWindowVisible = true {
+        didSet { if isWindowVisible != oldValue { updateAnimations() } }
+    }
+
+    /// The looping animation an indicator runs, if any.
+    enum Animation: Equatable { case spin, pulse }
+
+    /// Pure decision: which animation runs for `activity`. None while not in
+    /// a window, while the window is occluded, or under Reduce Motion.
+    static func animation(for activity: AgentActivity, inWindow: Bool, windowVisible: Bool, reduceMotion: Bool) -> Animation? {
+        guard inWindow, windowVisible, !reduceMotion else { return nil }
+        switch activity {
+        case .running: return .spin
+        case .needsInput: return .pulse
+        case .error, .idle: return nil
+        }
+    }
+
+    /// The animation currently attached to the layer (tests, diagnostics).
+    var runningAnimation: Animation? {
+        if shape.animation(forKey: "spin") != nil { return .spin }
+        if shape.animation(forKey: "pulse") != nil { return .pulse }
+        return nil
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -68,21 +95,23 @@ final class ActivityIndicatorView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let window { isWindowVisible = window.occlusionState.contains(.visible) }
         updateAnimations()
     }
 
     private func updateAnimations() {
+        let wanted = Self.animation(for: activity, inWindow: window != nil, windowVisible: isWindowVisible, reduceMotion: Motion.reduceMotion)
+        guard wanted != runningAnimation else { return }
         shape.removeAllAnimations()
-        guard window != nil, !Motion.reduceMotion else { return }
-        switch activity {
-        case .running:
+        switch wanted {
+        case .spin?:
             let spin = CABasicAnimation(keyPath: "transform.rotation.z")
             spin.fromValue = 0
             spin.toValue = -2 * Double.pi
             spin.duration = 0.9
             spin.repeatCount = .infinity
             shape.add(spin, forKey: "spin")
-        case .needsInput:
+        case .pulse?:
             let pulse = CABasicAnimation(keyPath: "opacity")
             pulse.fromValue = 1
             pulse.toValue = 0.35
@@ -91,7 +120,7 @@ final class ActivityIndicatorView: NSView {
             pulse.repeatCount = .infinity
             pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             shape.add(pulse, forKey: "pulse")
-        case .error, .idle:
+        case nil:
             break
         }
     }

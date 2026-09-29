@@ -14,6 +14,8 @@ final class WindowManager {
     private var saveTask: Task<Void, Never>?
     private var loadObservation: Task<Void, Never>?
     private var restored = false
+    /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
+    private var placedWindows = 0
     private(set) var isTerminating = false
     var onFirstWindow: ((WindowController) -> Void)?
 
@@ -66,11 +68,20 @@ final class WindowManager {
         let state = WindowState(id: record?.id ?? UUID().uuidString.lowercased(),
                                 workspaceID: workspaceID ?? record?.workspaceKey?.rawValue)
         for (pane, tab) in record?.selectedTabs ?? [:] { state.selection.select(tab, in: pane) }
-        let frame = record?.frame.map { NSRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+        var frame = record?.frame.map { NSRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+        let placement = services.environment.testWindow
+        if let placement, let placed = placement.windowFrame(ordinal: placedWindows, visibleFrames: NSScreen.screens.map(\.visibleFrame)) {
+            frame = placed
+            placedWindows += 1
+        }
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: record?.sidebarWidth, collapsed: record?.sidebarCollapsed ?? false)
         controllers.append(controller)
-        if services.environment.noActivate {
+        if placement != nil, services.environment.noActivate {
+            // Agent screenshot launch: in front on its own screen, still not
+            // key and the app not activated.
+            controller.window?.orderFrontRegardless()
+        } else if services.environment.noActivate {
             // Behind every other window, not key, app not activated.
             controller.window?.orderBack(nil)
         } else {
@@ -93,9 +104,12 @@ final class WindowManager {
     func createWorkspace(cwd: String? = nil) async -> String? {
         guard let connection = services.daemon.connection else { return nil }
         do {
-            let result = try await connection.createWorkspace()
-            _ = try await connection.createTerminal(in: result.key, cwd: cwd ?? NSHomeDirectory())
-            return result.key.rawValue
+            let key = WorkspaceKey.generate()
+            return try await services.emptyWorkspaces.populating(key) {
+                let result = try await connection.createWorkspace(key: key)
+                _ = try await connection.createTerminal(in: result.key, cwd: cwd ?? NSHomeDirectory())
+                return result.key.rawValue
+            }
         } catch {
             services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil

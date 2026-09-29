@@ -1403,6 +1403,53 @@ if [[ -n "$TAG" ]]; then
   fi
 fi
 
+# feat-cmux-next: the cmux scheme builds cmux-next.app, whose "Bundle cmux-tui"
+# phase (scripts/cmux-next/bundle-cmux-tui.sh) bundles the hosted cmux-tui
+# pinned in scripts/cmux-next/cmux-tui.pin. No published release client exists
+# for these commits, so the legacy resolver and installer below are skipped:
+# the pinned binary is fetched (public URL, sha256-verified, no GitHub
+# credentials) before the build and checked in the bundle after it.
+# CMUX_NEXT_TUI_BIN=<path> bundles a local build instead. A checkout whose cmux
+# scheme builds the legacy cmux.app keeps the legacy path unchanged.
+CMUX_NEXT_BUILD=0
+if [[ -f "$PWD/scripts/cmux-next/cmux-tui.pin" ]] \
+    && grep -q 'BuildableName="cmux-next.app"' "$PWD/cmux.xcodeproj/xcshareddata/xcschemes/cmux.xcscheme" 2>/dev/null; then
+  CMUX_NEXT_BUILD=1
+fi
+if [[ "$CMUX_NEXT_BUILD" == "1" ]]; then
+  # cmux-next reads no web API origin, so a local reload provisions no shared
+  # GCP backend stack. An explicit mode or CMUX_DEV_BACKEND_URL (the fleet's
+  # cmux-ci passes one) still wins.
+  if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
+    export CMUX_DEV_BACKEND_MODE=local
+  fi
+  # The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
+  # free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
+  # sized for the legacy app and many agents at once. A cold cmux-next tagged
+  # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
+  # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
+  # own floor, CMUX_NEXT_MIN_FREE_GIB (default 40 GiB, about 4x that peak), and
+  # lift the guard's floor only for this build. The legacy floor is unchanged.
+  cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-40}"
+  [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
+    || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
+  cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
+  if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
+    echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
+    echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
+    exit 1
+  fi
+  if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
+    echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
+    export CMUX_ALLOW_LOW_SPACE_BUILD=1
+  fi
+  if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
+    echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
+  else
+    "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
+  fi
+fi
+
 # Resolve the published cmux-tui client before the dev backend, GhosttyKit and
 # xcodebuild, so a checkout without one fails in seconds rather than after a full
 # build. The install step after the build reuses this commit. The same overrides
@@ -1412,7 +1459,8 @@ fi
 # resolver's progress lines go to the reload log; they print here only on failure.
 CMUX_TUI_CLIENT_COMMIT=""
 CMUX_TUI_CLIENT_RESOLVE_LOG=""
-if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" != "1" \
+if [[ "$CMUX_NEXT_BUILD" != "1" \
+      && "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" != "1" \
       && -z "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
       && -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" \
       && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
@@ -2054,7 +2102,20 @@ fi
 # bundle like the Ghostty helper. Resolve its published inputs from this source
 # history unless CMUX_TUI_CLIENT_MANIFEST_URL / CMUX_TUI_CLIENT_LOCAL overrides it.
 # CMUX_SKIP_CMUX_TUI_CLIENT=1 preserves an existing copy for offline reloads.
-if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
+if [[ "$CMUX_NEXT_BUILD" == "1" ]]; then
+  # The Bundle cmux-tui phase already placed it; refuse a release fallback.
+  cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
+  cmux_next_tui_source="$(awk -F= '$1=="source"{print $2}' "$cmux_next_tui_version" 2>/dev/null || true)"
+  case "$cmux_next_tui_source" in
+    pinned-hosted|override)
+      echo "Bundled cmux-tui: $(tr '\n' ' ' < "$cmux_next_tui_version")"
+      ;;
+    *)
+      echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the pinned hosted build; see $cmux_next_tui_version" >&2
+      exit 1
+      ;;
+  esac
+elif [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
   echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
 else
   # Local Debug builds run on this Mac; fetch only its client slice. The
