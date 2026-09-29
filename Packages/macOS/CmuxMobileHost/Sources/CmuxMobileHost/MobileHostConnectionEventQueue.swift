@@ -97,7 +97,7 @@ public struct MobileHostEventEnqueueResult: Sendable {
     )
 }
 
-private struct MobileHostEventShedSummary: Sendable {
+struct MobileHostEventShedSummary: Sendable {
     var eventCount = 0
     var byteCount = 0
     var simulatorFramePanelIDs: Set<String> = []

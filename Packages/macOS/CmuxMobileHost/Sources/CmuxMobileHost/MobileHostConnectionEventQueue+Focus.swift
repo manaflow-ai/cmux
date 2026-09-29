@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 extension MobileHostConnectionEventQueue {
     /// One key per terminal: focus signals and render-grid events can differ
