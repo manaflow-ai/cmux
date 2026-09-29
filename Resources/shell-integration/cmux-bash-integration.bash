@@ -72,16 +72,13 @@ _cmux_send_bg() {
 _cmux_start_tracked_bg() {
     local __pid_var="$1"
     shift
-    local __pid_file="${TMPDIR:-/tmp}/cmux-bg-pid-$$-${RANDOM:-0}"
     local __pid=""
-    (
+    # The job's stdout goes to /dev/null, so the substitution returns as soon
+    # as the subshell prints the pid, without a scratch file.
+    __pid="$(
         "$@" >/dev/null 2>&1 &
-        printf '%s\n' "$!" >| "$__pid_file"
-    )
-    if [[ -r "$__pid_file" ]]; then
-        IFS= read -r __pid < "$__pid_file" || __pid=""
-        /bin/rm -f -- "$__pid_file" >/dev/null 2>&1 || true
-    fi
+        printf '%s' "$!"
+    )"
     printf -v "$__pid_var" '%s' "$__pid"
 }
 
@@ -330,14 +327,118 @@ _cmux_path_prepend_unique_directory() {
     _cmux_path_prepend_unique_directory_into_reply "$@"
     printf '%s' "$REPLY"
 }
+# Succeeds when every directory, checked in order, is an absolute path to a
+# real directory (not a symlink) owned by this user that no one else can write
+# to, with a safe ancestry. Sticky shared ancestors (such as /tmp) are safe;
+# a non-sticky writable ancestor can rename a checked child after this check.
+_cmux_private_dirs() {
+    local create="$1"
+    shift
+    (( $# )) || return 1
+    local dir
+    for dir in "$@"; do
+        [[ "$dir" == /* ]] || return 1
+        # A directory mkdir just created is ours and already 0700.
+        if [[ "$create" == 1 && ! -e "$dir" && ! -L "$dir" ]] \
+            && ! /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1; then
+            return 1
+        fi
+        [[ -d "$dir" && ! -L "$dir" && -O "$dir" ]] || return 1
+        # Bash can't read mode bits; find's -type d uses lstat here.
+        [[ "$(/usr/bin/find "$dir" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)" == "$dir" ]] || return 1
+        _cmux_private_path_chain "$dir" || return 1
+    done
+}
+
+_cmux_private_path_chain() {
+    local start="$1"
+    local current="$start"
+    local canonical=""
+    while true; do
+        _cmux_private_path_node "$current" || return 1
+        [[ "$current" == "/" ]] && break
+        current="${current%/*}"
+        [[ -n "$current" ]] || current="/"
+    done
+    canonical="$(_cmux_resolve_path "$start")" || return 1
+    [[ "$canonical" == "$start" ]] || _cmux_private_path_chain_resolved "$canonical"
+}
+
+_cmux_private_path_chain_resolved() {
+    local current="$1"
+    while true; do
+        _cmux_private_path_node "$current" || return 1
+        [[ "$current" == "/" ]] && return 0
+        current="${current%/*}"
+        [[ -n "$current" ]] || current="/"
+    done
+}
+
+_cmux_private_path_node() {
+    local current="$1"
+    local owner=""
+    if [[ -d "$current" && ! -L "$current" ]]; then
+        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
+        [[ "$owner" == "$current" ]] || return 1
+        if [[ "$(/usr/bin/find -P "$current" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)" == "$current" ]]; then
+            return 0
+        fi
+        [[ "$(/usr/bin/find -P "$current" -prune -type d -perm -1000 -print 2>/dev/null)" == "$current" ]] || return 1
+        return 0
+    fi
+    if [[ -L "$current" ]]; then
+        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
+        [[ "$owner" == "$current" ]]
+        return $?
+    fi
+    return 1
+}
+
+_cmux_resolve_path() {
+    if [[ -x /usr/bin/realpath ]]; then
+        /usr/bin/realpath -- "$1"
+    elif [[ -x /bin/realpath ]]; then
+        /bin/realpath -- "$1"
+    elif [[ -x /usr/bin/readlink ]]; then
+        /usr/bin/readlink -f -- "$1"
+    else
+        return 1
+    fi
+}
+_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
 _cmux_install_cli_command_shim() {
     local command_name="$1"
     local wrapper_path="$2"
     local surface_component="${CMUX_SURFACE_ID:-$$}"
     local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    shim_root="${shim_root%/}"
     local shim_parent="${shim_root%/*}"
-    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]]; then
-        shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+    local tmp_root="${TMPDIR:-/tmp}"
+    local legacy_shim_root="${tmp_root%/}/cmux-cli-shims/$surface_component"
+    local shim_state="${HOME:-}/.cmuxterm"
+    local rejected_root=""
+    local REPLY
+    # An inherited root is reused only while it is still private. Otherwise
+    # the shell makes its own, and skips the shim if it can't.
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" || "$shim_root" == "$legacy_shim_root" ]] \
+        || ! _cmux_private_dirs 0 "$shim_parent" "$shim_root"; then
+        # Keep a shim root this shell did not accept off PATH.
+        [[ "${shim_parent##*/}" == "cmux-cli-shims" ]] && rejected_root="$shim_root"
+        shim_parent="$shim_state/cmux-cli-shims"
+        shim_root="$shim_parent/$surface_component"
+        if [[ "${HOME:-}" != /* ]] || ! _cmux_private_dirs 1 "$shim_state" "$shim_parent" "$shim_root"; then
+            if [[ "$command_name" == "claude" ]]; then
+                unset CMUX_CLAUDE_WRAPPER_SHIM CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+                _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
+            fi
+            if [[ -n "$rejected_root" ]]; then
+                _cmux_path_prepend_unique_directory_into_reply "$rejected_root" "${PATH-}"
+                REPLY="${REPLY#"$rejected_root"}"
+                PATH="${REPLY#:}"
+                hash -r >/dev/null 2>&1 || true
+            fi
+            return 0
+        fi
     fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
@@ -367,8 +468,8 @@ _cmux_install_cli_command_shim() {
             printf '%s\n' '        fi'
             printf '%s\n' '    fi'
             printf '%s\n' 'fi'
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM=%q\n' "$shim_path"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=%q\n' "$shim_root"
             printf '%s\n' 'if [[ -x "$cmux_wrapper" ]]; then'
             printf '%s\n' '    exec "$cmux_wrapper" "$@"'
             printf '%s\n' 'fi'
@@ -402,15 +503,16 @@ _cmux_install_cli_command_shim() {
     if [[ "$command_name" == "claude" ]]; then
         export CMUX_CLAUDE_WRAPPER_SHIM="$shim_path"
         export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="$shim_root"
+        _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED="$shim_path"
     fi
 
-    local REPLY
-    _cmux_path_prepend_unique_directory_into_reply "$shim_root" "${PATH-}"
+    _cmux_path_prepend_unique_directory_into_reply "$shim_root" "${PATH-}" "$rejected_root"
     PATH="$REPLY"
     hash -r >/dev/null 2>&1 || true
 }
 _cmux_claude_wrapper_command() {
-    if [[ -x "${CMUX_CLAUDE_WRAPPER_SHIM:-}" ]]; then
+    # Only run a shim this shell wrote into a directory it checked.
+    if [[ -n "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" && "${CMUX_CLAUDE_WRAPPER_SHIM:-}" == "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" && -x "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" ]]; then
         "$CMUX_CLAUDE_WRAPPER_SHIM" "$@"
     elif [[ -x "${_CMUX_CLAUDE_WRAPPER:-}" ]]; then
         "$_CMUX_CLAUDE_WRAPPER" "$@"
@@ -472,8 +574,17 @@ _CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-}"
 _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
 _CMUX_LAST_PR_ACTION="${_CMUX_LAST_PR_ACTION:-}"
 _CMUX_LAST_PR_TARGET="${_CMUX_LAST_PR_TARGET:-}"
-_CMUX_PR_ACTION_HINT_FILE="${_CMUX_PR_ACTION_HINT_FILE:-${TMPDIR:-/tmp}/cmux-pr-action-$$}"
-_CMUX_BASH_HISTORY_LAST_FILE="${_CMUX_BASH_HISTORY_LAST_FILE:-${TMPDIR:-/tmp}/cmux-history-last-$$}"
+# The PR-hint and history files outlive the subshells that write them, so they
+# live in a private per-user directory. Without one they are not used.
+_CMUX_BASH_STATE_DIR="${TMPDIR:-/tmp}"
+_CMUX_BASH_STATE_DIR="${_CMUX_BASH_STATE_DIR%/}/cmux-bash-$EUID"
+_cmux_private_dirs 1 "$_CMUX_BASH_STATE_DIR" || _CMUX_BASH_STATE_DIR=""
+_CMUX_PR_ACTION_HINT_FILE=""
+_CMUX_BASH_HISTORY_LAST_FILE=""
+if [[ -n "$_CMUX_BASH_STATE_DIR" ]]; then
+    _CMUX_PR_ACTION_HINT_FILE="$_CMUX_BASH_STATE_DIR/pr-action-$$"
+    _CMUX_BASH_HISTORY_LAST_FILE="$_CMUX_BASH_STATE_DIR/history-last-$$"
+fi
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
@@ -1079,7 +1190,8 @@ _cmux_preexec_command() {
 
 _cmux_bash_history_command() {
     local HISTTIMEFORMAT=
-    local history_file="${TMPDIR:-/tmp}/cmux-history-$$-${RANDOM:-0}"
+    [[ -n "${_CMUX_BASH_STATE_DIR:-}" ]] || return 1
+    local history_file="$_CMUX_BASH_STATE_DIR/history-$$-${RANDOM:-0}"
     local line="" history_number="" last_number=""
     builtin history 1 >| "$history_file" 2>/dev/null || {
         /bin/rm -f -- "$history_file" >/dev/null 2>&1 || true

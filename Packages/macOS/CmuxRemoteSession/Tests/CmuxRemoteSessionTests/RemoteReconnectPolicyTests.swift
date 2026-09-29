@@ -245,7 +245,7 @@ struct RemoteReconnectPolicyTests {
             coordinator.queue.sync {}
             provider.tunnel.stop()
         }
-        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424, credential: .random())
 
         coordinator.queue.sync {
             coordinator.proxyLeaseGeneration = 2
