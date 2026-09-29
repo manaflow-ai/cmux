@@ -1,0 +1,51 @@
+public import CmuxNextLayout
+
+/// Keyboard pane resizing and column navigation over one screen's layout.
+/// Resizing moves the divider nearest the pane in the arrow's direction,
+/// like tmux `resize-pane -L/-R/-U/-D`; in columns mode a left or right
+/// resize with no horizontal split in the column changes the column width.
+public nonisolated enum PaneResize {
+    public enum Change: Equatable, Sendable {
+        case splitRatio(LayoutSplitID, Double)
+        case columnWidth(LayoutColumnID, Double)
+    }
+
+    /// Default keyboard step: 5% of the split or of the viewport width.
+    public static let step = 0.05
+
+    public static func change(for pane: LayoutPaneID, direction: LayoutDirection, in layout: ScreenLayout,
+                              step: Double = PaneResize.step) -> Change? {
+        let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
+        let delta = direction == .left || direction == .up ? -step : step
+        let tree: SplitNode?
+        switch layout {
+        case .splits(let root): tree = root
+        case .columns: tree = layout.column(containing: pane)?.root
+        }
+        if let tree, let (split, ratio) = nearestSplit(containing: pane, axis: axis, in: tree) {
+            let clamped = min(max(ratio + delta, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
+            return clamped == ratio ? nil : .splitRatio(split, clamped)
+        }
+        guard axis == .horizontal, let column = layout.column(containing: pane) else { return nil }
+        let range = ColumnWidthPreset.widthRange
+        let width = min(max(column.width + delta, range.lowerBound), range.upperBound)
+        return width == column.width ? nil : .columnWidth(column.id, width)
+    }
+
+    /// The column before (`forward == false`) or after the pane's column.
+    public static func adjacentColumn(of pane: LayoutPaneID, forward: Bool, in layout: ScreenLayout) -> LayoutColumn? {
+        let columns = layout.columns
+        guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return nil }
+        let next = index + (forward ? 1 : -1)
+        return columns.indices.contains(next) ? columns[next] : nil
+    }
+
+    /// Deepest split along `axis` that has `pane` in one of its children.
+    static func nearestSplit(containing pane: LayoutPaneID, axis: SplitAxis, in node: SplitNode) -> (LayoutSplitID, Double)? {
+        guard case let .split(id, nodeAxis, ratio, a, b) = node else { return nil }
+        let child = a.contains(pane) ? a : b.contains(pane) ? b : nil
+        guard let child else { return nil }
+        if let deeper = nearestSplit(containing: pane, axis: axis, in: child) { return deeper }
+        return nodeAxis == axis ? (id, ratio) : nil
+    }
+}

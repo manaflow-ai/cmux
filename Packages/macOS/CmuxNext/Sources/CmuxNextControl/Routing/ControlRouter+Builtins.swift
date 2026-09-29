@@ -105,7 +105,7 @@ extension ControlRouter {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
         let request = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds)
-        guard catalog.isAvailable(action) else {
+        guard catalog.isAvailable(action) || action.unavailableReason != nil else {
             throw ControlError(code: "unavailable", message: "\(action.id) is not available in the current context", data: [
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
             ])

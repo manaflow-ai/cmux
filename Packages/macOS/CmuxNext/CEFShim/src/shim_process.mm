@@ -144,30 +144,11 @@ static void BindForkApi(const char* framework_binary) {
 #undef CMUX_BIND
 }
 
-// MARK: - NSApp adoption
+// MARK: - NSApp check
 
 // Chromium requires NSApp to implement CefAppProtocol before CefInitialize.
-// cmux creates a plain NSApplication at launch (CEF is lazy), so the shim adds
-// the protocol and its two methods to NSApp's class and wraps -sendEvent: to
-// maintain the flag. It does not change NSApp's isa: AppKit already observes
-// NSApp with KVO, whose private subclass must stay in place.
-static BOOL g_handling_send_event = NO;
-static IMP g_original_send_event = nullptr;
-
-static BOOL IsHandlingSendEvent(id, SEL) {
-  return g_handling_send_event;
-}
-
-static void SetHandlingSendEvent(id, SEL, BOOL value) {
-  g_handling_send_event = value;
-}
-
-static void SendEvent(id self, SEL cmd, NSEvent* event) {
-  BOOL previous = g_handling_send_event;
-  g_handling_send_event = YES;
-  reinterpret_cast<void (*)(id, SEL, NSEvent*)>(g_original_send_event)(self, cmd, event);
-  g_handling_send_event = previous;
-}
+// The app's NSApplication subclass (CmuxApplication) conforms statically and
+// maintains the sendEvent flag itself; the shim only checks.
 
 }  // namespace cmux_shim
 
@@ -203,24 +184,13 @@ int cmux_shim_fork_api_version(void) {
   return fork_api().version;
 }
 
-void cmux_shim_prepare_application(void) {
+int cmux_shim_prepare_application(void) {
   NSApplication* app = [NSApplication sharedApplication];
-  if ([app conformsToProtocol:@protocol(CefAppProtocol)]) {
-    return;
-  }
-  // [app class] hides the KVO subclass; patch the real class.
-  Class cls = [app class];
-  class_addMethod(cls, @selector(isHandlingSendEvent), (IMP)IsHandlingSendEvent, "c@:");
-  class_addMethod(cls, @selector(setHandlingSendEvent:), (IMP)SetHandlingSendEvent, "v@:c");
-  Method send = class_getInstanceMethod(cls, @selector(sendEvent:));
-  g_original_send_event = method_getImplementation(send);
-  // Adds an override when the method is inherited, replaces it otherwise.
-  if (!class_addMethod(cls, @selector(sendEvent:), (IMP)SendEvent, method_getTypeEncoding(send))) {
-    method_setImplementation(send, (IMP)SendEvent);
-  }
-  class_addProtocol(cls, @protocol(CrAppProtocol));
-  class_addProtocol(cls, @protocol(CrAppControlProtocol));
-  class_addProtocol(cls, @protocol(CefAppProtocol));
+  return [app conformsToProtocol:@protocol(CefAppProtocol)] &&
+                 [app respondsToSelector:@selector(isHandlingSendEvent)] &&
+                 [app respondsToSelector:@selector(setHandlingSendEvent:)]
+             ? 1
+             : 0;
 }
 
 int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path, const char* subprocess_path,

@@ -171,27 +171,35 @@ public final class ControlSocketServer: Sendable {
         }
     }
 
-    /// Removes a leftover socket from a crashed run. Refuses when a process
-    /// still accepts on it, when it is not a socket, or when another user
-    /// owns it.
+    /// Removes a leftover socket from a crashed run. Unlinks only when a
+    /// connect is refused (nothing listens). Refuses when a process accepts
+    /// on it or the probe is inconclusive (a busy listener, a permission
+    /// error), when it is not a socket, or when another user owns it.
     static func reclaimStalePath(_ path: String) throws {
         var info = stat()
         guard lstat(path, &info) == 0 else { return }
         guard info.st_mode & S_IFMT == S_IFSOCK, info.st_uid == getuid() else { throw StartError.pathOccupied(path) }
-        if socketAcceptsConnections(path) { throw StartError.addressInUse(path) }
+        guard probe(path) == .refused else { throw StartError.addressInUse(path) }
         unlink(path)
     }
 
-    static func socketAcceptsConnections(_ path: String) -> Bool {
+    enum ProbeResult: Equatable {
+        case accepted
+        /// `ECONNREFUSED`: no process listens; the file is stale.
+        case refused
+        case inconclusive(Int32)
+    }
+
+    static func probe(_ path: String) -> ProbeResult {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { return false }
+        guard descriptor >= 0 else { return .inconclusive(errno) }
         defer { close(descriptor) }
         // Never block the caller (the App starts the server on the main
         // actor): a listener with a full backlog answers EAGAIN, not a wait.
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
-        guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return false }
+        guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return .inconclusive(ENAMETOOLONG) }
         withUnsafeMutableBytes(of: &address.sun_path) { buffer in
             buffer.copyBytes(from: path.utf8)
             buffer[path.utf8.count] = 0
@@ -201,7 +209,10 @@ public final class ControlSocketServer: Sendable {
                 connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        return result == 0 || errno == EAGAIN
+        if result == 0 { return .accepted }
+        let code = errno
+        // EAGAIN (full backlog) is inconclusive: a live listener is busy.
+        return code == ECONNREFUSED ? .refused : .inconclusive(code)
     }
 
     // MARK: - Accepting

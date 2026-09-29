@@ -82,6 +82,11 @@ public struct ControlActionInfo: Sendable, Hashable {
     public var isBound: Bool
     public var isDebugOnly: Bool
     public var mainMenu: String?
+    /// Why the action cannot run in this build, when it is bound as
+    /// unavailable (snapshot for `action.list`). An action with a reason
+    /// reaches the executor even out of context, which re-reads the live
+    /// reason and reports it before the context check.
+    public var unavailableReason: String?
 
     public init(
         id: String, title: String, category: String, categoryTitle: String, cliName: String, symbol: String,
@@ -128,6 +133,7 @@ public struct ControlActionInfo: Sendable, Hashable {
             "debug_only": .bool(isDebugOnly),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
+        if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }
         return .object(members)
     }
 

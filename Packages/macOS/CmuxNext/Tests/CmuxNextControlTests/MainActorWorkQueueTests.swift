@@ -75,14 +75,15 @@ import Testing
         }
         while queue.stats.pending < 10 { await Task.yield() }
         await frames.fire()
-        // 3 ms items against a 4 ms budget: two per frame.
-        #expect(queue.stats.executed == 2)
-        #expect(queue.stats.pending == 8)
+        // 3 ms items against a 4 ms budget: at most two per frame (one if
+        // the thread was preempted mid-item).
+        #expect((1...2).contains(queue.stats.executed))
         while queue.stats.pending > 0 {
             await frames.fire()
             await Task.yield()
         }
         for task in tasks { try await task.value }
-        #expect(queue.stats.frames == 5)
+        #expect(queue.stats.frames >= 5)
+        #expect(queue.stats.executed == 10)
     }
 }

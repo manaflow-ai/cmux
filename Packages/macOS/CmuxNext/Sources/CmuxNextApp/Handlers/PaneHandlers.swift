@@ -1,0 +1,137 @@
+import AppKit
+import CmuxNextActions
+import CmuxNextBridge
+import CmuxNextDaemon
+import CmuxNextLayout
+
+/// Pane and split actions (category `.pane` except columns and screens):
+/// split in four directions, focus, swap, resize, equalize, zoom, close,
+/// rename, and workspace font size. Structure changes are daemon commands;
+/// divider moves go through the layout model so they carry a gesture
+/// transaction like a drag.
+enum PaneHandlers {
+    static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
+        bindSplits(registry, ctx)
+        bindFocus(registry, ctx)
+        bindSizing(registry, ctx)
+        PaneHandlers.bindPaneVerbs(into: registry, context: ctx)
+    }
+
+    // MARK: Geometry helpers
+
+    /// The pane next to `pane` in `direction` on its screen, by displayed frames.
+    static func neighbor(of pane: LayoutPaneID, direction: LayoutDirection, in content: WorkspaceContentController) -> LayoutPaneID? {
+        guard let screen = content.layoutModel.screen(containing: pane) else { return nil }
+        var frames: [LayoutPaneID: CGRect] = [:]
+        for id in screen.layout.panes {
+            if let frame = content.layoutView.frame(of: id) { frames[id] = frame }
+        }
+        return FocusNavigation.neighbor(of: pane, direction: direction, frames: frames)
+    }
+
+    static func focus(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
+        content.layoutModel.focus(pane)
+        content.panes[pane]?.focusContent()
+    }
+
+    // MARK: Splits
+
+    private static func bindSplits(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        let splits: [(ActionID, PaneDirection)] = [("splitRight", .right), ("splitDown", .down), ("splitLeft", .left), ("splitUp", .up)]
+        for (id, direction) in splits {
+            registry.bind(id, invoke: { split(ctx, $0, direction: direction) })
+        }
+        registry.bind("newPaneAutoLayout", invoke: { invocation in
+            guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
+            let frame = content.layoutView.frame(of: pane.layoutPaneID) ?? .zero
+            split(ctx, invocation, direction: frame.width >= frame.height ? .right : .down)
+        })
+    }
+
+    /// Splits the pane. Left and up split right or down, then swap the
+    /// original into the new slot, so the new pane lands on that side.
+    static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection) {
+        guard let pane = ctx.paneController(invocation), let content = pane.workspace, let connection = ctx.connection() else { return }
+        let handle = pane.pane.handle, cwd = pane.selectedTab?.cwd
+        let daemonDirection: SplitDirection = direction == .left || direction == .right ? .right : .down
+        let swapTowards: PaneDirection? = switch direction {
+        case .left: .right
+        case .up: .down
+        default: nil
+        }
+        Task {
+            do {
+                let created = try await connection.split(handle, direction: daemonDirection, options: SpawnOptions(cwd: cwd))
+                if let swapTowards { try await connection.swapPane(handle, with: .direction(swapTowards)) }
+                content.pendingFocusSurface = created.surface
+                content.applyCurrent()
+            } catch {
+                ctx.services.daemon.logger.error("split failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    // MARK: Focus
+
+    private static func bindFocus(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        let directions: [(ActionID, LayoutDirection)] = [("focusLeft", .left), ("focusRight", .right), ("focusUp", .up), ("focusDown", .down)]
+        for (id, direction) in directions {
+            registry.bind(id, invoke: { invocation in
+                guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
+                guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
+                    return ctx.refuse("no pane \(direction) of the focused pane")
+                }
+                focus(next, in: content)
+            })
+        }
+        registry.bind("focusPreviousPane", invoke: { cycleFocus(ctx, $0, offset: -1) })
+        registry.bind("focusNextPane", invoke: { cycleFocus(ctx, $0, offset: 1) })
+    }
+
+    private static func cycleFocus(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {
+        guard let pane = ctx.paneController(invocation), let content = pane.workspace,
+              let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
+        let order = screen.layout.panes
+        guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
+            return ctx.refuse("the screen has one pane")
+        }
+        focus(order[(index + offset + order.count) % order.count], in: content)
+    }
+
+    // MARK: Sizing
+
+    private static func bindSizing(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        let resizes: [(ActionID, LayoutDirection)] = [
+            ("resizePaneLeft", .left), ("resizePaneRight", .right), ("resizePaneUp", .up), ("resizePaneDown", .down),
+        ]
+        for (id, direction) in resizes {
+            registry.bind(id, invoke: { invocation in
+                guard let pane = ctx.paneController(invocation), let content = pane.workspace,
+                      let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
+                switch PaneResize.change(for: pane.layoutPaneID, direction: direction, in: screen.layout) {
+                case .splitRatio(let split, let ratio):
+                    content.layoutModel.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
+                case .columnWidth(let column, let width):
+                    content.layoutModel.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
+                case nil:
+                    ctx.refuse("no divider to move \(direction) (or it is at its limit)")
+                }
+            })
+        }
+        registry.bind("equalizeSplits", invoke: { invocation in
+            guard let content = ctx.content(invocation), let screen = content.layoutModel.activeScreen else { return }
+            let trees: [SplitNode] = switch screen.layout {
+            case .splits(let root): [root]
+            case .columns(let columns): columns.map(\.root)
+            }
+            let splits = trees.flatMap(\.splits)
+            guard !splits.isEmpty else { return ctx.refuse("the screen has no splits") }
+            for split in splits { content.layoutModel.equalizeSplit(split) }
+        })
+        registry.bind("toggleSplitZoom", invoke: { invocation in
+            guard let pane = ctx.daemonPane(invocation) else { return }
+            let handle = pane.handle
+            ctx.send("zoom-pane") { _ = try await $0.zoomPane(handle) }
+        })
+    }
+}
