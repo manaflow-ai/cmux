@@ -362,11 +362,23 @@ struct ModeBarButton: View {
     let item: RightSidebarModeBarItem
     let isSelected: Bool
     var badgeCount: Int = 0
+    /// True while the right sidebar owns keyboard input in this window. The
+    /// selected mode icon then takes the cmux accent, mirroring how the
+    /// focused Bonsplit tab shows focus, without adding layout or chrome.
+    var showsInputFocus: Bool = false
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
     let action: () -> Void
 
     @State private var isHovered: Bool = false
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
+
+    private var iconTint: Color {
+        if isSelected && showsInputFocus {
+            return cmuxAccent.color
+        }
+        return RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered)
+    }
 
     var body: some View {
         Button(action: action) {
@@ -375,7 +387,7 @@ struct ModeBarButton: View {
                     systemName: item.symbolName,
                     pointSize: RightSidebarChromeControlStyle.modeIconSize,
                     weight: RightSidebarChromeControlStyle.iconWeight,
-                    tint: RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered),
+                    tint: iconTint,
                     appliesGlobalFontMagnification: true
                 )
                     .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
