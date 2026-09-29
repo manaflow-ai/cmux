@@ -1580,3 +1580,16 @@ svg[data-icon-fill] {
 .files-status-filter[aria-pressed="false"] svg {
   opacity: 0.35;
 }
+/* The page is as wide as its pane. In a narrow pane the file name keeps
+   priority: the deferral badge and the "Viewed" word hide, and both stay
+   reachable as tooltips on "Load diff" and the checkbox. */
+@media (max-width: 560px) {
+  .file-review-badge[data-deferred-reason],
+  .file-review-viewed-label {
+    display: none;
+  }
+  .file-review-controls {
+    gap: 6px;
+    margin-left: 6px;
+  }
+}
