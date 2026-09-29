@@ -128,7 +128,7 @@ extension SidebarBridge {
 
     /// Puts daemon truth back after a refused or rejected intent.
     private func resync() {
-        model.sections = Self.sections(services.machines)
+        model.sections = Self.sections(services.machines, statuses: services.statusBoard)
     }
 
     private func command(_ label: String, on daemon: DaemonService, patch: OptimisticPatch = .custom { _ in },

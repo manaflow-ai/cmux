@@ -59,6 +59,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             frontend.currentConnection()
         }
         compat.install(on: router)
+        // Hook statuses (`set_status`, `set_progress`) show in sidebar rows.
+        let board = services.statusBoard
+        compat.observeSidebarStatus { [weak compat] uuid in
+            let line = compat?.sidebarStatusLine(workspace: uuid)
+            Task { @MainActor in board.set(line, workspace: uuid) }
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

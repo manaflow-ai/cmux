@@ -34,8 +34,9 @@ final class SidebarBridge {
 
     private func observe() {
         let machines = services.machines
+        let board = services.statusBoard
         observation = Task { [weak self] in
-            for await sections in Observations({ Self.sections(machines) }) {
+            for await sections in Observations({ Self.sections(machines, statuses: board) }) {
                 self?.model.sections = sections
             }
         }
@@ -61,12 +62,14 @@ final class SidebarBridge {
 
     /// One section per machine: the local daemon, then each Cloud machine
     /// (empty while it connects).
-    static func sections(_ machines: MachineRegistry) -> [SidebarRowSection] {
+    static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard) -> [SidebarRowSection] {
+        let status = { (id: String) in statuses.line(for: id) }
         var sections = SidebarMapping.sections(machines.local.store.sidebarSections,
-                                               machine: machine(for: machines.local, name: Strings.localMachine, kind: .local))
+                                               machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
+                                               statusLine: status)
         for session in machines.cloud {
             let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive)
-            sections += SidebarMapping.sections(session.daemon.store.sidebarSections, machine: header)
+            sections += SidebarMapping.sections(session.daemon.store.sidebarSections, machine: header, statusLine: status)
         }
         return sections
     }

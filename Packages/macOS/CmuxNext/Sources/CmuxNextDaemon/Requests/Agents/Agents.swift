@@ -49,3 +49,4 @@ public struct ListAgentsRequest: DaemonRequest {
         self.state = state
     }
 }
+

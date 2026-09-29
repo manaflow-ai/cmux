@@ -32,6 +32,8 @@ final class AppServices {
     /// App side of the cmux CLI compat layer (window/focus state, intents).
     private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
+    /// Hook statuses shown in sidebar rows (`set_status`).
+    let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
