@@ -92,19 +92,19 @@ public struct CloudVPNConfigurationKeychain: Sendable {
     /// Deletes every configuration in this service. Deleting missing items
     /// succeeds, including generated candidate items with unique accounts.
     public func remove() throws {
-        var query = baseQuery()
-        query.removeValue(forKey: kSecAttrAccount as String)
-        let status = SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(baseQuery(account: nil) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.storage(status) }
     }
 
-    private func baseQuery(account: String = "cloud-system-vpn") -> [String: Any] {
+    private func baseQuery(account: String? = "cloud-system-vpn") -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecUseDataProtectionKeychain as String: true,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
         ]
+        if let account {
+            query[kSecAttrAccount as String] = account
+        }
         if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         return query
     }

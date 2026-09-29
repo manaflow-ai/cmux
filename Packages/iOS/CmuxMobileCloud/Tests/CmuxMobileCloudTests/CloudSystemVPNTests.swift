@@ -873,6 +873,25 @@ import Testing
         #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
     }
 
+    @Test func allPersistedRevocationsAreProcessedBeyondTheWorkingSet() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        await pendingStore.save(
+            Set((0..<40).map {
+                CloudSystemVPNPendingRevocation(
+                    deviceFingerprint: "persisted-\($0)",
+                    teamID: nil
+                )
+            }),
+            scope: "user-1/team-1"
+        )
+        let rig = Rig(pendingRevocationStore: pendingStore)
+
+        await signedIn(rig)
+
+        #expect(rig.service.calls.revoke.count == 40)
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
+    }
+
     @Test func switchingAccountsPersistsTheOldBrowserPeerBeforeRevocation() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         let rig = Rig(pendingRevocationStore: pendingStore)

@@ -30,7 +30,9 @@ public final class CloudSystemVPNController {
     private let cleanupRetryCount: Int
     // The durable store is the source of truth; this cache is only the
     // bounded working set used while an account transition is in flight.
-    private let maxInMemoryPendingRevocations = 32
+    // Match the durable store's fixed capacity so loading persisted work
+    // never strands entries beyond the in-memory cleanup set.
+    private let maxInMemoryPendingRevocations = 4096
     private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
     private let pendingRevocationStore: any CloudSystemVPNPendingRevocationStoring
     private var scope: String?
