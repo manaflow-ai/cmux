@@ -268,7 +268,7 @@ struct FileSearchPanelTests {
         #expect(query.isCaseSensitive && query.matchesWholeWord && query.isRegex && !query.usesIgnoreFiles)
         #expect(query.includePatterns == "src")
         #expect(query.excludePatterns == "*.min.js")
-        #expect(!panel.queryBar.includeField.isHidden, "Details open when globs are set.")
+        #expect(!panel.queryBar.includeField.isHiddenOrHasHiddenAncestor, "Details open when globs are set.")
     }
 
     @Test("An invalid regex shows an inline error without searching")

@@ -1183,6 +1183,7 @@ final class FileExplorerContainerView: NSView {
         // that is being edited would end editing and drop shortcut focus.
         var changed = false
         if applyHidden(findPanel, !isFindPresented) { changed = true }
+        if findPanel.setResultsHidden(!hasContent || isLoading) { changed = true }
         if applyHidden(scrollView, isFindPresented || !hasContent || isLoading) { changed = true }
         if changed {
             needsLayout = true

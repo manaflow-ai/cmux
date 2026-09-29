@@ -215,6 +215,17 @@ final class FileSearchPanelView: NSView {
         }
     }
 
+    /// Hides the status line and results while no folder is open or the
+    /// root is loading; the query bar stays so editing is never interrupted.
+    /// Returns whether anything changed.
+    @discardableResult
+    func setResultsHidden(_ hidden: Bool) -> Bool {
+        guard resultsScrollView.isHidden != hidden else { return false }
+        resultsScrollView.isHidden = hidden
+        statusRow.alphaValue = hidden ? 0 : 1
+        return true
+    }
+
     // MARK: - Scope and sessions
 
     /// Follows the store's workspace, root, provider and content revision.
