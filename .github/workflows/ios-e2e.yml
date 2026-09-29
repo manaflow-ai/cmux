@@ -12,11 +12,9 @@ name: iOS E2E
 # ci.yml takes the same approach — a paths: filter leaves the check MISSING
 # on unrelated PRs, which branch protection cannot require; a routed skip
 # still reports green.
-on: [workflow_dispatch]
-  # The pull_request trigger stays off until the owner approves this check's
-  # promotion (see docs/ci/ios-e2e.md): tests enter a CI lane by proposal and
-  # approval, and the product-download stubs below would red every PR today.
-  # pull_request:
+on:
+  workflow_dispatch:
+  pull_request:
 
 permissions:
   contents: read
@@ -125,14 +123,24 @@ jobs:
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       backend_url: ${{ steps.ensure.outputs.backend_url }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
       - name: Join tailnet
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ github.event_name == 'pull_request' && vars.TS_E2E_OIDC_CLIENT_ID || secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ github.event_name == 'pull_request' && vars.TS_E2E_OIDC_AUDIENCE || '' }}
+          oauth-secret: ${{ github.event_name == 'pull_request' && '' || secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
       - name: Ping backend host
@@ -152,21 +160,11 @@ jobs:
           BACKEND_TAG: ${{ needs.route.outputs.backend_tag }}
         run: |
           set -euo pipefail
-          # TODO(ios-e2e): real ensure call. cmuxterm-hq's
-          # scripts/dev-backend.sh (shim for skills/infra/dev-backend/
-          # dev-backend.sh) owns these stacks: `dev-backend.sh url --tag
-          # <tag>` ensures the tagged web+Postgres Docker stack on the VM and
-          # prints its private Tailscale Serve URL; `status` shows the
-          # 12-running / 64-registered stack budget this job must respect
-          # before ensuring. It drives the VM's control API over SSH, so CI
-          # needs a dedicated deploy key — secret CMUX_DEV_BACKEND_SSH_KEY,
-          # NOT yet provisioned — loaded into an ssh-agent here and never
-          # written to disk or echoed. Until that lands, emit the serve
-          # origin shape so the drivers fail loudly against a missing stack
-          # instead of a missing variable.
-          backend_url="https://${CMUX_E2E_BACKEND_HOST}"
+          backend_url="$(CMUX_E2E_BACKEND_TAG="$BACKEND_TAG" \
+            CMUX_E2E_BACKEND_HOST="$CMUX_E2E_BACKEND_HOST" \
+            ./scripts/e2e/provision-dev-backend.sh)"
           echo "backend_url=$backend_url" >> "$GITHUB_OUTPUT"
-          echo "ensure (stub): tag=$BACKEND_TAG url=$backend_url" >> "$GITHUB_STEP_SUMMARY"
+          echo "ensured backend tag=$BACKEND_TAG url=$backend_url" >> "$GITHUB_STEP_SUMMARY"
 
   mac-host:
     # Compiles nothing: reuses the prebuilt tagged Mac app, signs it into the
@@ -180,8 +178,13 @@ jobs:
       success()
       && needs.route.outputs.run_e2e == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-14' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
+    # These jobs launch a real GUI app and need a WindowServer session. The
+    # Blacksmith build pool is compile-capable but has no stable GUI session.
+    runs-on: macos-26
     timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       # Debug/audit only. A job output is readable by dependents only after
       # this job completes, and this job completes only after the signal —
@@ -194,35 +197,39 @@ jobs:
         with:
           persist-credentials: false
           # The app arrives prebuilt; the checkout is for the driver scripts.
-          submodules: false
+          submodules: recursive
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Download tagged Mac app product
+      - name: Provision build dependencies
         run: |
           set -euo pipefail
-          # TODO(ios-e2e): reuse the compiled Mac app instead of building.
-          # ci-macos.yml's admission job is the pattern: `python3
-          # scripts/ci/reuse_app_host_products.py key <derived-data>` derives
-          # the reuse key from the source/Xcode fingerprint, then `... restore
-          # <derived-data>` (GH_TOKEN in env) pulls a producer-`seal`ed
-          # Build/Products tree from a prior run's artifact or its R2 copy
-          # into an isolated DerivedData root, with hit/miss reasons on the
-          # step outputs. This job wants exactly that consumer path plus the
-          # tag stamping scripts/reload.sh applies (bundle
-          # com.cmuxterm.app.debug.<tag>, socket /tmp/cmux-debug-<tag>.sock),
-          # and needs `permissions: actions: read` once wired. Until then,
-          # fail fast with the infra label rather than idle for 45 minutes.
-          echo "::error::[infra-preflight] Mac app product download not implemented (see reuse_app_host_products.py TODO)"
-          exit 1
+          [ ! -f scripts/install-zig-ci.sh ] || ./scripts/install-zig-ci.sh
+          [ ! -f scripts/install-rust-ci.sh ] || ./scripts/install-rust-ci.sh
+          ./scripts/ensure-ghosttykit.sh
+
+      - name: Build tagged Mac app
+        env:
+          CMUX_DEV_BACKEND_URL: ${{ needs.backend.outputs.backend_url }}
+          CMUX_DEV_BACKEND_MODE: remote
+          CMUX_SKIP_ZIG_BUILD: "1"
+          CMUX_TUI_CLIENT_MANIFEST_URL: https://files.cmux.com/cmux-tui/latest/manifest.json
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ./scripts/reload.sh --tag "${{ needs.route.outputs.backend_tag }}" \
+            --derived-data "$RUNNER_TEMP/cmux-mac-derived-data" \
+            --no-global-cli-links --swift-frontend-workaround
 
       - name: Join tailnet
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ github.event_name == 'pull_request' && vars.TS_E2E_OIDC_CLIENT_ID || secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ github.event_name == 'pull_request' && vars.TS_E2E_OIDC_AUDIENCE || '' }}
+          oauth-secret: ${{ github.event_name == 'pull_request' && '' || secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
+          args: --ssh
           # Deterministic name (see workflow env): the parallel iOS job must
           # be able to SSH here without a runtime hostname exchange.
           hostname: ${{ env.CMUX_E2E_MAC_TAILNET_HOSTNAME }}
@@ -253,6 +260,11 @@ jobs:
           # itself comes from the workflow env (no GitHub API polling — see
           # the CMUX_E2E_DONE_FILE comment at the top).
           CMUX_E2E_WAIT_TIMEOUT_SECONDS: "1500"
+          CMUX_E2E_MAC_DERIVED_DATA: ${{ runner.temp }}/cmux-mac-derived-data
+          CMUX_E2E_MINT_SCRIPT: /tmp/cmux-e2e-mint-${{ github.run_id }}.sh
+          CMUX_E2E_READ_SCREEN_SCRIPT: /tmp/cmux-e2e-read-screen-${{ github.run_id }}.sh
+          CMUX_TUI_CLIENT_MANIFEST_URL: https://files.cmux.com/cmux-tui/latest/manifest.json
+          GH_TOKEN: ${{ github.token }}
           # Dedicated CI Stack account, the same secret pair
           # ios-streamed-validate.yml uses; the app's dev-secrets resolution
           # reads CMUX_DOGFOOD_STACK_* from the environment first. Values
@@ -275,14 +287,17 @@ jobs:
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     # Simulator-capable pool: MACOS_RUNNER_IOS is the variable the iOS
     # simulator lanes read (test-ios.yml, ios-streamed-validate.yml).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-14' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          submodules: false
+          submodules: recursive
 
       - name: Select Xcode
         # Canonical fleet selector (ranks by macOS SDK, aligns xcode-select);
@@ -292,48 +307,50 @@ jobs:
       - name: Ensure iOS simulator runtime
         run: xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
 
-      - name: Download iOS simulator app product
+      - name: Create isolated simulator
         run: |
           set -euo pipefail
-          # TODO(ios-e2e): reuse the iOS lane's compiled product instead of
-          # building. test-ios.yml's ios-simulator-build job stages and stamps
-          # the simulator Build/Products tree
-          # (scripts/ci/ios_simulator_test_product.py stamp) and uploads it
-          # as artifact `ios-test-product-<run_id>-<run_attempt>` (tar.gz);
-          # its consumers download by artifact id, trying
-          # scripts/ci/parallel_artifact_download.py first. This lane needs a
-          # cross-workflow lookup of the newest compatible product for this
-          # head SHA (the way reuse_app_host_products.py locates Mac
-          # products), or a tagged ios/scripts/reload.sh-style build as the
-          # cold fallback. Caveat to resolve while wiring: that artifact is
-          # the TEST-host product — confirm its bundle id and entitlements
-          # suit the dogfood sign-in path (dev.cmux.ios.<tag>) or re-stamp.
-          # Needs `permissions: actions: read` once wired. Until then, fail
-          # fast with the infra label.
-          echo "::error::[infra-preflight] iOS sim app product download not implemented (see test-ios.yml product-upload TODO)"
-          exit 1
+          device_type="$(xcrun simctl list devicetypes -j | python3 -c '
+          import json,sys
+          items=[x for x in json.load(sys.stdin)["devicetypes"] if "iPhone" in x.get("name","")]
+          preferred=("iPhone 17 Pro Max","iPhone 17 Pro","iPhone 17","iPhone 16 Pro Max","iPhone 16 Pro","iPhone 16","iPhone 15 Pro")
+          for name in preferred:
+              match=next((x for x in items if x.get("name")==name),None)
+              if match: print(match["identifier"]); break
+          else:
+              match=next((x for x in items if not any(old in x.get("name","") for old in ("iPhone 6","iPhone 5","iPhone SE"))),None)
+              if not match: raise SystemExit("no modern iPhone simulator device type")
+              print(match["identifier"])
+          ')"
+          runtime="$(xcrun simctl list runtimes available -j | python3 -c 'import json,sys; rs=[r for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable",True) and "iOS" in r.get("identifier","")]; print(sorted(rs,key=lambda r:tuple(int(x) for x in r.get("version","0").split(".")))[-1]["identifier"])')"
+          udid="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$device_type" "$runtime")"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "CMUX_E2E_SIM_UDID=$udid" >> "$GITHUB_ENV"
+
+      - name: Build iOS simulator app
+        env:
+          CMUX_DEV_BACKEND_URL: ${{ needs.backend.outputs.backend_url }}
+          CMUX_IOS_API_BASE_URL: ${{ needs.backend.outputs.backend_url }}
+          CMUX_IOS_IROH_BROKER_BASE_URL: ${{ needs.backend.outputs.backend_url }}
+          CMUX_DEV_BACKEND_MODE: remote
+        run: |
+          set -euo pipefail
+          ./scripts/install-rust-ci.sh
+          ./scripts/ensure-ghosttykit.sh
+          export CMUX_IOS_SKIP_MAC_BUILD_CHECK=1
+          ./ios/scripts/reload.sh --tag "${{ needs.route.outputs.backend_tag }}" \
+            --simulator-only --simulator-id "$CMUX_E2E_SIM_UDID" --no-launch \
+            --swift-frontend-workaround
 
       - name: Join tailnet
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ github.event_name == 'pull_request' && vars.TS_E2E_OIDC_CLIENT_ID || secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ github.event_name == 'pull_request' && vars.TS_E2E_OIDC_AUDIENCE || '' }}
+          oauth-secret: ${{ github.event_name == 'pull_request' && '' || secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
           hostname: cmux-e2e-ios-${{ github.run_id }}
-
-      - name: Boot fresh named simulator
-        run: |
-          set -euo pipefail
-          # Per-run named sim so parallel runs on a shared mini never boot,
-          # install onto, or reset each other's device; the newest iPhone
-          # device type on the image keeps this from pinning a model name
-          # that ages out of the runner image.
-          DEVTYPE="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; ts=[t["identifier"] for t in json.load(sys.stdin)["devicetypes"] if t.get("productFamily")=="iPhone"]; print(ts[-1])')"
-          UDID="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$DEVTYPE")"
-          xcrun simctl boot "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
-          echo "CMUX_E2E_SIM_UDID=$UDID" >> "$GITHUB_ENV"
-          echo "sim: cmux-e2e-${GITHUB_RUN_ID} ($DEVTYPE) $UDID"
 
       - name: Run iOS E2E
         env:
@@ -345,11 +362,33 @@ jobs:
           # never echoed.
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-        run: >-
-          ./scripts/e2e/ios-e2e-run.sh
-          --tag "$CMUX_E2E_TAG"
-          --sim-udid "$CMUX_E2E_SIM_UDID"
-          --evidence-dir "$CMUX_E2E_EVIDENCE_DIR"
+          CMUX_E2E_MAC_SSH_TARGET: runner@${{ env.CMUX_E2E_MAC_TAILNET_HOSTNAME }}
+          CMUX_E2E_MAC_READ_SCREEN_SCRIPT: /tmp/cmux-e2e-read-screen-${{ github.run_id }}.sh
+          CMUX_E2E_MAC_MINT_SCRIPT: /tmp/cmux-e2e-mint-${{ github.run_id }}.sh
+        run: |
+          set -euo pipefail
+          credentials="$RUNNER_TEMP/e2e-agent.env"
+          umask 077
+          cat > "$credentials" <<EOF
+          CMUX_UITEST_STACK_EMAIL=$CMUX_DOGFOOD_STACK_EMAIL
+          CMUX_UITEST_STACK_PASSWORD=$CMUX_DOGFOOD_STACK_PASSWORD
+          EOF
+          chmod 600 "$credentials"
+          attach_url=""
+          deadline=$(( $(date +%s) + 1200 ))
+          while [[ -z "$attach_url" && $(date +%s) -lt $deadline ]]; do
+            attach_url="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              "$CMUX_E2E_MAC_SSH_TARGET" "$CMUX_E2E_MAC_MINT_SCRIPT" 2>/dev/null || true)"
+            [[ -n "$attach_url" ]] || sleep 5
+          done
+          test -n "$attach_url" || { echo "[infra-preflight] Mac pairing helper did not become reachable" >&2; exit 1; }
+          ./scripts/mobile-dev-launch.sh --tag "$CMUX_E2E_TAG" \
+            --simulator-id "$CMUX_E2E_SIM_UDID" --auth-profile agent \
+            --credentials-file "$credentials" --attach-url "$attach_url" --detach
+          ./scripts/e2e/ios-e2e-run.sh \
+            --tag "$CMUX_E2E_TAG" \
+            --sim-udid "$CMUX_E2E_SIM_UDID" \
+            --evidence-dir "$CMUX_E2E_EVIDENCE_DIR"
 
       - name: Signal Mac host teardown
         # Always, pass or fail: this touch is what releases the Mac host's

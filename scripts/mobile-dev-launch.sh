@@ -81,6 +81,7 @@ SIMULATOR_ID=""             # exact booted sim UDID (wins over name when set)
 DEVICE_ID=""
 ATTACH=0
 ATTACH_EXPLICIT=0
+EXTERNAL_ATTACH_URL=""
 ENSURE_MAC=0
 DETACH=0
 IROH_RELEASE_GATE_MODE=""
@@ -110,6 +111,9 @@ while [[ $# -gt 0 ]]; do
     --device) TARGET="device"; shift ;;
     --device-id) DEVICE_ID="${2:-}"; shift 2 ;;
     --attach) ATTACH=1; ATTACH_EXPLICIT=1; shift ;;
+    --attach-url)
+      [[ -n "${2:-}" ]] || { echo "error: --attach-url requires a value" >&2; exit 2; }
+      EXTERNAL_ATTACH_URL="$2"; ATTACH=1; ATTACH_EXPLICIT=1; shift 2 ;;
     --no-attach) ATTACH=0; ENSURE_MAC=0; ATTACH_EXPLICIT=1; shift ;;
     # --ensure-mac: before minting, enable the tagged Mac app's pairing host and
     # launch it if its debug socket is down, so --attach can mint without a
@@ -300,7 +304,12 @@ ATTACH_URL=""
 if [[ "$ATTACH" -eq 1 ]]; then
   ATTACH_SOCKET_READY=0
   ATTACH_MINT_STATUS=1
-  if [[ "$ENSURE_MAC" -eq 1 ]]; then
+  if [[ -n "$EXTERNAL_ATTACH_URL" ]]; then
+    case "$EXTERNAL_ATTACH_URL" in
+      cmux-ios://*|https://*) ATTACH_URL="$EXTERNAL_ATTACH_URL" ;;
+      *) echo "error: --attach-url must be a cmux-ios:// or https:// URL" >&2; exit 2 ;;
+    esac
+  elif [[ "$ENSURE_MAC" -eq 1 ]]; then
     # Reuse a ready tagged Mac whose account already matches. If an
     # authenticated profile is selected while the socket is down, force a
     # clean process so `open` cannot reuse a stale app with the old identity.
@@ -325,7 +334,7 @@ if [[ "$ATTACH" -eq 1 ]]; then
   # Always mint from THIS tag's socket for the selected launch target. Never
   # trust an ambient URL or the tag-agnostic QR server, either of which could
   # pair this app with another tagged Mac instance.
-  if cmux_attach_mac_socket_ready "$TAG"; then
+  if [[ -z "$ATTACH_URL" ]] && cmux_attach_mac_socket_ready "$TAG"; then
     ATTACH_SOCKET_READY=1
     ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" "$ATTACH_TARGET" "$ATTACH_MINT_MAX_ATTEMPTS")" \
       || ATTACH_MINT_STATUS=$?
@@ -357,7 +366,7 @@ if [[ "$ATTACH" -eq 1 ]]; then
 fi
 
 READINESS_CURSOR=""
-if [[ -n "$ATTACH_URL" ]]; then
+if [[ -n "$ATTACH_URL" && -z "$EXTERNAL_ATTACH_URL" ]]; then
   if ! READINESS_CURSOR="$(cmux_attach_readiness_cursor "$TAG" "$REPO_ROOT")"; then
     echo "error: could not read tagged Mac diagnostics before mobile launch" >&2
     exit 1

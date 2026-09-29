@@ -54,6 +54,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SOCKET="/tmp/cmux-debug-${TAG}.sock"
 AXE="${CMUX_E2E_AXE:-axe}"
+MAC_SSH_TARGET="${CMUX_E2E_MAC_SSH_TARGET:-}"
+MAC_READ_SCREEN_SCRIPT="${CMUX_E2E_MAC_READ_SCREEN_SCRIPT:-/tmp/cmux-e2e-read-screen.sh}"
 mkdir -p "$EVIDENCE_DIR"
 
 # --- evidence + assertion helpers -------------------------------------------
@@ -103,7 +105,12 @@ phone_text() {
 }
 
 mac_text() {
-  CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" read-screen 2>/dev/null || true
+  if [[ -n "$MAC_SSH_TARGET" ]]; then
+    ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
+      "$MAC_SSH_TARGET" "$MAC_READ_SCREEN_SCRIPT" read-screen 2>/dev/null || true
+  else
+    CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" read-screen 2>/dev/null || true
+  fi
 }
 
 # wait_for <label> <fn> <needle>: bounded poll, never a bare sleep.
@@ -159,9 +166,15 @@ type_line() {
 
 step "preflight"
 ocr_build
-[[ -S "$SOCKET" ]] || fail "tagged Mac debug socket missing: $SOCKET"
-CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" identify >/dev/null \
-  || fail "tagged Mac app did not answer identify on $SOCKET"
+if [[ -n "$MAC_SSH_TARGET" ]]; then
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
+    "$MAC_SSH_TARGET" "$MAC_READ_SCREEN_SCRIPT" identify >/dev/null \
+    || fail "tagged Mac app did not answer identify over Tailscale SSH"
+else
+  [[ -S "$SOCKET" ]] || fail "tagged Mac debug socket missing: $SOCKET"
+  CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" identify >/dev/null \
+    || fail "tagged Mac app did not answer identify on $SOCKET"
+fi
 xcrun simctl list devices | grep -F "$SIM_UDID" | grep -q "(Booted)" \
   || fail "simulator $SIM_UDID is not booted"
 if [[ -z "$BUNDLE_ID" ]]; then
