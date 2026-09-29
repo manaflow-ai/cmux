@@ -146,7 +146,11 @@ extension TerminalController {
             let focusInvite = params["focus_invite"] as? Bool ?? false
             return try await v2AuthTeamMutationAsync(id: id) { flow in
                 guard flow.confirmedTeamID != nil else { throw TeamMembersFlowError.noTeam }
-                flow.showTeamMembers(focusInvite: focusInvite)
+                if focusInvite {
+                    flow.showTeamInvite()
+                } else {
+                    flow.showTeamMembers(focusInvite: false)
+                }
             }
         default:
             return v2Error(

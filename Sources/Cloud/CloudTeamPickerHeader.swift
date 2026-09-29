@@ -28,7 +28,7 @@ struct CloudTeamPickerHeader<OverflowMenu: View, Status: View>: View {
                         symbolName: "person.badge.plus",
                         title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
                         accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
-                        action: { accountFlow.showTeamMembers(focusInvite: true) }
+                        action: { accountFlow.showTeamInvite() }
                     )
                     .accessibilityIdentifier("CloudTeamInviteButton")
                 }

@@ -44,7 +44,7 @@ struct CloudTeamPicker: View {
                     title: String(localized: "sidebar.account.invitePeople", defaultValue: "Invite people…"),
                     systemImage: "person.badge.plus"
                 ) {
-                    accountFlow.showTeamMembers(focusInvite: true)
+                    accountFlow.showTeamInvite()
                 }
                 .accessibilityIdentifier("CloudTeamPickerInviteButton")
                 teamMenuRow(

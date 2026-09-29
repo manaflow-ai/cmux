@@ -92,7 +92,7 @@ extension ContentView {
                 NSSound.beep()
                 return
             }
-            auth.accountFlow.showTeamMembers(focusInvite: true)
+            auth.accountFlow.showTeamInvite(preferredWindow: tabManager.window)
         }
     }
 }

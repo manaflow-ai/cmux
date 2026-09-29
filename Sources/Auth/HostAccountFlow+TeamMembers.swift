@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCloud
 import CmuxAuthRuntime
 import CmuxSettingsUI
@@ -81,9 +82,15 @@ extension HostAccountFlow {
         return try await TeamsClient.shared.changeMemberRole(teamID: id, userID: userID, role: role)
     }
 
-    /// Opens Settings › Account at the Team card. Shared by the Cloud team
-    /// picker, the Cloud header Invite button, the palette and the socket.
-    /// `focusInvite` expands the invite composer once the card is mounted.
+    /// Opens the dedicated invite sheet on the main window. Shared by the
+    /// Cloud header Invite button, the picker row, the palette and the socket.
+    func showTeamInvite(preferredWindow: NSWindow? = nil) {
+        guard isAuthenticated, confirmedTeamID != nil else { return }
+        CloudTeamInviteSheetPresenter.shared.present(accountFlow: self, preferredWindow: preferredWindow)
+    }
+
+    /// Opens Settings › Account at the Team card (roster, roles, pending
+    /// invitations and links). `focusInvite` expands the inline composer.
     func showTeamMembers(focusInvite: Bool) {
         guard isAuthenticated, confirmedTeamID != nil else { return }
         SettingsWindowPresenter.show(navigationTarget: .account)
