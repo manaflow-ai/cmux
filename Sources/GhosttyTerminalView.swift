@@ -998,6 +998,7 @@ class GhosttyApp {
                 logLabel: "titlebar proxy icon (fallback)"
             )
             loadCmuxShellIntegrationOverride(fallbackConfig)
+            loadGhosttyHostKeybindDefaults(fallbackConfig)
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
             loadGlobalFontMagnificationConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
@@ -1107,7 +1108,7 @@ class GhosttyApp {
         #endif
     }
 
-    private func loadInlineGhosttyConfig(
+    func loadInlineGhosttyConfig(
         _ contents: String,
         into config: ghostty_config_t,
         prefix: String,
@@ -1275,6 +1276,7 @@ class GhosttyApp {
         conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
         hasUserGhosttyCommand = false
+        loadGhosttyHostKeybindDefaults(config)
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
@@ -1361,43 +1363,6 @@ class GhosttyApp {
         cmuxDebugLog("ghostty.vsync.disable reason=noActiveDisplays")
 #endif
     }
-
-    private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
-        // cmux owns these split, close, and workspace font-size shortcuts through
-        // KeyboardShortcutSettings.
-        // Remove Ghostty's default fallbacks so remapped or cleared shortcuts
-        // can reach the focused terminal instead of running actions outside the
-        // remappable shortcut layer.
-        loadInlineGhosttyConfig(
-            """
-            keybind = super+d=unbind
-            keybind = super+shift+d=unbind
-            keybind = super+w=unbind
-            keybind = super+alt+w=unbind
-            keybind = super+shift+w=unbind
-            keybind = super+ctrl+==unbind
-            \(Self.numberedWorkspaceGhosttyUnbinds)
-            """,
-            into: config,
-            prefix: "cmux-owned-keybind-overrides",
-            logLabel: "cmux-owned keybind overrides"
-        )
-    }
-
-    /// Unbinds Ghostty's built-in `super+1…8 = goto_tab` / `super+9 = last_tab`
-    /// fallbacks so the numbered "Select Workspace 1…9" shortcut is owned solely
-    /// by `KeyboardShortcutSettings`.
-    ///
-    /// Without this, a `⌘1–9` remapped away in Settings still falls through to the
-    /// focused terminal and Ghostty performs `goto_tab`, so the rebind looks
-    /// hardcoded (https://github.com/manaflow-ai/cmux/issues/5189). Ghostty registers
-    /// each digit under both its Unicode form (`super+1`) and its physical-key form
-    /// (`super+digit_1`), so both are unbound here.
-    private static let numberedWorkspaceGhosttyUnbinds: String = {
-        (1...9).flatMap { digit in
-            ["keybind = super+\(digit)=unbind", "keybind = super+digit_\(digit)=unbind"]
-        }.joined(separator: "\n")
-    }()
 
     /// When the user has not configured `font-codepoint-map` for CJK ranges
     /// and has not already provided an explicit multi-entry `font-family`
@@ -3161,6 +3126,13 @@ class GhosttyApp {
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
+        if let hostAction = GhosttyHostAction(action) {
+            // The C ABI requires the performability result before returning.
+            return performOnMain {
+                guard let app = AppDelegate.shared else { hostAction.reportUnavailable(); return false }
+                return GhosttyHostActionHandler(app: app, ghostty: self).perform(hostAction, target: target)
+            }
+        }
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
                 action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
@@ -3217,6 +3189,7 @@ class GhosttyApp {
                 return true
             }
 
+            GhosttyHostAction.reportUnhandled(action.tag)
             return false
         }
         let callbackContext = Self.callbackContext(from: ghostty_surface_userdata(target.target.surface))
@@ -3601,6 +3574,7 @@ class GhosttyApp {
                 return TerminalLinkOpenCoordinator().open(request)
             }
         default:
+            GhosttyHostAction.reportUnhandled(action.tag)
             return false
         }
     }
@@ -10200,6 +10174,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var inactiveOverlayColor: NSColor = .clear
     private var inactiveOverlayOpacity: CGFloat = 0
     private let dropZoneOverlayView: GhosttyFlashOverlayView
+    lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
     private let notificationRingOverlayView: GhosttyFlashOverlayView
     private let notificationRingLayer: CAShapeLayer
@@ -10265,9 +10240,13 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
+    /// Tab drags report their zone through `paneDropTargetView`, while portal reconciliation
+    /// forwards SwiftUI's zone, which is nil for those drags. The drag's zone wins, so a
+    /// reconciliation during a hover can't fade the highlight out.
+    private var forwardedDropZone: DropZone?
+    private var paneDragDropZone: DropZone?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
     weak var paneGeometryPortal: WindowTerminalPortal?
-    private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
     private var pendingAutomaticFirstResponderFocusTransactionId: UUID?
     private var pendingSuppressedFirstResponderFocusReapply = false
@@ -10369,12 +10348,9 @@ final class GhosttySurfaceScrollView: NSView {
         let before = Self.dropOverlayShowCounts[surfaceId, default: 0]
 
         // Reset to a hidden baseline so each probe exercises an initial-show transition.
-        dropZoneOverlayAnimationGeneration &+= 1
         activeDropZone = nil
         pendingDropZone = nil
-        dropZoneOverlayView.layer?.removeAllAnimations()
-        dropZoneOverlayView.isHidden = true
-        dropZoneOverlayView.alphaValue = 1
+        dropZoneOverlayAnimator.hideImmediately()
 
         if useDeferredPath {
             pendingDropZone = .left
@@ -10526,11 +10502,8 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         inactiveOverlayView.isHidden = true
         addSubview(inactiveOverlayView)
-        dropZoneOverlayView.wantsLayer = true
+        _ = dropZoneOverlayAnimator
         applyAccentColor(AppDelegate.shared?.accentColor ?? CmuxAccentColor())
-        dropZoneOverlayView.layer?.borderWidth = 2
-        dropZoneOverlayView.layer?.cornerRadius = 8
-        dropZoneOverlayView.isHidden = true
         notificationRingOverlayView.wantsLayer = true
         notificationRingOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         notificationRingOverlayView.layer?.masksToBounds = false
@@ -10938,7 +10911,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard activeDropZone != nil || pendingDropZone != nil else { return }
         attachDropZoneOverlayIfNeeded()
         if let zone = activeDropZone ?? pendingDropZone {
-            applyDropZoneOverlayFrame(dropZoneOverlayFrame(for: zone, in: bounds.size))
+            dropZoneOverlayAnimator.snapFrame(dropZoneOverlayFrame(for: zone, in: bounds.size))
         }
     }
 
@@ -11003,10 +10976,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         if let zone = activeDropZone {
             attachDropZoneOverlayIfNeeded()
-            _ = setFrameIfNeeded(
-                dropZoneOverlayView,
-                to: dropZoneOverlayFrame(for: zone, in: bounds.size)
-            )
+            dropZoneOverlayAnimator.snapFrame(dropZoneOverlayFrame(for: zone, in: bounds.size))
         }
         if let pending = pendingDropZone,
            bounds.width > 2,
@@ -11018,7 +10988,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             // Reuse the normal show/update path so deferred overlays get the
             // same initial animation as direct drop-zone activation.
-            setDropZoneOverlay(zone: pending)
+            applyDropZoneOverlay(zone: pending)
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
@@ -11147,14 +11117,6 @@ final class GhosttySurfaceScrollView: NSView {
               let overlayIndex = container.subviews.firstIndex(of: dropZoneOverlayView),
               overlayIndex <= hostedIndex else { return }
         container.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: self)
-    }
-
-    private func applyDropZoneOverlayFrame(_ frame: CGRect) {
-        if Self.rectApproximatelyEqual(dropZoneOverlayView.frame, frame) { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        dropZoneOverlayView.frame = frame
-        CATransaction.commit()
     }
 
 #if DEBUG
@@ -11838,14 +11800,23 @@ final class GhosttySurfaceScrollView: NSView {
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
-    func setDropZoneOverlay(zone: DropZone?) {
+    /// Sets the zone SwiftUI forwards, or with `fromPaneDrag` the zone `paneDropTargetView` resolved.
+    func setDropZoneOverlay(zone: DropZone?, fromPaneDrag: Bool = false) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.setDropZoneOverlay(zone: zone)
+                self?.setDropZoneOverlay(zone: zone, fromPaneDrag: fromPaneDrag)
             }
             return
         }
+        if fromPaneDrag {
+            paneDragDropZone = zone
+        } else {
+            forwardedDropZone = zone
+        }
+        applyDropZoneOverlay(zone: paneDragDropZone ?? forwardedDropZone)
+    }
 
+    private func applyDropZoneOverlay(zone: DropZone?) {
         if let zone, (bounds.width <= 2 || bounds.height <= 2) {
             pendingDropZone = zone
 #if DEBUG
@@ -11854,92 +11825,34 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        let previousZone = activeDropZone
         activeDropZone = zone
         pendingDropZone = nil
-
-        if let zone {
 #if DEBUG
-            if window == nil {
-                logDropZoneOverlay(event: "showNoWindow", zone: zone, frame: nil)
-            }
-#endif
-            attachDropZoneOverlayIfNeeded()
-            let targetFrame = dropZoneOverlayFrame(for: zone, in: bounds.size)
-            let previousFrame = dropZoneOverlayView.frame
-            let isSameFrame = Self.rectApproximatelyEqual(previousFrame, targetFrame)
-            let needsFrameUpdate = !isSameFrame
-            let zoneChanged = previousZone != zone
-
-            if !dropZoneOverlayView.isHidden && !needsFrameUpdate && !zoneChanged {
-                return
-            }
-
-            dropZoneOverlayAnimationGeneration &+= 1
-            dropZoneOverlayView.layer?.removeAllAnimations()
-
-            if dropZoneOverlayView.isHidden {
-                applyDropZoneOverlayFrame(targetFrame)
-                dropZoneOverlayView.alphaValue = 0
-                dropZoneOverlayView.isHidden = false
-#if DEBUG
-                recordDropOverlayShowAnimation()
-#endif
-#if DEBUG
-                logDropZoneOverlay(event: "show", zone: zone, frame: targetFrame)
-#endif
-
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.18
-                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                    dropZoneOverlayView.animator().alphaValue = 1
-                } completionHandler: { [weak self] in
-#if DEBUG
-                    guard let self else { return }
-                    guard self.activeDropZone == zone else { return }
-                    self.logDropZoneOverlay(event: "showComplete", zone: zone, frame: targetFrame)
-#endif
-                }
-                return
-            }
-
-#if DEBUG
-            if needsFrameUpdate || zoneChanged {
-                logDropZoneOverlay(event: "update", zone: zone, frame: targetFrame)
-            }
-#endif
-            // Retargeting snaps to the new zone; sliding the frame lags the pointer.
-            applyDropZoneOverlayFrame(targetFrame)
-            guard dropZoneOverlayView.alphaValue < 1 else { return }
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                dropZoneOverlayView.animator().alphaValue = 1
-            }
-        } else {
-            guard !dropZoneOverlayView.isHidden else { return }
-            dropZoneOverlayAnimationGeneration &+= 1
-            let animationGeneration = dropZoneOverlayAnimationGeneration
-            dropZoneOverlayView.layer?.removeAllAnimations()
-#if DEBUG
-            logDropZoneOverlay(event: "hide", zone: nil, frame: nil)
-#endif
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.14
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                dropZoneOverlayView.animator().alphaValue = 0
-            } completionHandler: { [weak self] in
-                guard let self else { return }
-                guard self.dropZoneOverlayAnimationGeneration == animationGeneration else { return }
-                guard self.activeDropZone == nil else { return }
-                self.dropZoneOverlayView.isHidden = true
-                self.dropZoneOverlayView.alphaValue = 1
-#if DEBUG
-                self.logDropZoneOverlay(event: "hideComplete", zone: nil, frame: nil)
-#endif
-            }
+        if zone != nil, window == nil {
+            logDropZoneOverlay(event: "showNoWindow", zone: zone, frame: nil)
         }
+#endif
+        let transition = dropZoneOverlayAnimator.setZone(
+            zone,
+            frameForZone: { dropZoneOverlayFrame(for: $0, in: bounds.size) },
+            ensureAttached: attachDropZoneOverlayIfNeeded,
+            bringToFront: {}
+        )
+#if DEBUG
+        switch transition {
+        case .shown:
+            recordDropOverlayShowAnimation()
+            logDropZoneOverlay(event: "show", zone: zone, frame: dropZoneOverlayView.frame)
+        case .moved:
+            logDropZoneOverlay(event: "update", zone: zone, frame: dropZoneOverlayView.frame)
+        case .hidden:
+            logDropZoneOverlay(event: "hide", zone: nil, frame: nil)
+        case .unchanged:
+            break
+        }
+#else
+        _ = transition
+#endif
     }
 
     func setPaneDropContext(_ context: TerminalPaneDropContext?) {
