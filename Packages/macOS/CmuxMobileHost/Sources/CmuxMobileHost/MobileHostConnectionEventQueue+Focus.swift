@@ -1,6 +1,9 @@
 import Foundation
 
 extension MobileHostConnectionEventQueue {
+    // Focus routing stays separate from mailbox admission to keep both files
+    // within the repository's Swift file-length budget.
+
     /// One key per terminal: focus signals and render-grid events can differ
     /// in case or surrounding whitespace.
     public static func canonicalSurfaceKey(_ rawSurfaceKey: String) -> String {
