@@ -104,3 +104,71 @@ goldens recorded from the references, and a runner. See
 - [ ] Native input, dialogs, file chooser, downloads, popups, PDF
 - [ ] JavaScriptCore REPL host and `cmux browser repl`
 - [ ] All scenarios pass on a tagged build
+
+## Runtime status
+
+The engine-neutral runtime lives in `Resources/browser-repl/` and loads in the
+order the app's `BrowserReplRuntimeBundle` uses: `vendor/acorn.js`,
+`vendor/playwright-locator-utils.js`, `runtime-core.js`, `dialect-aside.js`,
+`dialect-chatgpt.js`, `repl-host.js` for the REPL context, and
+`vendor/playwright-injected.js` plus `page-agent.js` for each frame's agent
+world. `repl-host.js` adapts the app's `__cmuxNative` object and defines
+`__cmuxReplEval`. Both dialects share one session.
+
+`tests/browser-parity/lib/dev-driver.mjs` implements the driver protocol on
+Playwright WebKit, and `run.mjs --backend cmux-dev` runs scenarios through the
+same scripts in Node, with no app build:
+
+```sh
+node tests/browser-parity/run.mjs check --backend cmux-dev --dialect aside
+node tests/browser-parity/run.mjs ax        # tab.ax text vs ChatGPT's own renderer
+node --test tests/browser-parity/unit/*.test.mjs
+```
+
+Results on 2026-09-29:
+
+- Aside dialect: 11 of 13 scenarios match their goldens exactly. `04-input`
+  and `05-frames` fail only on the golden disputes below.
+- `tab.ax`: 12 of 12 cases match ChatGPT's renderer byte for byte (all
+  fixture pages, the 02 action sequence, revision diffs, the no-change
+  message, focus, and a prompt dialog).
+- ChatGPT scenarios run end to end; there are no ChatGPT goldens yet.
+
+Golden disputes (goldens left unchanged):
+
+- `04-input` `scrolled` expects `false`. The Playwright reference reads
+  `scrollTop` right after `mouse.wheel()`, while Chrome still scrolls
+  asynchronously. WebKit scrolls before the read, so cmux reports `true`,
+  which is what the scenario means to test.
+- `05-frames` `full` and `after-clicks` use Aside's registration-order frame
+  prefixes (`f2` for the first iframe); cmux numbers frames in DOM order, as
+  decided above. The URL in the title line also keeps a raw peer port
+  (`%3A56559`) that `normalize.mjs` cannot rewrite, because `\b` does not
+  match between `A` and the digits. With the peer port pinned and `f1`/`f2`
+  swapped, both values match exactly.
+- `scenarios/chatgpt/02-ax-actions.js` looks for `/textbox Email/`,
+  `/checkbox Accept terms/` and `/textbox Bio/`. ChatGPT prints `text field
+  (settable) Email` and `checkbox (settable, integer) Description: Accept
+  terms`, so the scenario throws on the real reference too. With matching
+  regexes the sequence runs and its AX text matches the reference.
+
+Decisions made in the runtime:
+
+- Click focus follows Chromium. WebKit on macOS does not focus buttons and
+  links on mouse click; the runtime focuses the clicked control between
+  mousedown and mouseup when the page did not move focus itself. Goldens 03
+  and 05 (`[focused]`) depend on it. The Swift driver must not add its own
+  emulation.
+- Pointer actions check the hit target again after moving the pointer and
+  retry, as Playwright's hit-target interceptor does (a `:hover` menu that
+  collapses on move shifts the target).
+- `fs`, uploads and `download.saveAs` stay inside the session directory;
+  completed downloads are readable. ChatGPT scenario 06 uploads files from
+  `os.tmpdir()` and fails under this rule.
+- `import()` in a cell calls the host's optional `importModule`. The app has
+  none, so Node modules fail with a clear error; the dev backend allows them.
+- The page agent builds ChatGPT's tree from DOM and ARIA with Chromium's
+  role strings and quirks (list markers, redundant checkbox labels, select
+  popups, disclosure triangles, iframe bodies). Roles and names come from
+  the DOM, not WebKit's accessibility tree, so pages beyond the fixtures can
+  still differ from Chromium; `run.mjs ax` is the regression check.

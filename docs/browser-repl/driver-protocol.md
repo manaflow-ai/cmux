@@ -170,3 +170,35 @@ otherwise `runtime-core.js`, `dialect-aside.js`, `dialect-chatgpt.js`,
   `globalThis.__cmuxPageAgent.resolveHandle(id) -> Element | null`. The
   driver assigns files with `DataTransfer` and dispatches `input` and
   `change`.
+
+## Proposed changes (runtime)
+
+Needs found while building `Resources/browser-repl` against the `dev` driver.
+The dev driver implements all of them.
+
+- `frame.contentFrame { targetId, frameId, element }` returns `{ frameId }` of
+  the frame an `<iframe>` agent handle hosts, or `null`. The runtime uses it
+  for frame locators, DOM-order frame prefixes and snapshot stitching. Without
+  it the runtime falls back to matching the iframe's content box against each
+  child's `frame.ownerBox`, which fails for overlapping or hidden frames.
+- `frame.evaluate` takes `handles: [agentHandleId]`. The driver resolves them
+  to elements in the target world and passes them before `args`, so
+  `locator.evaluate` and `evaluateAll` run user functions in the page world on
+  elements the agent world found. On WebKit this needs a cross-world lookup,
+  for example through `__cmuxPageAgent.resolveHandle`.
+- `tab.info` must answer while a JavaScript dialog is open (page script is
+  blocked then): return the last known `title` and `loadState`. `loadState`
+  is `commit`, `domcontentloaded` or `load`; the runtime polls it for
+  `waitForLoadState` and `waitForURL`.
+- An `input.mouse` `up` that opens a dialog may stay pending until
+  `dialog.respond`; events such as `dialog.opened` must still arrive while
+  the call is pending, because the runtime answers dialogs from them.
+- `input.key` carries the resolved `key` (`C` for Shift+KeyC), `code`,
+  `location`, and `text` only when the key inserts text (none while Meta,
+  Control or Alt is held).
+- The page agent exposes `globalThis[Symbol.for("cmux.browserRepl.agent")]`
+  and `globalThis.__cmuxPageAgent.resolveHandle(id)`, both non-enumerable.
+  Handle ids are strings (`h12`), stable per element for the document's life.
+- Host: `importModule(specifier)` is optional (absent in the app).
+  `fetchHandlesCookies` is implied by the native `fetch` contract, so the
+  runtime does not add a `Cookie` header itself there.
