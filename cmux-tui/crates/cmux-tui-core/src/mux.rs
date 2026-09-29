@@ -1004,6 +1004,8 @@ pub enum TreeDeltaKind {
     WorkspaceClosed,
     WorkspaceRenamed,
     WorkspaceMoved,
+    /// Workspace presentation (color, icon, title) changed.
+    WorkspaceChanged,
     ScreenAdded,
     ScreenClosed,
     ScreenRenamed,
@@ -1021,6 +1023,7 @@ impl TreeDeltaKind {
             Self::WorkspaceClosed => "workspace-closed",
             Self::WorkspaceRenamed => "workspace-renamed",
             Self::WorkspaceMoved => "workspace-moved",
+            Self::WorkspaceChanged => "workspace-changed",
             Self::ScreenAdded => "screen-added",
             Self::ScreenClosed => "screen-closed",
             Self::ScreenRenamed => "screen-renamed",

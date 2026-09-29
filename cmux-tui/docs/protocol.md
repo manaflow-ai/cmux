@@ -104,6 +104,12 @@ revision, so it takes the durable mutation envelope and emits
 {"id":14,"cmd":"move-workspace-to-group","key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","group":"agents","index":0,"origin":"mac-1","mutation_id":"m-41"}
 ```
 
+`workspace-metadata-v1` adds shared workspace presentation: `color` (a
+frontend palette token or `#RRGGBB[AA]`), `icon` (an SF Symbol name), and a
+custom `title` on every workspace. `set-workspace-metadata` treats an absent
+field as unchanged and `null` as clear, commits one workspace-registry
+revision, and emits `workspace-changed` with the full workspace entity.
+
 Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
 ```json

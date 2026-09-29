@@ -129,6 +129,9 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// `move-workspace-to-group`, a `groups` array in `list-workspaces`, and a
 /// `group` field on every workspace.
 pub const WORKSPACE_GROUPS_CAPABILITY: &str = "workspace-groups-v1";
+/// Durable workspace presentation: `set-workspace-metadata`, the
+/// `color`/`icon`/`title` workspace fields, and `workspace-changed` deltas.
+pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -232,6 +235,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
+        WORKSPACE_METADATA_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1244,6 +1248,22 @@ enum Command {
         #[serde(default)]
         key: Option<String>,
         index: usize,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
+    /// Set, clear (`null`), or keep (absent) a workspace's shared color,
+    /// SF Symbol icon, and custom title.
+    SetWorkspaceMetadata {
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        title: Option<Option<String>>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -10074,6 +10094,9 @@ fn workspace_json(
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
         "group": presentation.and_then(|presentation| presentation.group.as_deref()),
+        "color": presentation.and_then(|presentation| presentation.color.as_deref()),
+        "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
+        "title": presentation.and_then(|presentation| presentation.title.as_deref()),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
             screen_json(
@@ -10099,6 +10122,7 @@ pub(crate) fn tree_entity_json(
             | TreeDeltaKind::WorkspaceClosed
             | TreeDeltaKind::WorkspaceRenamed
             | TreeDeltaKind::WorkspaceMoved
+            | TreeDeltaKind::WorkspaceChanged
     ) {
         let short_ids = tree_short_ids(state);
         let index = state.workspace_index(id)?;
@@ -10111,7 +10135,8 @@ pub(crate) fn tree_entity_json(
         TreeDeltaKind::WorkspaceAdded
         | TreeDeltaKind::WorkspaceClosed
         | TreeDeltaKind::WorkspaceRenamed
-        | TreeDeltaKind::WorkspaceMoved => unreachable!("workspace deltas returned above"),
+        | TreeDeltaKind::WorkspaceMoved
+        | TreeDeltaKind::WorkspaceChanged => unreachable!("workspace deltas returned above"),
         TreeDeltaKind::ScreenAdded | TreeDeltaKind::ScreenClosed | TreeDeltaKind::ScreenRenamed => {
             workspaces
                 .iter()
@@ -12573,6 +12598,38 @@ fn handle_command_with_cancellation(
                 "workspace": result.workspace,
                 "key": result.key,
                 "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
+        }
+        Command::SetWorkspaceMetadata { workspace, key, color, icon, title, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let update = crate::workspace_registry::WorkspacePresentationUpdate {
+                group: None,
+                color,
+                icon,
+                title,
+            };
+            let result = mux.set_workspace_metadata(
+                workspace,
+                key.as_deref(),
+                update,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let presentation = mux.presentation_snapshot();
+            let record = presentation.workspace(&result.key).cloned().unwrap_or_default();
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "color": record.color,
+                "icon": record.icon,
+                "title": record.title,
                 "workspace_revision": result.revision,
                 "changed": result.changed,
                 "replayed": result.replayed,
@@ -21140,6 +21197,52 @@ mod tests {
         let deleted =
             run_json_command(&mux, json!({"cmd":"delete-workspace-group","group":group})).unwrap();
         assert_eq!(deleted["ungrouped_keys"], json!([second.key]));
+    }
+
+    #[test]
+    fn cmux_next_set_workspace_metadata_distinguishes_absent_from_null() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&WORKSPACE_METADATA_CAPABILITY));
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let set = run_json_command(
+            &mux,
+            json!({
+                "cmd":"set-workspace-metadata",
+                "key": workspace.key,
+                "color":"#336699",
+                "icon":"hammer",
+                "title":"Build",
+            }),
+        )
+        .unwrap();
+        assert_eq!(set["color"], "#336699");
+        assert_eq!(set["changed"], true);
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":null}),
+        )
+        .unwrap();
+        assert!(cleared["icon"].is_null());
+        assert_eq!(cleared["color"], "#336699");
+        assert_eq!(cleared["title"], "Build");
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let entry = tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["key"] == json!(workspace.key))
+            .cloned()
+            .unwrap();
+        assert_eq!(entry["color"], "#336699");
+        assert!(entry["icon"].is_null());
+        assert_eq!(entry["title"], "Build");
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":"NOT/AN ICON"}),
+            )
+            .is_err()
+        );
     }
 
     #[cfg(unix)]

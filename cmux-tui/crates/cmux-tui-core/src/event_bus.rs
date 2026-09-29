@@ -198,6 +198,7 @@ impl SurfaceSessionScope {
             TreeDeltaKind::WorkspaceAdded
             | TreeDeltaKind::WorkspaceRenamed
             | TreeDeltaKind::WorkspaceMoved
+            | TreeDeltaKind::WorkspaceChanged
             | TreeDeltaKind::ScreenAdded
             | TreeDeltaKind::ScreenRenamed
             | TreeDeltaKind::PaneAdded => false,

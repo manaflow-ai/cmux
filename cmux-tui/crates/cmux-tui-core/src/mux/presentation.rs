@@ -315,6 +315,109 @@ impl Mux {
     }
 }
 
+impl Mux {
+    /// Set, clear, or keep a workspace's shared color, icon, and custom
+    /// title. The write commits one workspace-registry revision (the
+    /// registry order is unchanged), so it takes the durable mutation
+    /// envelope and emits `workspace-changed` with the full entity.
+    pub fn set_workspace_metadata(
+        &self,
+        workspace: Option<WorkspaceId>,
+        requested_key: Option<&str>,
+        update: WorkspacePresentationUpdate,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<WorkspaceMutationResult> {
+        anyhow::ensure!(update.group.is_none(), "use move-workspace-to-group to change a group");
+        update.validate()?;
+        let fingerprint = serde_json::json!({
+            "op": "set-workspace-metadata",
+            "workspace": workspace,
+            "key": requested_key,
+            "color": update.color,
+            "icon": update.icon,
+            "title": update.title,
+        });
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(commit) = registry.replay(mutation, &fingerprint)? {
+            return workspace_mutation_result(&commit);
+        }
+        let (delta, result) = {
+            let mut state = self.state.lock().unwrap();
+            Self::require_workspace_revision(&state, expected_revision)?;
+            let index = resolve_workspace_index(&state, workspace, requested_key)?;
+            let workspace_id = state.workspaces[index].id;
+            let key = state.workspaces[index].key.clone();
+            let before = self.presentation_snapshot().workspace(&key).cloned().unwrap_or_default();
+            let mut after = before.clone();
+            if let Some(color) = &update.color {
+                after.color = color.clone();
+            }
+            if let Some(icon) = &update.icon {
+                after.icon = icon.clone();
+            }
+            if let Some(title) = &update.title {
+                after.title = title.clone();
+            }
+            let changed = before != after;
+            let desired = self.registry_projection(&state);
+            let commit = {
+                let desired_active_workspace = state
+                    .workspaces
+                    .get(state.active_workspace)
+                    .map(|workspace| &workspace.public_id);
+                registry.commit_workspace_presentation(
+                    mutation,
+                    &fingerprint,
+                    expected_generation,
+                    expected_revision,
+                    "workspace-changed",
+                    &key,
+                    &desired,
+                    desired_active_workspace,
+                    &update,
+                    &serde_json::json!({
+                        "workspace": workspace_id,
+                        "key": key.clone(),
+                        "index": index,
+                        "changed": changed,
+                    }),
+                )?
+            };
+            let resource_revision = registry.snapshot()?.resource_revision;
+            self.reload_presentation(&registry)?;
+            state.workspace_revision = commit.revision;
+            state.resource_revision = resource_revision;
+            let decorations = self.tree_decorations_in_state(&state);
+            let entity = crate::server::tree_entity_json(
+                &state,
+                &decorations,
+                TreeDeltaKind::WorkspaceChanged,
+                workspace_id,
+            )
+            .expect("changed workspace is present in tree snapshot");
+            (
+                TreeDelta {
+                    kind: TreeDeltaKind::WorkspaceChanged,
+                    workspace: workspace_id,
+                    screen: None,
+                    pane: None,
+                    surface: None,
+                    index: Some(index),
+                    entity,
+                    workspace_revision: Some(commit.revision),
+                },
+                workspace_mutation_result(&commit)?,
+            )
+        };
+        self.emit_committed_workspace_delta(&registry, delta, false);
+        drop(registry);
+        self.publish_resource_event();
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,6 +559,92 @@ mod tests {
         drop(mux);
         let mux = session.open();
         assert_eq!(mux.workspace_groups().len(), 1);
+    }
+
+    #[test]
+    fn cmux_next_workspace_metadata_survives_restart_and_emits_workspace_changed() {
+        let session = PresentationTestSession::new("metadata");
+        let mux = session.open();
+        let key = mux.create_empty_workspace(Some("repo".into()), None, None).unwrap().key;
+        let events = mux.subscribe();
+        let update = WorkspacePresentationUpdate {
+            group: None,
+            color: Some(Some("gray".into())),
+            icon: Some(Some("terminal.fill".into())),
+            title: Some(Some("Release train".into())),
+        };
+        let result = mux
+            .set_workspace_metadata(
+                None,
+                Some(&key),
+                update.clone(),
+                None,
+                None,
+                &WorkspaceMutation::new("meta-1", "presentation-test").unwrap(),
+            )
+            .unwrap();
+        assert!(result.changed);
+        let delta = std::iter::from_fn(|| events.try_recv().ok())
+            .find_map(|event| match event {
+                MuxEvent::TreeDelta(delta) if delta.kind == TreeDeltaKind::WorkspaceChanged => {
+                    Some(delta)
+                }
+                _ => None,
+            })
+            .expect("workspace-changed delta");
+        assert_eq!(delta.workspace_revision, Some(result.revision));
+        assert_eq!(delta.entity["color"], "gray");
+        assert_eq!(delta.entity["icon"], "terminal.fill");
+        assert_eq!(delta.entity["title"], "Release train");
+        // Absent fields are unchanged; null clears one field.
+        mux.set_workspace_metadata(
+            None,
+            Some(&key),
+            WorkspacePresentationUpdate { title: Some(None), ..Default::default() },
+            None,
+            None,
+            &WorkspaceMutation::local("presentation-test"),
+        )
+        .unwrap();
+        for bad in [
+            WorkspacePresentationUpdate {
+                icon: Some(Some("Bad Icon".into())),
+                ..Default::default()
+            },
+            WorkspacePresentationUpdate { color: Some(Some("#12".into())), ..Default::default() },
+            WorkspacePresentationUpdate { title: Some(Some(" ".into())), ..Default::default() },
+        ] {
+            assert!(
+                mux.set_workspace_metadata(
+                    None,
+                    Some(&key),
+                    bad,
+                    None,
+                    None,
+                    &WorkspaceMutation::local("presentation-test"),
+                )
+                .is_err()
+            );
+        }
+        drop(events);
+        drop(mux);
+
+        let mux = session.open();
+        let record = mux.presentation_snapshot().workspace(&key).cloned().unwrap();
+        assert_eq!(record.color.as_deref(), Some("gray"));
+        assert_eq!(record.icon.as_deref(), Some("terminal.fill"));
+        assert_eq!(record.title, None);
+        let replay = mux
+            .set_workspace_metadata(
+                None,
+                Some(&key),
+                update,
+                None,
+                None,
+                &WorkspaceMutation::new("meta-1", "presentation-test").unwrap(),
+            )
+            .unwrap();
+        assert!(replay.replayed);
     }
 
     #[test]

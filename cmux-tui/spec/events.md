@@ -35,6 +35,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `workspace-closed` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-renamed` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-moved` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `workspace-changed` | subscribe (`deltas`) | `workspace` | protocol 12 additive extension; capability `workspace-metadata-v1` |
 | `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
@@ -314,7 +315,23 @@ object{event:"workspace-renamed",workspace:Id,entity:Workspace,workspace_revisio
 object{event:"workspace-moved",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
 ```
 
-For all four workspace delta events, `origin` and `mutation_id` are either both
+### workspace-changed
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-metadata-v1` |
+
+Emitted after `set-workspace-metadata` commits. It carries a workspace
+registry revision like the other workspace deltas; clients that do not know
+the event name must still advance their revision cursor or refetch on the gap.
+
+```text
+object{event:"workspace-changed",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
+```
+
+For all workspace delta events, `origin` and `mutation_id` are either both
 present or both absent.
 
 ### frontend-projection-changed

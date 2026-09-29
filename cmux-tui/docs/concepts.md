@@ -34,6 +34,10 @@ keeping their own member lists: a section shows its workspaces in workspace
 order, and moving a workspace inside a section reorders the workspace list
 around the other members. Deleting a group ungroups its workspaces in place.
 
+A workspace can also carry a shared color, an SF Symbol icon, and a custom
+title that frontends show instead of its name. These are durable like the
+name and are not per-window preferences.
+
 ## Tabs and Names
 
 A terminal resource wraps one child process connected to one pseudo-terminal, its ordered input and output, retained history, canonical grid, and graphics state. A PTY tab is a named view placement of that resource. A browser tab wraps one local Chrome/Chromium target and cannot have a second placement.

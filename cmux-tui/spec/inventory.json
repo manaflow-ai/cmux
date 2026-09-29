@@ -214,6 +214,7 @@
       "set-terminal-idle-policy",
       "set-viewport-pane-width",
       "set-window-title",
+      "set-workspace-metadata",
       "split",
       "swap-pane",
       "terminal-events",
@@ -544,6 +545,12 @@
     },
     {
       "name": "workspace-added",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "workspace-changed",
       "streams": [
         "subscribe-deltas"
       ]
