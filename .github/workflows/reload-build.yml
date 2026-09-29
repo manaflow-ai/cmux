@@ -196,6 +196,10 @@ jobs:
               raise SystemExit("published cmux-tui client has the wrong Ghostty identity")
           PYVERIFY
           echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
+          acpmux="$client_bundle/Contents/Resources/bin/acpmux"
+          if [[ -x "$acpmux" ]]; then
+            echo "CMUX_ACPMUX_LOCAL=$acpmux" >> "$GITHUB_ENV"
+          fi
 
       - name: Prepare macOS cache metadata
         if: ${{ inputs.platform == 'macos' }}
