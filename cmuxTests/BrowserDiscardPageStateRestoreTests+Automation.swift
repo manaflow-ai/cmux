@@ -34,13 +34,13 @@ extension BrowserDiscardPageStateRestoreTests {
         XCTAssertTrue(panel.webView === context.webView, "The command must drive the restored web view")
         XCTAssertFalse(panel.isWebViewVisibleInUI, "The restore must not show the pane")
 
-        waitForPage(panel, url: pageB, timeout: 10)
+        await waitForPage(panel, url: pageB, timeout: 10)
         XCTAssertEqual(
             panel.webView.backForwardList.backItem?.url.standardizedFileURL,
             pageA.standardizedFileURL
         )
-        waitUntil("typed input restored", timeout: 10) {
-            (self.evaluate(
+        await waitUntil("typed input restored", timeout: 10) {
+            (await self.evaluate(
                 "document.getElementById('name').value + '|' + document.getElementById('notes').value",
                 in: panel.webView
             ) as? String) == "typed name|typed notes"
@@ -49,14 +49,14 @@ extension BrowserDiscardPageStateRestoreTests {
 
     /// A hidden pane an agent is driving is in use, so the memory budget must
     /// not unload it as the pane hidden longest.
-    func testAutomationCommandKeepsHiddenPaneFromMemoryBudget() throws {
+    func testAutomationCommandKeepsHiddenPaneFromMemoryBudget() async throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let page = try writePlainPage()
         let panel = try makeWorkspaceBrowser(in: workspace, url: page)
         defer { panel.close() }
         host(panel.webView)
-        waitForPage(panel, url: page)
+        await waitForPage(panel, url: page)
 
         // The workspace may already have recorded the pane hidden, which would
         // keep that hide time; show it first so the backdated hide is recorded.
@@ -85,7 +85,7 @@ extension BrowserDiscardPageStateRestoreTests {
         let panel = try makeWorkspaceBrowser(in: workspace, url: page)
         defer { panel.close() }
         host(panel.webView)
-        waitForPage(panel, url: page)
+        await waitForPage(panel, url: page)
         panel.noteWebViewVisibility(true, reason: "test.visible")
         panel.noteWebViewVisibility(false, reason: "test.hidden")
 
@@ -105,8 +105,8 @@ extension BrowserDiscardPageStateRestoreTests {
             let context = try resolveAutomationContext(for: panel, in: workspace, manager: manager)
             let readiness = await awaitAutomationDocumentReadiness(of: panel, driving: context.webView)
             XCTAssertEqual(readiness, .committed)
-            waitForPage(panel, url: page, timeout: 10)
-            waitUntil("cycle \(cycle) capture released") { panel.pageRestoration.discardedCapture == nil }
+            await waitForPage(panel, url: page, timeout: 10)
+            await waitUntil("cycle \(cycle) capture released") { panel.pageRestoration.discardedCapture == nil }
         }
     }
 
@@ -117,7 +117,7 @@ extension BrowserDiscardPageStateRestoreTests {
         let page = try writePlainPage()
         let panel = try makeWorkspaceBrowser(in: workspace, url: page)
         defer { panel.close() }
-        waitForPage(panel, url: page)
+        await waitForPage(panel, url: page)
         panel.noteWebViewVisibility(false, reason: "test.hidden")
 
         weak var terminated: WKWebView?

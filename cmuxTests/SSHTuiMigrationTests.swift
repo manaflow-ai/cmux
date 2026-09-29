@@ -118,19 +118,17 @@ struct SSHTuiMigrationTests {
         #expect(SSHTuiConnection(configuration: original).id == SSHTuiConnection(configuration: restored).id)
     }
 
-    @Test("A restored carrier logs in through the ControlMaster its open shared")
-    func restoredCarrierSharesTheOpensControlMaster() throws {
-        // `cmux ssh` opens with cmux's sharing defaults. The restored carrier
-        // runs in batch mode, so on a password-only host the live master is
-        // its only way in.
+    @Test("A restored carrier preserves the route-sensitive ControlMaster policy")
+    func restoredCarrierPreservesRouteSensitiveControlMasterPolicy() throws {
+        // ProxyJump is route-sensitive. It must not share cmux's default
+        // endpoint socket with another route to the same destination.
         let opened = configuration(options: SSHConnectionSharingOptions().mergingDefaults(into: ["ProxyJump=bastion"]))
         let snapshot = try #require(opened.sessionSnapshot())
         let persisted = try JSONEncoder().encode(snapshot)
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
         let openedCarrier = try resolvedControlSettings(SSHTuiConnection(configuration: opened))
-        #expect(openedCarrier["controlmaster"] == "auto")
-        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
-        #expect(openedCarrier["controlpath"]?.hasPrefix(socketDirectory + "/") == true)
+        #expect(openedCarrier["controlmaster"] == "no")
+        #expect(openedCarrier["controlpath"] == "none")
         #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored)) == openedCarrier)
     }
 

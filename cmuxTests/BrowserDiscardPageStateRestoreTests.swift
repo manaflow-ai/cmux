@@ -65,8 +65,8 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         super.tearDown()
     }
 
-    func testDiscardedPaneRestoresHistoryScrollAndTypedInput() throws {
-        let (panel, pageA, pageB) = try loadScrolledFormPage()
+    func testDiscardedPaneRestoresHistoryScrollAndTypedInput() async throws {
+        let (panel, pageA, pageB) = try await loadScrolledFormPage()
         defer { panel.close() }
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
@@ -78,14 +78,14 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
 
         host(panel.webView)
         panel.noteWebViewVisibility(true, reason: "test.visible")
-        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+        await assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
     }
 
     /// A WebContent process that dies while its pane is hidden must not cost
     /// the page: the pane restores its last session state when shown, instead
     /// of waiting behind the manual Reload overlay and reloading the URL.
-    func testHiddenWebContentTerminationRestoresPageStateOnReveal() throws {
-        let (panel, pageA, pageB) = try loadScrolledFormPage()
+    func testHiddenWebContentTerminationRestoresPageStateOnReveal() async throws {
+        let (panel, pageA, pageB) = try await loadScrolledFormPage()
         defer { panel.close() }
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
@@ -96,13 +96,13 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         XCTAssertFalse(panel.hasRecoverableWebContentTermination)
         XCTAssertFalse(panel.webView === terminatedWebView)
         host(panel.webView)
-        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+        await assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
     }
 
     /// A load that had not committed when the process died is not what the
     /// user was looking at, so it must not turn the restore into a reload.
-    func testHiddenTerminationDuringUnfinishedLoadRestoresCommittedPage() throws {
-        let (panel, pageA, pageB) = try loadScrolledFormPage()
+    func testHiddenTerminationDuringUnfinishedLoadRestoresCommittedPage() async throws {
+        let (panel, pageA, pageB) = try await loadScrolledFormPage()
         defer { panel.close() }
         let pageC = fixtureDirectory.appendingPathComponent("c.html")
         try "<html><head><title>C</title></head><body>C</body></html>"
@@ -117,15 +117,15 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         panel.noteWebViewVisibility(true, reason: "test.visible")
         XCTAssertFalse(panel.hasRecoverableWebContentTermination)
         host(panel.webView)
-        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+        await assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
     }
 
     /// With automatic restore off (https://github.com/manaflow-ai/cmux/issues/9561),
     /// showing a discarded pane must not load anything until the user asks,
     /// and that restore still brings back the page state.
-    func testManualRestoreModeWaitsForUserBeforeRestoringPageState() throws {
+    func testManualRestoreModeWaitsForUserBeforeRestoringPageState() async throws {
         UserDefaults.standard.set(false, forKey: Self.autoRestoreKey)
-        let (panel, pageA, pageB) = try loadScrolledFormPage()
+        let (panel, pageA, pageB) = try await loadScrolledFormPage()
         defer { panel.close() }
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
@@ -135,16 +135,16 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
 
         host(panel.webView)
         panel.noteWebViewVisibility(true, reason: "test.visible")
-        assertWaitsForManualRestore(panel, instead: pageB)
+        await assertWaitsForManualRestore(panel, instead: pageB)
 
         panel.restoreDiscardedWebViewIfNeeded(reason: "test.manual_restore")
-        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+        await assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
     }
 
     /// A page whose WebContent process died while hidden waits the same way.
-    func testManualRestoreModeHoldsPageTerminatedWhileHidden() throws {
+    func testManualRestoreModeHoldsPageTerminatedWhileHidden() async throws {
         UserDefaults.standard.set(false, forKey: Self.autoRestoreKey)
-        let (panel, pageA, pageB) = try loadScrolledFormPage()
+        let (panel, pageA, pageB) = try await loadScrolledFormPage()
         defer { panel.close() }
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
@@ -155,16 +155,16 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         XCTAssertFalse(panel.hasRecoverableWebContentTermination)
         XCTAssertFalse(panel.webView === terminatedWebView)
         host(panel.webView)
-        assertWaitsForManualRestore(panel, instead: pageB)
+        await assertWaitsForManualRestore(panel, instead: pageB)
 
         panel.restoreDiscardedWebViewIfNeeded(reason: "test.manual_restore")
-        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+        await assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
     }
 
     /// Stop keeps a shown pane from reloading, but a WebContent process that
     /// dies while hidden leaves no live page for Stop to keep.
-    func testHiddenTerminationAfterStopRestoresPageStateOnReveal() throws {
-        let (panel, pageA, pageB) = try loadScrolledFormPage()
+    func testHiddenTerminationAfterStopRestoresPageStateOnReveal() async throws {
+        let (panel, pageA, pageB) = try await loadScrolledFormPage()
         defer { panel.close() }
 
         panel.stopLoading()
@@ -176,19 +176,19 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         XCTAssertFalse(panel.hasRecoverableWebContentTermination)
         XCTAssertFalse(panel.webView === terminatedWebView)
         host(panel.webView)
-        assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
+        await assertRestoredPageState(panel, pageA: pageA, pageB: pageB)
     }
 
     /// A remote workspace pane restores by loading its URL, which waits while
     /// the workspace's proxy is reconnecting. The typed input must still come
     /// back once that queued load runs.
-    func testRemotePaneRestoreQueuedForProxyRefillsTypedInput() throws {
+    func testRemotePaneRestoreQueuedForProxyRefillsTypedInput() async throws {
         let endpoint = BrowserProxyEndpoint(
             host: "127.0.0.1",
             port: 9876,
             credential: .random()
         )
-        let (panel, _, pageB) = try loadScrolledFormPage { url in
+        let (panel, _, pageB) = try await loadScrolledFormPage { url in
             let workspaceId = UUID()
             return BrowserPanel(
                 workspaceId: workspaceId,
@@ -211,9 +211,9 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         XCTAssertTrue(panel.hasPendingRemoteNavigation)
 
         panel.setRemoteProxyEndpoint(endpoint)
-        waitForPage(panel, url: pageB, timeout: 10)
-        waitUntil("typed input restored", timeout: 10) {
-            (self.evaluate(
+        await waitForPage(panel, url: pageB, timeout: 10)
+        await waitUntil("typed input restored", timeout: 10) {
+            (await self.evaluate(
                 "document.getElementById('name').value + '|' + document.getElementById('notes').value",
                 in: panel.webView
             ) as? String) == "typed name|typed notes"
@@ -222,23 +222,23 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
 
     /// A back/forward cache return keeps the typed input on screen, but its
     /// commit clears the pane's copy, so the page must report it again.
-    func testBackForwardCacheReturnReportsTypedInputAgain() throws {
-        let (panel, _, _) = try loadScrolledFormPage()
+    func testBackForwardCacheReturnReportsTypedInputAgain() async throws {
+        let (panel, _, _) = try await loadScrolledFormPage()
         defer { panel.close() }
         XCTAssertNotNil(panel.pageRestoration.liveFormState)
 
-        _ = evaluate(
+        _ = await evaluate(
             "window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })); true",
             in: panel.webView
         )
         panel.pageRestoration.noteDocumentCommitted(isDiscardRestoreCommit: false)
         XCTAssertNil(panel.pageRestoration.liveFormState)
 
-        _ = evaluate(
+        _ = await evaluate(
             "window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })); true",
             in: panel.webView
         )
-        waitUntil("typed input reported again") {
+        await waitUntil("typed input reported again") {
             panel.pageRestoration.liveFormState?.isEmpty == false
         }
     }
@@ -248,7 +248,7 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
     /// local workspace panel by default.
     func loadScrolledFormPage(
         makePanel: ((URL) throws -> BrowserPanel)? = nil
-    ) throws -> (panel: BrowserPanel, pageA: URL, pageB: URL) {
+    ) async throws -> (panel: BrowserPanel, pageA: URL, pageB: URL) {
         let pageA = fixtureDirectory.appendingPathComponent("a.html")
         let pageB = fixtureDirectory.appendingPathComponent("b.html")
         try "<html><head><title>A</title></head><body>A</body></html>"
@@ -264,16 +264,16 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         let panel = try makePanel?(pageA)
             ?? BrowserPanel(workspaceId: UUID(), initialURL: pageA, isRemoteWorkspace: false)
         host(panel.webView)
-        waitForPage(panel, url: pageA)
+        await waitForPage(panel, url: pageA)
 
         browserLoadRequest(URLRequest(url: pageB), in: panel.webView)
-        waitForPage(panel, url: pageB)
+        await waitForPage(panel, url: pageB)
         let historyBeforeScroll = try XCTUnwrap(
             sessionHistory(of: panel.webView),
             "WebKit's session state format changed; update sessionHistory(of:)"
         )
 
-        _ = evaluate(
+        _ = await evaluate(
             """
             (() => {
               for (const [id, value] of [["name", "typed name"], ["notes", "typed notes"]]) {
@@ -289,16 +289,16 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
             """,
             in: panel.webView
         )
-        waitUntil("page scrolled before hide") {
-            (self.evaluate("window.scrollY", in: panel.webView) as? Double) == 1500
+        await waitUntil("page scrolled before hide") {
+            (await self.evaluate("window.scrollY", in: panel.webView) as? Double) == 1500
         }
         // The restore replays the scroll position WebKit saved in the history
         // item, which it saves 300 ms after scrolling stops. Once page B has
         // loaded, nothing else changes its item.
-        waitUntil("scroll position saved in the history item") {
+        await waitUntil("scroll position saved in the history item") {
             self.sessionHistory(of: panel.webView) != historyBeforeScroll
         }
-        waitUntil("typed input reported") {
+        await waitUntil("typed input reported") {
             let values = Set(panel.pageRestoration.liveFormState?.fields.compactMap(\.value) ?? [])
             return values.isSuperset(of: ["typed name", "typed notes"])
         }
@@ -332,8 +332,8 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         pageB: URL,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) {
-        waitForPage(panel, url: pageB, timeout: 10, file: file, line: line)
+    ) async {
+        await waitForPage(panel, url: pageB, timeout: 10, file: file, line: line)
 
         XCTAssertEqual(
             panel.webView.backForwardList.backItem?.url.standardizedFileURL,
@@ -343,11 +343,11 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
             line: line
         )
         XCTAssertTrue(panel.webView.canGoBack, file: file, line: line)
-        waitUntil("scroll position restored", timeout: 10, file: file, line: line) {
-            (self.evaluate("window.scrollY", in: panel.webView) as? Double) == 1500
+        await waitUntil("scroll position restored", timeout: 10, file: file, line: line) {
+            (await self.evaluate("window.scrollY", in: panel.webView) as? Double) == 1500
         }
-        waitUntil("typed input restored", timeout: 10, file: file, line: line) {
-            (self.evaluate(
+        await waitUntil("typed input restored", timeout: 10, file: file, line: line) {
+            (await self.evaluate(
                 "document.getElementById('name').value + '|' + document.getElementById('notes').value",
                 in: panel.webView
             ) as? String) == "typed name|typed notes"
@@ -359,9 +359,9 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         instead page: URL,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) {
+    ) async {
         // Give a restore that should not have started time to show up.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        try? await Task.sleep(for: .milliseconds(500))
         XCTAssertEqual(panel.webViewLifecycleState, .discarded, file: file, line: line)
         XCTAssertFalse(panel.shouldRenderWebView, file: file, line: line)
         XCTAssertFalse(panel.webView.isLoading, file: file, line: line)
@@ -374,18 +374,12 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         hostWindow.contentView?.addSubview(webView)
     }
 
-    func evaluate(_ script: String, in webView: WKWebView) -> Any? {
-        var result: Any?
-        var finished = false
-        webView.evaluateJavaScript(script) { value, _ in
-            result = value
-            finished = true
+    func evaluate(_ script: String, in webView: WKWebView) async -> Any? {
+        await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(script) { value, _ in
+                continuation.resume(returning: value)
+            }
         }
-        let deadline = Date().addingTimeInterval(5)
-        while !finished, Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-        return result
     }
 
     func waitForPage(
@@ -394,8 +388,8 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         timeout: TimeInterval = 5,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) {
-        waitUntil("load of \(url.lastPathComponent)", timeout: timeout, file: file, line: line) {
+    ) async {
+        await waitUntil("load of \(url.lastPathComponent)", timeout: timeout, file: file, line: line) {
             panel.webView.url?.standardizedFileURL == url.standardizedFileURL
                 && !panel.webView.isLoading
                 && panel.webView.backForwardList.currentItem?.url.standardizedFileURL == url.standardizedFileURL
@@ -408,12 +402,12 @@ final class BrowserDiscardPageStateRestoreTests: XCTestCase {
         timeout: TimeInterval = 5,
         file: StaticString = #filePath,
         line: UInt = #line,
-        predicate: () -> Bool
-    ) {
+        predicate: () async -> Bool
+    ) async {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if predicate() { return }
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+            if await predicate() { return }
+            await Task.yield()
         }
         continueAfterFailure = false
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
