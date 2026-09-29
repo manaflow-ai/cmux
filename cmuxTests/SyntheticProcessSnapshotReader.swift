@@ -79,7 +79,8 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
                 info.e_tpgid = UInt32(pid)
                 info.pbi_start_tvsec = 100
                 return info
-            }
+            },
+            processHasExited: { _ in false }
         ).capture()
         return DarwinProcessListing(
             processes: listing.processes,
