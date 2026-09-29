@@ -118,6 +118,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        services.cloudContextDidChange()
     }
 
     func windowDidMove(_ notification: Notification) { services.windows.stateDidChange(state) }

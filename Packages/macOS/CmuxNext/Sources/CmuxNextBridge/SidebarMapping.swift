@@ -6,11 +6,14 @@ import Foundation
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
 /// section for the local daemon, loose workspaces first, then groups.
 public enum SidebarMapping {
+    /// `statusLine` maps a workspace id to the status hooks reported
+    /// (`set_status`), shown in the row's subtitle slot instead of the cwd.
     public static func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
-                                collapsedGroups: Set<String> = []) -> [SidebarRowSection] {
+                                collapsedGroups: Set<String> = [],
+                                statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
-            let rows = section.workspaces.map { row($0, machine: machine.id) }
+            let rows = section.workspaces.map { row($0, machine: machine.id, status: statusLine($0.id)) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -26,14 +29,14 @@ public enum SidebarMapping {
         return [SidebarRowSection(kind: .machine(machine), nodes: nodes)]
     }
 
-    public static func row(_ workspace: WorkspaceModel, machine: MachineID) -> SidebarWorkspace {
+    public static func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = workspace.unreadCount
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
             title: workspace.displayName,
-            subtitle: subtitle(tabs),
+            subtitle: status.flatMap { $0.isEmpty ? nil : $0 } ?? subtitle(tabs),
             icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? .symbol(workspace.icon ?? "terminal"),
             unread: unread > 0 ? .count(unread) : .none,
             activity: activity(tabs)

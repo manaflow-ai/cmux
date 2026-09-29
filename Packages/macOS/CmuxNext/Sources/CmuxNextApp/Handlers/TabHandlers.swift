@@ -155,8 +155,9 @@ enum TabHandlers {
 
     /// Optimistic rename; an empty name clears it on the daemon.
     static func rename(_ surface: SurfaceID, to name: String?, ctx: AppActionContext, pane: PaneController) {
+        let daemon = ctx.services.activeDaemon
         ctx.registry.track(Task {
-            let ok = await ctx.services.activeDaemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+            let ok = await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
                 try await connection.renameTab(surface, to: name ?? "")
             }
             if !ok { pane.resyncStrip() }

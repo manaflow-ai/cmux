@@ -35,9 +35,8 @@ struct ActionBindingCoverageTests {
 
     @Test func unbuiltFeatureIsUnavailableWithReason() {
         let services = Self.boundServices()
-        #expect(Self.run(services, "palette.checkForUpdates") == .refused("needs app capability updates"))
         #expect(Self.run(services, "toggleRightSidebar") == .refused("needs app capability right-sidebar"))
-        #expect(!services.registry.canPerform("palette.checkForUpdates"))
+        #expect(!services.registry.canPerform("toggleRightSidebar"))
     }
 
     @Test func missingDaemonCapabilityIsUnavailableWithReason() {

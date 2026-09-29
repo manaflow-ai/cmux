@@ -3,23 +3,27 @@ import CmuxNextDaemon
 import Observation
 
 extension AppServices {
-    /// The daemon of the active window's workspace: the local daemon, or its
-    /// Cloud machine. Focus-scoped handlers (tab, pane, workspace verbs)
-    /// command this daemon, so they act on a Cloud workspace the same way.
+    /// The daemon handlers command: while an action runs, the machine that
+    /// owns its explicit target (`ActionRouting`); otherwise the active
+    /// window's machine (the local daemon, or its Cloud machine).
     var activeDaemon: DaemonService {
-        windows?.active.flatMap { machines.daemon(machine: $0.state.machineID) } ?? daemon
+        routedDaemon ?? windows?.active.flatMap { machines.daemon(machine: $0.state.machineID) } ?? daemon
     }
 
     /// Publishes `signedIn` / `signedOut` / `cloudWorkspace` to the action
-    /// registry. `cloudWorkspace` means "a Cloud machine exists", so the
-    /// palette offers machine actions; each handler still resolves its
-    /// machine (explicit target, the window's machine, or the only one).
+    /// registry. `cloudWorkspace` means the active window shows a Cloud
+    /// machine's workspace, so the palette offers machine actions for it.
+    /// An explicit `machine:` target satisfies it too
+    /// (`ActionContext.implied(by:)`), so the CLI and a right-click on a
+    /// machine header work from any window.
     func cloudContextDidChange() {
         var context = registry.context
         let signedIn = cloud.isSignedIn
         context.remove([.signedIn, .signedOut, .cloudWorkspace])
         context.insert(signedIn ? .signedIn : .signedOut)
-        if signedIn, !machines.cloud.isEmpty { context.insert(.cloudWorkspace) }
+        if signedIn, let machine = windows?.active?.state.machineID, machines.session(machine) != nil {
+            context.insert(.cloudWorkspace)
+        }
         if registry.context != context { registry.context = context }
     }
 

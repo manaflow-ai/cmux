@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
@@ -23,9 +24,10 @@ extension SidebarBridge {
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
             command("rename-workspace", on: daemon, patch: .renameWorkspace(key: key, name: name)) { c, _ in _ = try await c.renameWorkspace(key, to: name) }
         case .close(let ids):
-            model.apply(intent)
-            for (daemon, key) in keys(ids) {
-                command("close-workspace", on: daemon) { c, _ in _ = try await c.closeWorkspace(key) }
+            // The row's close button is an entrypoint of `closeWorkspace`,
+            // so it asks the same confirmation and ends the terminals too.
+            for id in ids {
+                services.registry.perform("closeWorkspace", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue)))
             }
         case .newWorkspace(let machine, _):
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
@@ -126,7 +128,7 @@ extension SidebarBridge {
 
     /// Puts daemon truth back after a refused or rejected intent.
     private func resync() {
-        model.sections = Self.sections(services.machines)
+        model.sections = Self.sections(services.machines, statuses: services.statusBoard)
     }
 
     private func command(_ label: String, on daemon: DaemonService, patch: OptimisticPatch = .custom { _ in },

@@ -98,9 +98,10 @@ final class ClosedTabTracker {
                 return
             }
             let handle = paneModel.handle, cwd = record.cwd, index = record.index
+            let workspace = services.workspaceKey(of: paneModel)
             Task {
                 do {
-                    let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
+                    let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
                     _ = try await connection.moveTab(created.surface, to: handle, index: index)
                     if let controller {
                         controller.pendingSelectSurface = created.surface

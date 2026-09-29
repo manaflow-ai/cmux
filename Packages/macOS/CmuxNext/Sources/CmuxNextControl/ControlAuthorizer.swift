@@ -47,6 +47,15 @@ struct ControlAuthorizer: Sendable {
         return (await router.response(forLine: line, connection: connection), true)
     }
 
+    /// The `events.stream` request in `rawLine`, when this connection may
+    /// run it now (admitted, and authenticated in password mode).
+    func eventStreamRequest(_ rawLine: String) -> ControlRequest? {
+        let line = Self.unwrapEnvelopes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard line.hasPrefix("{"), isPeerAdmitted, configuration.accessMode != .password || isPasswordAuthenticated,
+              case .success(let request) = ControlRouter.decode(line), request.method == ControlRouter.eventStreamMethod else { return nil }
+        return request
+    }
+
     var isPeerAdmitted: Bool {
         switch configuration.accessMode {
         case .off:

@@ -54,7 +54,7 @@ import Testing
     @Test func v1LinesFallBackThroughProviders() async {
         let (router, _) = makeRouter()
         #expect(await router.response(forLine: "ping") == "PONG")
-        #expect(await router.response(forLine: "agent_journal_append {}").hasPrefix("ERROR: unsupported in cmux-next"))
+        #expect(await router.response(forLine: "agent_journal_append {}") == "ERROR: invalid agent journal event")
         #expect(await router.response(forLine: "report_pwd /tmp") == "OK")
         #expect(await router.response(forLine: "list_windows").hasPrefix("ERROR: cmux-next has not loaded"))
         #expect(await router.response(forLine: "bogus_verb").hasPrefix("ERROR: Unknown command 'bogus_verb'"))

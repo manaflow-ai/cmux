@@ -88,7 +88,8 @@ extension ActionCatalog {
                 id: "cloudKillMachine",
                 title: String(localized: "action.cloudKillMachine", defaultValue: "Kill Machine", bundle: .module),
                 keywords: ["vm", "cloud tree", "delete"], category: .cloud, symbol: "xmark.octagon",
-                surfaces: [.contextMenu], targets: [.machine], cliName: "cloud kill-machine"
+                surfaces: [.contextMenu], targets: [.machine], cliName: "cloud kill-machine",
+                destructive: true
             ),
             ActionDescriptor(
                 id: "cloudCopyLink",

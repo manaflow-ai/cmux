@@ -37,7 +37,8 @@ extension WorkspaceContentController {
             guard let handle = handles.panes[pane] else { return }
             let cwd = panes[pane]?.selectedTab?.cwd
             let direction: SplitDirection = axis == .horizontal ? .right : .down
-            spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd)) }
+            let key = workspace.key
+            spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key)) }
         }
     }
 

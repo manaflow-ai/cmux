@@ -16,6 +16,9 @@ final class AppServices {
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
     let machines: MachineRegistry
+    /// The machine of the action being run, while its handler runs
+    /// (`ActionRouting`); `activeDaemon` prefers it.
+    var routedDaemon: DaemonService?
     private(set) var cloud: CloudService!
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
@@ -33,6 +36,8 @@ final class AppServices {
     /// App side of the cmux CLI compat layer (window/focus state, intents).
     private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
+    /// Hook statuses shown in sidebar rows (`set_status`).
+    let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
@@ -85,6 +90,12 @@ final class AppServices {
     /// The daemon that owns `pane`.
     func daemon(for pane: PaneModel) -> DaemonService {
         machines.daemon(forPane: pane)
+    }
+
+    /// The workspace key of `pane`, for `SpawnOptions.workspace`: a new
+    /// terminal there gets `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
+    func workspaceKey(of pane: PaneModel) -> WorkspaceKey? {
+        daemon(for: pane).store.workspace(containing: pane.handle)?.key
     }
 
     /// Ends a detached tab drag whose move failed: the tab reappears.

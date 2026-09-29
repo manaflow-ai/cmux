@@ -28,4 +28,6 @@ public enum ControlActionOutcome: Sendable, Hashable {
     /// The action cannot run, with a typed reason: a missing daemon
     /// capability, an unported feature, or a target it cannot act on.
     case refused(String)
+    /// A destructive action ran without `confirm: true`; nothing happened.
+    case confirmationRequired
 }

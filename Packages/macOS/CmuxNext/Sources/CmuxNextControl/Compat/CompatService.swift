@@ -24,6 +24,8 @@ public final class CompatService: Sendable {
     let frontend: any CompatFrontend
     let refs = CompatRefRegistry()
     let sidebar = CompatSidebarStore()
+    /// `agent_journal_append` reply sequence (per app process; the daemon keeps no journal).
+    let journal = CompatJournalSequence()
     /// cmux keys every terminal this app spawns gets (`LaunchIdentity.terminalEnvironment`).
     let terminalEnvironment: [String: String]
     private let routerRef = Mutex(WeakRouter())
@@ -67,6 +69,24 @@ public final class CompatService: Sendable {
         router.registerV1 { line in await CompatV1.respond(line, service: self) }
     }
 
+    /// Calls `handler` with a workspace UUID (the old app's form of its key)
+    /// whenever a hook's `set_status`/`clear_status`/`set_progress` changes it.
+    public func observeSidebarStatus(_ handler: @escaping @Sendable (String) -> Void) {
+        sidebar.observe(handler)
+    }
+
+    /// The sidebar row's status line for a workspace UUID: its statuses by
+    /// priority (`set_status` values, `icon value` when an icon is set), then
+    /// the progress label, joined by " · ". Nil when there is nothing to show.
+    public func sidebarStatusLine(workspace uuid: String) -> String? {
+        let entry = sidebar.workspace(uuid)
+        var parts = CompatV1Sidebar.sortedStatuses(entry).map { $0.status.value }.filter { !$0.isEmpty }
+        if let progress = entry.progress {
+            parts.append(progress.label.flatMap { $0.isEmpty ? nil : $0 } ?? "\(Int((progress.value * 100).rounded()))%")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     /// Typed error for an unregistered method in an old namespace, for the
     /// router's unknown-method path (see `CompatUnsupported.reason(for:)`).
     public static func unsupportedError(for method: String) -> ControlError? {
@@ -77,7 +97,7 @@ public final class CompatService: Sendable {
         var all: [String: CompatHandler] = [:]
         for table in [CompatSystemMethods.table, CompatWorkspaceMethods.table, CompatPaneMethods.table,
                       CompatSurfaceMethods.table, CompatTerminalMethods.table, CompatNotificationMethods.table,
-                      CompatAgentMethods.table, CompatBrowserMethods.table] {
+                      CompatAgentMethods.table, CompatBrowserMethods.table, CompatFeed.table] {
             all.merge(table) { first, _ in first }
         }
         return all

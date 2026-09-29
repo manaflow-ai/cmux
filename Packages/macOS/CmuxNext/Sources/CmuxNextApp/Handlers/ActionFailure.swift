@@ -28,10 +28,12 @@ extension ActionRegistry {
     /// With `requires`, the action is unavailable (disabled in every surface)
     /// while the daemon lacks that capability.
     @discardableResult
-    func bind(_ id: ActionID, requires capability: String? = nil, daemon: DaemonService? = nil,
+    /// `daemon` is read when availability is asked (the active window's
+    /// machine then), not when the action is bound.
+    func bind(_ id: ActionID, requires capability: String? = nil, daemon: @autoclosure @escaping @MainActor () -> DaemonService? = nil,
               run: @escaping @MainActor (ActionInvocation) throws -> Void) -> Bool {
         let reason: @MainActor () -> String? = {
-            guard let capability, let daemon, !daemon.supports(capability) else { return nil }
+            guard let capability, let daemon = daemon(), !daemon.supports(capability) else { return nil }
             return ActionFailure.needsDaemonCapability(capability).message
         }
         return bind(id, unavailable: reason, invoke: { [weak self] invocation in

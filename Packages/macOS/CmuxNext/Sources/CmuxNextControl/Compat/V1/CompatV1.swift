@@ -25,7 +25,6 @@ enum CompatV1 {
 
     /// Verbs answered with a typed unsupported error.
     static let unsupported: [String: String] = [
-        "agent_journal_append": "the agent journal projection moves to cmux-tui report-agent",
         "resize_window": "window frames are app-local; resize the window directly",
         "refresh_surfaces": "cmux-next surfaces redraw from cmux-tui deltas; nothing to refresh",
         "reload_config": "cmux-next reloads cmux.json on change; no manual reload is needed",
@@ -36,6 +35,10 @@ enum CompatV1 {
     ]
 
     static func respond(_ raw: String, service: CompatService) async -> String? {
+        // The journal payload is raw JSON after the verb, not shell tokens.
+        if raw.hasPrefix("agent_journal_append") {
+            return await CompatFeed.journalAppend(String(raw.dropFirst("agent_journal_append".count)), service: service)
+        }
         let line = CompatV1Line(raw)
         if let reason = unsupported[line.verb] { return "ERROR: unsupported in cmux-next: \(reason)" }
         guard let handler = handlers[line.verb] else { return nil }

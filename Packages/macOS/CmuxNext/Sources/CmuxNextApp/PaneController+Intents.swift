@@ -69,10 +69,11 @@ extension PaneController {
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil) {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
+        let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         services.registry.track(Task {
             do {
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
                 if let text { try await connection.send(created.surface, text: text) }
                 pendingSelectSurface = created.surface
                 apply(snapshot())

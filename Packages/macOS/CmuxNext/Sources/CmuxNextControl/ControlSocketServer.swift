@@ -248,6 +248,11 @@ public final class ControlSocketServer: Sendable {
             connection.start { lines in
                 var authorizer = authorizer
                 for await line in lines {
+                    if let request = authorizer.eventStreamRequest(line) {
+                        // A stream owns the connection until the client hangs up.
+                        await router.streamEvents(request, emit: { connection.send($0) }, hangup: { await connection.hangup() })
+                        break
+                    }
                     let (response, keepOpen) = await authorizer.respond(to: line, router: router, connection: id)
                     if let response { connection.send(response) }
                     connection.lineConsumed()

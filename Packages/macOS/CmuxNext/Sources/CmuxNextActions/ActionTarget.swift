@@ -1,6 +1,6 @@
 /// Kinds of objects an action can act on or take as an argument. Raw values
 /// are the CLI's `--target <kind>:<id>` prefixes.
-public enum ActionTargetKind: String, CaseIterable, Sendable, Hashable, Codable {
+public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashable, Codable {
     case tab
     case tabGroup = "tab-group"
     case pane
