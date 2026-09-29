@@ -213,6 +213,81 @@
     };
   }
 
+  // Node built-ins for import() in the app (ChatGPT's REPL is Node): exactly
+  // fs, fs/promises, path and os. fs calls pass scope "chatgpt", so the
+  // native sandbox admits the session cwd and the user's temp directory.
+  function nodeModule(specifier, fsOp, native) {
+    const name = specifier.replace(/^node:/, "");
+    const Buffer = ns.core.Buffer;
+    const path = ns.aside.path;
+    const op = (name, args) => fsOp(name, Object.assign({ scope: "chatgpt" }, args));
+    const abs = (p) => path.resolve(native.cwd, String(p && p.href ? decodeURIComponent(p.pathname) : p));
+    const encodingOf = (o) => (typeof o === "string" ? o : o && o.encoding) || null;
+    const bytesOf = (data, o) => {
+      if (typeof data === "string") return Buffer.from(data, encodingOf(o) || "utf8");
+      if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return Buffer.from(data);
+      return Buffer.from(String(data));
+    };
+    const statOf = (s) => ({
+      size: s.size,
+      mtimeMs: s.mtimeMs,
+      birthtimeMs: s.birthtimeMs,
+      mtime: new Date(s.mtimeMs),
+      isFile: () => s.type === "file",
+      isDirectory: () => s.type === "directory",
+      isSymbolicLink: () => s.type === "symlink",
+    });
+    const sync = {
+      readFileSync(p, o) {
+        const bytes = Buffer.from(op("readFile", { path: abs(p) }), "base64");
+        const enc = encodingOf(o);
+        return enc ? bytes.toString(enc) : bytes;
+      },
+      writeFileSync: (p, data, o) => void op("writeFile", { path: abs(p), base64: bytesOf(data, o).toString("base64") }),
+      appendFileSync: (p, data, o) => void op("writeFile", { path: abs(p), base64: bytesOf(data, o).toString("base64"), append: true }),
+      mkdirSync: (p, o) => void op("mkdir", { path: abs(p), recursive: !!(o && o.recursive) }),
+      readdirSync: (p) => op("readdir", { path: abs(p) }).map((e) => e.name),
+      statSync: (p) => statOf(op("stat", { path: abs(p) })),
+      existsSync: (p) => op("exists", { path: abs(p) }),
+      rmSync: (p, o) => void op("rm", { path: abs(p), recursive: !!(o && o.recursive), force: !!(o && o.force) }),
+      unlinkSync: (p) => void op("rm", { path: abs(p) }),
+      renameSync: (from, to) => void op("rename", { from: abs(from), to: abs(to) }),
+      copyFileSync: (from, to) => void op("copyFile", { from: abs(from), to: abs(to) }),
+      realpathSync: (p) => op("resolve", { path: abs(p) }),
+    };
+    const promises = {};
+    for (const [key, fn] of Object.entries(sync)) {
+      if (key === "existsSync") continue;
+      promises[key.replace(/Sync$/, "")] = async (...args) => fn(...args);
+    }
+    promises.access = async (p) => {
+      if (!sync.existsSync(p)) {
+        const e = new Error(`ENOENT: no such file or directory, access '${p}'`);
+        e.code = "ENOENT";
+        throw e;
+      }
+    };
+    const os = {
+      tmpdir: () => native.tmpdir,
+      homedir: () => native.homedir,
+      platform: () => "darwin",
+      type: () => "Darwin",
+      EOL: "\n",
+    };
+    switch (name) {
+      case "fs":
+        return Object.assign({ promises, default: Object.assign({ promises }, sync) }, sync);
+      case "fs/promises":
+        return Object.assign({ default: promises }, promises);
+      case "path":
+        return Object.assign({ default: path }, path);
+      case "os":
+        return Object.assign({ default: os }, os);
+      default:
+        throw new Error(`Cannot import ${specifier}: cmux browser repl supports node:fs, node:path, node:os`);
+    }
+  }
+
   // Adapts the app's `__cmuxNative` object (driver-protocol.md, "Native host
   // contract") to the `host` and `driver` objects the runtime uses, and
   // defines the entry points the app calls.
@@ -304,6 +379,7 @@
         realpath: (p) => fsOp("resolve", { path: p }),
       },
     };
+    host.importModule = async (specifier) => nodeModule(String(specifier), fsOp, native);
     const driver = {
       call: (method, params) => callAsync((id) => native.driverCall(id, method, JSON.stringify(params || {}))),
       on(event, handler) {
