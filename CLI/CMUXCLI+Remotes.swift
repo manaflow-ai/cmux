@@ -86,6 +86,17 @@ extension CMUXCLI {
         case "add":
             let (routeValues, rem0) = parseRepeatedOption(rest, name: "--route")
             let (tagOpt, rem1) = parseOption(rem0, name: "--tag")
+            // Unknown flags (typos such as `--rouet=...`) used to disappear in
+            // the positional filter below; refuse them so nothing is silently
+            // dropped. A bare `--route`/`--tag` left here means its value is
+            // missing. `--` is the terminator, not an option.
+            if let unknown = rem1.first(where: { $0.hasPrefix("-") && $0 != "--" }) {
+                if unknown == "--route" || unknown == "--tag" {
+                    throw CLIError(message: "remotes add: \(unknown) requires a value.")
+                }
+                throw CLIError(
+                    message: "remotes add: unknown option '\(unknown)'. Pass routes with --route host:port or --route=host:port.")
+            }
             let positionals = rem1.filter { !$0.hasPrefix("-") }
             guard let name = positionals.first, !name.isEmpty else {
                 throw CLIError(message: """
