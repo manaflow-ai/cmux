@@ -39,4 +39,19 @@ import Testing
         #expect(list.autoscrollLink == nil)
         list.externalDragExited()
     }
+
+    @Test func velocityIsZeroOutsideEdgeZones() {
+        let v = SidebarAutoscroll.velocity(pointY: 200, visibleMinY: 0, visibleMaxY: 400, zone: 30, maxSpeed: 750)
+        #expect(v == 0)
+    }
+
+    @Test func velocityPointsTowardTheNearEdge() {
+        let up = SidebarAutoscroll.velocity(pointY: 5, visibleMinY: 0, visibleMaxY: 400, zone: 30, maxSpeed: 750)
+        let down = SidebarAutoscroll.velocity(pointY: 395, visibleMinY: 0, visibleMaxY: 400, zone: 30, maxSpeed: 750)
+        #expect(up < 0)
+        #expect(down > 0)
+        let atEdge = SidebarAutoscroll.velocity(pointY: 400, visibleMinY: 0, visibleMaxY: 400, zone: 30, maxSpeed: 750)
+        #expect(atEdge > down)
+        #expect(atEdge <= 750 * 4)
+    }
 }
