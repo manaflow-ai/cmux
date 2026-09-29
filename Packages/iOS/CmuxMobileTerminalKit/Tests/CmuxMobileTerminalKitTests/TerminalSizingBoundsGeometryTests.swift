@@ -84,4 +84,70 @@ import Testing
             viewportRect: viewport, renderRect: grid
         ))
     }
+
+    // MARK: Border edges
+
+    /// Flush with the viewport top (under the navigation bar), smaller on the
+    /// trailing and bottom sides: no top or leading line.
+    @Test func topPinnedGridDrawsTrailingAndBottomOnly() {
+        let geometry = TerminalSizingBoundsGeometry(
+            gridColumns: 30, gridRows: 20, viewerColumns: 40, viewerRows: 30,
+            viewportRect: viewport, renderRect: CGRect(x: 0, y: 0, width: 300, height: 400)
+        )
+        #expect(geometry.borderEdges == [.trailing, .bottom])
+    }
+
+    /// A smaller grid pinned to the bottom-leading corner: top and trailing.
+    @Test func bottomLeadingPinnedGridDrawsTopAndTrailing() {
+        let geometry = TerminalSizingBoundsGeometry(
+            gridColumns: 30, gridRows: 20, viewerColumns: 40, viewerRows: 30,
+            viewportRect: viewport, renderRect: CGRect(x: 0, y: 200, width: 300, height: 400)
+        )
+        #expect(geometry.borderEdges == [.top, .trailing])
+    }
+
+    /// A wider grid scaled to the width and bottom-pinned: only the top.
+    @Test func scaledBottomPinnedGridDrawsTopOnly() {
+        let geometry = TerminalSizingBoundsGeometry(
+            gridColumns: 80, gridRows: 25, viewerColumns: 50, viewerRows: 30,
+            viewportRect: viewport, renderRect: CGRect(x: 0, y: 350, width: 400, height: 250)
+        )
+        #expect(geometry.borderEdges == [.top])
+    }
+
+    /// A cut grid fills the viewport: no border, the viewport edges are
+    /// already bounded by the navigation bar and the screen.
+    @Test func gridFillingViewportDrawsNoEdge() {
+        let geometry = TerminalSizingBoundsGeometry(
+            gridColumns: 118, gridRows: 38, viewerColumns: 50, viewerRows: 30,
+            viewportRect: viewport, renderRect: CGRect(x: 0, y: -100, width: 900, height: 700)
+        )
+        #expect(geometry.borderEdges.isEmpty)
+    }
+
+    @Test func matchingViewportDrawsNoEdge() {
+        let geometry = TerminalSizingBoundsGeometry(
+            gridColumns: 50, gridRows: 40, viewerColumns: 50, viewerRows: 40,
+            viewportRect: viewport, renderRect: viewport
+        )
+        #expect(geometry.borderEdges.isEmpty)
+    }
+
+    @Test func edgesSkipSidesFlushWithinOnePoint() {
+        #expect(TerminalSizingBorderEdges(rect: CGRect(x: 0.5, y: 0.8, width: 300, height: 599), in: viewport) == [.trailing])
+        #expect(TerminalSizingBorderEdges(rect: viewport, in: viewport).isEmpty)
+    }
+
+    /// Adjacent edges join into one open polyline, so corners stay clean.
+    @Test func edgesFormOpenPolylines() {
+        let rect = CGRect(x: 0, y: 0, width: 100, height: 50)
+        #expect(TerminalSizingBorderEdges([.trailing, .bottom]).polylines(around: rect)
+            == [[CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 50), CGPoint(x: 0, y: 50)]])
+        #expect(TerminalSizingBorderEdges([.top, .trailing]).polylines(around: rect)
+            == [[CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 50)]])
+        #expect(TerminalSizingBorderEdges([.top, .bottom]).polylines(around: rect)
+            == [[CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0)], [CGPoint(x: 100, y: 50), CGPoint(x: 0, y: 50)]])
+        #expect(TerminalSizingBorderEdges([.top, .trailing, .bottom, .leading]).polylines(around: rect)
+            == [[CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 50), CGPoint(x: 0, y: 50), CGPoint(x: 0, y: 0)]])
+    }
 }
