@@ -85,6 +85,24 @@ With no theme and no terminal colors configured, cmux supplies its own
 light/dark palette. Set `"terminal": { "adaptiveDefaultTheme": false }` in
 `cmux.json` to get Ghostty's fixed built-in palette instead.
 
+### Match Claude Code and OpenCode
+
+`cmux themes export` turns the terminal colors above into a theme file for an
+agent running inside cmux:
+
+```bash
+cmux themes export --to claude --write     # ~/.claude/themes/cmux-<theme>.json
+cmux themes export --to opencode --write   # ~/.config/opencode/themes/cmux-<theme>.json
+```
+
+Pick it with `/theme` in either agent, or set `"theme": "cmux-<theme>"` in
+OpenCode's `tui.json`. Without `--write` the JSON goes to stdout. OpenCode gets
+both halves of a light/dark pair in one file. A Claude Code theme has one
+appearance, so the export uses the current macOS appearance unless you pass
+`--appearance light` or `--appearance dark`. `--name` changes the file name;
+exports only ever write `cmux-*` files. Run the command again after changing
+themes.
+
 ## Transparency, blur, and background images
 
 ```ini

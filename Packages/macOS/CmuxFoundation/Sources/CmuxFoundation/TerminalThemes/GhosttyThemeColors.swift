@@ -43,14 +43,18 @@ public struct GhosttyThemeRGB: Hashable, Sendable {
     }
 }
 
-/// The colors a Ghostty theme file sets: background, foreground, cursor and
-/// the 16 ANSI palette entries. Keys the file leaves out stay `nil`.
+/// The colors a Ghostty theme file sets: background, foreground, cursor,
+/// selection and the 16 ANSI palette entries. Keys the file leaves out stay `nil`.
 public struct GhosttyThemeColors: Equatable, Sendable {
     public static let ansiPaletteCount = 16
 
     public var background: GhosttyThemeRGB?
     public var foreground: GhosttyThemeRGB?
     public var cursor: GhosttyThemeRGB?
+    /// `selection-background`.
+    public var selectionBackground: GhosttyThemeRGB?
+    /// `selection-foreground`.
+    public var selectionForeground: GhosttyThemeRGB?
     /// ANSI colors 0 through 15.
     public var palette: [GhosttyThemeRGB?]
 
@@ -58,11 +62,15 @@ public struct GhosttyThemeColors: Equatable, Sendable {
         background: GhosttyThemeRGB? = nil,
         foreground: GhosttyThemeRGB? = nil,
         cursor: GhosttyThemeRGB? = nil,
+        selectionBackground: GhosttyThemeRGB? = nil,
+        selectionForeground: GhosttyThemeRGB? = nil,
         palette: [GhosttyThemeRGB?] = Array(repeating: nil, count: ansiPaletteCount)
     ) {
         self.background = background
         self.foreground = foreground
         self.cursor = cursor
+        self.selectionBackground = selectionBackground
+        self.selectionForeground = selectionForeground
         self.palette = palette
     }
 
@@ -85,6 +93,10 @@ public struct GhosttyThemeColors: Equatable, Sendable {
                 foreground = GhosttyThemeRGB(hex: value) ?? foreground
             case "cursor-color":
                 cursor = GhosttyThemeRGB(hex: value) ?? cursor
+            case "selection-background":
+                selectionBackground = GhosttyThemeRGB(hex: value) ?? selectionBackground
+            case "selection-foreground":
+                selectionForeground = GhosttyThemeRGB(hex: value) ?? selectionForeground
             case "palette":
                 // `palette = N=#rrggbb`
                 guard let split = value.firstIndex(of: "="),
@@ -98,6 +110,24 @@ public struct GhosttyThemeColors: Equatable, Sendable {
                 continue
             }
         }
+    }
+
+    /// Returns these colors with every color `overrides` sets replacing this one.
+    ///
+    /// Ghostty applies color keys in the user's config after the theme file, so
+    /// `themeColors.overlaid(by: GhosttyThemeColors(parsing: config))` gives the
+    /// colors the terminal actually draws.
+    /// - Parameter overrides: Colors parsed from a later file.
+    /// - Returns: The merged colors.
+    public func overlaid(by overrides: GhosttyThemeColors) -> GhosttyThemeColors {
+        var merged = self
+        merged.background = overrides.background ?? background
+        merged.foreground = overrides.foreground ?? foreground
+        merged.cursor = overrides.cursor ?? cursor
+        merged.selectionBackground = overrides.selectionBackground ?? selectionBackground
+        merged.selectionForeground = overrides.selectionForeground ?? selectionForeground
+        merged.palette = palette.indices.map { overrides.palette[$0] ?? palette[$0] }
+        return merged
     }
 
     /// Whether the background reads as dark; `nil` when the file sets none.

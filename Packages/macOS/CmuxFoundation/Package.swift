@@ -30,7 +30,8 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxFoundationTests",
-            dependencies: ["CmuxFoundation"]
+            dependencies: ["CmuxFoundation"],
+            resources: [.copy("Fixtures")]
         ),
     ]
 )

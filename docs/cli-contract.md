@@ -424,6 +424,7 @@ Theme subcommands:
 | `themes set --light <theme>` | Set the light appearance theme. |
 | `themes set --dark <theme>` | Set the dark appearance theme. |
 | `themes clear` | Remove the cmux theme override. |
+| `themes export --to <claude\|opencode>` | Print the resolved terminal theme as a Claude Code or OpenCode theme file. `--write` saves it as `cmux-<name>.json` in the agent's theme folder and prints the path; `--name` sets the name; `--appearance light\|dark` picks one half of a light/dark pair. Only `cmux-*` files are written. |
 
 Workspace and tab action names:
 

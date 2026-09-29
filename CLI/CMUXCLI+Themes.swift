@@ -83,7 +83,7 @@ extension CMUXCLI {
         return defaultAppearancePrefersDarkThemes() ? .dark : .light
     }
 
-    private func defaultAppearancePrefersDarkThemes() -> Bool {
+    func defaultAppearancePrefersDarkThemes() -> Bool {
         let globalDefaults = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
         let interfaceStyle = (globalDefaults?["AppleInterfaceStyle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return interfaceStyle?.caseInsensitiveCompare("Dark") == .orderedSame
@@ -276,6 +276,12 @@ extension CMUXCLI {
                 socketPath: socketPath,
                 targetBundleIdentifier: targetBundleIdentifier,
                 explicitPassword: explicitPassword
+            )
+        case "export":
+            try runThemesExport(
+                args: Array(commandArgs.dropFirst()),
+                jsonOutput: jsonOutput,
+                targetBundleIdentifier: targetBundleIdentifier
             )
         case "clear":
             if commandArgs.count > 1 {
@@ -473,7 +479,7 @@ extension CMUXCLI {
         return parseThemeSelection(rawValue: rawValue, sourcePath: sourcePath)
     }
 
-    private func parseThemeSelection(rawValue: String?, sourcePath: String?) -> ThemeSelection {
+    func parseThemeSelection(rawValue: String?, sourcePath: String?) -> ThemeSelection {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawValue.isEmpty else {
             return ThemeSelection(rawValue: nil, light: nil, dark: nil, sourcePath: sourcePath)
         }

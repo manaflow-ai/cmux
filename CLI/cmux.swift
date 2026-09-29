@@ -19168,7 +19168,7 @@ struct CMUXCLI {
               cmux themes set "Catppuccin Mocha"
               cmux themes set --light "Catppuccin Latte" --dark "Catppuccin Mocha"
               cmux themes clear
-            """
+            """ + "\n\n" + Self.themesExportUsage
         case "import":
             return """
             Usage: cmux import [<terminal>] [--dry-run] [--yes] [--path <file>]
@@ -20954,6 +20954,10 @@ struct CMUXCLI {
             print("cmux \(command) \(verb)")
             print("")
             print(verbText)
+            return true
+        }
+        if command == "themes", commandArgs.first == "export" {
+            print(Self.themesExportUsage)
             return true
         }
         guard let text = subcommandUsage(command) else { return false }
