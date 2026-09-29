@@ -3085,6 +3085,9 @@ jobs:
       ghostty_helper_sha256: ${{ steps.ghostty-helper-identity.outputs.sha256 }}
       ghostty_helper_toolchain_sha256: ${{ steps.ghostty-helper-identity.outputs.toolchain_sha256 }}
       ghostty_helper_sdk: ${{ steps.ghostty-helper-identity.outputs.sdk }}
+      # The package interface fingerprint receipt (RFC #15391) macOS status
+      # shadows the app-compile skip with; empty when the lane made none.
+      interface_fingerprint: ${{ steps.run-packages.outputs.interface_fingerprint || steps.run-packages-fleet.outputs.interface_fingerprint }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
     #
     # Fleet step (hq#794, opt-in: set the repository variable
@@ -3319,6 +3322,7 @@ jobs:
       # when the cache above missed, Rust for CmuxCommandPalette. Then the
       # Bonsplit tests (when selected) and every selected package.
       - name: Run Swift package tests
+        id: run-packages
         if: env.PACKAGE_TESTS_VIA_STEP != '1'
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -3328,6 +3332,7 @@ jobs:
       # Phase 1 has no automatic fallback: when the fleet cannot take the step
       # the job fails, and the fix is a rerun or clearing the variable.
       - name: Run Swift package tests on the build fleet
+        id: run-packages-fleet
         if: env.PACKAGE_TESTS_VIA_STEP == '1'
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -3336,11 +3341,18 @@ jobs:
         run: |
           set -uo pipefail
           status=0
+          lane_log="$RUNNER_TEMP/package-lane.log"
           "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" run --class light \
             --script scripts/ci/package-test-lane.sh --ref "$GITHUB_SHA" \
             --arg=run --arg="--event=$EVENT_NAME" --arg="--full-suite=$FULL_SUITE" \
             --env "CMUX_CI_XCODE_APP=$STEP_XCODE_APP" \
-            --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 || status=$?
+            --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 | tee "$lane_log" || status=$?
+          # The fleet step has no GITHUB_OUTPUT; its fingerprint receipt comes
+          # back as one line of the streamed log.
+          receipt="$(sed -n 's/^CMUX_INTERFACE_FINGERPRINT=//p' "$lane_log" | tail -n 1)"
+          if [ -n "$receipt" ]; then
+            echo "interface_fingerprint=$receipt" >> "$GITHUB_OUTPUT"
+          fi
           case "$status" in
             69) echo "::error title=Build fleet unavailable::No build-fleet worker takes ci-steps right now. There is no automatic fallback in phase 1: rerun the job, or clear CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY to run on a runner again." ;;
             75) echo "::error title=Build fleet queue timeout::The step waited in the build-fleet queue past the client's queue timeout and was cancelled. There is no automatic fallback in phase 1: rerun the job, or clear CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY to run on a runner again." ;;
@@ -4286,6 +4298,72 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
+      # Compile-avoidance shadow (RFC #15391, Work 3). The package lane
+      # classifies the pull request's package edits; when every edited
+      # package kept its interface and the package tests passed, the app
+      # compile would have been skipped. It still ran, so compare: a skip the
+      # app compile or its changed suites disagree with is a false-skip
+      # candidate. Every evaluated run leaves a notice, the corpus. Nothing
+      # here changes the verdict below.
+      - name: Shadow the app-compile skip
+        continue-on-error: true
+        env:
+          FINGERPRINT: ${{ needs.swift-package-tests.outputs.interface_fingerprint }}
+          PACKAGE_TESTS: ${{ needs.swift-package-tests.result }}
+          APP_COMPILE: ${{ needs.macos-compile-admission.result }}
+          CHANGED_SUITES: ${{ needs.macos-compile-admission.outputs.changed_suites }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          try:
+              fingerprint = json.loads(os.environ["FINGERPRINT"] or "{}")
+          except ValueError:
+              fingerprint = {}
+          if not fingerprint:
+              print("No package interface fingerprint for this run.")
+              raise SystemExit(0)
+          package_tests = os.environ["PACKAGE_TESTS"]
+          app_compile = os.environ["APP_COMPILE"]
+          changed_suites = os.environ["CHANGED_SUITES"]
+          would_skip = fingerprint.get("would_skip_app_compile") is True and package_tests == "success"
+          if not would_skip:
+              verdict = "compile_required"
+          elif app_compile == "success":
+              verdict = "agree"
+          elif app_compile == "failure" and changed_suites == "failure":
+              verdict = "disagree_app_tests"
+          elif app_compile == "failure":
+              verdict = "disagree_app_compile"
+          else:
+              verdict = "no_app_compile"
+          record = {
+              "class": fingerprint.get("class"),
+              "would_skip_app_compile": would_skip,
+              "package_tests": package_tests,
+              "app_compile": app_compile,
+              "changed_suites": changed_suites,
+              "verdict": verdict,
+              "packages": fingerprint.get("packages", {}),
+              "reason": fingerprint.get("reason", ""),
+          }
+          line = json.dumps(record, sort_keys=True, separators=(",", ":"))
+          print(f"::notice title=Shadow app-compile skip::{line}")
+          if verdict.startswith("disagree"):
+              print(
+                  "::warning title=False-skip candidate::The package verifier passed with an "
+                  f"unchanged interface, but the app {'tests' if verdict == 'disagree_app_tests' else 'compile'} "
+                  "failed. Check whether the failure is this change before counting it."
+              )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(
+                  "### Shadow app-compile skip\n\n"
+                  f"`{record['class']}`: would_skip_app_compile={str(would_skip).lower()}, "
+                  f"package tests {package_tests}, app compile {app_compile}, verdict `{verdict}`.\n"
+              )
+          PY
+
       - name: Check routed macOS jobs
         env:
           MACOS_INPUTS: ${{ toJSON(inputs) }}

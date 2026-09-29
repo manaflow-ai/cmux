@@ -6,6 +6,9 @@ import CmuxFoundation
 
 @Suite("Reverse relay SSH transport selection")
 struct RemoteSessionReverseRelayTransportTests {
+    private static let sharedControlPath =
+        SSHConnectionSharingOptions().defaultControlPath ?? "none"
+
     @Test("An authenticated shared ControlMaster carries the relay")
     func sharedControlMasterIsPreferred() async throws {
         let runner = RecordingProcessRunner()
@@ -30,8 +33,7 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(forwardRequest.arguments.contains("BatchMode=yes"))
         #expect(
             forwardRequest.arguments.contains {
-                $0.hasPrefix("ControlPath=/tmp/cmux-ssh-") &&
-                    $0.hasSuffix("-%C")
+                $0 == "ControlPath=\(Self.sharedControlPath)"
             }
         )
         #expect(launcher.launchCount == 0)
@@ -45,8 +47,7 @@ struct RemoteSessionReverseRelayTransportTests {
         }))
         #expect(
             cancelRequest.arguments.contains {
-                $0.hasPrefix("ControlPath=/tmp/cmux-ssh-") &&
-                    $0.hasSuffix("-%C")
+                $0 == "ControlPath=\(Self.sharedControlPath)"
             }
         )
         #expect(
