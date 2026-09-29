@@ -6,6 +6,28 @@ import Testing
 
 @MainActor
 @Suite struct ReconnectOwnershipTests {
+    @Test(.timeLimit(.minutes(1)))
+    func callerCancellationStillAccountsForNoncooperativeWork() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": []], blockedTeams: [""], ignoresLoadCancellation: true)
+        let runtime = LivenessTestRuntime(
+            transportFactory: KindRecordingTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+            now: Date.init, supportedRouteKinds: [.iroh])
+        let shell = MobileShellComposite(
+            runtime: runtime, isSignedIn: true, pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"), reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "cancelled-cleanup-\(UUID())")!)
+        let reconnect = Task { await shell.reconnectActiveMacOutcome(stackUserID: "user-1") }
+        await pairedStore.waitUntilLoadStarted(teamID: nil)
+        let deadline = try #require(shell.storedMacReconnectDeadlineTask)
+        reconnect.cancel()
+        #expect(await reconnect.value == .failed(.cancelled))
+        #expect(shell.abandonedReconnectDialCount == 1, "cancelled work still owns a cleanup slot")
+        #expect(shell.automaticReconnectBackoffOwner.transientRetryAt == nil)
+        await pairedStore.release(teamID: nil)
+        if let abandoned = await deadline.value.abandoned { _ = await abandoned.value }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func scopeChangeRetiresThePendingAttempt(signOut: Bool) async throws {
         let pairedStore = DelayedTeamPairedMacStore(recordsByTeam: ["": []], blockedTeams: [""])

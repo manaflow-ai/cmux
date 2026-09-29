@@ -14,6 +14,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
 
     private var recordsByTeam: [String: [MobilePairedMac]]
     private let blockedTeams: Set<String>
+    private let ignoresLoadCancellation: Bool
     private var startedTeams: Set<String> = []
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     // Keep an id with each parked read so release and cancellation can race
@@ -53,9 +54,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     private var backupRefreshFinished = false
     private var backupRefreshFinishWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
+    init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>, ignoresLoadCancellation: Bool = false) {
         self.recordsByTeam = recordsByTeam
         self.blockedTeams = blockedTeams
+        self.ignoresLoadCancellation = ignoresLoadCancellation
     }
 
     func upsert(
@@ -186,7 +188,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
             // the real store releases a canceled I/O operation.
             await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
-                    guard !Task.isCancelled else {
+                    guard ignoresLoadCancellation || !Task.isCancelled else {
                         continuation.resume()
                         return
                     }
@@ -196,6 +198,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
                     ))
                 }
             } onCancel: {
+                guard !self.ignoresLoadCancellation else { return }
                 Task {
                     await self.cancelLoadAllBlocker(key: key, id: blockerID)
                 }
