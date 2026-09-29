@@ -46,16 +46,17 @@ struct TerminalThemeGalleryModelTests {
             currentThemeValue: "light:Catppuccin Latte,dark:Catppuccin Mocha",
             prefersDark: true
         )
-        #expect(model.slot == .dark)
+        #expect(model.themeInUse == "Catppuccin Mocha")
 
         model.select("Nord")
 
-        #expect(model.selection == CmuxTerminalThemePair(light: "Catppuccin Latte", dark: "Nord"))
+        #expect(model.selection == CmuxTerminalThemePair(light: "Nord", dark: "Nord"))
+        #expect(model.themeInUse == "Nord")
         #expect(try file.readContents() == """
         font-size = 13
 
         # cmux themes start
-        theme = light:Catppuccin Latte,dark:Nord
+        theme = light:Nord,dark:Nord
         # cmux themes end
 
         """)
@@ -63,50 +64,23 @@ struct TerminalThemeGalleryModelTests {
         #expect(model.hasPendingChange)
     }
 
-    @Test("With one theme for both appearances, a pick on the other tab still applies now")
-    func singleThemePickAppliesToAppearanceInUse() throws {
+    @Test("The highlighted card is the theme the terminal shows, even from a pair")
+    func highlightedThemeIsThemeInUse() throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let (model, _, _) = try makeModel(existingConfig: nil, currentThemeValue: "3024 Night", prefersDark: true)
-        #expect(!model.separatesAppearances)
-
-        // The slot is not user-selectable in this mode; a stale light slot
-        // must not strand the pick on the appearance that is not showing.
-        model.slot = .light
-        model.select("Violet Light")
-
-        #expect(model.selection == CmuxTerminalThemePair(light: "Violet Light", dark: "Violet Light"))
-    }
-
-    @Test("Separate themes start on for an existing pair and edit one side")
-    func separateThemesEditOneSide() throws {
-        defer { try? FileManager.default.removeItem(at: root) }
+        // A pair written by `cmux themes set --light/--dark`, whose light side
+        // is a dark theme: the terminal shows the dark side in dark mode.
         let (model, _, _) = try makeModel(
             existingConfig: nil,
-            currentThemeValue: "light:Violet Light,dark:3024 Night",
-            prefersDark: true
-        )
-        #expect(model.separatesAppearances)
-        #expect(model.slotInUse == .dark)
-
-        model.slot = .light
-        model.select("Rose Pine Dawn")
-
-        #expect(model.selection == CmuxTerminalThemePair(light: "Rose Pine Dawn", dark: "3024 Night"))
-    }
-
-    @Test("Turning separate themes off keeps the theme the terminal shows now")
-    func turningSeparateOffKeepsThemeInUse() throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (model, _, _) = try makeModel(
-            existingConfig: nil,
-            currentThemeValue: "light:Violet Light,dark:3024 Night",
+            currentThemeValue: "light:Front End Delight,dark:Iceberg Light",
             prefersDark: true
         )
 
-        model.setSeparatesAppearances(false)
+        #expect(model.themeInUse == "Iceberg Light")
 
-        #expect(!model.separatesAppearances)
-        #expect(model.selection == CmuxTerminalThemePair(light: "3024 Night", dark: "3024 Night"))
+        model.select("Front End Delight")
+
+        #expect(model.selection == CmuxTerminalThemePair(light: "Front End Delight", dark: "Front End Delight"))
+        #expect(model.themeInUse == "Front End Delight")
     }
 
     @Test("With no theme set, a pick fills both sides so Ghostty accepts it")
@@ -139,7 +113,6 @@ struct TerminalThemeGalleryModelTests {
         let (model, file, log) = try makeModel(existingConfig: original, currentThemeValue: "Nord")
 
         model.select("Rose Pine Dawn")
-        model.slot = .dark
         model.select("Rose Pine")
         model.revert()
 
@@ -161,7 +134,7 @@ struct TerminalThemeGalleryModelTests {
         #expect(try file.readContents() == "font-size = 13\n\ncursor-style = bar\n")
     }
 
-    @Test("A pick keeps the other side as cmux themes changed it after Settings opened")
+    @Test("Revert restores a pair cmux themes wrote after Settings opened")
     func pickReadsCurrentBlock() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let (model, file, _) = try makeModel(
@@ -172,9 +145,10 @@ struct TerminalThemeGalleryModelTests {
         // `cmux themes set --dark Dracula` from a terminal while Settings is open.
         try file.write(rawThemeValue: "light:Catppuccin Latte,dark:Dracula")
         model.select("Nord Light")
+        #expect(try file.managedThemeValue() == "light:Nord Light,dark:Nord Light")
 
-        #expect(try file.managedThemeValue() == "light:Nord Light,dark:Dracula")
-        #expect(model.selection == CmuxTerminalThemePair(light: "Nord Light", dark: "Dracula"))
+        model.revert()
+        #expect(try file.managedThemeValue() == "light:Catppuccin Latte,dark:Dracula")
     }
 
     @Test("Revert removes a config file the gallery created")
@@ -188,7 +162,7 @@ struct TerminalThemeGalleryModelTests {
         #expect(try file.readContents() == nil)
     }
 
-    @Test("An empty query lists every theme, those matching the slot first")
+    @Test("An empty query lists every theme, those matching the appearance in use first")
     func emptyQueryListsEveryTheme() {
         let themes = [
             theme("3024 Night", background: "#090300"),
