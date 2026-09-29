@@ -1,0 +1,47 @@
+import Foundation
+
+/// A string-backed identifier tagged with the kind of object it names, so a
+/// `PaneID` can never be passed where a `SplitID` is expected.
+///
+/// The App layer fills these from daemon durable ids (`resource_id`, the v8
+/// `SplitId`, `tab_resource_id`). Numeric daemon handles are valid for one
+/// daemon generation only and should not be used here.
+public nonisolated struct LayoutIdentifier<Tag>: RawRepresentable, Hashable, Sendable,
+    ExpressibleByStringLiteral, CustomStringConvertible, Comparable
+{
+    public let rawValue: String
+
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+    public init(stringLiteral value: String) { self.rawValue = value }
+
+    public var description: String { rawValue }
+
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+public nonisolated enum PaneTag {}
+public nonisolated enum SplitTag {}
+public nonisolated enum ColumnTag {}
+public nonisolated enum ScreenTag {}
+public nonisolated enum TabTag {}
+public nonisolated enum TransactionTag {}
+
+/// A leaf of a split tree. Hosts one App-provided view (terminal, browser, tab strip).
+public typealias PaneID = LayoutIdentifier<PaneTag>
+/// An interior split node. Divider identity; maps to the daemon `SplitId`.
+public typealias SplitID = LayoutIdentifier<SplitTag>
+/// A scrollable column. Maps to the daemon `columns[].id`.
+public typealias ColumnID = LayoutIdentifier<ColumnTag>
+/// A screen (tmux-style window) of a workspace.
+public typealias ScreenID = LayoutIdentifier<ScreenTag>
+/// A tab placement being dragged onto the layout.
+public typealias TabID = LayoutIdentifier<TabTag>
+/// One continuous gesture (divider or column drag). Maps to the daemon
+/// `transaction` field so the whole drag coalesces into one undo entry.
+public typealias LayoutTransactionID = LayoutIdentifier<TransactionTag>
+
+extension LayoutIdentifier where Tag == TransactionTag {
+    /// A fresh unique transaction id.
+    public static func make() -> Self { Self(UUID().uuidString.lowercased()) }
+}
