@@ -31483,6 +31483,11 @@ struct CMUXCLI {
                     if ownerGoneSince == nil {
                         ownerGoneSince = now
                     }
+                    // Keep retrying ownership while the bounded grace window
+                    // is active. The normal owner check is intentionally
+                    // sparse, but waiting sixty seconds here would make a
+                    // pane restored during grace look permanently gone.
+                    nextOwnerCheck = now.addingTimeInterval(0.25)
                 case .alive:
                     ownerGoneSince = nil
                 case .unknown:
@@ -35655,9 +35660,11 @@ export default CMUXSessionRestore;
             func tryLiveSurfaceBinding() -> (workspaceId: String, surfaceId: String)? {
                 guard hookWsFlag == nil, explicitSurfaceFlag == nil,
                       let liveSurfaceTarget = liveAgentHookSurfaceBinding(
-                          mappedSurfaceId: mapped?.surfaceId,
+                          mappedSurfaceId: mapped?.surfaceId ?? monitorReplay?.surfaceId,
                           directSurfaceId: directSurfaceArg,
-                          claimedWorkspaceId: mapped?.workspaceId ?? directWorkspaceArg,
+                          claimedWorkspaceId: mapped?.workspaceId
+                              ?? monitorReplay?.workspaceId
+                              ?? directWorkspaceArg,
                           client: client
                       ) else {
                     return nil
