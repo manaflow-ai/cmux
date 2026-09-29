@@ -320,7 +320,9 @@ final class DeviceDirectory {
                     owners[cmxCanonicalDeviceID(device.deviceId)] = owner
                 }
             }
-        case .ignored:
+        case .vmsSnapshot, .vmsDelta, .ignored:
+            // The `vms` collection belongs to CloudVMSyncSubscriber's socket;
+            // this hello never asks for it.
             return
         }
         remerge()

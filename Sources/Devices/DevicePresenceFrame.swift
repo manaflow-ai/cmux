@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -91,6 +92,15 @@ struct DeviceSyncRecord: Equatable, Sendable {
     let device: DeviceSyncDeviceRecord?
 }
 
+/// One `vms` sync record (`VmRecord` in `workers/presence/src/syncVms.ts`):
+/// the same entry shape `GET /api/vm` lists, decoded by the list parser, or a
+/// tombstone (`deleted`) carrying no summary.
+struct VMSyncRecord: Equatable, Sendable {
+    let id: String
+    let deleted: Bool
+    let summary: VMSummary?
+}
+
 /// One message from the presence subscribe socket. Presence frames mirror
 /// `PresenceEvent` in core.ts; sync frames mirror `sync.ts`. Anything this
 /// build does not understand parses as `.ignored`, so a newer worker never
@@ -104,9 +114,34 @@ enum DevicePresenceFrame: Equatable, Sendable {
     /// A page of the `devices` collection; `complete` ends the page set.
     case syncSnapshot(records: [DeviceSyncRecord], complete: Bool)
     case syncDelta(records: [DeviceSyncRecord])
+    /// A page of the `vms` collection. `backfilled` false means the worker has
+    /// never held a full list (only rows written since the collection
+    /// shipped), so the consumer applies the page set upsert-only. On the
+    /// `complete` page `snapshotRev` and `epoch` become the reconnect cursor.
+    case vmsSnapshot(records: [VMSyncRecord], complete: Bool, backfilled: Bool, snapshotRev: Int, epoch: Int)
+    /// Changed `vms` records; `rev` is the head this frame brings the cursor to.
+    case vmsDelta(records: [VMSyncRecord], rev: Int)
     case ignored
 
     static let devicesCollection = "devices"
+    static let vmsCollection = "vms"
+
+    /// One collection a `sync.hello` asks for, with the cursor and epoch the
+    /// client already holds (0/0 for a fresh snapshot).
+    struct SyncCollection: Equatable, Sendable {
+        let name: String
+        let cursor: Int
+        let epoch: Int
+
+        init(name: String, cursor: Int = 0, epoch: Int = 0) {
+            self.name = name
+            self.cursor = cursor
+            self.epoch = epoch
+        }
+
+        /// The device directory's subscription: always a fresh snapshot.
+        static let devices = SyncCollection(name: DevicePresenceFrame.devicesCollection)
+    }
 
     /// Parse one socket message. Throws only for non-JSON payloads.
     static func parse(_ data: Data) throws -> DevicePresenceFrame {
@@ -141,28 +176,65 @@ enum DevicePresenceFrame: Equatable, Sendable {
             }
             return .seen(deviceId: deviceId, tag: tag, lastSeenAt: lastSeenAt)
         case "sync.snapshot", "sync.delta":
-            guard object["collection"] as? String == devicesCollection else { return .ignored }
-            let records = ((object["records"] as? [Any]) ?? []).compactMap(Self.syncRecord)
-            if type == "sync.snapshot" {
-                return .syncSnapshot(records: records, complete: (object["complete"] as? Bool) ?? false)
+            let rawRecords = (object["records"] as? [Any]) ?? []
+            switch object["collection"] as? String {
+            case devicesCollection:
+                let records = rawRecords.compactMap(Self.syncRecord)
+                if type == "sync.snapshot" {
+                    return .syncSnapshot(records: records, complete: (object["complete"] as? Bool) ?? false)
+                }
+                return .syncDelta(records: records)
+            case vmsCollection:
+                let records = rawRecords.enumerated().compactMap { Self.vmSyncRecord($0.element, index: $0.offset) }
+                if type == "sync.snapshot" {
+                    return .vmsSnapshot(
+                        records: records,
+                        complete: (object["complete"] as? Bool) ?? false,
+                        backfilled: (object["backfilled"] as? Bool) ?? false,
+                        snapshotRev: Self.revision(object["snapshotRev"]),
+                        epoch: Self.revision(object["epoch"])
+                    )
+                }
+                return .vmsDelta(records: records, rev: Self.revision(object["rev"]))
+            default:
+                return .ignored
             }
-            return .syncDelta(records: records)
         default:
             return .ignored
         }
     }
 
-    /// The `sync.hello` a client sends after connect to receive the `devices`
-    /// collection (snapshot first, deltas after) on the same socket. Cursor 0 in
-    /// epoch 0: the directory keeps no durable cursor, so every connect starts
-    /// from a fresh snapshot, which is also the protocol's supported resync path.
-    static func syncHello() -> Data {
+    /// The `sync.hello` a client sends after connect to receive `collections`
+    /// (snapshot first, deltas after) on the same socket. The default asks for
+    /// `devices` from cursor 0 in epoch 0: the directory keeps no durable
+    /// cursor, so every connect starts from a fresh snapshot, which is also the
+    /// protocol's supported resync path. The `vms` consumer passes the cursor
+    /// it last applied so a reconnect catches up with deltas.
+    static func syncHello(collections: [SyncCollection] = [.devices]) -> Data {
         let payload: [String: Any] = [
             "type": "sync.hello",
             "protocol": "sync/v1",
-            "collections": [["name": devicesCollection, "cursor": 0, "epoch": 0]],
+            "collections": collections.map { ["name": $0.name, "cursor": $0.cursor, "epoch": $0.epoch] },
         ]
         return (try? JSONSerialization.data(withJSONObject: payload)) ?? Data("{}".utf8)
+    }
+
+    /// A non-negative integer cursor; anything else reads as 0 (fresh).
+    private static func revision(_ raw: Any?) -> Int {
+        guard let number = raw as? NSNumber, number.doubleValue.isFinite, number.doubleValue >= 0 else { return 0 }
+        return number.intValue
+    }
+
+    /// A live record whose payload the list parser rejects is dropped (never
+    /// a tombstone), so one malformed machine cannot delete a row.
+    private static func vmSyncRecord(_ raw: Any, index: Int) -> VMSyncRecord? {
+        guard let object = raw as? [String: Any], let id = object["id"] as? String, !id.isEmpty else { return nil }
+        let deleted = (object["deleted"] as? Bool) ?? false
+        if deleted { return VMSyncRecord(id: id, deleted: true, summary: nil) }
+        guard let payload = object["payload"] as? [String: Any],
+              let summary = try? VMClient.decodeListItem(payload, index: index),
+              summary.id == id else { return nil }
+        return VMSyncRecord(id: id, deleted: false, summary: summary)
     }
 
     private static func syncRecord(_ raw: Any) -> DeviceSyncRecord? {
