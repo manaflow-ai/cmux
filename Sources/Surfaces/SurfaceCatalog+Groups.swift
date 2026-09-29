@@ -205,9 +205,9 @@ extension SurfaceCatalog {
         }) {
             return nil
         }
+        if resources[member.resource]?.kind == .display && resources[member.resource]?.remoteViews == nil { return nil }
         return try remoteView(for: member.resource, workspaceID: workspaceID)
     }
-
     /// How a group becomes a new local workspace: the machinery a caller injects so the
     /// layout can be checked without AppKit.
     struct NewWorkspaceHost {

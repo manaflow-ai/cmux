@@ -1107,7 +1107,7 @@ final class SurfaceCatalog {
     /// Records a materialized pane and reconciles it with the installed graph.
     func record(_ projection: SurfaceProjection) {
         consumePendingProjectionIfMaterialized(projection)
-        insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
+        recordCloudProjection(projection)
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         reconcileCloudProjection(projection)
         syncCloudTerminalTabIcon(projection)
@@ -1163,7 +1163,7 @@ final class SurfaceCatalog {
     /// local provider already registered as a plain local terminal (the pane is created
     /// first, then attached), the local placeholder yields: its projection ends and the
     /// local resource disappears, so the pane counts once, as the remote terminal.
-    private func insertSupersedingLocalPlaceholder(_ projection: SurfaceProjection) {
+    func insertSupersedingLocalPlaceholder(_ projection: SurfaceProjection) {
         if !projection.resource.machine.isLocal {
             for existing in projections where existing.panelID == projection.panelID && existing.resource.machine.isLocal {
                 projections.remove(existing)
@@ -1346,7 +1346,7 @@ final class SurfaceCatalog {
             if resources[record.resource] != nil {
                 wokenMachines.insert(record.resource.machine)
                 pendingRestoredProjections.remove(panelID: record.panelID)
-                insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.restoredProjection(record, workspaceID: workspaceID))
+                recordCloudProjection(cloudPlacementCoordinator.restoredProjection(record, workspaceID: workspaceID))
             } else {
                 pendingRestoredProjections.stage(record, workspaceID: workspaceID)
             }
@@ -1406,7 +1406,7 @@ final class SurfaceCatalog {
             isAllowed: canRestoreProjection
         )
         for projection in resolved {
-            insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.resolvingLocalPreviewMembership(projection))
+            recordCloudProjection(cloudPlacementCoordinator.resolvingLocalPreviewMembership(projection))
             resolvedWorkspaceIDs.insert(projection.workspaceID)
         }
         for workspaceID in resolvedWorkspaceIDs {

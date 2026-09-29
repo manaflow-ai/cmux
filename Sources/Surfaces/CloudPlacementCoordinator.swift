@@ -25,6 +25,7 @@ final class CloudPlacementCoordinator {
     private var movedTabs: [SurfaceMachineID: [String: String]] = [:]
     private var closedTabs: [SurfaceMachineID: [String: String]] = [:]
     private var confirmationCursors: [SurfaceMachineID: [String: CloudVMCursor]] = [:]
+    var localDisplayMemberships: [UUID: String] = [:]
     private(set) var failures: [SurfaceResourceID: String] = [:]
 
     init(
@@ -121,6 +122,7 @@ final class CloudPlacementCoordinator {
             // when the pane moves into an unbound viewer workspace.
             let current = projectionInCurrentWorkspace(projection)
             catalog.setRemotePlacement(for: projection, workspaceID: current.remoteWorkspaceID, tabID: nil)
+            syncCloudDisplayMembership(projection: projection, current: current, catalog: catalog)
             return
         }
         guard let target = boundRemoteWorkspaceID(forLocalWorkspace: projection.workspaceID, on: projection.resource.machine),
@@ -211,6 +213,10 @@ final class CloudPlacementCoordinator {
     }
 
     func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason, catalog: SurfaceCatalog) {
+        if projection.isLocalWorkspaceView {
+            syncCloudDisplayMembershipEnd(projection: projection, reason: reason, catalog: catalog)
+            return
+        }
         guard reason == .paneClosed,
               let bound = boundRemoteWorkspaceID(forLocalWorkspace: projection.workspaceID, on: projection.resource.machine),
               let provider = catalog.provider(for: projection.resource.machine) as? any SurfacePlacementSyncing else { return }
@@ -298,7 +304,7 @@ final class CloudPlacementCoordinator {
     }
 
     @discardableResult
-    private func enqueue(
+    func enqueue(
         _ projection: SurfaceProjection,
         catalog: SurfaceCatalog,
         presentFailure: Bool = true,

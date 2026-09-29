@@ -118,7 +118,7 @@ extension CloudTreeNodeBuilder {
     static func lookupRemoteWorkspace(_ selector: String, on machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> CloudTreeRemoteWorkspaceLookup {
         let trimmed = selector.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .notFound }
-        let resources = snapshot.resources(on: machine)
+        let resources = snapshot.cloudWorkspaceResources(on: machine)
         let workspaces = remoteWorkspaces(info: snapshot.machines.first { $0.id == machine }, resources: resources)
         if let byID = workspaces.first(where: { $0.id == trimmed }) {
             return .found(byID, remoteWorkspaceMembers(workspaceID: byID.id, resources: resources, projections: snapshot.projections))

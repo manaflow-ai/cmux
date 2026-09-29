@@ -63,6 +63,9 @@ final class CloudWorkspaceProjectionCoordinator {
         guard let binding = environment.bindings()[projection.workspaceID], binding.vmID == state.machine.rawValue,
               let workspaceID = binding.remoteWorkspaceID else { return true }
         let tabs = state.lookupIndex.tabs(contentKind: projection.resource.kind.rawValue, contentID: projection.resource.key)
+        if projection.resource.kind == .display && projection.remoteTabID == nil {
+            return state.displayMemberships.contains { $0.workspaceID == workspaceID && $0.displayID == projection.resource.key }
+        }
         return tabs.contains { tab in
             guard projection.remoteTabID == nil || projection.remoteTabID == tab.id,
                   let pane = state.lookupIndex.pane(id: tab.paneID),

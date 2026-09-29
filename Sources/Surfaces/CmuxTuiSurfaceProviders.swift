@@ -82,7 +82,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
     let loadPortSummary: @MainActor (String) async throws -> VMSummary
-
     func publishPortDiscovery() {
         guard isRegisteredInCatalog() else { return }
         info.portDiscoveryState = portDiscovery.state
@@ -787,6 +786,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             info: info,
             observation: acceptedObservation
         )
+        catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         if reconcileTitles {
             catalog.cloudWorkspaceRenameService.reconcileRemoteState(
                 machine: machine,

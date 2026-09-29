@@ -35,7 +35,7 @@ extension SurfaceCatalog {
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             },
             resources: resources.values.map(resourceForPresentation).sorted { $0.catalogPrecedes($1) },
-            projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString },
+            projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString }, cloudDisplayMemberships: cloudDisplayMemberships(),
             staleMachineIDs: Set(cloudStateObservations.filter { $0.value.freshness != .current }.keys),
             displayCreationMachines: displayCreationMachines.isEmpty ? nil : displayCreationMachines
         )

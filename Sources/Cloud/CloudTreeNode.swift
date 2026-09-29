@@ -876,7 +876,7 @@ enum CloudTreeNodeBuilder {
         for workspace in info.remoteWorkspaces ?? [] {
             byWorkspace[workspace.id] = RemoteWorkspaceRows(workspace: workspace)
         }
-        for resource in resources {
+        for resource in snapshot.cloudWorkspaceResources(on: machine) {
             for placement in remotePlacements(of: resource) {
                 var rows = byWorkspace[placement.workspace.id] ?? RemoteWorkspaceRows(workspace: placement.workspace)
                 switch resource.kind {
