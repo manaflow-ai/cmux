@@ -154,7 +154,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 println!("no sessions (create one: acpmux new -m codex -n my-task)");
                 return Ok(());
             }
-            println!("{:<24} {:<8} {:<13} {:>5} {:<6} {}", "NAME", "AGENT", "STATUS", "TURNS", "AGE", "LAST");
+            println!("{:<24} {:<8} {:<13} {:>5} {:<6} LAST", "NAME", "AGENT", "STATUS", "TURNS", "AGE");
             for s in sessions {
                 let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
                 let mut status = g("status");
@@ -168,7 +168,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                     status,
                     s.get("turnCount").and_then(Value::as_u64).unwrap_or(0),
                     age(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
-                    short(&s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50)
+                    short(s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50)
                 );
             }
             Ok(())

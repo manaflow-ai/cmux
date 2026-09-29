@@ -245,11 +245,10 @@ impl LocalStore {
         };
         for entry in rd.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(stem) = name.strip_suffix(".ndjson") {
-                if let Ok(idx) = stem.parse::<u32>() {
+            if let Some(stem) = name.strip_suffix(".ndjson")
+                && let Ok(idx) = stem.parse::<u32>() {
                     out.push((idx, entry.path()));
                 }
-            }
         }
         out.sort();
         Ok(out)

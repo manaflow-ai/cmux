@@ -26,14 +26,13 @@ impl TestClient {
                 .await
                 .expect("timeout waiting for response")
                 .expect("connection closed");
-            if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap() {
-                if rid == Value::from(id) {
+            if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+                && rid == id {
                     return match error {
                         Some(e) => Err(e.message),
                         None => Ok(result.unwrap_or(Value::Null)),
                     };
                 }
-            }
         }
     }
 
@@ -409,7 +408,7 @@ async fn process_death_quotes_the_last_stderr_line() {
     let err = r.unwrap_err();
     assert!(err.contains("agent process closed (fake): Not logged in"), "{err}");
     let session = hub.resolve(&id).unwrap();
-    let last = hub.events(&id, 0, 1000).unwrap().into_iter().filter(|e| e.kind == "turn_result").last().unwrap();
+    let last = hub.events(&id, 0, 1000).unwrap().into_iter().rfind(|e| e.kind == "turn_result").unwrap();
     assert_eq!(last.msg["status"], "failed");
     assert!(last.msg["error"].as_str().unwrap().contains("Not logged in"));
     assert_eq!(hub.session_summary(&session)["status"], "disconnected");

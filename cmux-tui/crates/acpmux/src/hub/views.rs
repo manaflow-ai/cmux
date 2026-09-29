@@ -85,7 +85,7 @@ impl Hub {
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
-            "webUrl": cfg.websocket.as_ref().map(|w| web_url(w)),
+            "webUrl": cfg.websocket.as_ref().map(web_url),
         })
     }
 }

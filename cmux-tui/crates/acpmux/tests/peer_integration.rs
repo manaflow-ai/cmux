@@ -34,11 +34,10 @@ impl C {
         self.tx.send(Message::request(id, m, p).to_line()).await.unwrap();
         loop {
             let line = tokio::time::timeout(Duration::from_secs(20), self.rx.recv()).await.expect("timeout").expect("closed");
-            if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap() {
-                if rid == Value::from(id) {
+            if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+                && rid == id {
                     return match error { Some(e) => Err(e.message), None => Ok(result.unwrap_or(Value::Null)) };
                 }
-            }
         }
     }
     async fn wait(&mut self, m: &str, pred: impl Fn(&Value) -> bool) -> Value {

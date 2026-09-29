@@ -36,11 +36,10 @@ impl Picker {
     pub fn new(title: &str, rows: Vec<PickRow>, current: Option<&str>, on_pick: PickTarget, hint: &str) -> Self {
         let mut p = Self { title: title.into(), rows, visible: Vec::new(), cursor: 0, filter: Editor::default(), on_pick, row_rects: Vec::new(), hint: hint.into(), reveal: true };
         p.refilter();
-        if let Some(cur) = current {
-            if let Some(i) = p.visible.iter().position(|&r| !p.rows[r].header && p.rows[r].value == cur) {
+        if let Some(cur) = current
+            && let Some(i) = p.visible.iter().position(|&r| !p.rows[r].header && p.rows[r].value == cur) {
                 p.cursor = i;
             }
-        }
         p
     }
     pub fn refilter(&mut self) {

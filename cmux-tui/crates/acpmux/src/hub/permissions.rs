@@ -67,11 +67,10 @@ impl Hub {
             }
             "usage_update" => m.usage = Some(update.clone()),
             "current_mode_update" => {
-                if let Some(mode_id) = update.get("currentModeId").cloned() {
-                    if let Some(modes) = m.modes.as_mut() {
+                if let Some(mode_id) = update.get("currentModeId").cloned()
+                    && let Some(modes) = m.modes.as_mut() {
                         modes["currentModeId"] = mode_id;
                     }
-                }
             }
             "config_option_update" => {
                 if let Some(opts) = update.get("configOptions") {

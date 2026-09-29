@@ -41,7 +41,7 @@ async fn resume_startup_result_is_ignored() {
     let noise = t.inbound(&json!({"type": "result", "subtype": "success", "result": "", "num_turns": 0, "duration_api_ms": 0})).await;
     assert!(noise.is_empty(), "startup result must not answer the prompt");
     let real = t.inbound(&json!({"type": "result", "subtype": "success", "result": "A", "num_turns": 1, "duration_api_ms": 500})).await;
-    assert!(matches!(&real[0], Message::Response { id, .. } if *id == Value::from(3)));
+    assert!(matches!(&real[0], Message::Response { id, .. } if *id == 3));
 }
 
 #[tokio::test]

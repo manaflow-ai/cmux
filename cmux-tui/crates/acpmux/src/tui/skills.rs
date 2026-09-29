@@ -57,7 +57,7 @@ fn parse_skill(path: &Path, id: &str) -> Option<Skill> {
 fn parse_frontmatter(text: &str, id: &str) -> (String, String, String) {
     let mut name = id.to_owned(); let mut desc = String::new(); let mut body = text;
     let mut lines = text.split_inclusive('\n');
-    if let Some(first) = lines.next() { if first.trim() == "---" {
+    if let Some(first) = lines.next() && first.trim() == "---" {
         let mut offset = first.len(); let mut folded = false;
         for line in lines {
             offset += line.len();
@@ -68,7 +68,7 @@ fn parse_frontmatter(text: &str, id: &str) -> (String, String, String) {
             else if folded && line.starts_with([' ', '\t']) { if !desc.is_empty() { desc.push(' '); } desc.push_str(raw); }
             else { folded = false; }
         }
-    } }
+    }
     (name, desc, body.trim().to_owned())
 }
 fn references(text: &str, prefix: &str) -> Vec<String> {

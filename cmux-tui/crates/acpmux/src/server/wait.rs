@@ -70,11 +70,10 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     let mut ids: Vec<String> = Vec::new();
     if keys.is_empty() {
         for s in hub.all_session_summaries() {
-            if Until::Running.matches(&s) {
-                if let Some(id) = s.get("sessionId").and_then(Value::as_str) {
+            if Until::Running.matches(&s)
+                && let Some(id) = s.get("sessionId").and_then(Value::as_str) {
                     ids.push(id.to_owned());
                 }
-            }
         }
     } else {
         for k in &keys {

@@ -60,7 +60,7 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         let sel = app.composer_sel.map(|(a, b)| (a.min(b), a.max(b))).filter(|(a, b)| a != b);
         for (i, row) in rows.iter().enumerate().skip(scroll).take(visible) {
             let y = text_area.y + (i - scroll) as u16;
-            buf.set_stringn(text_area.x, y, &app.editor().row_text(*row), width, Style::default());
+            buf.set_stringn(text_area.x, y, app.editor().row_text(*row), width, Style::default());
             if let Some((a, b)) = sel {
                 let (rs, re) = *row;
                 let from = a.max(rs);
@@ -173,7 +173,7 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
         put(buf, &mut x, &mode_label(&mode), c.muted(), Some(ButtonAction::PickMode), &mut chips);
     }
     // Right side, laid out from the edge: send glyph, then model · effort.
-    let send = if app.editor().is_empty() && app.focus != Focus::Command { "↑" } else { "↑" };
+    let send = "↑";
     let send_style = if app.editor().is_empty() { c.dim() } else { Style::default().fg(c.status_active_fg).add_modifier(Modifier::BOLD) };
     let right_edge = area.x + area.width;
     let mut rx = right_edge.saturating_sub(1);

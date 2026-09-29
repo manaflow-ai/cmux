@@ -128,11 +128,10 @@ impl Peer {
                     ok = true;
                     break;
                 }
-                if let Some(c) = guard.as_mut() {
-                    if let Ok(Some(status)) = c.try_wait() {
+                if let Some(c) = guard.as_mut()
+                    && let Ok(Some(status)) = c.try_wait() {
                         return Err(format!("ssh tunnel to {host} exited: {status}"));
                     }
-                }
             }
             if !ok {
                 return Err(format!("ssh tunnel to {host} did not come up on port {local}"));

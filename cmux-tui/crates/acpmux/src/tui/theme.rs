@@ -193,13 +193,11 @@ impl Chrome {
             Some("dark") => return Self::dark(),
             _ => {}
         }
-        if let Ok(v) = std::env::var("COLORFGBG") {
-            if let Some(bg) = v.rsplit(';').next().and_then(|s| s.trim().parse::<u8>().ok()) {
-                if bg == 7 || bg == 15 {
+        if let Ok(v) = std::env::var("COLORFGBG")
+            && let Some(bg) = v.rsplit(';').next().and_then(|s| s.trim().parse::<u8>().ok())
+                && (bg == 7 || bg == 15) {
                     return Self::light();
                 }
-            }
-        }
         Self::dark()
     }
 

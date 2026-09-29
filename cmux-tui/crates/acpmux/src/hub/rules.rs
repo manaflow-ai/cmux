@@ -27,11 +27,10 @@ pub fn validate(rules: &Value) -> Result<(), String> {
             }
         }
     }
-    if let Some(d) = obj.get("default") {
-        if !matches!(d.as_str(), Some("approve" | "deny" | "ask")) {
+    if let Some(d) = obj.get("default")
+        && !matches!(d.as_str(), Some("approve" | "deny" | "ask")) {
             return Err("default must be approve, deny or ask".into());
         }
-    }
     for k in obj.keys() {
         if !matches!(k.as_str(), "autoApprove" | "autoDeny" | "ask" | "default") {
             return Err(format!("unknown key {k}"));

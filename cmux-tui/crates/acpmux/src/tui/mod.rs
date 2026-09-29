@@ -235,11 +235,10 @@ impl App {
     pub fn set_host_filter(&mut self, filter: Option<String>) {
         self.host_filter = filter;
         let visible: Vec<usize> = (0..self.row_count()).filter(|&i| self.row_visible(i)).collect();
-        if !visible.contains(&self.selected) {
-            if let Some(&i) = visible.first() {
+        if !visible.contains(&self.selected)
+            && let Some(&i) = visible.first() {
                 self.select(i);
             }
-        }
     }
     pub fn row_visible(&self, i: usize) -> bool {
         if i < self.drafts.len() {
@@ -414,11 +413,10 @@ impl App {
         tokio::spawn(async move {
             match client.request(m, params).await {
                 Ok(v) => {
-                    if m == method::SESSION_NEW || m == method::SESSION_FORK || m == method::MUX_IMPORT {
-                        if let Some(id) = v.get("sessionId").and_then(Value::as_str) {
+                    if (m == method::SESSION_NEW || m == method::SESSION_FORK || m == method::MUX_IMPORT)
+                        && let Some(id) = v.get("sessionId").and_then(Value::as_str) {
                             let _ = tx.send(AppMsg::Created(id.to_owned()));
                         }
-                    }
                     if let Some(msg) = ok_msg {
                         let _ = tx.send(AppMsg::Info(msg));
                     }
@@ -435,12 +433,11 @@ impl App {
             return;
         }
         let raw = self.editor().text().trim().to_owned();
-        if !steer {
-            if let Some(arg) = directory::cd_argument(&raw) {
+        if !steer
+            && let Some(arg) = directory::cd_argument(&raw) {
                 self.open_directory_dialog_at(arg.to_owned());
                 return;
             }
-        }
         let text = if !self.remote_directory() && raw.contains(&self.skill_prefix) {
             self.skills = skills::Skill::discover(std::path::Path::new(&self.current_directory()), &self.skill_paths);
             match skills::expand(&raw, &self.skills, &self.skill_prefix) { Ok(text) => text, Err(e) => { self.report_error(format!("Skill: {e}")); return; } }

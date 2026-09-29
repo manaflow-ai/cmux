@@ -108,7 +108,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         let settings_y = top + 2;
         let parts = [
             (format!("{}{}", d.peer.as_deref().map(|p| format!("{p} / ")).unwrap_or_default(), d.harness), ButtonAction::DraftHarness),
-            (format!("{}", d.model.as_deref().map(model_label).unwrap_or_else(|| "default model".to_owned())), ButtonAction::DraftModel),
+            (d.model.as_deref().map(model_label).unwrap_or_else(|| "default model".to_owned()).to_string(), ButtonAction::DraftModel),
             (if effort.is_empty() { String::new() } else { effort.trim_start_matches("  ·  ").to_owned() }, ButtonAction::DraftEffort),
             (crate::tui::render::policy_label(&d.policy).0, ButtonAction::DraftPolicy),
         ];
@@ -144,7 +144,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             if y >= inner.y + inner.height {
                 break;
             }
-            buf.set_stringn(inner.x, y, &format!("  ✗ {e}"), inner.width as usize, Style::default().fg(c.error_fg));
+            buf.set_stringn(inner.x, y, format!("  ✗ {e}"), inner.width as usize, Style::default().fg(c.error_fg));
             y += 1;
         }
         app.buttons.extend(buttons);
@@ -195,14 +195,13 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     let anchor = app.transcript_anchor.clone();
     let vp = app.viewport.entry(id.clone()).or_default();
     vp.layout(rows.len(), inner.height as usize, track);
-    if let Some((anchor_id, anchor_row, screen_row)) = anchor {
-        if anchor_id == id {
+    if let Some((anchor_id, anchor_row, screen_row)) = anchor
+        && anchor_id == id {
             // Preserve the clicked row even when a collapse leaves blank space
             // below the final item; moving the text under the pointer is worse.
             vp.offset = anchor_row.saturating_sub(screen_row);
             vp.follow = false;
         }
-    }
     vp.hover = hover.map(|(hx, hy)| vp.track_contains(hx, hy)).unwrap_or(false);
     let offset = vp.offset;
     let sel = app.selection.as_ref().filter(|s| s.session == id).cloned();
@@ -241,15 +240,14 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             }
             link_runs.push(crate::tui::links::LinkCell { x: inner.x + link.start as u16, y, text, href });
         }
-        if let Some(s) = &sel {
-            if let Some((c0, c1)) = s.cols_on_row(i, &row.text) {
+        if let Some(s) = &sel
+            && let Some((c0, c1)) = s.cols_on_row(i, &row.text) {
                 for x in c0..c1.min(inner.width as usize) {
                     if let Some(cell) = buf.cell_mut((inner.x + x as u16, y)) {
                         cell.set_style(cell.style().patch(c.selection()));
                     }
                 }
             }
-        }
     }
     app.link_cells.extend(link_runs);
     if vp.has_scrollbar() {

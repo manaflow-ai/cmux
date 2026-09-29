@@ -21,15 +21,14 @@ impl Hub {
             let mut retained = Vec::new();
             for session in self.sessions.lock().unwrap().values() {
                 let name = session.meta().harness;
-                if !next.harnesses.contains_key(&name) {
-                    if let Some(old) = current.harnesses.get(&name) {
+                if !next.harnesses.contains_key(&name)
+                    && let Some(old) = current.harnesses.get(&name) {
                         next.harnesses.insert(name.clone(), old.clone());
                         // Do not resurrect a deleted profile in config.json on
                         // the next preset/default save.
                         next.discovered.insert(name.clone());
                         retained.push(name);
                     }
-                }
             }
             // Only unchanged launchers inherit a startup validation failure.
             next.unavailable = current.unavailable.iter()
@@ -155,13 +154,13 @@ impl Hub {
         // value fails creation loudly rather than starting a session that
         // silently runs another model.
         let applied: Result<(), RpcError> = async {
-            if let Some(m) = &model {
-                if !spawn_model {
+            if let Some(m) = &model
+                && !spawn_model {
                     // `opencode/big-pickle` was written as `-m opencode/big-pickle`:
                     // the harness lacks `big-pickle` but lists `opencode/big-pickle`.
                     let catalog = self.catalog_ids(agent).await;
                     let full = format!("{head}/{m}");
-                    let m = if !catalog.is_empty() && !catalog.iter().any(|id| id == m) && catalog.iter().any(|id| *id == full) { full } else { m.clone() };
+                    let m = if !catalog.is_empty() && !catalog.iter().any(|id| id == m) && catalog.contains(&full) { full } else { m.clone() };
                     if let Err(e) = self.set_model(&session, &m).await {
                         if e.message.contains("Method not found") {
                             return Err(RpcError::invalid_params(format!(
@@ -172,7 +171,6 @@ impl Hub {
                         return Err(RpcError::invalid_params(format!("model {m:?} for {agent}: {}{hint}", e.message)));
                     }
                 }
-            }
             if let Some(e) = &effort {
                 self.set_config(&session, "effort", json!(e)).await.map_err(|err| RpcError::invalid_params(format!("effort {e:?} for {agent}: {}", err.message)))?;
             }
@@ -200,7 +198,7 @@ impl Hub {
                 crate::config::HarnessKind::ClaudeStdio => ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string())),
                 crate::config::HarnessKind::Acp => ids.extend(known.get(name).into_iter().flatten().map(|(id, _)| id.clone())),
             }
-            if ids.iter().any(|id| *id == spec) || (p.kind == crate::config::HarnessKind::ClaudeStdio && spec.starts_with("claude")) {
+            if ids.contains(&spec) || (p.kind == crate::config::HarnessKind::ClaudeStdio && spec.starts_with("claude")) {
                 hits.push(format!("{name}/{spec}"));
             }
         }
@@ -249,11 +247,10 @@ impl Hub {
         session: &Arc<Session>,
         profile: &HarnessProfile,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        if let Some(child) = session.child.lock().await.as_ref() {
-            if child.is_alive().await {
+        if let Some(child) = session.child.lock().await.as_ref()
+            && child.is_alive().await {
                 return Ok(child.clone());
             }
-        }
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
@@ -508,13 +505,11 @@ impl Hub {
                 Err(e) => tracing::warn!(session = %session.id, "replay {id}: {}", e.message),
             }
         }
-        if opts.is_empty() {
-            if let Some(model) = saved.models.as_ref().and_then(|m| m.get("currentModelId")).and_then(Value::as_str) {
-                if let Err(e) = child.request(method::SESSION_SET_MODEL, json!({"sessionId": sid, "modelId": model})).await {
+        if opts.is_empty()
+            && let Some(model) = saved.models.as_ref().and_then(|m| m.get("currentModelId")).and_then(Value::as_str)
+                && let Err(e) = child.request(method::SESSION_SET_MODEL, json!({"sessionId": sid, "modelId": model})).await {
                     tracing::warn!(session = %session.id, "replay model {model}: {}", e.message);
                 }
-            }
-        }
         self.append(session, "mux", "config", json!({"replayed": true}));
     }
 
@@ -526,20 +521,18 @@ impl Hub {
 
     fn remember_models_from(&self, agent: &str, config_options: Option<&Value>, models: Option<&Value>) {
         let mut list: Vec<(String, String)> = Vec::new();
-        if let Some(opts) = config_options.and_then(Value::as_array) {
-            if let Some(o) = opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")) {
+        if let Some(opts) = config_options.and_then(Value::as_array)
+            && let Some(o) = opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")) {
                 list.extend(crate::model_catalog::choices(o));
             }
-        }
-        if list.is_empty() {
-            if let Some(models) = models.and_then(|m| m.get("availableModels")).and_then(Value::as_array) {
+        if list.is_empty()
+            && let Some(models) = models.and_then(|m| m.get("availableModels")).and_then(Value::as_array) {
                 for m in models {
                     let v = m.get("modelId").and_then(Value::as_str).unwrap_or("").to_owned();
                     let n = m.get("name").and_then(Value::as_str).unwrap_or(&v).to_owned();
                     list.push((v, n));
                 }
             }
-        }
         if !list.is_empty() {
             self.known_models.lock().unwrap().insert(agent.to_owned(), list);
         }
@@ -643,27 +636,23 @@ impl Hub {
 
     pub(super) fn absorb_session_response(&self, session: &Session, v: &Value) {
         let mut m = session.meta.lock().unwrap();
-        if let Some(modes) = v.get("modes") {
-            if !modes.is_null() {
+        if let Some(modes) = v.get("modes")
+            && !modes.is_null() {
                 m.modes = Some(modes.clone());
             }
-        }
-        if let Some(opts) = v.get("configOptions") {
-            if !opts.is_null() {
+        if let Some(opts) = v.get("configOptions")
+            && !opts.is_null() {
                 m.config_options = Some(opts.clone());
             }
-        }
-        if let Some(models) = v.get("models") {
-            if !models.is_null() {
+        if let Some(models) = v.get("models")
+            && !models.is_null() {
                 m.models = Some(models.clone());
             }
-        }
     }
 
     pub(super) async fn child_for(self: &Arc<Self>, session: &Arc<Session>) -> Result<Arc<ChildAgent>, RpcError> {
-        if let Some(child) = session.child.lock().await.as_ref() {
-            if child.is_alive().await { return Ok(child.clone()); }
-        }
+        if let Some(child) = session.child.lock().await.as_ref()
+            && child.is_alive().await { return Ok(child.clone()); }
         let agent = session.meta().harness;
         let (profile, defaults) = {
             let cfg = self.config.read().await;
@@ -684,13 +673,12 @@ impl Hub {
         for (k, v) in defaults_env {
             p.env.entry(k.clone()).or_insert_with(|| v.clone());
         }
-        if let Some(name) = &meta.preset {
-            if let Some(preset) = self.config.read().await.presets.get(name) {
+        if let Some(name) = &meta.preset
+            && let Some(preset) = self.config.read().await.presets.get(name) {
                 for (k, v) in &preset.env {
                     p.env.insert(k.clone(), v.clone());
                 }
             }
-        }
         let home = dirs::home_dir().unwrap_or_default();
         let model = meta.model_request.clone().unwrap_or_default();
         for v in p.env.values_mut() {

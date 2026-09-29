@@ -320,14 +320,13 @@ impl ChildAgent {
                 }
                 crate::claude_stdio::Outbound::Reply(reply) => {
                     // Immediate local answer: feed it back as if claude replied.
-                    if let Message::Response { id, result, error } = reply {
-                        if let Some(tx) = self.pending.lock().await.map.remove(&key(&id)) {
+                    if let Message::Response { id, result, error } = reply
+                        && let Some(tx) = self.pending.lock().await.map.remove(&key(&id)) {
                             let _ = tx.send(match error {
                                 Some(e) => Err(e),
                                 None => Ok(result.unwrap_or(Value::Null)),
                             });
                         }
-                    }
                     Ok(())
                 }
             }

@@ -5,11 +5,10 @@ use super::*;
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 fn attach(hub: &Hub, conn: &Conn, id: &str) {
-    if conn.subscribe(id) {
-        if let Ok(s) = hub.resolve(id) {
+    if conn.subscribe(id)
+        && let Ok(s) = hub.resolve(id) {
             hub.attach_count(&s, 1);
         }
-    }
 }
 
 pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) {
@@ -50,10 +49,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
 
 pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) -> Result<Value, RpcError> {
     // A session that lives on a peer: forward the whole request there.
-    if !SESSION_SCOPED_EXCLUDED.contains(&m) {
-        if let Ok(key) = session_key(&params) {
-            if hub.resolve(key).is_err() {
-                if let Some((peer, id, _)) = hub.resolve_remote(key) {
+    if !SESSION_SCOPED_EXCLUDED.contains(&m)
+        && let Ok(key) = session_key(&params)
+            && hub.resolve(key).is_err()
+                && let Some((peer, id, _)) = hub.resolve_remote(key) {
                     let mut p = if params.is_null() { json!({}) } else { params.clone() };
                     if let Some(obj) = p.as_object_mut() {
                         obj.remove("session");
@@ -73,12 +72,11 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                             e
                         }
                     })?;
-                    if m == method::SESSION_FORK {
-                        if let Some(new_id) = result.get("sessionId").and_then(Value::as_str) {
+                    if m == method::SESSION_FORK
+                        && let Some(new_id) = result.get("sessionId").and_then(Value::as_str) {
                             attach(hub, conn, new_id);
                             peer.mark_attached(new_id);
                         }
-                    }
                     if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {
                         hub.forget_remote(&id);
                     }
@@ -87,9 +85,6 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                     }
                     return Ok(result);
                 }
-            }
-        }
-    }
     match m {
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
@@ -115,8 +110,8 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         method::AUTHENTICATE => Ok(json!({})),
         method::SESSION_NEW => {
             // A peer name in _meta.acpmux.peer creates the session on that daemon.
-            if let Some(peer_name) = mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str) {
-                if !peer_name.is_empty() {
+            if let Some(peer_name) = mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
+                && !peer_name.is_empty() {
                     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
                     let mut p = params.clone();
                     if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
@@ -132,7 +127,6 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                     }
                     return Ok(result);
                 }
-            }
             let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default()));
             let meta = mux_meta(&params);
             let pick = |key: &str| meta.and_then(|m| m.get(key)).and_then(Value::as_str).map(str::to_owned).or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned));
@@ -168,14 +162,13 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                         method::SESSION_UPDATE,
                         json!({"sessionId": s.id, "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}, "_meta": {"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}}}),
                     ));
-                } else if rec.dir == "in" && !rec.kind.ends_with(".replay") {
-                    if rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE) {
+                } else if rec.dir == "in" && !rec.kind.ends_with(".replay")
+                    && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE) {
                         let mut p = rec.msg.get("params").cloned().unwrap_or(json!({}));
                         p["sessionId"] = Value::String(s.id.clone());
                         p["_meta"] = json!({"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}});
                         conn.send(&Message::notification(method::SESSION_UPDATE, p));
                     }
-                }
             }
             let meta = s.meta();
             Ok(json!({"modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&s)}}))
@@ -282,8 +275,8 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let mut cat = hub.models_catalog().await;
             // Remote harnesses, labelled peer/agent, from each connected peer.
             for peer in hub.connected_peers() {
-                if let Ok(remote) = peer.request("_acpmux/models", json!({})).await {
-                    if let Some(hs) = remote.get("harnesses").and_then(Value::as_array) {
+                if let Ok(remote) = peer.request("_acpmux/models", json!({})).await
+                    && let Some(hs) = remote.get("harnesses").and_then(Value::as_array) {
                         for h in hs {
                             let mut h = h.clone();
                             let agent = h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -295,7 +288,6 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                             }
                         }
                     }
-                }
             }
             Ok(cat)
         }

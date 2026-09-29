@@ -223,15 +223,14 @@ impl App {
                 rows.push(PickRow { value: format!("goto:{id}"), label: format!("{title}{mark}   {project}"), header: false, group: String::new(), note: String::new() });
             }
         }
-        if let Some(t) = self.selected_id().and_then(|id| self.transcripts.get(&id)) {
-            if !t.available_commands.is_empty() {
+        if let Some(t) = self.selected_id().and_then(|id| self.transcripts.get(&id))
+            && !t.available_commands.is_empty() {
                 rows.push(PickRow { value:String::new(), label:"harness commands".into(), header:true, group:String::new(), note:String::new() });
                 for cmd in &t.available_commands {
                     let cmd=cmd.trim_start_matches('/');
                     rows.push(PickRow { value:format!("agent:/{cmd}"), label:format!("{}{cmd}", self.palette_prefix), header:false, group:String::new(), note:"provided by the selected harness".into() });
                 }
             }
-        }
         let mut group = "";
         for d in ACTIONS {
             if d.group != group {

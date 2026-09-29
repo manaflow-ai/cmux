@@ -69,11 +69,10 @@ impl TranscriptCache {
     }
 
     fn append(&mut self, rows: Vec<Row>) {
-        if let Some(first) = rows.first() {
-            if !self.rows.is_empty() {
+        if let Some(first) = rows.first()
+            && !self.rows.is_empty() {
                 plain("", Style::default(), first.item, &mut self.rows);
             }
-        }
         self.rows.extend(rows);
     }
 }
@@ -84,15 +83,14 @@ pub(super) fn animated_line(t: &Transcript, row: &Row, c: &Chrome) -> Option<Lin
     if row.item == usize::MAX && !row.text.is_empty() {
         return Some(working_row(t, c).line);
     }
-    if let Some(Toggle::Turn(i)) = row.toggle.filter(|tg| matches!(tg, Toggle::Turn(i) if t.turn_times.last().map(|x| x.0) == Some(*i))) {
-        if let Some((start, None)) = t.turn_span(i) {
+    if let Some(Toggle::Turn(i)) = row.toggle.filter(|tg| matches!(tg, Toggle::Turn(i) if t.turn_times.last().map(|x| x.0) == Some(*i)))
+        && let Some((start, None)) = t.turn_span(i) {
             let label = format!("Working for {}", duration_label(now_ms().saturating_sub(start)));
             let mut line = row.line.clone();
             let suffix = line.spans[0].content.split_once(" · ").map(|(_, rest)| format!(" · {rest}")).unwrap_or_default();
             line.spans[0] = Span::styled(format!("{label}{suffix}"), c.muted());
             return Some(line);
         }
-    }
     if row.item == t.items.len().saturating_sub(1) && matches!(row.toggle, Some(Toggle::Item(_)))
         && matches!(t.items.get(row.item), Some(Item::Thought { .. })) {
         let mut line = row.line.clone();

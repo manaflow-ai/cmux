@@ -46,9 +46,9 @@ fn looks_like_path(tok: &str) -> bool {
 
 /// Trim punctuation that a sentence leaves stuck to a token.
 fn trim_token(tok: &str) -> &str {
-    let t = tok.trim_end_matches(|c: char| matches!(c, '.' | ',' | ';' | ':' | ')' | ']' | '}' | '"' | '\'' | '>' | '`'));
-    let t = t.trim_start_matches(|c: char| matches!(c, '(' | '[' | '{' | '"' | '\'' | '<' | '`'));
-    t
+    let t = tok.trim_end_matches(['.', ',', ';', ':', ')', ']', '}', '"', '\'', '>', '`']);
+    
+    (t.trim_start_matches(['(', '[', '{', '"', '\'', '<', '`'])) as _
 }
 
 /// Find links in one row of text. Columns count display cells.
@@ -61,7 +61,7 @@ pub fn find(text: &str) -> Vec<Link> {
         if tok.is_empty() {
             return;
         }
-        let lead = tok.len() - tok.trim_start_matches(|c: char| matches!(c, '(' | '[' | '{' | '"' | '\'' | '<' | '`')).len();
+        let lead = tok.len() - tok.trim_start_matches(['(', '[', '{', '"', '\'', '<', '`']).len();
         let t = trim_token(tok);
         if !t.is_empty() && (is_url_start(t) || looks_like_path(t)) {
             let lead_cols = unicode_width::UnicodeWidthStr::width(&tok[..lead]);

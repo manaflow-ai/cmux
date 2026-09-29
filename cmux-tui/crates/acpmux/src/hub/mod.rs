@@ -214,12 +214,11 @@ impl Hub {
             }
             // Meta is saved less often than events; after a hard stop the
             // log can be ahead of it. Never hand out a sequence twice.
-            if let Ok(extra) = self.store.events(&meta.id, meta.last_seq, 1_000_000) {
-                if let Some(last) = extra.last() {
+            if let Ok(extra) = self.store.events(&meta.id, meta.last_seq, 1_000_000)
+                && let Some(last) = extra.last() {
                     meta.event_count += extra.len() as u64;
                     meta.last_seq = last.seq;
                 }
-            }
             let session = self.make_session(meta);
             sessions.insert(session.id.clone(), session);
         }
@@ -256,7 +255,7 @@ impl Hub {
 
     pub fn sessions(&self) -> Vec<Arc<Session>> {
         let mut v: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
-        v.sort_by(|a, b| b.meta().updated_at.cmp(&a.meta().updated_at));
+        v.sort_by_key(|s| std::cmp::Reverse(s.meta().updated_at));
         v
     }
 
@@ -403,11 +402,10 @@ impl Hub {
                     }
                 }
                 "usage_update" => {
-                    if let Some(t) = cur.as_mut() {
-                        if let Some(u) = e.msg.pointer("/params/update/used").and_then(Value::as_u64) {
+                    if let Some(t) = cur.as_mut()
+                        && let Some(u) = e.msg.pointer("/params/update/used").and_then(Value::as_u64) {
                             t.insert("tokens".into(), json!(u));
                         }
-                    }
                 }
                 "turn_result" => {
                     if let Some(t) = cur.as_mut() {
@@ -423,8 +421,8 @@ impl Hub {
                 }
                 "turn_end" | "turn_error" => {
                     // Older logs without turn_result.
-                    if let Some(t) = cur.as_mut() {
-                        if t.get("endedAt").is_none() {
+                    if let Some(t) = cur.as_mut()
+                        && t.get("endedAt").is_none() {
                             let failed = e.kind == "turn_error";
                             t.insert("status".into(), json!(if failed { "failed" } else { "completed" }));
                             t.insert("stopReason".into(), e.msg.get("stopReason").cloned().unwrap_or(Value::Null));
@@ -432,7 +430,6 @@ impl Hub {
                             let started = t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
                             t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
                         }
-                    }
                 }
                 _ => {}
             }
@@ -545,11 +542,10 @@ pub fn current_model(m: &SessionMeta) -> Option<String> {
     }
     if let Some(opts) = m.config_options.as_ref().and_then(Value::as_array) {
         for o in opts {
-            if o.get("id").and_then(Value::as_str) == Some("model") {
-                if let Some(v) = o.get("currentValue").and_then(Value::as_str) {
+            if o.get("id").and_then(Value::as_str) == Some("model")
+                && let Some(v) = o.get("currentValue").and_then(Value::as_str) {
                     return Some(v.to_owned());
                 }
-            }
         }
     }
     m.models

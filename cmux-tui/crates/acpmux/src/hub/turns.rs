@@ -42,14 +42,13 @@ impl Hub {
             .meta()
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
-        if session.rehydrate.swap(false, Ordering::SeqCst) {
-            if let Some(transcript) = self.transcript(session, 24_000) {
+        if session.rehydrate.swap(false, Ordering::SeqCst)
+            && let Some(transcript) = self.transcript(session, 24_000) {
                 blocks.insert(
                     0,
                     json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
                 );
             }
-        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
@@ -80,8 +79,8 @@ impl Hub {
         if let Err(e) = &result {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
-            if is_limit_error(&e.message) || e.message.starts_with("agent process closed") {
-                if let Some(to) = self.fallback_profile(session).await {
+            if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
+                && let Some(to) = self.fallback_profile(session).await {
                     let from = session.meta().harness;
                     self.append(session, "mux", "failover", json!({"from": from, "to": to, "reason": e.message}));
                     self.detach_child(session).await;
@@ -96,7 +95,6 @@ impl Hub {
                         Err(e2) => result = Err(e2),
                     }
                 }
-            }
         }
         *session.turn.lock().unwrap() = None;
         // A process that died without answering: say what it printed last.

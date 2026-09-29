@@ -59,12 +59,11 @@ impl App {
                     .unwrap_or("?");
                 self.status = format!("permission needed in {who}: {title}  (y / n / 1-9)");
                 super::notify::send("acpmux", &format!("{who} needs a permission: {title}"));
-                if let Some(id) = sid.clone() {
-                    if self.selected_id().as_deref() != Some(&id) {
+                if let Some(id) = sid.clone()
+                    && self.selected_id().as_deref() != Some(&id) {
                         let e = self.attention.entry(id).or_insert(0);
                         *e = (*e).max(2);
                     }
-                }
             }
             "_acpmux/lagged" => self.status = "event stream lagged; reattach with Enter on the session".into(),
             _ => {}
@@ -78,11 +77,10 @@ impl App {
             let ub = b.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
             ub.cmp(&ua)
         });
-        if let Some(id) = selected_id {
-            if let Some(i) = self.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)) {
+        if let Some(id) = selected_id
+            && let Some(i) = self.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)) {
                 self.selected = i + self.drafts.len();
             }
-        }
     }
 
     pub(super) fn on_msg(&mut self, msg: AppMsg) {

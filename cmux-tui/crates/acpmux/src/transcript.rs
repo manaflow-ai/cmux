@@ -245,14 +245,13 @@ impl Transcript {
                         }
                     }
                 }
-                if detail.is_empty() {
-                    if let Some(o) = update.get("rawOutput") {
+                if detail.is_empty()
+                    && let Some(o) = update.get("rawOutput") {
                         detail = match o {
                             Value::String(s) => s.clone(),
                             other => other.to_string(),
                         };
                     }
-                }
                 if detail.len() > 4000 {
                     let mut cut = 4000;
                     while !detail.is_char_boundary(cut) {
@@ -379,11 +378,10 @@ impl Transcript {
             if kind.ends_with(".replay") {
                 return;
             }
-            if msg.get("method").and_then(Value::as_str) == Some("session/update") {
-                if let Some(update) = msg.pointer("/params/update") {
+            if msg.get("method").and_then(Value::as_str) == Some("session/update")
+                && let Some(update) = msg.pointer("/params/update") {
                     self.apply_session_update(update);
                 }
-            }
             return;
         }
         if dir != "mux" {
@@ -441,11 +439,10 @@ impl Transcript {
                         }
                     }
                 }
-                if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. })) {
-                    if at > 0 {
+                if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. }))
+                    && at > 0 {
                         self.user_at.entry(idx).or_insert(at);
                     }
-                }
             }
             "turn_started" => {
                 if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. })) {
@@ -453,11 +450,10 @@ impl Transcript {
                 }
             }
             "turn_result" => {
-                if let Some(last) = self.turn_times.last_mut() {
-                    if last.2.is_none() {
+                if let Some(last) = self.turn_times.last_mut()
+                    && last.2.is_none() {
                         last.2 = Some(at);
                     }
-                }
             }
             "status" => {
                 self.status = msg.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -479,11 +475,10 @@ impl Transcript {
                 self.activity = None;
                 self.active_tools = 0;
                 self.active_terminals = 0;
-                if let Some(last) = self.turn_times.last_mut() {
-                    if last.2.is_none() {
+                if let Some(last) = self.turn_times.last_mut()
+                    && last.2.is_none() {
                         last.2 = Some(at);
                     }
-                }
                 self.items.push(Item::TurnEnd { stop: msg.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned() })
             }
             "turn_error" => self.items.push(Item::Error {
@@ -525,13 +520,12 @@ impl Transcript {
                     .unwrap_or_else(|| "cancelled".into());
                 let mut found = false;
                 for item in self.items.iter_mut().rev() {
-                    if let Item::Permission { id: pid, decided: d, .. } = item {
-                        if pid == id {
+                    if let Item::Permission { id: pid, decided: d, .. } = item
+                        && pid == id {
                             *d = Some(decided.clone());
                             found = true;
                             break;
                         }
-                    }
                 }
                 if !found && kind == "permission_auto" {
                     let title = msg

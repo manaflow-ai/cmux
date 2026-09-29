@@ -130,11 +130,10 @@ impl App {
                         self.overlay = Overlay::Picker(p);
                     }
                 }
-                if is_agent && matches!(self.overlay, Overlay::None) {
-                    if let Some(form) = self.parked_form.take() {
+                if is_agent && matches!(self.overlay, Overlay::None)
+                    && let Some(form) = self.parked_form.take() {
                         self.overlay = form;
                     }
-                }
                 true
             }
             Overlay::NewSession(mut f) => {
@@ -181,7 +180,7 @@ impl App {
                         self.overlay = Overlay::NewSession(f);
                     }
                     // Session names take only name characters; other fields take anything.
-                    KeyCode::Char(c) if f.field == 1 && !ctrl && !key.modifiers.contains(KeyModifiers::ALT) && !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) => {
+                    KeyCode::Char(c) if f.field == 1 && !ctrl && !key.modifiers.contains(KeyModifiers::ALT) && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_' | '.') => {
                         self.overlay = Overlay::NewSession(f);
                     }
                     _ => {
@@ -235,7 +234,7 @@ impl App {
     }
 
     fn palette_trigger(&self, c: char) -> bool {
-        self.palette_prefix.chars().next() == Some(c) || self.palette_aliases.iter().any(|p| p.chars().next() == Some(c))
+        self.palette_prefix.starts_with(c) || self.palette_aliases.iter().any(|p| p.starts_with(c))
     }
 
     pub(super) fn on_key(&mut self, key: KeyEvent) {
@@ -254,16 +253,14 @@ impl App {
             keymap::Match::Pass => {}
         }
         let plain = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
-        if plain && self.focus == Focus::Input {
-            if let KeyCode::Char(c) = key.code {
-                if self.skill_prefix.starts_with(c) && (self.editor().cursor() == 0 || self.editor().text().chars().nth(self.editor().cursor()-1).map(char::is_whitespace).unwrap_or(false)) {
+        if plain && self.focus == Focus::Input
+            && let KeyCode::Char(c) = key.code
+                && self.skill_prefix.starts_with(c) && (self.editor().cursor() == 0 || self.editor().text().chars().nth(self.editor().cursor()-1).map(char::is_whitespace).unwrap_or(false)) {
                     self.editor_mut().insert(c);
                     self.open_skill_picker();
                     if let Overlay::Picker(p) = &mut self.overlay { p.on_pick = PickTarget::Skill { replace_prefix: true }; }
                     return;
                 }
-            }
-        }
         match key.code {
             KeyCode::Char('n') if ctrl => { match self.focus { Focus::Input => self.editor_mut().down(), Focus::Transcript => self.with_viewport(|v| v.scroll_by(1)), _ => self.select_step(1) }; return; }
             KeyCode::Char('p') if ctrl => { match self.focus { Focus::Input => self.editor_mut().up(), Focus::Transcript => self.with_viewport(|v| v.scroll_by(-1)), _ => self.select_step(-1) }; return; }

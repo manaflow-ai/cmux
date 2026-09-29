@@ -153,13 +153,12 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
         tokio::select! {
             r = &mut turn => break r?,
             _ = tick => {
-                if let Some(d) = deadline {
-                    if tokio::time::Instant::now() >= d {
+                if let Some(d) = deadline
+                    && tokio::time::Instant::now() >= d {
                         let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
                         let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
                         return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
                     }
-                }
                 if !activity {
                     return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
                 }
@@ -278,8 +277,8 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
             printed += 1;
             assistant_len = 0;
         }
-        if let Some(last) = t.items.last() {
-            if printed == t.items.len() - 1 {
+        if let Some(last) = t.items.last()
+            && printed == t.items.len() - 1 {
                 match last {
                     Item::Assistant { text } => {
                         if assistant_len == 0 {
@@ -299,7 +298,6 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
                     }
                 }
             }
-        }
     }
     Ok(())
 }
@@ -378,13 +376,12 @@ async fn collect_once(client: Arc<Client>, id: &str, text: &str, opts: CollectOp
         tokio::select! {
             r = &mut turn => break r?,
             _ = tick => {
-                if let Some(d) = deadline {
-                    if tokio::time::Instant::now() >= d {
+                if let Some(d) = deadline
+                    && tokio::time::Instant::now() >= d {
                         let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
                         let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
                         return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
                     }
-                }
                 if !activity {
                     return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
                 }

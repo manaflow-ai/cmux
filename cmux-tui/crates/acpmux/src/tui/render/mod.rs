@@ -71,11 +71,10 @@ pub fn truncate(s: &str, max: usize) -> String {
 }
 
 pub fn shorten_path(p: &str) -> String {
-    if let Some(h) = dirs::home_dir() {
-        if let Ok(rest) = std::path::Path::new(p).strip_prefix(&h) {
+    if let Some(h) = dirs::home_dir()
+        && let Ok(rest) = std::path::Path::new(p).strip_prefix(&h) {
             return format!("~/{}", rest.display());
         }
-    }
     p.to_owned()
 }
 
@@ -423,15 +422,15 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                     if failed_tools > 0 { label.push_str(&format!(" · {failed_tools} failed")); }
                     spacer(&mut rows, i, false);
                     let text = format!("{label}  {}", if open { "▾" } else { "›" });
-                    rows.push(Row { line: Line::from(vec![Span::styled(format!("{label}"), c.muted()), Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim())]), text, item: i, toggle: Some(Toggle::Turn(i)) });
+                    rows.push(Row { line: Line::from(vec![Span::styled(label.to_string(), c.muted()), Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim())]), text, item: i, toggle: Some(Toggle::Turn(i)) });
                     // Codex app: a hairline under the handle.
-                    rows.push(Row { line: Line::from(Span::styled(format!("{}", "─".repeat(w)), Style::default().fg(c.composer_border_fg))), text: String::new(), item: i, toggle: None });
+                    rows.push(Row { line: Line::from(Span::styled("─".repeat(w).to_string(), Style::default().fg(c.composer_border_fg))), text: String::new(), item: i, toggle: None });
                     // "Edited 2 files  +21 -2": the turn's file edits, summed, visible even when folded.
                     let mut files: Vec<String> = Vec::new();
                     let (mut plus, mut minus) = (0usize, 0usize);
                     for &j in &work {
-                        if let Item::Tool { detail, .. } = &t.items[j] {
-                            if let Some((p, m)) = crate::transcript::diff_counts(detail) {
+                        if let Item::Tool { detail, .. } = &t.items[j]
+                            && let Some((p, m)) = crate::transcript::diff_counts(detail) {
                                 plus += p;
                                 minus += m;
                                 for f in detail.lines().filter_map(|l| l.strip_prefix("@@ ")).map(|p| p.rsplit('/').next().unwrap_or(p).to_owned()) {
@@ -440,7 +439,6 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                                     }
                                 }
                             }
-                        }
                     }
                     if !files.is_empty() {
                         let label = format!("✎ Edited {} file{}  ", files.len(), if files.len() == 1 { "" } else { "s" });
@@ -536,7 +534,7 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                                 wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), "", i, &mut rows);
                             }
                         } else if open {
-                            header_row(&format!("Thought  ▾"), c.muted_fg, i, Toggle::Item(i), &mut rows);
+                            header_row("Thought  ▾", c.muted_fg, i, Toggle::Item(i), &mut rows);
                             wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), "", i, &mut rows);
                         } else {
                             let shown = truncate(summary, w.saturating_sub(14));
@@ -550,7 +548,7 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                         }
                     }
                     Item::Plan { entries } => {
-                        plain(&format!("plan"), Style::default().fg(c.attention_fg), i, &mut rows);
+                        plain("plan", Style::default().fg(c.attention_fg), i, &mut rows);
                         for (s, content) in entries {
                             let glyph = match s.as_str() {
                                 "completed" => "✓",
@@ -628,7 +626,7 @@ fn working_row(t: &Transcript, c: &Chrome) -> Row {
     // interrupt affordance so the user never has to infer whether work
     // is still live from the last transcript row.
     let elapsed = match t.turn_times.last() {
-        Some((_, start, None)) => format!("{}", duration_label(now_ms().saturating_sub(*start))),
+        Some((_, start, None)) => duration_label(now_ms().saturating_sub(*start)).to_string(),
         _ => "…".to_owned(),
     };
     let mut label = format!("Working ({elapsed} · Esc to interrupt)");
@@ -782,7 +780,7 @@ pub fn when_label(ms: u64) -> String {
         }
         let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         let mon = months.get(tm.tm_mon as usize).copied().unwrap_or("?");
-        return format!("{mon} {}, {clock}", tm.tm_mday);
+        format!("{mon} {}, {clock}", tm.tm_mday)
     }
     #[cfg(not(unix))]
     {
@@ -908,11 +906,11 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     }
     // Codex app: hovering a sidebar row shows a card with the full title,
     // the directory, the harness and model, and how long ago it moved.
-    if matches!(app.overlay, Overlay::None) && app.sidebar_drag.is_none() {
-        if let Some((row, idx)) = app.hover.and_then(|(hx, hy)| app.sidebar_rows.iter().find(|(r, _)| hx >= r.x && hx < r.x + r.width && hy >= r.y && hy < r.y + r.height).cloned()) {
+    if matches!(app.overlay, Overlay::None) && app.sidebar_drag.is_none()
+        && let Some((row, idx)) = app.hover.and_then(|(hx, hy)| app.sidebar_rows.iter().find(|(r, _)| hx >= r.x && hx < r.x + r.width && hy >= r.y && hy < r.y + r.height).cloned()) {
             let ndrafts = app.drafts.len();
-            if idx >= ndrafts {
-                if let Some(s) = app.sessions.get(idx - ndrafts).cloned() {
+            if idx >= ndrafts
+                && let Some(s) = app.sessions.get(idx - ndrafts).cloned() {
                     let title = session_title(&s);
                     let name = s.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
                     let cwd = s.get("cwd").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -935,20 +933,18 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
                     if !age.is_empty() {
                         line2.push_str(&format!("  ·  {age}"));
                     }
-                    let w = (line1.width().max(line2.width()) as u16 + 4).min(main.width.saturating_sub(4)).min(72).max(12);
+                    let w = (line1.width().max(line2.width()) as u16 + 4).min(main.width.saturating_sub(4)).clamp(12, 72);
                     let x = sidebar.x + sidebar.width + 1;
                     let y = row.y.min(area.y + area.height.saturating_sub(5));
                     let r = Rect { x, y, width: w, height: 4 };
                     let buf = f.buffer_mut();
                     fill(buf, r, c.prompt());
                     composer::rounded_border(buf, r, c.prompt_border());
-                    buf.set_stringn(r.x + 2, r.y + 1, &truncate(&line1, w as usize - 4), w as usize - 4, c.prompt().add_modifier(Modifier::BOLD));
-                    buf.set_stringn(r.x + 2, r.y + 2, &truncate(&line2, w as usize - 4), w as usize - 4, c.prompt().fg(c.status_dim_fg));
+                    buf.set_stringn(r.x + 2, r.y + 1, truncate(&line1, w as usize - 4), w as usize - 4, c.prompt().add_modifier(Modifier::BOLD));
+                    buf.set_stringn(r.x + 2, r.y + 2, truncate(&line2, w as usize - 4), w as usize - 4, c.prompt().fg(c.status_dim_fg));
                     app.link_cells.retain(|l| !(l.y >= r.y && l.y < r.y + r.height && l.x < r.x + r.width && l.x + l.text.width() as u16 > r.x));
                 }
-            }
         }
-    }
     // Hyperlink metadata belongs only to visible transcript cells. Drop
     // links covered by a dialog, menu or toast before the backend diffs them.
     if !matches!(app.overlay, Overlay::None) {
@@ -1012,8 +1008,7 @@ impl Selection {
     pub fn text(&self, rows: &[String]) -> String {
         let ((r0, _), (r1, _)) = self.range();
         let mut out = Vec::new();
-        for r in r0..=r1.min(rows.len().saturating_sub(1)) {
-            let line = &rows[r];
+        for (r, line) in rows.iter().enumerate().take(r1 + 1).skip(r0) {
             let chars: Vec<char> = line.chars().collect();
             let piece = match self.cols_on_row(r, line) {
                 Some((s, e)) if e > s => chars[s.min(chars.len())..e.min(chars.len())].iter().collect::<String>(),

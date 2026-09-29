@@ -248,12 +248,11 @@ pub(super) fn draw_add_host(f: &mut ratatui::Frame, area: Rect, text: &crate::tu
 pub(super) fn draw_directory(f: &mut ratatui::Frame, area: Rect, text: &crate::tui::editor::Editor, app: &mut App, hover: Option<(u16, u16)>) {
     let c = app.chrome;
     let mut paths = Vec::new();
-    if !app.remote_directory() {
-        if let Ok(path) = app.resolve_directory(&text.text()) {
+    if !app.remote_directory()
+        && let Ok(path) = app.resolve_directory(&text.text()) {
             if let Some(parent) = path.parent() { paths.push(("↑ Parent directory".to_owned(), parent.to_string_lossy().into_owned())); }
             for p in crate::tui::directory::children(&path) { paths.push((format!("▢ {}", p.file_name().unwrap_or_default().to_string_lossy()), p.to_string_lossy().into_owned())); }
         }
-    }
     let rows = paths.iter().map(|(name,_)| DialogRow { spans: vec![(name.clone(), c.prompt())], selectable: true, note: None }).collect();
     let spec = DialogSpec {
         title: "Working directory",

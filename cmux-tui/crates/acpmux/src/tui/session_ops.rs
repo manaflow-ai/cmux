@@ -156,12 +156,11 @@ impl App {
             return;
         };
         let form_name = form.name.text();
-        if !form_name.is_empty() {
-            if let Err(e) = crate::session_name::validate(&form_name) {
+        if !form_name.is_empty()
+            && let Err(e) = crate::session_name::validate(&form_name) {
                 self.status = e;
                 return;
             }
-        }
         let mut meta = json!({"harness": agent, "policy": POLICIES[form.policy]});
         if !form_name.is_empty() {
             meta["name"] = json!(form_name);
@@ -217,7 +216,7 @@ impl App {
         let current = d.peer.as_ref().map(|p| format!("{p}/{}", d.harness)).unwrap_or_else(|| d.harness.clone());
         let rows = catalog.get("harnesses").and_then(Value::as_array).into_iter().flatten().filter_map(|h| {
             let id = h.get("harness")?.as_str()?.to_owned();
-            let label = if id.split('/').last() == Some("deepseek") { format!("{id} · DeepSeek Harness") } else { id.clone() };
+            let label = if id.split('/').next_back() == Some("deepseek") { format!("{id} · DeepSeek Harness") } else { id.clone() };
             Some(PickRow { value:id, label, header:false, group:String::new(), note:String::new() })
         }).collect();
         self.overlay = Overlay::Picker(Picker::new("Harness", rows, Some(&current), PickTarget::DraftHarness, "type to filter · Enter selects · Esc"));
@@ -589,11 +588,10 @@ impl App {
                 }
             }
             PickTarget::Agent => {
-                if let Some(Overlay::NewSession(f)) = self.parked_form.as_mut() {
-                    if let Some(i) = f.harnesses.iter().position(|a| *a == value) {
+                if let Some(Overlay::NewSession(f)) = self.parked_form.as_mut()
+                    && let Some(i) = f.harnesses.iter().position(|a| *a == value) {
                         f.agent = i;
                     }
-                }
             }
         }
     }

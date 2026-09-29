@@ -216,11 +216,10 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
     for ev in parser {
         match ev {
             Event::Start(tag) => match tag {
-                Tag::Paragraph => {
-                    if lists.is_empty() || item_first_prefix.is_none() {
+                Tag::Paragraph
+                    if (lists.is_empty() || item_first_prefix.is_none()) => {
                         blank(out, &mut needs_blank);
                     }
-                }
                 Tag::Heading { level, .. } => {
                     blank(out, &mut needs_blank);
                     let st = match level as u8 {
@@ -313,11 +312,10 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 TagEnd::Link => {
                     styles.pop();
                     // Keep the URL visible after the text unless the text is the URL.
-                    if let Some(url) = link_url.take() {
-                        if link_text.trim() != url.trim() && !url.is_empty() {
+                    if let Some(url) = link_url.take()
+                        && link_text.trim() != url.trim() && !url.is_empty() {
                             frags.push((format!(" ({url})"), base.fg(c.status_dim_fg)));
                         }
-                    }
                 }
                 TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {
                     styles.pop();

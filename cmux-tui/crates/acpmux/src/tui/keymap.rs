@@ -8,7 +8,7 @@ impl Stroke {
     fn event(k: KeyEvent) -> Self {
         let mut code = k.code;
         let mods = k.modifiers & (KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::SHIFT);
-        if let KeyCode::Char(c) = code { if c.is_ascii_alphabetic() { code = KeyCode::Char(c.to_ascii_lowercase()); } }
+        if let KeyCode::Char(c) = code && c.is_ascii_alphabetic() { code = KeyCode::Char(c.to_ascii_lowercase()); }
         Self { code, mods }
     }
     fn parse(s: &str) -> Result<Self> {

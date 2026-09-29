@@ -36,13 +36,12 @@ impl LinkState {
             }
         }
         for (&(y, x), (_, old)) in &self.current {
-            if !next.contains_key(&(y, x)) {
-                if let Some(cell) = buffer.cell((x, y)) {
+            if !next.contains_key(&(y, x))
+                && let Some(cell) = buffer.cell((x, y)) {
                     // Changed cells already belong to Ratatui's diff. In
                     // particular, do not force a wide-glyph continuation.
                     if cell == old { self.forced.insert((y, x), cell.clone()); }
                 }
-            }
         }
         self.current = next;
     }

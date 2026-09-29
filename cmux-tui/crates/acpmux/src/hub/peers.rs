@@ -74,12 +74,11 @@ impl Hub {
 
     /// Prefix a peer session's summary so it reads as `<peer>/<name>`.
     pub(super) fn remote_summary(peer: &str, mut summary: Value) -> Value {
-        if let Some(name) = summary.get("name").and_then(Value::as_str) {
-            if !name.starts_with(&format!("{peer}/")) {
+        if let Some(name) = summary.get("name").and_then(Value::as_str)
+            && !name.starts_with(&format!("{peer}/")) {
                 let full = format!("{peer}/{name}");
                 summary["name"] = Value::String(full);
             }
-        }
         summary["peer"] = Value::String(peer.to_owned());
         summary
     }

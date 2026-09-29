@@ -197,16 +197,13 @@ pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum StoreMode {
     Memory,
+    #[default]
     Local,
 }
 
-impl Default for StoreMode {
-    fn default() -> Self {
-        StoreMode::Local
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -449,11 +446,10 @@ impl Config {
             if let Some(fd) = self.defaults.get(&f) {
                 d.overlay(fd);
             }
-            if f != profile {
-                if let Some(pd) = self.defaults.get(profile) {
+            if f != profile
+                && let Some(pd) = self.defaults.get(profile) {
                     d.overlay(pd);
                 }
-            }
         }
         if let Some(p) = self.harnesses.get(profile) {
             d.overlay(&SessionDefaults { model: p.model.clone(), effort: p.effort.clone(), policy: p.policy, prefer: vec![], env: BTreeMap::new() });
@@ -490,22 +486,20 @@ impl Config {
             }
         }
         if cfg.harnesses.contains_key("claude-sr") {
-            if let Some(c) = cfg.harnesses.get_mut("claude") {
-                if c.fallback.is_none() && c.kind == HarnessKind::ClaudeStdio {
+            if let Some(c) = cfg.harnesses.get_mut("claude")
+                && c.fallback.is_none() && c.kind == HarnessKind::ClaudeStdio {
                     c.fallback = Some("claude-sr".into());
                     cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
                 }
-            }
             // `-m claude` goes to the pool first, then the direct login, and
             // the pool falls back to the direct login. Only when the user
             // wrote no preference of their own.
             if cfg.discovered.contains("claude-sr") {
                 let has_direct = cfg.harnesses.contains_key("claude");
-                if let Some(p) = cfg.harnesses.get_mut("claude-sr") {
-                    if p.fallback.is_none() && has_direct {
+                if let Some(p) = cfg.harnesses.get_mut("claude-sr")
+                    && p.fallback.is_none() && has_direct {
                         p.fallback = Some("claude".into());
                     }
-                }
                 let entry = cfg.defaults.entry("claude".into()).or_default();
                 if entry.prefer.is_empty() {
                     entry.prefer = ["claude-sr", "claude"].iter().filter(|n| has_direct || **n != "claude").map(|n| n.to_string()).collect();
@@ -532,24 +526,21 @@ impl Config {
         }
         let mut on_disk = self.clone();
         on_disk.harnesses.retain(|n, _| !self.discovered.contains(n));
-        if let Some((p, f)) = &self.auto_fallback {
-            if let Some(prof) = on_disk.harnesses.get_mut(p) {
-                if prof.fallback.as_deref() == Some(f.as_str()) {
+        if let Some((p, f)) = &self.auto_fallback
+            && let Some(prof) = on_disk.harnesses.get_mut(p)
+                && prof.fallback.as_deref() == Some(f.as_str()) {
                     prof.fallback = None;
                 }
-            }
-        }
         if self.auto_default {
             on_disk.default_harness = None;
         }
-        if self.auto_prefer {
-            if let Some(d) = on_disk.defaults.get_mut("claude") {
+        if self.auto_prefer
+            && let Some(d) = on_disk.defaults.get_mut("claude") {
                 d.prefer.clear();
                 if d.is_empty() {
                     on_disk.defaults.remove("claude");
                 }
             }
-        }
         write_atomic(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
     }
 
@@ -563,9 +554,9 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
     let mut agents = BTreeMap::new();
     if let Some(home) = dirs::home_dir() {
         let acpx = home.join(".acpx").join("config.json");
-        if let Ok(text) = std::fs::read_to_string(&acpx) {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
-                if let Some(map) = v.get("agents").and_then(|a| a.as_object()) {
+        if let Ok(text) = std::fs::read_to_string(&acpx)
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&text)
+                && let Some(map) = v.get("agents").and_then(|a| a.as_object()) {
                     for (name, profile) in map {
                         if let Some(argv) = profile.get("argv").and_then(|a| a.as_array()) {
                             let argv: Vec<String> = argv
@@ -586,8 +577,6 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
                         }
                     }
                 }
-            }
-        }
     }
     for (name, bin) in [
         ("codex", "codex-acp"),
@@ -634,13 +623,11 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
         }
     }
     // A direct Claude falls over to the pool when its account is exhausted.
-    if agents.contains_key("claude-sr") {
-        if let Some(c) = agents.get_mut("claude") {
-            if c.fallback.is_none() {
+    if agents.contains_key("claude-sr")
+        && let Some(c) = agents.get_mut("claude")
+            && c.fallback.is_none() {
                 c.fallback = Some("claude-sr".into());
             }
-        }
-    }
     agents
 }
 
@@ -818,8 +805,7 @@ mod tests {
     fn save_leaves_discovered_profiles_out() {
         let dir = std::env::temp_dir().join(format!("acpmux-save-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut cfg = Config::default();
-        cfg.path = Some(dir.join("config.json"));
+        let mut cfg = Config { path: Some(dir.join("config.json")), ..Config::default() };
         let mut claude = prof(HarnessKind::ClaudeStdio, &["claude"]);
         claude.fallback = Some("claude-sr".into());
         cfg.harnesses.insert("claude".into(), claude);

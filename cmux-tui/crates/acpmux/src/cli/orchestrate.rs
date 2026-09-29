@@ -225,7 +225,7 @@ pub(crate) fn split_target(spec: &str) -> (String, Option<String>) {
 
 pub(crate) async fn ensure(client: Arc<Client>, name: &str, target: Option<String>, preset: Option<String>, host: Option<String>, cwd: Option<std::path::PathBuf>, policy: Option<String>, effort: Option<String>, json_out: bool) -> Result<()> {
     let (agent, model) = match &target { Some(t) => { let (h, m) = split_target(t); (Some(h), m) } None => (None, None) };
-    acpmux::session_name::validate(name).map_err(|e| AppError::usage(e))?;
+    acpmux::session_name::validate(name).map_err(AppError::usage)?;
     let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host { Some(h) => format!("{h}/{name}"), None => name.to_owned() };
     let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| a.iter().find(|s| s.get("name").and_then(Value::as_str) == Some(full.as_str())).cloned());
@@ -286,7 +286,7 @@ pub(crate) async fn history(client: Arc<Client>, key: &str, limit: usize, json_o
         println!("no turns yet");
         return Ok(());
     }
-    println!("{:<5} {:<10} {:>7} {:>5} {:>8} {}", "SEQ", "STATUS", "WALL", "TOOLS", "TOKENS", "PROMPT");
+    println!("{:<5} {:<10} {:>7} {:>5} {:>8} PROMPT", "SEQ", "STATUS", "WALL", "TOOLS", "TOKENS");
     for t in turns {
         let g = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
         let wall = t.get("wallMs").and_then(Value::as_u64).map(|ms| format!("{:.1}s", ms as f64 / 1000.0)).unwrap_or_else(|| "-".into());
@@ -395,7 +395,7 @@ pub(crate) async fn compare(client: Arc<Client>, harnesses: Vec<String>, prompt:
     if json_out {
         print_json(&json!({"prompt": prompt, "results": rows}));
     } else {
-        println!("{:<10} {:<10} {:>8} {:>7} {:>5} {:>5} {}", "AGENT", "STATUS", "WALL", "TOKENS", "TOOLS", "PERMS", "REPLY");
+        println!("{:<10} {:<10} {:>8} {:>7} {:>5} {:>5} REPLY", "AGENT", "STATUS", "WALL", "TOKENS", "TOOLS", "PERMS");
         for r in &rows {
             let g = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
             let n = |k: &str| r.get(k).and_then(Value::as_u64).map(|v| v.to_string()).unwrap_or_else(|| "-".into());
@@ -466,11 +466,10 @@ pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
         Some((s, n)) => (Some(s), n),
         None => (None, cursor),
     };
-    if let Some(s) = sid {
-        if s != id {
+    if let Some(s) = sid
+        && s != id {
             return Err(AppError::new(Code::Usage, "cursor_foreign", format!("cursor belongs to session {s}, not {id}")).into());
         }
-    }
     seq.parse::<u64>().map_err(|_| AppError::new(Code::Usage, "cursor_invalid", format!("cursor {cursor:?} is not <sessionId>:<seq>")).into())
 }
 
@@ -498,14 +497,13 @@ impl ReadSuppressor {
         if kind == "tool_call" || kind == "tool_call_update" {
             let id = e.pointer("/msg/params/update/toolCallId").and_then(Value::as_str).map(str::to_owned);
             let is_read_kind = e.pointer("/msg/params/update/kind").and_then(Value::as_str).map(|k| matches!(k, "read" | "search" | "fetch")).unwrap_or(false);
-            if is_read_kind {
-                if let Some(id) = &id {
+            if is_read_kind
+                && let Some(id) = &id {
                     self.read_ids.insert(id.clone());
                 }
-            }
             let is_read = is_read_kind || id.as_ref().map(|i| self.read_ids.contains(i)).unwrap_or(false);
-            if is_read {
-                if let Some(u) = e.pointer_mut("/msg/params/update") {
+            if is_read
+                && let Some(u) = e.pointer_mut("/msg/params/update") {
                     if u.get("content").is_some() {
                         u["content"] = json!([{"type": "content", "content": {"type": "text", "text": placeholder}}]);
                     }
@@ -513,13 +511,11 @@ impl ReadSuppressor {
                         u["rawOutput"] = json!(placeholder);
                     }
                 }
-            }
         } else if kind == "claude.user" && e.pointer("/msg/tool_use_result/file").is_some() {
-            if let Some(f) = e.pointer_mut("/msg/tool_use_result/file") {
-                if f.get("content").is_some() {
+            if let Some(f) = e.pointer_mut("/msg/tool_use_result/file")
+                && f.get("content").is_some() {
                     f["content"] = json!(placeholder);
                 }
-            }
             if let Some(arr) = e.pointer_mut("/msg/message/content").and_then(Value::as_array_mut) {
                 for c in arr {
                     if c.get("content").is_some() {

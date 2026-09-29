@@ -163,11 +163,10 @@ pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: Option<String>) -> Re
             let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
             tokio::spawn(async move {
                 while let Some(Ok(frame)) = source.next().await {
-                    if let tokio_tungstenite::tungstenite::Message::Text(t) = frame {
-                        if in_tx.send(t.to_string()).await.is_err() {
+                    if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
+                        && in_tx.send(t.to_string()).await.is_err() {
                             break;
                         }
-                    }
                 }
             });
             tokio::spawn(async move {
@@ -313,16 +312,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
     if attached && rec.dir != "peer" {
         // Agent -> client updates as standard ACP notifications.
-        if rec.dir == "in" && !rec.kind.ends_with(".replay") {
-            if let Some(m) = rec.msg.get("method").and_then(Value::as_str) {
-                if m == method::SESSION_UPDATE {
+        if rec.dir == "in" && !rec.kind.ends_with(".replay")
+            && let Some(m) = rec.msg.get("method").and_then(Value::as_str)
+                && m == method::SESSION_UPDATE {
                     let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
                     params["sessionId"] = Value::String(ev.session_id.clone());
                     params["_meta"] = json!({"acpmux": {"seq": rec.seq, "at": rec.at}});
                     conn.send(&Message::notification(method::SESSION_UPDATE, params));
                 }
-            }
-        }
         if rec.dir == "mux" {
             conn.send(&Message::notification(method::MUX_EVENT, event_value(&ev.session_id, rec)));
             if rec.kind == "permission_request" {
@@ -352,14 +349,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 rec.kind.as_str(),
                 "status" | "created" | "user_message" | "turn_end" | "turn_error" | "renamed" | "forked" | "imported" | "permission_request" | "permission_decision" | "mode" | "model" | "config" | "policy" | "rules" | "tags" | "turn_started" | "turn_result"
             )
-        {
-            if let Ok(s) = hub.resolve(&ev.session_id) {
+            && let Ok(s) = hub.resolve(&ev.session_id) {
                 conn.send(&Message::notification(
                     method::MUX_SESSION_CHANGED,
                     json!({"session": hub.session_summary(&s), "kind": rec.kind, "seq": rec.seq}),
                 ));
             }
-        }
     }
 }
 
@@ -385,7 +380,7 @@ fn session_key(params: &Value) -> Result<&str, RpcError> {
         .ok_or_else(|| RpcError::invalid_params("sessionId or session is required"))
 }
 
-fn mux_meta<'a>(params: &'a Value) -> Option<&'a Value> {
+fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 

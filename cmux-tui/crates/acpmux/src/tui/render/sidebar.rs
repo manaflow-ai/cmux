@@ -147,7 +147,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                 buf.set_stringn(area.x + 1, y, "▢", 1, ground.fg(c.sidebar_dim_fg));
                 let plus_w = if cwd.is_some() { 3 } else { 0 };
                 let name_w = content_w.saturating_sub(4 + plus_w);
-                buf.set_stringn(area.x + 3, y, &truncate(name, name_w), name_w, ground.fg(c.sidebar_dim_fg));
+                buf.set_stringn(area.x + 3, y, truncate(name, name_w), name_w, ground.fg(c.sidebar_dim_fg));
                 if let Some(path) = cwd {
                     let x = area.x + area.width.saturating_sub(4);
                     let hot = app.hover.map(|(hx, hy)| hy == y && hx >= x && hx < x + 3).unwrap_or(false);
@@ -208,7 +208,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                 let indent: u16 = if is_draft { 1 } else { 3 };
                 let name_w = content_w.saturating_sub(indent as usize + if mark.is_empty() { 1 } else { 3 });
                 let shown = if is_draft { format!("✎ {name}") } else { name.to_owned() };
-                buf.set_stringn(area.x + indent, y, &truncate(&shown, name_w), name_w, if is_sel { row_style.add_modifier(Modifier::BOLD) } else { row_style });
+                buf.set_stringn(area.x + indent, y, truncate(&shown, name_w), name_w, if is_sel { row_style.add_modifier(Modifier::BOLD) } else { row_style });
                 if !mark.is_empty() {
                     buf.set_stringn(area.x + area.width - 3, y, mark, 1, mark_style);
                 }
