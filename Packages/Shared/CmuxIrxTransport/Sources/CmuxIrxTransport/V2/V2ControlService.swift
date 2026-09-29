@@ -165,6 +165,7 @@ public actor V2ControlService {
         let value = snapshot()
         for observer in observers.values { observer.yield(value) }
         guard status != .stopped, !observers.isEmpty, let run = runID else { return }
+        guard pendingApplySequence == nil else { return }
         pendingApplySequence = value.sequence
         armApplyWatchdog(run: run, sequence: value.sequence)
     }
