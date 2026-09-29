@@ -23216,7 +23216,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn private_link_port_discovery_reports_listener_process() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = listener.local_addr().unwrap().to_string();
         let inventory = machine_listening_tcp_json().unwrap();
         let stdout = inventory["stdout"].as_str().unwrap();
