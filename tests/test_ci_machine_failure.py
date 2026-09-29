@@ -28,6 +28,15 @@ class MachineFailureTests(unittest.TestCase):
         log = "##[error]The following directories are not writable by your user:\n  /opt/homebrew\n"
         self.assertEqual(machine_failure.reason(log), "the Mac's Homebrew prefix is not writable by the runner user")
 
+    def test_a_missing_pinned_xcode_is_a_machine_failure(self):
+        for line in (
+            "##[error]Pinned Xcode developer dir does not exist: /Applications/Xcode_26.3.app/Contents/Developer "
+            "on runner cmux14-glaeda-1. [cmux-ci machine: xcode-pin-missing] Installed: Xcode.app=26.3",
+            "Pinned Xcode developer dir does not exist: /Applications/Xcode_26.3.app/Contents/Developer",
+        ):
+            with self.subTest(line=line[:40]):
+                self.assertEqual(machine_failure.reason(PREFIX + line), "the Mac does not have the Xcode the job pins")
+
     def test_a_started_test_makes_it_the_codes_failure(self):
         for started in (
             "Test Case '-[cmuxUITests.SidebarTests testA]' started.",

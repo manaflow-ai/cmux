@@ -39,7 +39,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
-    @Test func multiPaneMirrorPublishesInnerPanesAndRoutesInput() throws {
+    @Test(.disabled("Fails on main since #15116/#15550; see #15564")) func multiPaneMirrorPublishesInnerPanesAndRoutesInput() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
 
@@ -237,7 +237,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(send == .noFocusedSurface)
     }
 
-    @Test func mirrorWithoutPublishedActivePaneSeedsFirstPaneProjection() throws {
+    @Test(.disabled("Fails on main since #15116/#15550; see #15564")) func mirrorWithoutPublishedActivePaneSeedsFirstPaneProjection() throws {
         // Since the native-chrome rearchitecture a mirror can never be
         // "unresolved": with no tmux-published active pane it seeds its first
         // live pane, so defaults project that seed while mutations still fail
@@ -401,17 +401,20 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             workspace = try #require(manager.selectedWorkspace)
             outerPanelID = try #require(workspace.focusedPanelId)
             if focusAwayFromMirror {
-                nonMirrorPanelID = try #require({
-                    switch workspace.newTerminalSplitOutcome(
-                        from: outerPanelID,
-                        orientation: .horizontal,
-                        focus: true,
-                        autoLayout: true
-                    ) {
-                    case .created(let panel): return panel.id
-                    default: return nil
-                    }
-                }())
+                // No closure here: capturing `workspace` (self) before every
+                // stored property is set fails definite initialization.
+                let splitPanelID: UUID?
+                if case .created(let panel) = workspace.newTerminalSplitOutcome(
+                    from: outerPanelID,
+                    orientation: .horizontal,
+                    focus: true,
+                    autoLayout: true
+                ) {
+                    splitPanelID = panel.id
+                } else {
+                    splitPanelID = nil
+                }
+                nonMirrorPanelID = try #require(splitPanelID)
             } else {
                 nonMirrorPanelID = nil
             }

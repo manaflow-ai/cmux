@@ -25,6 +25,11 @@
       "message": "Cloud VM 設定失敗，清理仍未完成。",
       "action": "建立另一台機器之前，請提供追蹤 ID 聯絡支援團隊。"
     },
+    "recreateRequired": {
+      "title": "重新建立這台機器",
+      "message": "這台機器建立於 Cloud 更新之前，無法連線。",
+      "action": "請建立一台新機器，用 cmux vm pull 和 cmux vm push 複製檔案，然後刪除這台機器。"
+    },
     "unsupported": {
       "title": "雲端虛擬機操作無法使用",
       "reason": "此機器類型不提供這項操作。",

@@ -534,8 +534,9 @@ def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
     (guiRunners) carrying `glaeda-gui-<class>-xcode-<version>`, whose listener
     stops while the gui token or every root is taken, so a GUI job waits in
     GitHub's queue for a mini that can run it. Only on a pool with a root
-    count, and only while CI_OWNED_POOL_SLOTS gives the gui label a count,
-    so a GUI job never waits on a label no runner carries.
+    count, and only while an online runner carries the gui label (routing_slots(): the
+    variable only when the runners cannot be read), so a GUI job never waits on a label no
+    runner carries.
     """
     if not choice.root_runner or not persistent(choice.runner):
         return ""
@@ -547,8 +548,9 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
     """The label a pick's side lanes take: the pool's side label, or "" to keep the pool label.
 
     Only on a pool with a root count (the root and side runners are split),
-    and only while CI_OWNED_POOL_SLOTS leaves it machines beyond its root
-    runners, so a side lane never waits on a label no runner carries.
+    and only while the pool has machines beyond its root runners (routing_slots(): its
+    online runners, or CI_OWNED_POOL_SLOTS when they cannot be read), so a side lane never
+    waits on a label no runner carries.
     """
     if not choice.root_runner or not persistent(choice.runner):
         return ""
@@ -562,9 +564,9 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
     """The light pool's side label and the side lanes of `plan` its idle side runners take now, one per runner.
 
     release-build (RELEASE_BUILD_JOB), a universal Release compile, is never
-    one of them. ("", ()) when none is idle, and always while CI_OWNED_POOL_SLOTS gives
+    one of them. ("", ()) when none is idle, and always while `owned_slots` (routing_slots()) gives
     the light pool no machines beyond its root runners (side_runner()'s
-    rule), so removing that count turns it off.
+    rule).
     """
     light = next((label for label in owned_pools(pr_xcode_app) if label.startswith(f"glaeda-{LIGHT_CLASS}-")), "")
     label = side_label(light)
@@ -911,6 +913,24 @@ def snapshot_age_minutes(snapshot: Mapping[str, Any], now: dt.datetime) -> float
 def slots(raw: str | None, pr_xcode_app: str | None = None) -> dict[str, int]:
     """CI_OWNED_POOL_SLOTS: owned pool label -> machines. Anything malformed counts as none."""
     return _slots(raw, pr_xcode_app)[0]
+
+
+def routing_slots(raw: str | None, pr_xcode_app: str | None,
+                  runners: Sequence[Mapping[str, Any]] | None) -> dict[str, int]:
+    """The owned labels that route, with their machines: the online runners carrying each when the runners
+    were read (`runners`), else CI_OWNED_POOL_SLOTS (slots()).
+
+    The variable used to decide whether a pool routes its root jobs to the root label, its GUI jobs to the
+    gui label and its side lanes to the side label even when the runners API gave the live answer, so a
+    hand-set count could route jobs to a label no runner online carries, or keep them off one that every
+    mini carries. With the runners read, a label routes while one online runner carries it; the variable
+    is only the fallback when they cannot be read (the capacity counts in live_pools() already were).
+    """
+    if runners is None:
+        return slots(raw, pr_xcode_app)
+    labels = [label for pool_name in owned_pools(pr_xcode_app)
+              for label in (pool_name, root_label(pool_name), gui_label(pool_name))]
+    return {label: count for label, count in live_online(runners, labels).items() if count > 0}
 
 
 def capability_slots(raw: str | None) -> dict[str, int]:
@@ -1335,8 +1355,9 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
     what holds the label now plus what choose() passes: the peaks of runs
     younger than DEFAULT_JOB_MINUTES, less what they already hold.
 
-    A root label counts only while CI_OWNED_POOL_SLOTS gives it a root count,
-    which is what turns root routing on (root_label()).
+    A root label counts only while `slot_counts` (routing_slots(): the online
+    runners carrying it, or CI_OWNED_POOL_SLOTS when they cannot be read) has
+    it, which is what turns root routing on (root_label()).
     """
     pools = dict(snapshot.get("pools") or {})
     capacity: dict[str, int] = {}
@@ -2296,10 +2317,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # jobs at their peak.
     gui = (env.get("POOL_OWNED_GUI") or "").strip() != "0"
     jobs = owned_peak(plan, gui)
-    # The slots name gui runners (gui_runner()): the GUI jobs then hold no root runner. The pool is not
-    # picked yet, so any gui count counts here; place() below checks the picked pool's own.
-    gui_runners = any(label.startswith(GUI_PREFIX)
-                      for label in slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE)))
     # The org App's token (ci.yml mints it for same-repository pull requests
     # only) reads which owned runners are idle now. Without it, or on any
     # error, the slot counts and the snapshot decide as before.
@@ -2317,12 +2334,18 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         except Exception as error:  # noqa: BLE001 - the snapshot path still decides
             print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot")
             live_owned = online = live_runners = None
+    # Which owned labels route, and their machines: the online runners when they were read, the
+    # variable only when they could not be (routing_slots()).
+    routing = routing_slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE), live_runners)
+    routing_raw = env.get("OWNED_SLOTS") if live_runners is None else json.dumps(routing)
+    # Gui runners route (gui_runner()): the GUI jobs then hold no root runner. The pool is not
+    # picked yet, so any gui label counts here; place() below checks the picked pool's own.
+    gui_runners = any(label.startswith(GUI_PREFIX) for label in routing)
     # As many side lanes as the light minis' side runners idle now (light_side_lanes()) take them: the pool
     # picked below then holds admission, what follows it and the other side lanes.
     light_side, side_lanes = "", ()
     if live_runners is not None and attempt in ("", "1") and event == "pull_request" and env.get("HEAD_REPO") == repo:
-        light_side, side_lanes = light_side_lanes(
-            plan, live_runners, slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE)), env.get(PR_XCODE_VARIABLE))
+        light_side, side_lanes = light_side_lanes(plan, live_runners, routing, env.get(PR_XCODE_VARIABLE))
     if side_lanes:
         plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key not in side_lanes))
         jobs = owned_peak(plan, gui)
@@ -2341,7 +2364,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         order=env.get("POOL_ORDER"),
         max_queued=env.get("POOL_MAX_QUEUED"),
         owned=env.get("POOL_OWNED"),
-        owned_slots=env.get("OWNED_SLOTS"),
+        owned_slots=routing_raw,
         jobs=jobs,
         split=env.get("POOL_OWNED_SPLIT"),
         root_jobs=root_peak(plan, gui, gui_runners),
@@ -2371,7 +2394,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(f"::error title={SLOTS_VARIABLE}::{problem}")
     # A persistent pick names the jobs that take it; every other job of the
     # run takes retry_runner. The marker's jobs are the owned machines held.
-    owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
+    owned_slots = routing
     gui_label_out = gui_runner(choice, owned_slots)
     if choice.runner.startswith(f"glaeda-{LIGHT_CLASS}-"):
         # The light pool's own pick places no universal Release compile; it keeps MACOS_RUNNER_26.
