@@ -25,6 +25,11 @@
       "message": "A configuração da VM Cloud falhou e a limpeza ainda está pendente.",
       "action": "Entre em contato com o suporte e informe o ID de rastreamento antes de criar outra máquina."
     },
+    "recreateRequired": {
+      "title": "Recrie esta máquina",
+      "message": "Esta máquina foi criada antes de uma atualização do Cloud e não pode ser conectada.",
+      "action": "Crie uma nova máquina, copie seus arquivos com cmux vm pull e cmux vm push e depois exclua esta."
+    },
     "unsupported": {
       "title": "Operação de Cloud VM indisponível",
       "reason": "Este tipo de máquina não oferece esta operação.",
