@@ -1,0 +1,14 @@
+{
+  "repl": [
+    "vendor/acorn.js",
+    "vendor/playwright-locator-utils.js",
+    "runtime-core.js",
+    "snapshot.js",
+    "api.js",
+    "repl-host.js"
+  ],
+  "agent": [
+    "vendor/playwright-injected.js",
+    "page-agent.js"
+  ]
+}

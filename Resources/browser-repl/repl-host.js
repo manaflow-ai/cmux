@@ -1,5 +1,5 @@
 // REPL host: evaluates code cells with top-level await and keeps top-level
-// const/let/var/function/class bindings across cells, as `aside repl` does.
+// const/let/var/function/class bindings across cells.
 //
 // Cells run inside `with (scope)` in a sloppy async function. Top-level
 // declarations are rewritten into assignments on the scope object, so later
@@ -38,7 +38,7 @@
 
   // Dynamic import() cannot run in a Function-constructed cell (and
   // JavaScriptCore has no module loader here), so every ImportExpression is
-  // routed through the host's optional importModule().
+  // routed to the REPL's own node:fs, node:path and node:os modules.
   function importExpressions(node, out) {
     if (!node || typeof node.type !== "string") return out;
     if (node.type === "ImportExpression") out.push(node);
@@ -115,8 +115,8 @@
     return String(e);
   }
 
-  // Creates a REPL session. `globals` are merged into the scope; dialect
-  // globals may define getters (Aside's `page`, `tabs`).
+  // Creates a REPL session. `globals` are merged into the scope; a global
+  // may be an accessor (`page`).
   function createReplSession({ host, globals }) {
     const scope = Object.create(null);
     for (const g of globals) {
@@ -167,7 +167,7 @@
   }
 
   // Timer globals for user code, backed by the host (JavaScriptCore has none).
-  function timerGlobals(host) {
+  function timerGlobals(host, importModule) {
     const intervals = new Map();
     let nextInterval = 1;
     return {
@@ -189,117 +189,35 @@
         if (t !== undefined) host.clearTimeout(t);
       },
       queueMicrotask: (fn) => Promise.resolve().then(fn),
-      __cmuxImport: (specifier) => {
-        if (typeof host.importModule === "function") return host.importModule(String(specifier));
-        return Promise.reject(new Error(`import(${JSON.stringify(String(specifier))}) is not available in the cmux browser REPL`));
-      },
+      // import("node:fs") and friends return the same modules as the globals.
+      __cmuxImport: (specifier) => Promise.resolve().then(() => importModule(specifier)),
     };
   }
 
-  // One REPL with both dialects over one driver: `snapshot(page)` and
-  // `agent...tab.ax` address the same tabs.
-  function createBrowserRepl({ host, driver, workDir }) {
+  // One REPL session over one driver. The last expression's value prints
+  // (awaited first when it is a promise); undefined prints nothing.
+  function createBrowserRepl({ host, driver }) {
     const core = ns.core;
     const session = new core.Session({ driver, host });
-    const aside = ns.aside.createAsideGlobals(session, { workDir: workDir || host.workDir });
-    const chatgpt = ns.chatgpt ? ns.chatgpt.createChatgptGlobals(session, { workDir: workDir || host.workDir }) : {};
-    const extras = { URL: core.URL, URLSearchParams: core.URLSearchParams };
-    const repl = createReplSession({ host, globals: [timerGlobals(host), extras, chatgpt, aside] });
+    const api = ns.api.createGlobals(session, host);
+    const repl = createReplSession({ host, globals: [timerGlobals(host, api.importModule), api.globals] });
     return {
       session,
+      api,
       scope: repl.scope,
-      evaluate: (code) => repl.evaluate(code),
+      async evaluate(code) {
+        const r = await repl.evaluate(code);
+        if (r.ok) {
+          try {
+            api.show(r.value);
+          } catch (e) {
+            return { ok: false, error: formatError(e), exception: e, ms: r.ms };
+          }
+        }
+        return r;
+      },
       dispose: () => session.dispose(),
     };
-  }
-
-  // Node built-ins for import() in the app (ChatGPT's REPL is Node): exactly
-  // fs, fs/promises, path and os. fs calls pass scope "chatgpt", so the
-  // native sandbox admits the session cwd and the user's temp directory.
-  function nodeModule(specifier, fsOp, native) {
-    const name = specifier.replace(/^node:/, "");
-    const Buffer = ns.core.Buffer;
-    const path = ns.aside.path;
-    const op = (name, args) => fsOp(name, Object.assign({ scope: "chatgpt" }, args));
-    const abs = (p) => path.resolve(native.cwd, String(p && p.href ? decodeURIComponent(p.pathname) : p));
-    const encodingOf = (o) => (typeof o === "string" ? o : o && o.encoding) || null;
-    const bytesOf = (data, o) => {
-      if (typeof data === "string") return Buffer.from(data, encodingOf(o) || "utf8");
-      if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return Buffer.from(data);
-      return Buffer.from(String(data));
-    };
-    const statOf = (s) => ({
-      size: s.size,
-      mtimeMs: s.mtimeMs,
-      birthtimeMs: s.birthtimeMs,
-      mtime: new Date(s.mtimeMs),
-      isFile: () => s.type === "file",
-      isDirectory: () => s.type === "directory",
-      isSymbolicLink: () => s.type === "symlink",
-    });
-    const sync = {
-      readFileSync(p, o) {
-        const bytes = Buffer.from(op("readFile", { path: abs(p) }), "base64");
-        const enc = encodingOf(o);
-        return enc ? bytes.toString(enc) : bytes;
-      },
-      writeFileSync: (p, data, o) => void op("writeFile", { path: abs(p), base64: bytesOf(data, o).toString("base64") }),
-      appendFileSync: (p, data, o) => void op("writeFile", { path: abs(p), base64: bytesOf(data, o).toString("base64"), append: true }),
-      mkdirSync: (p, o) => void op("mkdir", { path: abs(p), recursive: !!(o && o.recursive) }),
-      readdirSync: (p) => op("readdir", { path: abs(p) }).map((e) => e.name),
-      statSync: (p) => statOf(op("stat", { path: abs(p) })),
-      existsSync: (p) => op("exists", { path: abs(p) }),
-      rmSync: (p, o) => void op("rm", { path: abs(p), recursive: !!(o && o.recursive), force: !!(o && o.force) }),
-      unlinkSync: (p) => void op("rm", { path: abs(p) }),
-      renameSync: (from, to) => void op("rename", { from: abs(from), to: abs(to) }),
-      copyFileSync: (from, to) => void op("copyFile", { from: abs(from), to: abs(to) }),
-      realpathSync: (p) => op("resolve", { path: abs(p) }),
-      mkdtempSync(prefix) {
-        const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-        for (let attempt = 0; attempt < 16; attempt++) {
-          let suffix = "";
-          for (let i = 0; i < 6; i++) suffix += chars[Math.floor(Math.random() * chars.length)];
-          const dir = abs(String(prefix) + suffix);
-          if (op("exists", { path: dir })) continue;
-          op("mkdir", { path: dir });
-          return dir;
-        }
-        const e = new Error(`EEXIST: file already exists, mkdtemp '${prefix}XXXXXX'`);
-        e.code = "EEXIST";
-        throw e;
-      },
-    };
-    const promises = {};
-    for (const [key, fn] of Object.entries(sync)) {
-      if (key === "existsSync") continue;
-      promises[key.replace(/Sync$/, "")] = async (...args) => fn(...args);
-    }
-    promises.access = async (p) => {
-      if (!sync.existsSync(p)) {
-        const e = new Error(`ENOENT: no such file or directory, access '${p}'`);
-        e.code = "ENOENT";
-        throw e;
-      }
-    };
-    const os = {
-      tmpdir: () => native.tmpdir,
-      homedir: () => native.homedir,
-      platform: () => "darwin",
-      type: () => "Darwin",
-      EOL: "\n",
-    };
-    switch (name) {
-      case "fs":
-        return Object.assign({ promises, default: Object.assign({ promises }, sync) }, sync);
-      case "fs/promises":
-        return Object.assign({ default: promises }, promises);
-      case "path":
-        return Object.assign({ default: path }, path);
-      case "os":
-        return Object.assign({ default: os }, os);
-      default:
-        throw new Error(`Cannot import ${specifier}: cmux browser repl supports node:fs, node:path, node:os`);
-    }
   }
 
   // Adapts the app's `__cmuxNative` object (driver-protocol.md, "Native host
@@ -339,18 +257,15 @@
       pending.set(id, { resolve, reject });
       fn(id);
     });
-    const fsOp = (op, args) => {
-      const r = JSON.parse(native.fs(op, JSON.stringify(args)));
-      if (r.error) {
-        const e = new Error(r.error.message);
-        e.code = r.error.code;
-        throw e;
-      }
-      return r.ok;
-    };
     const host = {
-      workDir: native.cwd,
-      nativeSandbox: true,
+      get workDir() {
+        return native.cwd;
+      },
+      get sessionId() {
+        return native.sessionId;
+      },
+      tmpdir: native.tmpdir,
+      homedir: native.homedir,
       setTimeout(fn, ms) {
         const id = nextTimer++;
         timers.set(id, fn);
@@ -362,11 +277,17 @@
         native.clearTimer(id);
       },
       now: () => Date.now(),
-      console: {
-        log: (text) => native.print("log", text),
-        error: (text) => native.print("error", text),
+      print: (level, text) => native.print(level, text),
+      readResource: (relativePath) => native.readResource(relativePath),
+      fsOp(op, args) {
+        const r = JSON.parse(native.fs(op, JSON.stringify(args)));
+        if (r.error) {
+          const e = new Error(r.error.message);
+          e.code = r.error.code;
+          throw e;
+        }
+        return r.ok;
       },
-      display: (value) => native.print("log", typeof value === "string" ? value : JSON.stringify(value)),
       fetchHandlesCookies: true,
       async fetch(url, init) {
         const r = await callAsync((id) => native.fetch(id, JSON.stringify({
@@ -378,22 +299,8 @@
         })));
         return { url: r.url, status: r.status, statusText: r.statusText, headers: Object.fromEntries(r.headers || []), base64: r.bodyBase64 || "", redirected: r.redirected };
       },
-      fs: {
-        readFile: async (p) => fsOp("readFile", { path: p }),
-        writeFile: async (p, base64) => fsOp("writeFile", { path: p, base64 }),
-        appendFile: async (p, base64) => fsOp("writeFile", { path: p, base64, append: true }),
-        mkdir: async (p, recursive) => fsOp("mkdir", { path: p, recursive }),
-        readdir: async (p) => fsOp("readdir", { path: p }).map((e) => e.name),
-        stat: async (p) => {
-          const s = fsOp("stat", { path: p });
-          return { size: s.size, mtimeMs: s.mtimeMs, isFile: s.type === "file", isDirectory: s.type === "directory" };
-        },
-        rm: async (p, recursive) => fsOp("rm", { path: p, recursive, force: true }),
-        exists: async (p) => fsOp("exists", { path: p }),
-        realpath: (p) => fsOp("resolve", { path: p }),
-      },
     };
-    host.importModule = async (specifier) => nodeModule(String(specifier), fsOp, native);
+    host.console = { error: (text) => native.print("error", text) };
     const driver = {
       call: (method, params) => callAsync((id) => native.driverCall(id, method, JSON.stringify(params || {}))),
       on(event, handler) {
@@ -405,10 +312,10 @@
     };
     let repl = null;
     root.__cmuxReplEval = async (code) => {
-      if (!repl) repl = createBrowserRepl({ host, driver, workDir: native.cwd });
+      if (!repl) repl = createBrowserRepl({ host, driver });
       const r = await repl.evaluate(code);
       if (!r.ok) throw r.exception || new Error(r.error);
-      return r.value;
+      return undefined;
     };
     root.__cmuxFormatError = (e) => formatError(e);
   }

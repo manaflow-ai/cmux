@@ -1,0 +1,415 @@
+// cmux browser REPL snapshot: stitches each frame's tree from the page agent
+// into one accessibility snapshot, renders it as text, and diffs it against
+// the previous snapshot of the same tab. Format: docs/browser-repl/README.md.
+(function (root) {
+  "use strict";
+  const ns = (root.CmuxBrowserRepl = root.CmuxBrowserRepl || {});
+  const core = ns.core;
+
+  const CELL_ROLES = new Set(["cell", "gridcell", "columnheader", "rowheader"]);
+  const CONTAINER_ROLES = new Set(["row", "cell", "gridcell", "columnheader", "rowheader", "listitem"]);
+  // Printing prefers the diff when it is at least this much smaller.
+  const DIFF_SAVING = 0.3;
+
+  const q = (s) => JSON.stringify(String(s));
+  const normalize = (s) => String(s || "").replace(/\s+/g, " ").trim();
+
+  function hasRef(list) {
+    return (list || []).some((c) => typeof c !== "string" && (c.ref || hasRef(c.children)));
+  }
+
+  // Text a node contributes to its parent's name: its own name, else its text.
+  function textOf(list) {
+    return normalize((list || []).map((c) => (typeof c === "string" ? c : c.name || c.value || textOf(c.children))).join(" "));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tree shaping (host side, engine-neutral)
+
+  function shape(nodes, options) {
+    const out = [];
+    for (const raw of nodes) {
+      if (typeof raw === "string") {
+        out.push(raw);
+        continue;
+      }
+      const n = Object.assign({}, raw);
+      if (n.children) n.children = shape(n.children, options);
+      // A caption, legend or label that names its container is not repeated.
+      if (n.name && n.children && n.children[0] === n.name) n.children = n.children.slice(1);
+      if (n.role === "row" && n.children && !hasRef(n.children) && n.children.every((c) => typeof c !== "string" && CELL_ROLES.has(c.role))) {
+        const cells = n.children.map((c) => c.name || textOf(c.children));
+        if (!n.name || normalize(cells.join(" ")) === n.name) delete n.name;
+        n.value = cells.join(" | ");
+        delete n.children;
+      } else if (n.name && n.children && textOf(n.children) === n.name) {
+        // Name from content repeats the children: keep whichever carries refs.
+        if (!hasRef(n.children)) delete n.children;
+        else if (CONTAINER_ROLES.has(n.role)) delete n.name;
+      }
+      if (n.children && !n.children.length) delete n.children;
+      if (n.options && !(options.options || n.expanded === true)) delete n.options;
+      out.push(n);
+    }
+    return out;
+  }
+
+  // Interactive nodes and the named ancestors that locate them.
+  function interactiveOnly(nodes) {
+    const out = [];
+    for (const n of nodes) {
+      if (typeof n === "string") continue;
+      let kids = n.children ? interactiveOnly(n.children) : [];
+      // An unnamed control is known by its text.
+      if (n.act && !n.name) kids = [...(n.children || []).filter((c) => typeof c === "string"), ...kids];
+      const copy = Object.assign({}, n);
+      if (kids.length) copy.children = kids;
+      else delete copy.children;
+      if (n.act) out.push(copy);
+      else if (kids.length && (n.name || n.role === "iframe")) {
+        delete copy.value;
+        out.push(copy);
+      } else out.push(...kids);
+    }
+    return out;
+  }
+
+  function nodeHead(n) {
+    let head = n.role;
+    if (n.name) head += " " + q(n.name);
+    if (n.ref) head += ` [ref=${n.ref}]`;
+    if (n.level !== undefined) head += ` [level=${n.level}]`;
+    if (n.checked === true) head += " [checked]";
+    else if (n.checked === "mixed") head += " [checked=mixed]";
+    if (n.disabled) head += " [disabled]";
+    if (n.expanded === true) head += " [expanded]";
+    else if (n.expanded === false) head += " [expanded=false]";
+    if (n.pressed === true) head += " [pressed]";
+    else if (n.pressed === "mixed") head += " [pressed=mixed]";
+    if (n.selected) head += " [selected]";
+    if (n.required) head += " [required]";
+    if (n.invalid) head += " [invalid]";
+    if (n.readonly) head += " [readonly]";
+    if (n.focused) head += " [focused]";
+    if (n.hidden) head += " [hidden]";
+    if (n.scrollable) head += " [scrollable]";
+    if (n.url) head += ` [url=${n.url}]`;
+    if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;
+    return head;
+  }
+
+  function render(nodes, depth = 0, lines = []) {
+    const indent = "  ".repeat(depth);
+    for (const n of nodes) {
+      if (typeof n === "string") {
+        lines.push(`${indent}- text: ${q(n)}`);
+        continue;
+      }
+      let head = nodeHead(n);
+      let kids = n.children || [];
+      if (n.value !== undefined && n.value !== null) head += ": " + q(n.value);
+      else if (kids.length === 1 && typeof kids[0] === "string" && !n.options) {
+        head += ": " + q(kids[0]);
+        kids = [];
+      } else if (kids.length || n.options) head += ":";
+      lines.push(`${indent}- ${head}`);
+      for (const o of n.options || []) lines.push(`${indent}  - option ${q(o.name)}${o.selected ? " [selected]" : ""}`);
+      render(kids, depth + 1, lines);
+    }
+    return lines;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Diff: Myers line diff; each change is preceded by its unchanged ancestor
+  // lines (by indentation) so it can be located without line numbers.
+
+  function myers(a, b) {
+    const N = a.length;
+    const M = b.length;
+    const MAX = N + M;
+    if (!MAX) return [];
+    const offset = MAX;
+    const V = new Array(2 * MAX + 2).fill(-1);
+    V[offset + 1] = 0;
+    const trace = [];
+    for (let d = 0; d <= MAX; d++) {
+      trace.push(V.slice());
+      for (let k = -d; k <= d; k += 2) {
+        const down = k === -d || (k !== d && V[offset + k - 1] < V[offset + k + 1]);
+        let x = down ? V[offset + k + 1] : V[offset + k - 1] + 1;
+        let y = x - k;
+        while (x < N && y < M && a[x] === b[y]) {
+          x++;
+          y++;
+        }
+        V[offset + k] = x;
+        if (x >= N && y >= M) return backtrack(trace, a, b, offset);
+      }
+    }
+    return [];
+  }
+  function backtrack(trace, a, b, offset) {
+    let x = a.length;
+    let y = b.length;
+    const out = [];
+    for (let d = trace.length - 1; d >= 1; d--) {
+      const V = trace[d];
+      const k = x - y;
+      const pk = k === -d || (k !== d && V[offset + k - 1] < V[offset + k + 1]) ? k + 1 : k - 1;
+      const px = V[offset + pk];
+      const py = px - pk;
+      while (x > px && y > py) {
+        x--;
+        y--;
+        out.push({ type: "equal", a: x, b: y });
+      }
+      if (x === px) out.push({ type: "insert", b: --y });
+      else out.push({ type: "delete", a: --x });
+    }
+    while (x > 0 && y > 0) {
+      x--;
+      y--;
+      out.push({ type: "equal", a: x, b: y });
+    }
+    return out.reverse();
+  }
+
+  const indentOf = (line) => /^ */.exec(line)[0].length;
+
+  // Returns diff lines prefixed "  " (context), "- " (removed) or "+ " (added).
+  // Empty when equal.
+  function diffLines(previous, current) {
+    const ops = myers(previous, current);
+    const equalA = new Map();
+    const equalB = new Set();
+    for (const op of ops) {
+      if (op.type === "equal") {
+        equalA.set(op.a, op.b);
+        equalB.add(op.b);
+      }
+    }
+    const printed = new Set();
+    const out = [];
+    const context = (lines, index, isOld) => {
+      const chain = [];
+      let indent = indentOf(lines[index]);
+      for (let j = index - 1; j >= 0 && indent > 0; j--) {
+        const i = indentOf(lines[j]);
+        if (i >= indent) continue;
+        indent = i;
+        const key = isOld ? equalA.get(j) : equalB.has(j) ? j : undefined;
+        if (key !== undefined && !printed.has(key)) chain.unshift([key, lines[j]]);
+      }
+      for (const [key, line] of chain) {
+        printed.add(key);
+        out.push("  " + line);
+      }
+    };
+    const emitDelete = (op) => {
+      context(previous, op.a, true);
+      out.push("- " + previous[op.a]);
+    };
+    const emitInsert = (op) => {
+      context(current, op.b, false);
+      out.push("+ " + current[op.b]);
+    };
+    // Within a run of changes, a changed line's old version prints right
+    // before its new version; other removals print first.
+    for (let i = 0; i < ops.length;) {
+      if (ops[i].type === "equal") {
+        i++;
+        continue;
+      }
+      const deletes = [];
+      const inserts = [];
+      for (; i < ops.length && ops[i].type !== "equal"; i++) (ops[i].type === "delete" ? deletes : inserts).push(ops[i]);
+      const partner = new Map();
+      const free = new Set(deletes);
+      for (const ins of inserts) {
+        const key = lineKey(current[ins.b]);
+        const del = key && [...free].find((d) => lineKey(previous[d.a]) === key);
+        if (del) {
+          partner.set(ins, del);
+          free.delete(del);
+        }
+      }
+      for (const d of deletes) if (free.has(d)) emitDelete(d);
+      for (const ins of inserts) {
+        if (partner.has(ins)) emitDelete(partner.get(ins));
+        emitInsert(ins);
+      }
+    }
+    return out;
+  }
+
+  // Identity of a snapshot line across a change: its ref, else its indent,
+  // role and name. Unnamed lines without a ref have none.
+  function lineKey(line) {
+    const ref = /\[ref=(\w+)\]/.exec(line);
+    if (ref) return ref[1];
+    const m = /^( *- [\w-]+ "(?:[^"\\]|\\.)*")/.exec(line);
+    return m ? m[1] : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Snapshot value
+
+  const DIFF_HEADER = "# changes since the previous snapshot (+ added, - removed):";
+  const NO_CHANGES = "# no changes since the previous snapshot";
+  const FIRST = "# no previous snapshot of this tab; every line is new:";
+
+  class Snapshot {
+    constructor({ header, body, previous, maxChars }) {
+      this._header = header;
+      this._body = body;
+      this._hasPrevious = !!previous;
+      this._maxChars = maxChars;
+      const changes = previous ? diffLines(previous, body) : body.map((l) => "+ " + l);
+      this._diffBody = !previous ? [FIRST, ...changes] : changes.length ? [DIFF_HEADER, ...changes] : [NO_CHANGES];
+    }
+    _join(lines) {
+      let text = lines.join("\n");
+      const max = this._maxChars;
+      if (typeof max === "number" && text.length > max) {
+        const cut = text.lastIndexOf("\n", max);
+        const kept = cut > 0 ? cut : max;
+        text = text.slice(0, kept) + `\n# truncated: ${kept} of ${text.length} characters shown; scope with snapshot(ref) or { interactive: true }`;
+      }
+      return [...this._header, text].filter((s) => s !== "").join("\n");
+    }
+    get tree() {
+      return this._join(this._body);
+    }
+    get diff() {
+      return this._join(this._diffBody);
+    }
+    // Printing shows the diff when it saves at least 30% over the tree.
+    get usesDiff() {
+      if (!this._hasPrevious) return false;
+      return this._diffBody.join("\n").length <= (1 - DIFF_SAVING) * this._body.join("\n").length;
+    }
+    toString() {
+      return this.usesDiff ? this.diff : this.tree;
+    }
+    toJSON() {
+      return this.toString();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Capture
+
+  async function frameNodes(page, frame, rootHandle, options, focusChain) {
+    const r = await frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, base: page._refMaxFor(frame) });
+    page._noteRefMax(frame, r.max);
+    const prefix = page._prefixFor(frame);
+    const fix = async (list) => {
+      for (const node of list) {
+        if (typeof node === "string") continue;
+        if (node.ref) node.ref = prefix + node.ref;
+        if (!focusChain) delete node.focused;
+        if (node.role === "iframe") {
+          const handle = node.frame;
+          const focused = !!node.frameFocused;
+          delete node.frame;
+          delete node.frameFocused;
+          const child = handle ? await frame._contentFrame(handle).catch(() => null) : null;
+          if (child && !child._detached) {
+            page._prefixFor(child);
+            const inner = await frameNodes(page, child, null, options, focusChain && focused).catch(() => null);
+            if (inner && inner.length) node.children = inner;
+          }
+        } else if (node.children) await fix(node.children);
+      }
+    };
+    await fix(r.nodes);
+    return r.nodes;
+  }
+
+  // Resolves snapshot()/screenshot() targets: a page, a locator, or a ref.
+  async function resolveTarget(page, target) {
+    if (!target || target instanceof core.Page) return { frame: page.mainFrame(), handle: null };
+    const locator = typeof target === "string" ? page.ref(target) : target;
+    if (!(locator instanceof core.Locator)) throw new TypeError("snapshot target must be a page, a locator or a ref");
+    const r = await locator._resolveOne(true);
+    if (!r) throw new Error(`snapshot: ${locator} matched no elements`);
+    return { frame: r.frame, handle: r.handle };
+  }
+
+  async function blockingLines(page) {
+    const lines = [];
+    const dialog = page._pendingDialog();
+    if (dialog) {
+      let line = `dialog: ${dialog.type()} ${q(dialog.message())}`;
+      if (dialog.type() === "prompt") line += ` [default=${q(dialog.defaultValue())}]`;
+      lines.push(line + " (answer with page.dialog().accept() or .dismiss())");
+    }
+    const chooser = page._pendingChooser();
+    if (chooser && !dialog) {
+      const ref = await page._refForHandle(page._frameFor(chooser._p.frameId), chooser._p.element).catch(() => null);
+      lines.push(`file chooser:${ref ? ` [ref=${ref}]` : ""}${chooser.isMultiple() ? " [multiple]" : ""} (answer with page.fileChooser().setFiles(paths) or .cancel())`);
+    }
+    return { lines, blocked: !!dialog };
+  }
+
+  async function capture(page, target, options) {
+    await page._syncInfo().catch(() => {});
+    if (!page._pendingDialog()) await page._refreshFrames().catch(() => {});
+    const header = [`title: ${page._title || ""}`, `url: ${page.url()}`];
+    const blocking = await blockingLines(page);
+    header.push(...blocking.lines);
+    if (blocking.blocked) return { header, body: ["# the page is blocked until the dialog is answered"], nodes: [] };
+    const { frame, handle } = await resolveTarget(page, target);
+    const raw = await frameNodes(page, frame, handle, options, true);
+    let nodes = shape(raw, options);
+    if (options.interactive) nodes = interactiveOnly(nodes);
+    return { header, body: render(nodes), nodes };
+  }
+
+  async function takeSnapshot(page, target, options = {}) {
+    const run = async () => {
+      const { header, body } = await capture(page, target, options);
+      const scope = typeof target === "string" ? target : target instanceof core.Locator ? String(target) : "page";
+      const key = [scope, !!options.interactive, !!options.showHidden, !!options.options].join("|");
+      const baselines = page._snapshotBaselines || (page._snapshotBaselines = new Map());
+      const previous = baselines.get(key);
+      baselines.set(key, body);
+      return new Snapshot({ header, body, previous, maxChars: options.maxChars });
+    };
+    const prev = page._snapshotQueue || Promise.resolve();
+    const next = prev.catch(() => {}).then(run);
+    page._snapshotQueue = next;
+    return next;
+  }
+
+  // Interactive refs in the viewport, drawn with their labels for a screenshot.
+  async function annotate(page, target) {
+    const { nodes } = await capture(page, target, { interactive: true });
+    const byPrefix = new Map();
+    const walk = (list) => {
+      for (const n of list) {
+        if (typeof n === "string") continue;
+        if (n.ref && n.act) {
+          const m = /^(f\d+)?(e\d+)$/.exec(n.ref);
+          const prefix = m[1] || "";
+          if (!byPrefix.has(prefix)) byPrefix.set(prefix, []);
+          byPrefix.get(prefix).push([m[2], n.ref]);
+        }
+        if (n.children) walk(n.children);
+      }
+    };
+    walk(nodes);
+    const drawn = [];
+    for (const [prefix, refs] of byPrefix) {
+      const frame = page._frameForPrefix(prefix);
+      if (!frame) continue;
+      await frame._agent("annotate", refs);
+      drawn.push(frame);
+    }
+    return async () => {
+      for (const frame of drawn) await frame._agent("clearAnnotations").catch(() => {});
+    };
+  }
+
+  ns.snapshot = { takeSnapshot, annotate, shape, interactiveOnly, render, diffLines, myers, Snapshot, DIFF_SAVING };
+})(typeof globalThis !== "undefined" ? globalThis : this);

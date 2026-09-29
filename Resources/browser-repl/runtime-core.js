@@ -21,7 +21,14 @@
       this.name = "TimeoutError";
     }
   }
-  class StaleRefError extends Error {}
+  class StaleRefError extends Error {
+    constructor(message) {
+      super(message);
+      this.name = "Error";
+    }
+  }
+  // Snapshot refs: "e5" in the main frame, "f2e5" in the frame with prefix f2.
+  const REF_PATTERN = /^(f\d+)?(e\d+)$/;
 
   function driverErrorCode(e) {
     return e && e.code;
@@ -675,6 +682,7 @@
       this.defaultTimeout = DEFAULT_TIMEOUT;
       this.defaultNavigationTimeout = DEFAULT_TIMEOUT;
       this.errors = [];
+      this._lazyCounter = 0;
       this._unsubscribe = [];
       const route = (event, fn) => this._unsubscribe.push(driver.on(event, (payload) => fn(payload || {})));
       route("tab.created", (p) => this._onTabCreated(p));
@@ -691,8 +699,31 @@
         route(event, (p) => this._forward(p, "_onNetwork", event));
       }
     }
-    call(method, params) {
+    // A lazy page has no tab until its first driver call opens one, so `page`
+    // is usable the moment a session starts.
+    async call(method, params) {
+      if (params && typeof params.targetId === "string" && params.targetId.startsWith("lazy:")) {
+        const page = this.pages.get(params.targetId);
+        if (page) params = Object.assign({}, params, { targetId: await this._materialize(page) });
+      }
       return this.driver.call(method, params);
+    }
+    lazyPage() {
+      const page = new Page(this, `lazy:${++this._lazyCounter}`);
+      page._url = "about:blank";
+      this.pages.set(page._targetId, page);
+      return page;
+    }
+    _materialize(page) {
+      if (!page._materializing) {
+        page._materializing = this.driver.call("tabs.open", { background: false }).then(({ targetId }) => {
+          this.pages.delete(page._targetId);
+          page._targetId = targetId;
+          this.pages.set(targetId, page);
+          return targetId;
+        });
+      }
+      return page._materializing;
     }
     sleep(ms) {
       return new Promise((resolve) => this.host.setTimeout(resolve, ms));
@@ -796,8 +827,12 @@
     isDetached() {
       return this._detached;
     }
+    // Script cannot run while a JavaScript dialog is open, so calls fail fast
+    // with the way out instead of hanging until the evaluation timeout.
     _call(world, source, args, handles) {
-      return this._session.call("frame.evaluate", {
+      const blocked = this._page._blockedError();
+      if (blocked) return Promise.reject(blocked);
+      return this._page._raceDialog(this._session.call("frame.evaluate", {
         targetId: this._page._targetId,
         frameId: this._id || undefined,
         world,
@@ -805,7 +840,7 @@
         args: args || [],
         handles: handles || [],
         awaitPromise: true,
-      });
+      }), true);
     }
     _agent(method, ...args) {
       return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
@@ -852,6 +887,10 @@
       return this.evaluate(() => document.title);
     }
     locator(selector, options) {
+      // Refs carry their frame, so a ref resolves from the page in any frame.
+      if (this !== this._page._mainFrame && typeof selector === "string" && REF_PATTERN.test(selector.trim())) {
+        return this._page.locator(selector, options);
+      }
       return new Locator(this, this._page._normalizeSelector(selector), options);
     }
     getByRole(role, options) {
@@ -1036,7 +1075,8 @@
       return options && options.timeout !== undefined ? options.timeout : this._session.defaultTimeout;
     }
     toString() {
-      return `locator('${this._selector}')`;
+      const ref = /^aria-ref=((f\d+)?e\d+)$/.exec(this._selector);
+      return ref ? `ref('${ref[1]}')` : `locator('${this._selector}')`;
     }
     page() {
       return this._page;
@@ -1046,11 +1086,13 @@
     // frame, or null when an intermediate frame is not there yet.
     async _resolveAll() {
       let frame = this._frame;
-      const ref = /^aria-ref=((f\d+)?e\d+)(?=$|\s)/.exec(this._selector);
+      let selector = this._selector;
+      const ref = /^aria-ref=((f\d+)?e\d+)(?=$|\s)/.exec(selector);
       if (ref) {
-        frame = await this._page._frameForRef(ref[1]);
+        frame = await this._page._checkRef(ref[1]);
+        selector = selector.replace(/^aria-ref=f\d+/, "aria-ref=");
       }
-      const hops = await frame._agent("splitFrames", this._selector);
+      const hops = await frame._agent("splitFrames", selector);
       for (let i = 0; i < hops.length - 1; i++) {
         const ids = await frame._agent("queryAll", hops[i]);
         if (!ids.length) return null;
@@ -1063,29 +1105,7 @@
       return { frame, handles, isRef: !!ref, ref: ref && ref[1] };
     }
 
-    // Aside refs fail fast instead of waiting: frame refs retry three times,
-    // main-frame refs once (aside-snapshot-spec.md section 10).
-    async _resolveRef() {
-      const ref = /^aria-ref=((f\d+)?e\d+)/.exec(this._selector)[1];
-      const tries = ref.startsWith("f") ? 3 : 1;
-      for (let i = 0; i < tries; i++) {
-        if (i) await this._session.sleep(50 * i);
-        let r = null;
-        try {
-          r = await this._resolveAll();
-        } catch (e) {
-          if (!(e instanceof StaleRefError) && driverErrorCode(e) !== "stale") throw e;
-        }
-        if (r && r.handles.length) return r;
-      }
-      throw new Error(`Ref "${ref}" is stale — the element was removed or the page changed. Take a new snapshot and retry.`);
-    }
-
     async _resolveOne(strict) {
-      if (/^aria-ref=/.test(this._selector) && this._selector.indexOf(">>") === -1) {
-        const r = await this._resolveRef();
-        return { frame: r.frame, handle: r.handles[0] };
-      }
       const r = await this._resolveAll();
       if (!r || !r.handles.length) return null;
       if (strict && r.handles.length > 1) throw new Error(await r.frame._agent("strictError", this._selector.split(" >> internal:control=enter-frame >> ").pop(), r.handles));
@@ -1191,7 +1211,7 @@
       const steps = options.steps || 1;
       const path = [{ x: from.x, y: from.y }];
       for (let i = 1; i <= steps; i++) path.push({ x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps });
-      await this._session.call("input.drag", { targetId: this._page._targetId, path, button: "left", modifiers: options.modifiers || [] });
+      await this._page._input("input.drag", { targetId: this._page._targetId, path, button: "left", modifiers: options.modifiers || [] });
       this._page.mouse._x = to.x;
       this._page.mouse._y = to.y;
       await this._page._afterAction();
@@ -1294,6 +1314,9 @@
     }
     async dispatchEvent(type, eventInit, options = {}) {
       await this._withElement(options, "locator.dispatchEvent", [], (frame, handle) => frame._agent("dispatchEvent", handle, type, eventInit || {}));
+    }
+    async selectText(options = {}) {
+      await this._withElement(options, "locator.selectText", ["visible"], (frame, handle) => frame._agent("selectText", handle));
     }
     async scrollIntoViewIfNeeded(options = {}) {
       await this._withElement(options, "locator.scrollIntoViewIfNeeded", ["visible", "stable"], (frame, handle) => this._scrollIntoView(frame, handle));
@@ -1572,8 +1595,8 @@
       this._page = page;
       this._modifiers = new Set();
     }
-    async _send(type, desc) {
-      await this._page._session.call("input.key", {
+    async _send(type, desc, detached) {
+      await this._page._input("input.key", {
         targetId: this._page._targetId,
         type,
         key: desc.key,
@@ -1581,7 +1604,7 @@
         text: type === "down" ? desc.text || undefined : undefined,
         location: desc.location,
         modifiers: [...this._modifiers],
-      });
+      }, detached);
     }
     async down(key) {
       const desc = describeKey(key, this._modifiers);
@@ -1594,16 +1617,23 @@
       await this._send("up", desc);
     }
     async insertText(text) {
-      await this._page._session.call("input.insertText", { targetId: this._page._targetId, text });
+      await this._page._input("input.insertText", { targetId: this._page._targetId, text });
     }
     async press(combo, options = {}) {
       const tokens = splitKeyCombo(combo);
       const key = tokens.pop();
       for (const t of tokens) await this.down(t);
       await this.down(key);
-      if (options.delay) await this._page._session.sleep(options.delay);
-      await this.up(key);
-      for (const t of tokens.reverse()) await this.up(t);
+      // A key that opened a dialog is released once the dialog is answered.
+      const detached = !!this._page._heldDialog;
+      if (options.delay && !detached) await this._page._session.sleep(options.delay);
+      await this._release(key, detached);
+      for (const t of tokens.reverse()) await this._release(t, detached);
+    }
+    async _release(key, detached) {
+      const desc = describeKey(key, this._modifiers);
+      if (MODIFIERS.includes(desc.key)) this._modifiers.delete(desc.key);
+      await this._send("up", desc, detached);
     }
     async type(text, options = {}) {
       for (const ch of text) {
@@ -1621,8 +1651,8 @@
       this._y = 0;
       this._buttons = new Set();
     }
-    _event(type, extra) {
-      return this._page._session.call("input.mouse", {
+    _event(type, extra, detached) {
+      return this._page._input("input.mouse", {
         targetId: this._page._targetId,
         type,
         x: this._x,
@@ -1631,7 +1661,7 @@
         clickCount: 0,
         modifiers: [...this._page.keyboard._modifiers],
         ...extra,
-      });
+      }, detached);
     }
     async move(x, y, options = {}) {
       const steps = options.steps || 1;
@@ -1651,15 +1681,16 @@
     async up(options = {}) {
       const button = options.button || "left";
       this._buttons.delete(button);
-      await this._event("up", { button, clickCount: options.clickCount || 1 });
+      await this._event("up", { button, clickCount: options.clickCount || 1 }, !!this._page._heldDialog);
     }
     async click(x, y, options = {}) {
       await this.move(x, y);
       const count = options.clickCount || 1;
       for (let i = 1; i <= count; i++) {
         await this.down({ button: options.button, clickCount: i });
-        if (options.delay) await this._page._session.sleep(options.delay);
+        if (options.delay && !this._page._heldDialog) await this._page._session.sleep(options.delay);
         await this.up({ button: options.button, clickCount: i });
+        if (this._page._heldDialog) break;
       }
       await this._page._afterAction();
     }
@@ -1695,6 +1726,8 @@
     async _respond(accept, promptText) {
       if (this._handled) throw new Error("Cannot accept dialog which is already handled!");
       this._handled = true;
+      if (this._page._heldDialog === this) this._page._heldDialog = null;
+      if (this._page._listenedDialog === this) this._page._listenedDialog = null;
       await this._page._session.call("dialog.respond", { targetId: this._page._targetId, dialogId: this._p.dialogId, accept, promptText });
     }
     accept(promptText) {
@@ -1719,9 +1752,20 @@
     isMultiple() {
       return !!this._p.multiple;
     }
+    _settle() {
+      if (this._handled) throw new Error("File chooser was already answered");
+      this._handled = true;
+      if (this._page._heldChooser === this) this._page._heldChooser = null;
+    }
     async setFiles(files) {
       const payloads = await this._page._filePayloads(files);
+      if (payloads.length > 1 && !this.isMultiple()) throw new Error("Error: Non-multiple file input can only accept single file");
+      this._settle();
       await this._page._session.call("filechooser.respond", { targetId: this._page._targetId, chooserId: this._p.chooserId, files: payloads });
+    }
+    async cancel() {
+      this._settle();
+      await this._page._session.call("filechooser.respond", { targetId: this._page._targetId, chooserId: this._p.chooserId, cancel: true });
     }
   }
 
@@ -1781,6 +1825,40 @@
     }
     toString() {
       return this._p.text;
+    }
+    toJSON() {
+      return { type: this._p.type, text: this._p.text };
+    }
+  }
+
+  // Per-tab virtual clipboard. Meta+C, Meta+X and Meta+V in the tab use it;
+  // the system clipboard is never read or written.
+  class TabClipboard {
+    constructor(page) {
+      this._page = page;
+    }
+    _call(method, params) {
+      return this._page._session.call(method, Object.assign({ targetId: this._page._targetId }, params));
+    }
+    async read() {
+      const { items } = await this._call("clipboard.read", {});
+      return (items || []).map((i) => ({ type: i.type, data: Buffer.from(i.base64, "base64") }));
+    }
+    async readText() {
+      const { items } = await this._call("clipboard.read", {});
+      const text = (items || []).find((i) => i.type === "text/plain");
+      return text ? Buffer.from(text.base64, "base64").toString("utf8") : "";
+    }
+    async write(items) {
+      await this._call("clipboard.write", {
+        items: [].concat(items).map((i) => ({
+          type: i.type || "text/plain",
+          base64: Buffer.from(i.data !== undefined ? i.data : i.text !== undefined ? i.text : "").toString("base64"),
+        })),
+      });
+    }
+    async writeText(text) {
+      await this.write([{ type: "text/plain", data: String(text) }]);
     }
   }
 
@@ -1850,7 +1928,19 @@
       this._frames = new Map();
       this._requests = new Map();
       this._testIdAttribute = "data-testid";
-      this._refPrefixes = null;
+      // Frame prefixes are assigned once per frame, in DOM order of first
+      // sight, so a frame's refs keep their prefix.
+      this._framePrefixes = new Map();
+      this._prefixFrames = new Map([["", this._mainFrame]]);
+      this._prefixCounter = 0;
+      this._refMax = new Map();
+      this._heldDialog = null;
+      this._listenedDialog = null;
+      this._heldChooser = null;
+      this._dialogWatchers = new Set();
+      this._consoleHistory = [];
+      this._pageErrors = [];
+      this._kept = false;
       this.keyboard = new Keyboard(this);
       this.mouse = new Mouse(this);
       this.touchscreen = { tap: (x, y) => this.mouse.click(x, y) };
@@ -1858,7 +1948,11 @@
     get targetId() {
       return this._targetId;
     }
+    get id() {
+      return this._targetId;
+    }
     _normalizeSelector(selector) {
+      if (typeof selector === "string" && REF_PATTERN.test(selector.trim())) return `aria-ref=${selector.trim()}`;
       return selector;
     }
     _frameFor(frameId, parent) {
@@ -1879,6 +1973,8 @@
         if (!f.parentFrameId) {
           this._mainFrame._id = f.frameId;
           this._mainFrame._url = f.url;
+          // An event may have named the main frame before its id was known.
+          this._frames.delete(f.frameId);
           alive.add(this._mainFrame);
           continue;
         }
@@ -1896,18 +1992,112 @@
       }
       return list;
     }
-    // Resolves a snapshot ref prefix ("" or "f2") to its frame.
-    async _frameForRef(ref) {
-      const prefix = (/^(f\d+)?e\d+$/.exec(ref) || [])[1] || "";
-      if (!prefix) return this._mainFrame;
-      const frame = this._refPrefixes && this._refPrefixes.get(prefix);
-      if (!frame || frame._detached) {
-        throw new StaleRefError(`Ref "${ref}" is stale — the element was removed or the page changed. Take a new snapshot and retry.`);
+    _prefixFor(frame) {
+      if (frame === this._mainFrame) return "";
+      let prefix = this._framePrefixes.get(frame);
+      if (!prefix) {
+        prefix = `f${++this._prefixCounter}`;
+        this._framePrefixes.set(frame, prefix);
+        this._prefixFrames.set(prefix, frame);
       }
-      return frame;
+      return prefix;
+    }
+    _frameForPrefix(prefix) {
+      const frame = this._prefixFrames.get(prefix || "");
+      return frame && !frame._detached ? frame : null;
+    }
+    _refMaxFor(frame) {
+      return this._refMax.get(frame) || 0;
+    }
+    _noteRefMax(frame, max) {
+      if (typeof max === "number" && max > this._refMaxFor(frame)) this._refMax.set(frame, max);
+    }
+    // Returns the frame that owns a live ref, or throws: a ref whose element
+    // is gone never rebinds to another element.
+    async _checkRef(ref) {
+      const [, prefix = "", local] = REF_PATTERN.exec(ref);
+      const stale = () => new StaleRefError(`ref ${ref} is stale: the element was removed; take a new snapshot`);
+      let frame = this._frameForPrefix(prefix);
+      if (!frame) {
+        if (this._prefixFrames.has(prefix)) throw stale();
+        throw new StaleRefError(`ref ${ref} does not exist; take a new snapshot`);
+      }
+      let state;
+      try {
+        state = await frame._agent("refState", local, this._refMaxFor(frame));
+      } catch (e) {
+        if (driverErrorCode(e) === "stale" || driverErrorCode(e) === "not_found") {
+          await this._refreshFrames().catch(() => {});
+          if (frame._detached) throw stale();
+        }
+        throw e;
+      }
+      if (state.live) return frame;
+      if (Number(local.slice(1)) <= Math.max(state.max, this._refMaxFor(frame))) throw stale();
+      throw new StaleRefError(`ref ${ref} does not exist; take a new snapshot`);
+    }
+    async _refForHandle(frame, handle) {
+      const r = await frame._agent("refForHandle", handle, this._refMaxFor(frame));
+      this._noteRefMax(frame, r.max);
+      return this._prefixFor(frame) + r.ref;
+    }
+    _pendingDialog() {
+      const d = this._heldDialog || this._listenedDialog;
+      return d && !d._handled ? d : null;
+    }
+    _pendingChooser() {
+      const c = this._heldChooser;
+      return c && !c._handled ? c : null;
+    }
+    _blockedError() {
+      const d = this._heldDialog;
+      if (!d || d._handled) return null;
+      return new Error(`page is blocked by a JavaScript ${d.type()} dialog ${JSON.stringify(d.message())}; answer it with page.dialog().accept() or page.dialog().dismiss()`);
+    }
+    // Settles when `promise` does, or when a dialog nobody listens for opens:
+    // input then counts as delivered, an evaluation fails with the way out.
+    _raceDialog(promise, isEvaluation) {
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        const watcher = () => {
+          if (settled) return;
+          settled = true;
+          this._dialogWatchers.delete(watcher);
+          promise.catch(() => {});
+          if (isEvaluation) reject(this._blockedError());
+          else resolve(undefined);
+        };
+        this._dialogWatchers.add(watcher);
+        promise.then(
+          (v) => {
+            if (settled) return;
+            settled = true;
+            this._dialogWatchers.delete(watcher);
+            resolve(v);
+          },
+          (e) => {
+            if (settled) return;
+            settled = true;
+            this._dialogWatchers.delete(watcher);
+            reject(e);
+          },
+        );
+      });
+    }
+    // Native input. `detached` sends without waiting, for the release of a
+    // key or button whose press opened a dialog.
+    _input(method, params, detached) {
+      if (detached) {
+        this._session.call(method, params).catch(() => {});
+        return Promise.resolve();
+      }
+      const blocked = this._blockedError();
+      if (blocked) return Promise.reject(blocked);
+      return this._raceDialog(this._session.call(method, params), false);
     }
     async _afterAction() {
       await this._syncInfo().catch(() => {});
+      if (!this._heldDialog) await this._refreshFrames().catch(() => {});
     }
     async _syncInfo() {
       if (this._closed) return;
@@ -1921,18 +2111,20 @@
       const button = options.button || "left";
       const count = options.clickCount || 1;
       const modifiers = options.modifiers || [];
-      const call = (type, extra) => this._session.call("input.mouse", {
+      const call = (type, extra, detached) => this._input("input.mouse", {
         targetId: this._targetId, type, x: target.x, y: target.y, button, clickCount: 0, modifiers, ...extra,
-      });
+      }, detached);
       await call("move");
       this.mouse._x = target.x;
       this.mouse._y = target.y;
       const activeBefore = await target.frame._agent("activeHandle").catch(() => undefined);
       for (let i = 1; i <= count; i++) {
         await call("down", { clickCount: i });
-        if (i === 1) await target.frame._agent("emulateClickFocus", target.handle, activeBefore).catch(() => {});
-        if (options.delay) await this._session.sleep(options.delay);
-        await call("up", { clickCount: i });
+        const opened = !!this._heldDialog;
+        if (i === 1 && !opened) await target.frame._agent("emulateClickFocus", target.handle, activeBefore).catch(() => {});
+        if (options.delay && !opened) await this._session.sleep(options.delay);
+        await call("up", { clickCount: i }, opened);
+        if (this._heldDialog) break;
       }
     }
     async _filePayloads(files) {
@@ -1971,22 +2163,26 @@
     _onLoadState(p) {
       if (p.state === "load" || p.state === "domcontentloaded") this.emit(p.state, this);
     }
+    // With a "dialog" listener the listener answers, as in Playwright.
+    // Without one the dialog stays open, shows in the snapshot and is answered
+    // through page.dialog(); nothing is dismissed silently.
     _onDialog(p) {
       const dialog = new Dialog(this, p);
-      // Playwright dismisses dialogs nobody listens for.
-      if (!this.listenerCount("dialog")) {
-        dialog.dismiss().catch(() => {});
+      if (this.listenerCount("dialog")) {
+        this._listenedDialog = dialog;
+        this.emit("dialog", dialog);
         return;
       }
-      this.emit("dialog", dialog);
+      this._heldDialog = dialog;
+      for (const watcher of [...this._dialogWatchers]) watcher(dialog);
     }
     _onFileChooser(p) {
       const chooser = new FileChooser(this, p);
-      if (!this.listenerCount("filechooser")) {
-        this._session.call("filechooser.respond", { targetId: this._targetId, chooserId: p.chooserId, cancel: true }).catch(() => {});
+      if (this.listenerCount("filechooser")) {
+        this.emit("filechooser", chooser);
         return;
       }
-      this.emit("filechooser", chooser);
+      this._heldChooser = chooser;
     }
     _onDownload(p) {
       const download = new Download(this, p);
@@ -1998,11 +2194,16 @@
       if (d) d._resolveFinished(p);
     }
     _onConsole(p) {
-      this.emit("console", new ConsoleMessage(this, p));
+      const message = new ConsoleMessage(this, p.type === "warn" ? Object.assign({}, p, { type: "warning" }) : p);
+      this._consoleHistory.push(message);
+      if (this._consoleHistory.length > 1000) this._consoleHistory.shift();
+      this.emit("console", message);
     }
     _onPageError(p) {
       const e = new Error(p.message);
       e.stack = p.stack || e.stack;
+      this._pageErrors.push(e);
+      if (this._pageErrors.length > 200) this._pageErrors.shift();
       this.emit("pageerror", e);
     }
     _onNetwork(p, event) {
@@ -2020,7 +2221,82 @@
       }
     }
 
-    // Public API
+    // Public API: cmux additions (docs/browser-repl/README.md, Page additions)
+    ref(ref) {
+      if (typeof ref !== "string" || !REF_PATTERN.test(ref.trim())) {
+        throw new Error(`page.ref: expected a snapshot ref such as "e5" or "f1e2", got ${JSON.stringify(ref)}`);
+      }
+      return this.locator(ref.trim());
+    }
+    dialog() {
+      const d = this._pendingDialog();
+      if (!d) return null;
+      return {
+        type: d.type(),
+        message: d.message(),
+        defaultValue: d.defaultValue(),
+        accept: (text) => d.accept(text),
+        dismiss: () => d.dismiss(),
+      };
+    }
+    fileChooser() {
+      const c = this._pendingChooser();
+      if (!c) return null;
+      return { multiple: c.isMultiple(), setFiles: (files) => c.setFiles(files), cancel: () => c.cancel() };
+    }
+    async consoleMessages(options = {}) {
+      let list = this._consoleHistory.slice();
+      if (options.level) {
+        const levels = [].concat(options.level).map((l) => (l === "warn" ? "warning" : l));
+        list = list.filter((m) => levels.includes(m.type()));
+      }
+      if (options.filter !== undefined) {
+        const f = options.filter;
+        list = list.filter((m) => (isRegExp(f) ? f.test(m.text()) : m.text().includes(String(f))));
+      }
+      if (options.limit) list = list.slice(-options.limit);
+      return list;
+    }
+    async errors() {
+      return this._pageErrors.slice();
+    }
+    async pageErrors() {
+      return this.errors();
+    }
+    get clipboard() {
+      return this._clipboard || (this._clipboard = new TabClipboard(this));
+    }
+    // Topmost element at a viewport point, through iframes.
+    async elementAt(x, y) {
+      let frame = this._mainFrame;
+      let ox = 0;
+      let oy = 0;
+      for (let depth = 0; depth < 16; depth++) {
+        const r = await frame._agent("elementAt", x - ox, y - oy, this._refMaxFor(frame));
+        if (!r) return null;
+        if (r.frame) {
+          const child = await frame._contentFrame(r.frame);
+          if (!child) return null;
+          ox += r.box.x;
+          oy += r.box.y;
+          frame = child;
+          continue;
+        }
+        this._noteRefMax(frame, r.max);
+        const b = r.box;
+        return { ref: this._prefixFor(frame) + r.ref, role: r.role, name: r.name, box: { x: b.x + ox, y: b.y + oy, width: b.width, height: b.height } };
+      }
+      return null;
+    }
+    // Keeps this tab open after a one-shot run.
+    async keep() {
+      this._kept = true;
+      try {
+        await this._session.call("tab.keep", { targetId: this._targetId });
+      } catch (e) {
+        if (driverErrorCode(e) !== "unsupported") throw e;
+      }
+    }
     url() {
       return this._url;
     }
@@ -2061,6 +2337,7 @@
         ...params,
       });
       await this._syncInfo();
+      await this._refreshFrames().catch(() => {});
       return r;
     }
     async goto(url, options) {
@@ -2241,10 +2518,15 @@
     async bringToFront() {
       await this._session.call("tab.bringToFront", { targetId: this._targetId });
     }
+    // With runBeforeUnload the page may refuse through a beforeunload
+    // dialog, so, as in Playwright, this does not wait for the tab to close.
     async close(options = {}) {
       if (this._closed) return;
       await this._session.call("tabs.close", { targetId: this._targetId, runBeforeUnload: !!options.runBeforeUnload });
-      this._onClosed();
+      if (!options.runBeforeUnload) this._onClosed();
+    }
+    video() {
+      return null;
     }
     // Selector-based shortcuts delegate to the main frame, as in Playwright.
     locator(selector, options) {
@@ -2314,6 +2596,8 @@
     ElementHandle,
     Keyboard,
     Mouse,
+    TabClipboard,
+    REF_PATTERN,
     Dialog,
     FileChooser,
     Download,
