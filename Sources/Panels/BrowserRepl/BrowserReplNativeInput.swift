@@ -62,17 +62,19 @@ enum BrowserReplNativeInput {
         case .otherMouseUp: cgType = .otherMouseUp
         default: cgType = .otherMouseDragged
         }
-        guard let event = CGEvent(
-            mouseEventSource: nil,
-            mouseType: cgType,
-            mouseCursorPosition: globalPoint(window: window, location: location),
-            mouseButton: .center
-        ) else { return nil }
-        event.setIntegerValueField(.mouseEventButtonNumber, value: 2)
-        event.setIntegerValueField(.mouseEventClickState, value: Int64(max(1, clickCount)))
-        event.flags = cgFlags(modifierFlags)
-        stampWindow(event, window: window)
-        return NSEvent(cgEvent: event)
+        return aligned(window: window, location: location) { point in
+            guard let event = CGEvent(
+                mouseEventSource: nil,
+                mouseType: cgType,
+                mouseCursorPosition: point,
+                mouseButton: .center
+            ) else { return nil }
+            event.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+            event.setIntegerValueField(.mouseEventClickState, value: Int64(max(1, clickCount)))
+            event.flags = cgFlags(modifierFlags)
+            stampWindow(event, window: window)
+            return NSEvent(cgEvent: event)
+        }
     }
 
     static func wheelEvent(
@@ -86,19 +88,39 @@ enum BrowserReplNativeInput {
         let location = windowPoint(webView: webView, cssPoint: cssPoint)
         // Page-space deltas scroll content down/right; wheel deltas are the
         // finger direction, so they flip sign.
-        guard let event = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: .pixel,
-            wheelCount: 2,
-            wheel1: Int32(clamping: Int(-deltaY.rounded())),
-            wheel2: Int32(clamping: Int(-deltaX.rounded())),
-            wheel3: 0
-        ) else { return nil }
-        event.location = globalPoint(window: window, location: location)
-        event.flags = cgFlags(modifierFlags)
-        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-        stampWindow(event, window: window)
-        return NSEvent(cgEvent: event)
+        return aligned(window: window, location: location) { point in
+            guard let event = CGEvent(
+                scrollWheelEvent2Source: nil,
+                units: .pixel,
+                wheelCount: 2,
+                wheel1: Int32(clamping: Int(-deltaY.rounded())),
+                wheel2: Int32(clamping: Int(-deltaX.rounded())),
+                wheel3: 0
+            ) else { return nil }
+            event.location = point
+            event.flags = cgFlags(modifierFlags)
+            event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            stampWindow(event, window: window)
+            return NSEvent(cgEvent: event)
+        }
+    }
+
+    /// Builds a CGEvent-backed NSEvent whose `locationInWindow` is `location`.
+    /// AppKit derives that from the event's global position and, depending on
+    /// the event, its window; one correction pass removes the difference.
+    private static func aligned(
+        window: NSWindow,
+        location: NSPoint,
+        make: (CGPoint) -> NSEvent?
+    ) -> NSEvent? {
+        var global = globalPoint(window: window, location: location)
+        guard let first = make(global) else { return nil }
+        let dx = location.x - first.locationInWindow.x
+        let dy = location.y - first.locationInWindow.y
+        guard abs(dx) > 0.5 || abs(dy) > 0.5 else { return first }
+        global.x += dx
+        global.y -= dy
+        return make(global) ?? first
     }
 
     /// Commits `text` through the text input client, as an IME would.

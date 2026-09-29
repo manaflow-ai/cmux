@@ -449,7 +449,12 @@ import WebKit
             return
         }
 
+        let replAttachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
+            // A REPL session sees the new tab as a popup it can attach to.
+            if let replAttachment, replAttachment.handlePopup(request: request) {
+                return
+            }
             if let requestNavigation {
                 requestNavigation(request, .newTab, nil)
                 return

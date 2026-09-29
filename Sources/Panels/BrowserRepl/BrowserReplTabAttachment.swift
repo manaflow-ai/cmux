@@ -75,8 +75,17 @@ final class BrowserReplTabAttachment {
     private weak var instrumentedWebView: WKWebView?
     private var networkIdleWaiters: [CheckedContinuation<Void, Never>] = []
 
+    /// An automated left-button press and the HTML5 drag it may have started.
+    struct DragState {
+        let capture: BrowserAutomationDragCapture
+        var drop: BrowserAutomationDraggingInfo?
+        var operation: NSDragOperation = []
+    }
+
     /// Mouse buttons held by automation, for drag event types.
     var mouseState = BrowserReplMouseState()
+    /// The drag in progress, between a left press and its release.
+    var drag: DragState?
     /// Last automated mouse position in CSS pixels.
     var mousePosition = CGPoint.zero
     /// Per-tab virtual clipboard (`clipboard.read` / `clipboard.write`).
@@ -102,8 +111,36 @@ final class BrowserReplTabAttachment {
     var targetID: String { panelID.uuidString }
 
     func addSink(sessionID: String, sink: @escaping BrowserReplTabEventSink) {
+        let wasAttached = isAttached
         sinks[sessionID] = sink
         instrumentCurrentWebView()
+        if !wasAttached {
+            panel?.reevaluateHiddenWebViewDiscardScheduling(reason: "browser.repl.attach")
+        }
+        keepRendering()
+    }
+
+    /// Keeps the tab rendering like a foreground page while a session drives
+    /// it: `requestAnimationFrame`, timers and `visibilityState` all pause in
+    /// a hidden WebKit page, and Playwright-style actionability waits for
+    /// animation frames. A hidden pane's web view goes into the panel's
+    /// offscreen preload window, and window occlusion no longer counts as
+    /// hidden. The pane reclaims the web view when it is shown.
+    func keepRendering() {
+        guard isAttached, let panel else { return }
+        _ = panel.restoreDiscardedWebViewIfNeeded(reason: "browser.repl", allowBlankShellHeal: false)
+        if panel.webView.window == nil {
+            panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "browser.repl")
+        }
+        Self.setOcclusionDetection(false, on: panel.webView)
+    }
+
+    private static func setOcclusionDetection(_ enabled: Bool, on webView: WKWebView) {
+        let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+        guard webView.responds(to: selector) else { return }
+        typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
+        let setter = unsafeBitCast(webView.method(for: selector), to: Setter.self)
+        setter(webView, selector, enabled)
     }
 
     func removeSink(sessionID: String) {
@@ -121,8 +158,13 @@ final class BrowserReplTabAttachment {
         for respond in fileChoosers.values { respond(nil) }
         fileChoosers.removeAll()
         uninstrument()
+        if let webView = panel?.webView {
+            Self.setOcclusionDetection(true, on: webView)
+        }
+        panel?.reevaluateHiddenWebViewDiscardScheduling(reason: "browser.repl.detach")
         if let cmuxWebView = panel?.webView as? CmuxWebView {
             cmuxWebView.automationDragCapture = nil
+            drag = nil
             cmuxWebView.releaseBrowserReplModifiers()
         }
         mouseState.reset()

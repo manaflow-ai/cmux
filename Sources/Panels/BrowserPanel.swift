@@ -6052,7 +6052,9 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isElementFullscreenActive: isElementFullscreenActive,
             isReactGrabActive: isReactGrabActive,
             isDesignModeActive: designModeController.protectsFromDiscard,
-            isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0,
+            // A REPL session driving this tab needs its live web view.
+            isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0
+                || BrowserReplTabAttachments.shared.attachment(for: id) != nil,
             isMobileBrowserStreamActive: !mobileBrowserStreamSignalHandlers.isEmpty,
             hasPopups: !popupControllers.isEmpty,
             isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none,

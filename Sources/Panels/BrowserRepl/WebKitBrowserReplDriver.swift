@@ -27,6 +27,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private var downloadPaths: [String: String] = [:]
     private var downloadWaiters: [String: [CheckedContinuation<String?, Never>]] = [:]
     private var dragSequence = 0
+    /// Tabs this session opened (`tabs.open` and page popups). Like Aside's
+    /// temporary sessions, they close when the session ends.
+    private var openedTargetIDs: [UUID] = []
     private var fileChooserDirectories: [URL] = []
 
     init(
@@ -58,6 +61,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let sessionID = self.sessionID
         Task { @MainActor in
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
+            self.closeOpenedTabs()
             self.releaseDownloadWaiters()
             for directory in self.fileChooserDirectories {
                 try? FileManager.default.removeItem(at: directory)
@@ -151,7 +155,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let panel = try browserPanels().first(where: { $0.id == id }) else {
             throw Self.error("closed", "Tab \(raw) is closed")
         }
-        attach(panel)
+        attach(panel).keepRendering()
         return panel
     }
 
@@ -178,6 +182,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         if name == "tab.created", let id = payload["targetId"] as? String, payload["openerTargetId"] != nil {
             activeTargetID = id
+            if let uuid = UUID(uuidString: id) { openedTargetIDs.append(uuid) }
         }
         guard let json = BrowserReplJSON.encode(payload) else { return }
         let sink = lock.withLock { self.sink }
@@ -222,6 +227,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "Could not open a browser tab")
         }
         attach(panel)
+        openedTargetIDs.append(panel.id)
         if params["background"] as? Bool != true {
             activeTargetID = panel.id.uuidString
         }
@@ -821,7 +827,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let y = (params["y"] as? NSNumber)?.doubleValue
         if let x, let y { attachment.mousePosition = CGPoint(x: x, y: y) }
         let css = attachment.mousePosition
-        try await withWindow(panel) { webView, window in
+        try await withWindow(panel) { [self] webView, window in
             let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags)
             if type == "wheel" {
                 let deltaX = (params["deltaX"] as? NSNumber)?.doubleValue ?? 0
@@ -837,26 +843,129 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     throw Self.error("invalid", "Could not create a wheel event")
                 }
                 webView.deliverAutomationMouseEvent(event)
-            } else {
-                guard let eventType = attachment.mouseState.eventType(forType: type, button: button) else {
-                    throw Self.error("invalid", "Unknown mouse event \(type)")
-                }
-                guard let event = BrowserReplNativeInput.mouseEvent(
-                    type: eventType,
-                    button: button,
-                    webView: webView,
-                    window: window,
-                    cssPoint: css,
-                    clickCount: clickCount,
-                    modifierFlags: flags
-                ) else {
-                    throw Self.error("invalid", "Could not create a mouse event")
-                }
-                webView.deliverAutomationMouseEvent(event)
+                await BrowserReplNativeInput.roundTrip(webView)
+                return
             }
-            await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
+            guard let eventType = attachment.mouseState.eventType(forType: type, button: button) else {
+                throw Self.error("invalid", "Unknown mouse event \(type)")
+            }
+            try await self.deliverMouse(
+                eventType,
+                button: button,
+                at: css,
+                clickCount: clickCount,
+                flags: flags,
+                webView: webView,
+                window: window,
+                attachment: attachment
+            )
         }
         return nil
+    }
+
+    /// Delivers one mouse event. A left press arms a drag capture; once
+    /// WebKit starts an HTML5 drag, later moves and the release play the drop
+    /// side (`draggingUpdated`, `performDragOperation`) instead of mouse
+    /// events, the way a real drag session would.
+    @MainActor
+    private func deliverMouse(
+        _ type: NSEvent.EventType,
+        button: BrowserReplMouseButton,
+        at css: CGPoint,
+        clickCount: Int,
+        flags: NSEvent.ModifierFlags,
+        webView: CmuxWebView,
+        window: NSWindow,
+        attachment: BrowserReplTabAttachment
+    ) async throws {
+        func send() throws {
+            guard let event = BrowserReplNativeInput.mouseEvent(
+                type: type,
+                button: button,
+                webView: webView,
+                window: window,
+                cssPoint: css,
+                clickCount: clickCount,
+                modifierFlags: flags
+            ) else {
+                throw Self.error("invalid", "Could not create a mouse event")
+            }
+            webView.deliverAutomationMouseEvent(event)
+        }
+        let location = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: css)
+        switch type {
+        case .leftMouseDown:
+            let capture = BrowserAutomationDragCapture()
+            webView.automationDragCapture = capture
+            attachment.drag = BrowserReplTabAttachment.DragState(capture: capture)
+            try send()
+            await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
+        case .leftMouseDragged:
+            if let drop = attachment.drag?.drop {
+                drop.draggingLocation = location
+                attachment.drag?.operation = webView.draggingUpdated(drop)
+                await BrowserReplNativeInput.roundTrip(webView)
+                return
+            }
+            try send()
+            await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
+            await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
+        case .leftMouseUp:
+            if attachment.drag?.drop == nil {
+                await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
+            }
+            if let drop = attachment.drag?.drop {
+                drop.draggingLocation = location
+                let operation = webView.draggingUpdated(drop)
+                await BrowserReplNativeInput.roundTrip(webView)
+                if !operation.isEmpty, webView.prepareForDragOperation(drop) {
+                    _ = webView.performDragOperation(drop)
+                    webView.concludeDragOperation(drop)
+                } else {
+                    webView.draggingExited(drop)
+                }
+                await BrowserReplNativeInput.roundTrip(webView)
+                webView.endAutomationDrag(at: location, operation: operation)
+                await BrowserReplNativeInput.roundTrip(webView)
+            } else {
+                try send()
+                await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
+            }
+            webView.automationDragCapture = nil
+            attachment.drag = nil
+        default:
+            try send()
+            await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
+        }
+    }
+
+    /// WebKit starts a drag asynchronously after the page's `dragstart`; once
+    /// it has, enter the web view as the drop destination.
+    @MainActor
+    private func startDropIfDragBegan(
+        webView: CmuxWebView,
+        window: NSWindow,
+        location: NSPoint,
+        attachment: BrowserReplTabAttachment
+    ) async {
+        guard let state = attachment.drag, state.drop == nil else { return }
+        if !state.capture.didBegin {
+            await BrowserReplNativeInput.roundTrip(webView)
+        }
+        guard state.capture.didBegin else { return }
+        dragSequence += 1
+        let drop = BrowserAutomationDraggingInfo(
+            window: window,
+            location: location,
+            pasteboard: state.capture.pasteboard,
+            source: webView,
+            sequenceNumber: 1_000_000 + dragSequence
+        )
+        attachment.drag?.drop = drop
+        _ = webView.draggingEntered(drop)
+        await BrowserReplNativeInput.roundTrip(webView)
+        attachment.drag?.operation = webView.draggingUpdated(drop)
+        await BrowserReplNativeInput.roundTrip(webView)
     }
 
     @MainActor
@@ -936,8 +1045,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return nil
     }
 
-    /// HTML5 drag and drop: presses at the first point, drags through the
-    /// path, and plays the destination side of the drag WebKit starts.
+    /// HTML5 drag and drop: presses at the first point, moves through the
+    /// path in small steps and releases at the last, through the same drag
+    /// state machine as individual `input.mouse` calls.
     @MainActor
     private func drag(_ params: [String: Any]) async throws -> Any? {
         let panel = try panel(params)
@@ -950,97 +1060,28 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "input.drag needs at least two points")
         }
         let modifiers = BrowserReplKeyStroke.modifierFlags(named: params["modifiers"] as? [String] ?? [])
-        dragSequence += 1
-        let sequence = dragSequence
+        var trail: [CGPoint] = []
+        for (previous, next) in zip(points, points.dropFirst()) {
+            for step in 1...5 {
+                let t = CGFloat(step) / 5
+                trail.append(CGPoint(x: previous.x + (next.x - previous.x) * t, y: previous.y + (next.y - previous.y) * t))
+            }
+        }
         try await withWindow(panel) { [self] webView, window in
             let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags)
-            @MainActor func send(_ type: NSEvent.EventType, _ point: CGPoint, clickCount: Int = 1) {
-                if let event = BrowserReplNativeInput.mouseEvent(
-                    type: type,
-                    button: .left,
-                    webView: webView,
-                    window: window,
-                    cssPoint: point,
-                    clickCount: clickCount,
-                    modifierFlags: flags
-                ) {
-                    webView.deliverAutomationMouseEvent(event)
-                }
+            attachment.mouseState.reset()
+            _ = attachment.mouseState.eventType(forType: "move", button: .left)
+            try await self.deliverMouse(.mouseMoved, button: .left, at: first, clickCount: 0, flags: flags, webView: webView, window: window, attachment: attachment)
+            _ = attachment.mouseState.eventType(forType: "down", button: .left)
+            try await self.deliverMouse(.leftMouseDown, button: .left, at: first, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
+            for point in trail {
+                try await self.deliverMouse(.leftMouseDragged, button: .left, at: point, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
             }
-            let capture = BrowserAutomationDragCapture()
-            webView.automationDragCapture = capture
-            defer { webView.automationDragCapture = nil }
-
-            send(.mouseMoved, first)
-            send(.leftMouseDown, first)
-            await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
-            var trail: [CGPoint] = []
-            for (previous, next) in zip(points, points.dropFirst()) {
-                for step in 1...5 {
-                    let t = CGFloat(step) / 5
-                    trail.append(CGPoint(x: previous.x + (next.x - previous.x) * t, y: previous.y + (next.y - previous.y) * t))
-                }
-            }
-            var started = false
-            for (index, point) in trail.enumerated() {
-                if capture.didBegin {
-                    started = true
-                    try await self.playDrop(webView: webView, window: window, trail: Array(trail[index...]), sequence: sequence)
-                    break
-                }
-                send(.leftMouseDragged, point)
-                await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
-            }
-            if !started, !capture.didBegin {
-                // WebKit starts the drag asynchronously after the page's
-                // dragstart; give it until the next event round trip.
-                await BrowserReplNativeInput.roundTrip(webView)
-            }
-            if !started, capture.didBegin {
-                started = true
-                try await self.playDrop(webView: webView, window: window, trail: [last], sequence: sequence)
-            }
-            if !started {
-                send(.leftMouseUp, last)
-                await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
-            }
+            _ = attachment.mouseState.eventType(forType: "up", button: .left)
+            try await self.deliverMouse(.leftMouseUp, button: .left, at: last, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
         }
-        attachment.mouseState.reset()
         attachment.mousePosition = last
         return nil
-    }
-
-    @MainActor
-    private func playDrop(webView: CmuxWebView, window: NSWindow, trail: [CGPoint], sequence: Int) async throws {
-        guard let last = trail.last else { return }
-        let pasteboard = NSPasteboard(name: .drag)
-        let info = BrowserAutomationDraggingInfo(
-            window: window,
-            location: BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: trail[0]),
-            pasteboard: pasteboard,
-            source: webView,
-            sequenceNumber: 1_000_000 + sequence
-        )
-        _ = webView.draggingEntered(info)
-        await BrowserReplNativeInput.roundTrip(webView)
-        var operation: NSDragOperation = []
-        for point in trail {
-            info.draggingLocation = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: point)
-            operation = webView.draggingUpdated(info)
-            await BrowserReplNativeInput.roundTrip(webView)
-        }
-        operation = webView.draggingUpdated(info)
-        await BrowserReplNativeInput.roundTrip(webView)
-        let windowPoint = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: last)
-        if !operation.isEmpty, webView.prepareForDragOperation(info) {
-            _ = webView.performDragOperation(info)
-            webView.concludeDragOperation(info)
-        } else {
-            webView.draggingExited(info)
-        }
-        await BrowserReplNativeInput.roundTrip(webView)
-        webView.endAutomationDrag(at: windowPoint, operation: operation)
-        await BrowserReplNativeInput.roundTrip(webView)
     }
 
     @MainActor
@@ -1128,6 +1169,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("not_found", "Download \(id) did not complete")
         }
         return ["path": path]
+    }
+
+    @MainActor
+    private func closeOpenedTabs() {
+        let opened = openedTargetIDs
+        openedTargetIDs.removeAll()
+        guard let workspace = try? workspace() else { return }
+        for id in opened where workspace.panels[id] is BrowserPanel {
+            BrowserReplTabAttachments.shared.panelDidClose(id)
+            _ = workspace.closePanel(id, force: true)
+        }
     }
 
     @MainActor
