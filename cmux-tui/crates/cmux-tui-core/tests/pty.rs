@@ -289,6 +289,13 @@ fn terminal_surface_follows_the_latest_view_and_never_freezes() {
         .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
+    // This test is about latest-activity ownership; the default is "Fit everyone".
+    use cmux_tui_core::sizing_policy::{TerminalSizingMode, TerminalSizingPolicy};
+    mux.set_terminal_size_policy(
+        surface,
+        Some(TerminalSizingPolicy::new(TerminalSizingMode::Latest, Vec::new(), None)),
+    )
+    .unwrap();
 
     assert!(mux.resize_surface_for_client(surface, 1, 120, 40).unwrap());
     assert!(mux.resize_surface_for_client(surface, 0, 100, 32).unwrap());

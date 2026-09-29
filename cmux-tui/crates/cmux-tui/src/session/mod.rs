@@ -22,6 +22,7 @@ use cmux_tui_core::server::{
     MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
     VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
+use cmux_tui_core::sizing_policy::{TerminalSizingPolicy, TerminalSizingState};
 use cmux_tui_core::{
     BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, GuardedMouseEncode, LayoutRatioError,
     LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEventReceiver, PaneId,
@@ -341,6 +342,14 @@ pub struct AgentInfo {
     #[serde(default)]
     pub agent: Option<String>,
     pub updated_at_ms: u64,
+}
+
+/// A terminal's shared-sizing state as this frontend sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SurfaceSizeState {
+    pub state: TerminalSizingState,
+    /// This frontend's own participant id in `state`, when attached.
+    pub self_participant: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -669,6 +678,73 @@ impl Session {
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "detach-client", "client": client})).map(|_| ())
+            }
+        }
+    }
+
+    /// The latest shared-sizing state of a terminal and this frontend's own
+    /// participant id in it (docs/shared-terminal-sizing.md). `None` before
+    /// the host published one, or when the host lacks `shared-sizing-v1`.
+    pub fn size_state(&self, surface: SurfaceId) -> Option<SurfaceSizeState> {
+        match self {
+            Session::Local(mux) => Some(SurfaceSizeState {
+                state: mux.terminal_size_state(surface)?,
+                self_participant: mux.terminal_view_participant_id(surface, 0),
+            }),
+            Session::Remote(remote) => remote.size_state(surface),
+        }
+    }
+
+    /// `set-size-policy {surface, policy}`.
+    pub fn set_size_policy(
+        &self,
+        surface: SurfaceId,
+        policy: TerminalSizingPolicy,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .set_terminal_size_policy(surface, Some(policy))
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal")),
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "set-size-policy", "surface": surface, "policy": policy}))
+                .map(|_| ()),
+        }
+    }
+
+    /// `set-size-counts {surface, participant, counts}`; `None` restores the
+    /// automatic rule.
+    pub fn set_size_counts(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+        counts: Option<bool>,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .set_terminal_size_counts(surface, participant, counts)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}")),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-size-counts",
+                    "surface": surface,
+                    "participant": participant,
+                    "counts": counts,
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    /// `detach-client {client: <participant>}`: disconnects one participant
+    /// (a relay sub-view alone, otherwise its whole client).
+    pub fn disconnect_size_participant(&self, participant: &str) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                cmux_tui_core::server::detach_size_participant(mux, 0, participant)
+            }
+            Session::Remote(remote) => {
+                remote.request(json!({"cmd": "detach-client", "client": participant})).map(|_| ())
             }
         }
     }

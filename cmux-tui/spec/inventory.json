@@ -1119,6 +1119,21 @@
       "route": "self: close frontend transport; peer: detach-client"
     },
     {
+      "variant": "SetSizeMode",
+      "classification": "direct",
+      "route": "set-size-policy"
+    },
+    {
+      "variant": "SetSizeCounts",
+      "classification": "direct",
+      "route": "set-size-counts participant"
+    },
+    {
+      "variant": "DisconnectSizeParticipant",
+      "classification": "composite",
+      "route": "self: close frontend transport; peer: detach-client participant"
+    },
+    {
       "variant": "SelectProviderScope",
       "classification": "external-protocol",
       "route": "machine-provider select_scope"

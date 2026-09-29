@@ -169,6 +169,15 @@ after the host's latest size state includes the phone's confirmed viewport
 and no viewport report of its own is pending, so it never draws bounds for a
 grid it is about to change.
 
+The cmux-tui frontend joins as `device_kind: "tui"` named after its host. Its
+pane's bottom border carries the chip text, ` 118×38 · Lawrence's Mac `
+(plus `· 12 cols hidden` when the TUI is narrower), under the same rule: only
+while someone else is attached or the TUI's viewport differs from the grid.
+Clicking it, or the pane context menu, opens a Terminal size menu with the five
+modes (Fixed keeps the current grid, Priority puts this client first) and one
+submenu per participant with Counts toward size and Disconnect. Against a
+daemon without `shared-sizing-v1` the TUI keeps its legacy per-client menu.
+
 ## Mac ↔ iPhone payloads
 
 The Mac is the host of local terminals and the relay of Cloud terminals. The phone

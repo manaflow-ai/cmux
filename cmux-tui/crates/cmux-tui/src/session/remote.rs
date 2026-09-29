@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
+use cmux_tui_core::sizing_policy::TerminalSizingState;
 use cmux_tui_core::{
     BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, ClearHistoryDelivery,
     ClearHistoryFailure, GraphicsStatus, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
@@ -23,7 +24,8 @@ use cmux_tui_core::{
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
-        ProtocolKeyInput, VIEW_ATTACHMENT_DETACH_CAPABILITY, VIEW_ATTACHMENT_LEASE_CAPABILITY,
+        ProtocolKeyInput, SHARED_SIZING_CAPABILITY, VIEW_ATTACHMENT_DETACH_CAPABILITY,
+        VIEW_ATTACHMENT_LEASE_CAPABILITY,
     },
 };
 use cmux_tui_machine_protocol::BearerToken;
@@ -1603,6 +1605,8 @@ pub struct RemoteSession {
     cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     capabilities: Mutex<HashSet<String>>,
+    /// Latest `size-state` per terminal (shared-sizing-v1).
+    size_states: Mutex<HashMap<SurfaceId, super::SurfaceSizeState>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
 }
@@ -1961,6 +1965,7 @@ impl RemoteSession {
             cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(HashSet::new()),
+            size_states: Mutex::new(HashMap::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
         });
@@ -2032,6 +2037,15 @@ impl RemoteSession {
         if self.supports_capability(CREATION_SELECTOR_FALLBACKS_CAPABILITY) {
             negotiated.push(CREATION_SELECTOR_FALLBACKS_CAPABILITY);
         }
+        if self.supports_capability(SHARED_SIZING_CAPABILITY) {
+            // Join shared sizing as a terminal client named after this host,
+            // like the Mac and iPhone (docs/shared-terminal-sizing.md).
+            negotiated.push(SHARED_SIZING_CAPABILITY);
+            client_info["device_kind"] = json!("tui");
+            if let Some(hostname) = local_hostname() {
+                client_info["device_name"] = json!(hostname);
+            }
+        }
         if !negotiated.is_empty() {
             client_info["capabilities"] = json!(negotiated);
         }
@@ -2045,6 +2059,30 @@ impl RemoteSession {
             self.subscription_started.store(true, Ordering::Release);
         }
         Ok(())
+    }
+
+    /// The latest `size-state` for `surface`.
+    pub(super) fn size_state(&self, surface: SurfaceId) -> Option<super::SurfaceSizeState> {
+        self.size_states.lock().unwrap().get(&surface).cloned()
+    }
+
+    /// Keeps the newest state per terminal; an older generation is ignored.
+    /// Returns whether the stored state changed.
+    fn store_size_state(
+        &self,
+        surface: SurfaceId,
+        state: TerminalSizingState,
+        self_participant: Option<String>,
+    ) -> bool {
+        let mut states = self.size_states.lock().unwrap();
+        if let Some(current) = states.get(&surface)
+            && (current.state.generation > state.generation
+                || (current.state == state && current.self_participant == self_participant))
+        {
+            return false;
+        }
+        states.insert(surface, super::SurfaceSizeState { state, self_participant });
+        true
     }
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {
@@ -2160,6 +2198,7 @@ impl RemoteSession {
             | "agent-changed"
             | "title-changed"
             | "bell"
+            | "size-state"
             | "scroll-changed" => surface == Some(target),
             _ => true,
         }
@@ -2399,6 +2438,7 @@ impl RemoteSession {
             Some("detached") => {
                 if let Some(id) = surface_id() {
                     self.surfaces.lock().unwrap().remove(&id);
+                    self.size_states.lock().unwrap().remove(&id);
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
@@ -2418,6 +2458,26 @@ impl RemoteSession {
             Some("tree-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
+            }
+            Some("size-state") => {
+                let Some(surface) = surface_id() else { return };
+                let Some(state) = value
+                    .get("state")
+                    .cloned()
+                    .and_then(|state| serde_json::from_value::<TerminalSizingState>(state).ok())
+                else {
+                    return;
+                };
+                let self_participant =
+                    value.get("self_participant").and_then(Value::as_str).map(str::to_string);
+                if !self.store_size_state(surface, state.clone(), self_participant) {
+                    return;
+                }
+                self.emit(MuxEvent::SizeStateChanged {
+                    surface,
+                    runtime: surface,
+                    state: Arc::new(state),
+                });
             }
             Some("agent-changed") => {
                 let Some(surface) = surface_id() else { return };
@@ -3975,6 +4035,7 @@ fn test_session_with_writer(
         cell_pixel_lifecycle: Mutex::new(()),
         cell_pixels: Mutex::new((8, 16)),
         capabilities: Mutex::new(capabilities),
+        size_states: Mutex::new(HashMap::new()),
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
     })
@@ -4431,6 +4492,31 @@ mod tests {
             HashSet::from([GUARDED_BROWSER_POINTER_CAPABILITY.to_string()]),
         );
         assert!(supported.supports_browser_attach());
+    }
+
+    #[test]
+    fn size_state_events_keep_the_newest_generation_per_terminal() {
+        let session = super::test_session_with_provider_context(None, HashSet::new());
+        let state = |generation: u64, cols: u16| {
+            json!({
+                "generation": generation, "cols": cols, "rows": 30, "reason": "smallest",
+                "owners": ["c3"], "policy": {"mode": "smallest", "priority": [], "fixed": null},
+                "participants": [],
+            })
+        };
+        session.handle_line(json!({
+            "event": "size-state", "surface": 9, "state": state(4, 118), "self_participant": "c3",
+        }));
+        let stored = session.size_state(9).expect("size state is stored");
+        assert_eq!((stored.state.generation, stored.state.cols), (4, 118));
+        assert_eq!(stored.self_participant.as_deref(), Some("c3"));
+
+        session.handle_line(json!({"event": "size-state", "surface": 9, "state": state(3, 80)}));
+        assert_eq!(session.size_state(9).unwrap().state.cols, 118);
+
+        session.handle_line(json!({"event": "size-state", "surface": 9, "state": state(5, 90)}));
+        assert_eq!(session.size_state(9).unwrap().state.cols, 90);
+        assert!(session.size_state(10).is_none());
     }
 
     #[test]
@@ -5217,6 +5303,7 @@ mod tests {
             cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(capabilities),
+            size_states: Mutex::new(HashMap::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
         })

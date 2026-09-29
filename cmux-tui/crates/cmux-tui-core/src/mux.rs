@@ -9208,7 +9208,7 @@ impl Mux {
     }
 
     /// Set or clear one participant's explicit counts choice.
-    pub(crate) fn set_terminal_size_counts(
+    pub fn set_terminal_size_counts(
         &self,
         surface: SurfaceId,
         participant: &str,
@@ -9227,7 +9227,7 @@ impl Mux {
     }
 
     /// Set (`Some`) or clear (`None`) a terminal's policy override.
-    pub(crate) fn set_terminal_size_policy(
+    pub fn set_terminal_size_policy(
         &self,
         surface: SurfaceId,
         policy: Option<TerminalSizingPolicy>,
@@ -9309,18 +9309,14 @@ impl Mux {
     }
 
     /// The terminal's published size state, creating its engine on demand.
-    pub(crate) fn terminal_size_state(&self, surface: SurfaceId) -> Option<TerminalSizingState> {
+    pub fn terminal_size_state(&self, surface: SurfaceId) -> Option<TerminalSizingState> {
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
         let mut sizing = self.client_sizing.lock().unwrap();
         Some(self.terminal_sizing_entry(&mut sizing, runtime, surface).engine.state().clone())
     }
 
     /// The host participant id of `client`'s own view of `surface`.
-    pub(crate) fn terminal_view_participant_id(
-        &self,
-        surface: SurfaceId,
-        client: u64,
-    ) -> Option<String> {
+    pub fn terminal_view_participant_id(&self, surface: SurfaceId, client: u64) -> Option<String> {
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
         Some(view_participant_id(runtime, surface, client))
     }

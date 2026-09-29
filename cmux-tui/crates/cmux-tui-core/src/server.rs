@@ -5975,6 +5975,35 @@ fn complete_daemon_shutdown_after_ack(
     requester_notice_sent
 }
 
+/// Disconnects one shared-sizing participant on behalf of `requester` (the
+/// in-process frontend's `detach-client {client: <participant>}`): a relay
+/// sub-view leaves alone and its relay forwards the notice; any other
+/// participant's whole client is kicked with `disconnected-by`.
+pub fn detach_size_participant(
+    mux: &Arc<Mux>,
+    requester: u64,
+    participant: &str,
+) -> anyhow::Result<()> {
+    let by = detach_actor(mux, requester, None);
+    let Some((client, placement, view)) = mux.terminal_participant_member(participant) else {
+        anyhow::bail!("unknown participant {participant}");
+    };
+    if let Some(view) = view {
+        mux.detach_terminal_sub_view(placement, client, &view);
+        let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
+        mux.control_clients.send_surface_event(
+            client,
+            placement,
+            None,
+            &detached_event_json(placement, &notice, Some(&view)),
+        );
+        return Ok(());
+    }
+    anyhow::ensure!(client != requester, "cannot disconnect this client");
+    anyhow::ensure!(kick_client(mux, client, by), "unknown client {client}");
+    Ok(())
+}
+
 pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
     disconnect_client(mux, client, true)
 }

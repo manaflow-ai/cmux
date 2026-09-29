@@ -171,9 +171,9 @@ A server-initiated detach adds `reason` (`network`, `disconnected-by` with
 ## Shared Terminal Sizing
 
 `shared-sizing-v1` means terminals use the shared sizing reducer of
-[`docs/shared-terminal-sizing.md`](../../docs/shared-terminal-sizing.md): the
-newest active view sets the grid by default, and an owner that leaves hands
-the grid to the next owner. A client opts in to the new events by sending the
+[`docs/shared-terminal-sizing.md`](../../docs/shared-terminal-sizing.md): by
+default ("Fit everyone") the grid is the smallest attached viewport, and an
+owner that leaves hands the grid to the next owner. A client opts in to the new events by sending the
 same capability in `set-client-info`, together with its identity:
 
 ```json
@@ -186,7 +186,8 @@ It then receives `size-state` events, `participant` and `size_state` in terminal
 forwarded input to that sub-view), relay sub-views (`resize-attached-view`
 with `view` and `identity`), and `detach-client` with a participant id and
 `by`. `user_id` is
-asserted by the client; the daemon does not verify it. See
+asserted by the client; the daemon does not verify it. The cmux-tui frontend
+opts in with `device_kind: "tui"` and its hostname as `device_name`. See
 [`spec/commands.md`](../spec/commands.md#sizing).
 
 ## Client Compatibility
