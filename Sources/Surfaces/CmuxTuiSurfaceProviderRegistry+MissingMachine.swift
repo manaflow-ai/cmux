@@ -19,7 +19,11 @@ extension CmuxTuiSurfaceProviderRegistry {
     ) {
         (closeLocalWorkspaces ?? { AppDelegate.shared?.closeLocalWorkspaces(forCloudVMIDs: $0) })(rawIDs)
         if invalidatesRefresh { refreshGeneration &+= 1 }
-        for rawID in rawIDs { unregisterMachine(rawID) }
+        let candidates = Set(providers.keys).union(machineTeardowns.keys).union(pendingMachineCreationIDs)
+        let resolved = Dictionary(candidates.map { ($0.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
+        for rawID in rawIDs {
+            unregisterMachine(resolved[rawID.lowercased()] ?? rawID, alreadyResolved: true)
+        }
     }
 
     /// The provider callback is the shared terminal disposition for a typed

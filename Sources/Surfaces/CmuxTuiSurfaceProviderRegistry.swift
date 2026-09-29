@@ -17,7 +17,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
 
     private var catalog: SurfaceCatalog?
-    private var providers: [String: CmuxTuiSurfaceProvider] = [:]
+    var providers: [String: CmuxTuiSurfaceProvider] = [:]
     let links: CloudMachineLinkManager
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
@@ -64,7 +64,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Machine IDs admitted from a successful create response remain owned by
     /// this registry until a fleet page positively observes them. A stale page
     /// must not prune a receipt that is still converging into discovery.
-    private var pendingMachineCreationIDs: Set<String> = []; private var hasCompletedInitialRefresh = false; private var refreshedMachineIDs: Set<SurfaceMachineID> = []
+    var pendingMachineCreationIDs: Set<String> = []; private var hasCompletedInitialRefresh = false; private var refreshedMachineIDs: Set<SurfaceMachineID> = []
     /// Create receipts that proved a trusted, directly dialable daemon
     /// (snapshot-v2 contract plus a private address). Consumed by the first
     /// `vm.cmux_remote_info` for that machine instead of an attach request.
@@ -76,7 +76,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let pollInterval: Duration = .seconds(45)
     /// In-flight forward and link teardowns for deleted machines, keyed by
     /// machine id; sign-out waits for them before stopping the hub.
-    private var machineTeardowns: [String: Task<Void, Never>] = [:]
+    var machineTeardowns: [String: Task<Void, Never>] = [:]
     private var featureResumeTask: Task<Void, Never>?
     private var featureSuspensionTask: Task<Void, Never>?
     private var isFeatureSuspended = false
@@ -412,9 +412,9 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     /// Deletion and discovery share ordered teardown without waiting for unrelated machines.
-    func unregisterMachine(_ rawID: String) {
+    func unregisterMachine(_ rawID: String, alreadyResolved: Bool = false) {
         // Match the registered casing so every ownership table is removed.
-        let id = registeredMachineID(matching: rawID)
+        let id = alreadyResolved ? rawID : registeredMachineID(matching: rawID)
         pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id))
         createdTrustedCarrierIDs.remove(id)
         let provider = providers.removeValue(forKey: id)
