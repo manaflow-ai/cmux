@@ -249,7 +249,7 @@ impl Mux {
                 // An attached client keeps the terminal for another full
                 // grace period; its detach does not emit a topology event.
                 Ok(ReapOutcome::Attached) => {
-                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)))
+                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
                 }
                 Err(error) => {
                     self.report_internal_diagnostic(format!(

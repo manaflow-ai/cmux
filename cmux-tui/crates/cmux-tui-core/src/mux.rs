@@ -24,8 +24,6 @@ pub use terminal_reap::{
     DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
     validate_terminal_reap_grace,
 };
-#[cfg(test)]
-pub(crate) use terminal_reap::{ReapOutcome, ReapSchedule};
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -3097,8 +3095,7 @@ impl Mux {
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
             terminal_reap_grace_ms: AtomicU64::new(
-                u64::try_from(terminal_reap::DEFAULT_TERMINAL_REAP_GRACE.as_millis())
-                    .unwrap_or(u64::MAX),
+                u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
             terminal_reaper_events: Mutex::new(None),
             #[cfg(unix)]
