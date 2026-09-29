@@ -718,7 +718,7 @@ impl WorkspaceRegistry {
                 .map(|(revision, _)| revision)
             })
             .transpose()?;
-        apply_resource_patch(&tx, patch, sqlite_revision)?;
+        let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -1174,7 +1174,7 @@ fn commit_resource_effect_patch_in_transaction(
         .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
     let sqlite_revision =
         i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-    apply_resource_patch(transaction, patch, sqlite_revision)?;
+    let patch = &apply_resource_patch(transaction, patch, sqlite_revision)?;
     transaction.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
         [revision.to_string()],

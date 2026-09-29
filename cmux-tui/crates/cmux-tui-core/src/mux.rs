@@ -17,6 +17,7 @@ pub use presentation::{
     TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations, WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
+pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
 pub use tab_drag::{TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
 pub use tab_groups::{TabGroupDestination, TabGroupOutcome};

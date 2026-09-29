@@ -39,8 +39,10 @@ mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
 mod terminal_keep_store;
+mod topology_close_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
+pub(crate) use topology_close_store::TopologyCloseCommit;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
     ResourceEffectPreparation,
@@ -3179,7 +3181,7 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        apply_resource_patch(&tx, &patch, sqlite_revision)?;
+        let patch = apply_resource_patch(&tx, &patch, sqlite_revision)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -4707,15 +4709,65 @@ fn commit_workspace_registry_in_transaction(
     // underlying terminal.
     let terminal_batch =
         TerminalBatchClose { revision: transaction_terminal_revision(transaction)?, closed: 0 };
-    transaction.execute(
-        "UPDATE workspaces SET tombstoned = 1, position = NULL,
-         updated_revision = ?1, deleted_revision = ?1
-         WHERE tombstoned = 0",
-        [sqlite_revision],
-    )?;
-    // Tombstone first to release the partial unique position index, then
-    // upsert the complete desired order in this same transaction.
+    // Only rows that change are written. Removed rows are tombstoned and
+    // moved rows first park at a unique negative slot, which releases the
+    // partial unique position index for the desired order below.
+    let desired = workspaces
+        .iter()
+        .enumerate()
+        .map(|(position, workspace)| (workspace.key.as_str(), (position, workspace)))
+        .collect::<HashMap<_, _>>();
+    let stored = {
+        let mut statement = transaction.prepare(
+            "SELECT workspace_key, numeric_id, name, group_key, position
+             FROM workspaces WHERE tombstoned = 0",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    (
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<i64>>(4)?,
+                    ),
+                ))
+            })?
+            .collect::<Result<HashMap<_, _>, _>>()?
+    };
+    for (workspace_key, (_, _, _, stored_position)) in &stored {
+        match desired.get(workspace_key.as_str()) {
+            None => {
+                transaction.execute(
+                    "UPDATE workspaces SET tombstoned = 1, position = NULL,
+                     updated_revision = ?1, deleted_revision = ?1
+                     WHERE workspace_key = ?2 AND tombstoned = 0",
+                    params![sqlite_revision, workspace_key],
+                )?;
+            }
+            Some((position, _)) if *stored_position != i64::try_from(*position).ok() => {
+                transaction.execute(
+                    "UPDATE workspaces SET position = -rowid
+                     WHERE workspace_key = ?1 AND tombstoned = 0",
+                    [workspace_key],
+                )?;
+            }
+            Some(_) => {}
+        }
+    }
     for (position, workspace) in workspaces.iter().enumerate() {
+        let unchanged = stored.get(&workspace.key).is_some_and(
+            |(numeric_id, name, group_key, stored_position)| {
+                i64::try_from(workspace.id).ok() == Some(*numeric_id)
+                    && name == &workspace.name
+                    && group_key == &workspace.group_key
+                    && *stored_position == i64::try_from(position).ok()
+            },
+        );
+        if unchanged {
+            continue;
+        }
         transaction.execute(
             "INSERT INTO workspaces(
                workspace_key, numeric_id, name, group_key, position, tombstoned,

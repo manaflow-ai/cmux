@@ -144,6 +144,20 @@ fn group_members(state: &State, groups: &TabGroupState, group: &str) -> Vec<Surf
         .collect()
 }
 
+/// Remove `group` from `groups` and return its member placements, for a
+/// batch close that commits the group rows with the closed members.
+pub(super) fn take_tab_group(
+    state: &State,
+    groups: &mut TabGroupState,
+    group: &str,
+) -> anyhow::Result<Vec<SurfaceId>> {
+    let members = group_members(state, groups, group);
+    anyhow::ensure!(!members.is_empty(), "unknown tab group {group}");
+    groups.groups.remove(group);
+    groups.members.retain(|_, member| member != group);
+    Ok(members)
+}
+
 /// Reorder `pane` so `block` sits contiguously starting at insertion index
 /// `index` among the pane's other tabs. The active tab stays active.
 fn place_block(state: &mut State, pane: PaneId, block: &[SurfaceId], index: usize) {
