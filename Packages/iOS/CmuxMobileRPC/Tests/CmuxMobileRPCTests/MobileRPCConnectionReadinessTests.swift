@@ -6,6 +6,28 @@ import Testing
 @MainActor
 @Suite struct MobileRPCConnectionReadinessTests {
     @Test(.timeLimit(.minutes(1)))
+    func readinessLossBeforeInstallationClosesTheCandidateWithoutSending() async throws {
+        let readiness = RPCConnectionReadiness(permitsConnection: true)
+        let transport = ReleasableConnectTransport()
+        let session = MobileCoreRPCSession(makeTransport: { transport }, connectionReadiness: readiness)
+        let payload = try MobileCoreRPCClient.requestData(method: "mobile.host.status", id: "held")
+        let request = Task {
+            try await session.send(payload: payload, requestID: "held",
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 60_000_000_000)
+        }
+        #expect(await transport.waitUntilConnectStarted())
+        readiness.permitsConnection = false
+        await transport.releaseConnect()
+        await #expect(throws: CancellationError.self) { _ = try await request.value }
+        #expect(try await transport.sentRequests().isEmpty)
+        let closed = Task<Bool, any Error> { await transport.waitUntilCloseStarted(); return true }
+        let observed = try? await RPCTaskTimeout().value(closed, timeoutNanoseconds: 5_000_000_000)
+        #expect(observed == true, "an uninstalled candidate must retain cleanup ownership")
+        await session.tearDown(error: .connectionClosed)
+        _ = try? await closed.value
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func readinessDefersNewDialsAndPreservesAnAdmittedConnection() async throws {
         let readiness = RPCConnectionReadiness(permitsConnection: false)
         let transport = ReleasableConnectTransport()
