@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45. */
+/* cmux-tui mux protocol 12, IR 19e5dd742735eee4f1ccfac6cc6aabe2594f39cc4c13dab306739bad93705cbf. */
 
 
 import type * as T from "./types.js";
@@ -246,6 +246,21 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
   "workspace"?: (T.Id) | null;
 }
 export type CloseWorkspaceResult = T.WorkspaceMutationResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudBootstrapRequest extends CmuxRequestBase {
+  cmd: "cloud-bootstrap";
+  "welcome"?: boolean;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudFirstWorkspaceRequest extends CmuxRequestBase {
+  cmd: "cloud-first-workspace";
+  "machine_id": string;
+  "welcome"?: boolean;
+  "workspace"?: (string) | null;
+}
+export type CloudFirstWorkspaceResult = T.CloudBootstrapResult;
 
 /** Protocol v6; authority: control. */
 export interface CopyRequest extends CmuxRequestBase {
@@ -1038,6 +1053,8 @@ export type CmuxRequest =
   | CloseSurfaceRequest
   | CloseTerminalRequest
   | CloseWorkspaceRequest
+  | CloudBootstrapRequest
+  | CloudFirstWorkspaceRequest
   | CopyRequest
   | CreateSurfaceWithReceiptRequest
   | CreateTerminalRequest
@@ -1319,6 +1336,22 @@ export interface CmuxCommandDefinitionMap {
     result: CloseWorkspaceResult;
     authority: "control";
     since: 5;
+    capability: null;
+    stream: null;
+  };
+  "cloud-bootstrap": {
+    request: CloudBootstrapRequest;
+    result: T.CloudBootstrapResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "cloud-first-workspace": {
+    request: CloudFirstWorkspaceRequest;
+    result: CloudFirstWorkspaceResult;
+    authority: "local-admin";
+    since: 12;
     capability: null;
     stream: null;
   };

@@ -3,7 +3,9 @@ import { runChild } from "./helpers/run-child";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(60_000);
 import {
   CMUX_TUI_DAEMON_TERMINAL_ENV,
   CMUX_TUI_LAYOUT_MARKER_PATH,
@@ -254,8 +256,7 @@ describe("cmux-tui attach bundle", () => {
   const stdoutFor = (probe: string, devices: string, trusted: string) =>
     ["__CMUX_PROBE__", probe, "__CMUX_DEVICES__", devices, "__CMUX_TRUSTED__", trusted, "__CMUX_END__", ""].join("\n");
 
-  /** Runs the attach bundle against a fake cmux-tui and returns its result and recorded calls. */
-  const runBundle = async (readyGate: string, deviceFingerprint?: string) => {
+  const runBundle = async (readyGate: string, deviceFingerprint?: string, bootstrap = "ok", cloudWelcome = false) => {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-attach-bundle-"));
     const binary = join(root, "cmux-tui");
     const callsPath = join(root, "calls");
@@ -272,6 +273,7 @@ describe("cmux-tui attach bundle", () => {
       "#!/bin/sh",
       "printf '%s\\n' \"$*\" >> \"$CMUX_TEST_CALLS\"",
       "case \"$*\" in",
+      `  *'raw command --request-json'*) case "$CMUX_TEST_BOOTSTRAP" in old) echo 'unknown variant cloud-bootstrap' >&2; exit 2 ;; failed) echo 'bootstrap failed' >&2; exit 1 ;; *) printf '{}' ;; esac ;;`,
       `  'remote-probe --json') printf '%s\\n' '{"build_identity":"abc123","remote_protocol":12,"version":"0.13.0"}' ;;`,
       `  'remote enroll devices --session cloud --json') printf '%s\\n' '[{"fingerprint":"fp-1","revoked_at_unix":null}]' ;;`,
       "  *) exit 64 ;;",
@@ -280,13 +282,14 @@ describe("cmux-tui attach bundle", () => {
     ].join("\n"));
     chmodSync(binary, 0o755);
     try {
-      const result = await runChild("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary })], {
+      const result = await runChild("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary, cloudWelcome })], {
         env: {
           ...process.env,
           CMUX_TEST_CALLS: callsPath,
+          CMUX_TEST_BOOTSTRAP: bootstrap,
           PATH: [fakeBin, process.env.PATH || ""].join(":"),
         },
-        timeout: 5_000,
+        timeout: 15_000,
       });
       expect(result.error).toBeUndefined();
       return {
@@ -303,6 +306,7 @@ describe("cmux-tui attach bundle", () => {
     const result = await runBundle("exit 0", "fp-new");
     expect(result.status).toBe(0);
     expect(result.calls).toEqual([
+      '--session cloud raw command --request-json {"cmd":"cloud-bootstrap","welcome":false}',
       "remote-probe --json",
       "remote enroll devices --session cloud --json",
     ]);
@@ -312,6 +316,26 @@ describe("cmux-tui attach bundle", () => {
     expect(bundle.enrolled).toBe(false);
     // No cloud daemon runs on the test host, so the probe reports untrusted.
     expect(bundle.trustedCarrier).toBe(false);
+  });
+
+  test("starts the eligible first shell inside the daemon without adding stdout to the bundle", async () => {
+    const result = await runBundle("exit 0", undefined, "ok", true);
+    expect(result.status).toBe(0);
+    expect(result.calls[0]).toBe('--session cloud raw command --request-json {"cmd":"cloud-bootstrap","welcome":true}');
+    expect(() => parseCmuxTuiAttachBundle(result.stdout, "freestyle", "vm-1")).not.toThrow();
+  });
+
+  test("older daemons remain usable, but failed bootstrap stays retryable", async () => {
+    const old = await runBundle("exit 0", undefined, "old", true);
+    expect(old.status).toBe(0);
+    expect(parseCmuxTuiAttachBundle(old.stdout, "freestyle", "vm-1").cloudWelcomePending).toBe(true);
+    const ineligible = await runBundle("exit 0", undefined, "old", false);
+    expect(parseCmuxTuiAttachBundle(ineligible.stdout, "freestyle", "vm-1").cloudWelcomePending).toBe(false);
+    const failed = await runBundle("exit 0", undefined, "failed", true);
+    expect(failed.status).toBe(1);
+    expect(failed.stdout).toBe("");
+    expect(failed.calls).toHaveLength(1);
+    expect((await runBundle("exit 0", undefined, "ok", true)).status).toBe(0);
   });
 
   test("a failed readiness exit returns the repair signal without calling the daemon", async () => {

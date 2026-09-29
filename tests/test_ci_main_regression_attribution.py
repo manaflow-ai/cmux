@@ -34,7 +34,7 @@ XCODEBUILD_LOG = """\
 2026-09-25T05:55:55.4894300Z \tGlobalSearchLocalMonitorChainTests.visibleSearchCloses()
 2026-09-25T05:55:55.4894400Z \tcmuxTests.LegacyTests.testOld()
 2026-09-25T05:55:55.4894500Z \tSidebarHiddenPresentationTests.visibility()
-2026-09-25T05:55:55.4907210Z 
+2026-09-25T05:55:55.4907210Z
 2026-09-25T05:55:55.4907400Z \x1b[1m\x1b[31m** TEST EXECUTE FAILED **
 2026-09-25T05:55:55.4907500Z \tNotATest.after()
 """
@@ -48,15 +48,15 @@ CRASH_LOG = """\
 2026-09-27T09:06:35.6623060Z     /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/xcodebuild -xctestrun /x/cmux-unit.xctestrun
 2026-09-27T09:07:36.2652870Z \u25c7 Test "Closing a recovered window uses normal close finalization" started.
 2026-09-27T09:07:36.2653460Z objc[73048]: Cannot form weak reference to instance (0x76e0e4f00) of class NSKVONotifying_NSWindow. It is possible that this object was over-released, or is in the process of deallocation.
-2026-09-27T09:07:36.2653820Z 
+2026-09-27T09:07:36.2653820Z
 2026-09-27T09:07:36.2653890Z *** Signal 6: Backtracing from 0x18cadab10... done ***
-2026-09-27T09:07:36.2654010Z 
+2026-09-27T09:07:36.2654010Z
 2026-09-27T09:07:36.2654080Z *** Program crashed: Aborted at 0x000000018cadab10 ***
 2026-09-27T09:07:36.2654420Z Thread 0 crashed:
 2026-09-27T09:07:41.2857780Z Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.
 2026-09-27T09:07:56.4282040Z Failing tests:
 2026-09-27T09:07:56.4282280Z \tRecoverableMainWindowLifecycleTests.closingRecoveredWindowUsesNormalCloseFinalization()
-2026-09-27T09:07:56.4282510Z 
+2026-09-27T09:07:56.4282510Z
 2026-09-27T09:07:56.4282550Z ** TEST EXECUTE FAILED **
 2026-09-27T09:08:01.5247210Z incomplete app-host run: app host restarted after test execution
 2026-09-27T09:08:01.5247600Z RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/closingRecoveredWindowUsesNormalCloseFinalization()
@@ -64,7 +64,7 @@ CRASH_LOG = """\
 2026-09-27T09:08:12.2949580Z     /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/xcodebuild -xctestrun /x/cmux-unit.xctestrun
 2026-09-27T09:08:30.0000000Z Failing tests:
 2026-09-27T09:08:30.0000000Z \tOtherTests.plainFailure()
-2026-09-27T09:08:30.0000000Z 
+2026-09-27T09:08:30.0000000Z
 2026-09-27T09:08:31.0000000Z RATCHET_NEW_FAILURE OtherTests/plainFailure()
 2026-09-27T09:08:31.0000000Z recorded verdicts: 1 new, 0 known-main; typed test cases: 12
 2026-09-27T09:08:54.2024000Z   name: cmux-app-host-diagnostics-shard-7-run-1

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45.
+// cmux-tui mux protocol 12, IR 19e5dd742735eee4f1ccfac6cc6aabe2594f39cc4c13dab306739bad93705cbf.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -346,6 +346,26 @@ pub struct CloseWorkspaceRequest {
 
 #[rustfmt::skip]
 pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudBootstrapRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub welcome: Option<bool>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudFirstWorkspaceRequest {
+    pub machine_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub welcome: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CloudFirstWorkspaceResult = T::CloudBootstrapResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1544,6 +1564,14 @@ impl CmuxClient {
             self.require_protocol_field("close-workspace", 7)?;
         }
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn cloud_bootstrap(&mut self, request: CloudBootstrapRequest) -> Result<T::CloudBootstrapResult> {
+        self.execute(&CLOUD_BOOTSTRAP_METADATA, &request)
+    }
+
+    pub fn cloud_first_workspace(&mut self, request: CloudFirstWorkspaceRequest) -> Result<CloudFirstWorkspaceResult> {
+        self.execute(&CLOUD_FIRST_WORKSPACE_METADATA, &request)
     }
 
     pub fn copy(&mut self, request: CopyRequest) -> Result<T::CopyResult> {

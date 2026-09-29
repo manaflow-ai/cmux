@@ -15,6 +15,7 @@ public final class CloudTerminalMutationQueue {
     /// Reserves an ordered turn synchronously, before the operation can suspend.
     /// A cancelled turn still waits for its predecessor before releasing successors.
     public func enqueue<Value: Sendable>(
+        honorCancellationAfterOperation: Bool = true,
         _ operation: @escaping @MainActor @Sendable () async throws -> Value
     ) -> Task<Value, Error> {
         let previous = tail
@@ -23,7 +24,7 @@ public final class CloudTerminalMutationQueue {
             if let previous { await previous.value }
             try Task.checkCancellation()
             let value = try await operation()
-            try Task.checkCancellation()
+            if honorCancellationAfterOperation { try Task.checkCancellation() }
             return value
         }
         cancellations[id] = { task.cancel() }
@@ -52,10 +53,11 @@ public final class CloudTerminalMutationQueue {
 
     /// Propagates caller cancellation without cancelling another intent's turn.
     public func run<Value: Sendable>(
+        honorCancellationAfterOperation: Bool = true,
         _ operation: @escaping @MainActor @Sendable () async throws -> Value
     ) async throws -> Value {
         try Task.checkCancellation()
-        let task = enqueue(operation)
+        let task = enqueue(honorCancellationAfterOperation: honorCancellationAfterOperation, operation)
         return try await withTaskCancellationHandler {
             try await task.value
         } onCancel: {

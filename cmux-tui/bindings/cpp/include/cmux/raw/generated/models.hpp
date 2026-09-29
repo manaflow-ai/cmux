@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45";
+inline constexpr std::string_view kProtocolIrSha256 = "19e5dd742735eee4f1ccfac6cc6aabe2594f39cc4c13dab306739bad93705cbf";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -37,6 +37,7 @@ struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
 struct CloseTerminalResult;
+struct CloudBootstrapResult;
 struct ColorHex;
 struct CopyResult;
 enum class CursorStyle;
@@ -161,6 +162,8 @@ struct CloseScreenRequest;
 struct CloseSurfaceRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
+struct CloudBootstrapRequest;
+struct CloudFirstWorkspaceRequest;
 struct CopyRequest;
 struct CreateSurfaceWithReceiptRequest;
 struct CreateTerminalRequest;
@@ -937,6 +940,31 @@ struct CloseWorkspaceRequest {
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
 };
 
+struct CloudBootstrapRequest {
+    std::optional<bool> welcome{};
+    friend bool operator==(const CloudBootstrapRequest&, const CloudBootstrapRequest&) = default;
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct CloudBootstrapResult {
+    std::optional<JsonValue> created_path{};
+    Field<std::string> generation{};
+    std::optional<bool> occupied{};
+    Field<std::string> revision{};
+    friend bool operator==(const CloudBootstrapResult&, const CloudBootstrapResult&) = default;
+};
+
+struct CloudFirstWorkspaceRequest {
+    std::string machine_id{};
+    std::optional<bool> welcome{};
+    Field<std::string> workspace{};
+    friend bool operator==(const CloudFirstWorkspaceRequest&, const CloudFirstWorkspaceRequest&) = default;
+};
+
 struct ColorHex {
     std::string value{};
     friend bool operator==(const ColorHex&, const ColorHex&) = default;
@@ -1217,11 +1245,6 @@ struct FrontendJournalEvent {
     using Variant = std::variant<FrontendJournalEventFocus, FrontendJournalEventResize, FrontendJournalEventViewport>;
     Variant value{};
     friend bool operator==(const FrontendJournalEvent&, const FrontendJournalEvent&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct FrontendProjection {
@@ -2927,6 +2950,12 @@ struct Codec<CloseTerminalResult> {
 };
 
 template <>
+struct Codec<CloudBootstrapResult> {
+    static Result<Json> encode(const CloudBootstrapResult& value);
+    static Result<CloudBootstrapResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ColorHex> {
     static Result<Json> encode(const ColorHex& value);
     static Result<ColorHex> decode(const Json& value);
@@ -3668,6 +3697,18 @@ template <>
 struct Codec<CloseWorkspaceRequest> {
     static Result<Json> encode(const CloseWorkspaceRequest& value);
     static Result<CloseWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudBootstrapRequest> {
+    static Result<Json> encode(const CloudBootstrapRequest& value);
+    static Result<CloudBootstrapRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudFirstWorkspaceRequest> {
+    static Result<Json> encode(const CloudFirstWorkspaceRequest& value);
+    static Result<CloudFirstWorkspaceRequest> decode(const Json& value);
 };
 
 template <>

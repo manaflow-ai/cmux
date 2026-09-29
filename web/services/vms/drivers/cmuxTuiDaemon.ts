@@ -506,7 +506,7 @@ export async function approveCmuxTuiEnrollment(
  * by a marker line so the outputs parse independently.
  */
 export const CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT = 3;
-const BUNDLE_MARKERS = { probe: "__CMUX_PROBE__", devices: "__CMUX_DEVICES__", trusted: "__CMUX_TRUSTED__", end: "__CMUX_END__" } as const;
+const BUNDLE_MARKERS = { probe: "__CMUX_PROBE__", devices: "__CMUX_DEVICES__", trusted: "__CMUX_TRUSTED__", end: "__CMUX_END__", welcomePending: "__CMUX_WELCOME_PENDING__" } as const;
 
 /**
  * Prints `1` when the daemon process that owns the cloud session serves the
@@ -543,6 +543,7 @@ export function cmuxTuiAttachBundleCommand(options: {
   readonly readyGate?: string;
   readonly deviceFingerprint?: string;
   readonly binary?: string;
+  readonly cloudWelcome?: boolean;
 }): string {
   // The enrolled-device list lives in the DAEMON's state dir, so every call
   // here has to be the daemon's user and HOME. Reading it as root on a
@@ -562,6 +563,7 @@ export function cmuxTuiAttachBundleCommand(options: {
     // the entire attach bundle before the probe, device, and invitation sections.
     ...(options.readyGate ? [`( ${options.readyGate}; ) || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
     cmuxTuiLayoutSelector(),
+    cmuxTuiCloudBootstrapCommand(bin, options.cloudWelcome === true),
     `echo ${BUNDLE_MARKERS.probe}`,
     `${run("remote-probe --json")}; echo`,
     `echo ${BUNDLE_MARKERS.devices}`,
@@ -572,6 +574,26 @@ export function cmuxTuiAttachBundleCommand(options: {
   ].join("; ");
 }
 
+/** The daemon owns the reserved first workspace; this never sends shell input. */
+export function cmuxTuiCloudBootstrapCommand(binary: string, welcome: boolean): string {
+  // This trusted-local preparation precedes the frontend's carrier admission.
+  // It cannot run on that remote control connection: remote callers may not
+  // consume the first-shell grant. The existing carrier still owns subsequent
+  // pane/split/control requests; none of them invokes this bootstrap client.
+  const request = shellQuote(JSON.stringify({ cmd: "cloud-bootstrap", welcome }));
+  const command = cmuxTuiAsDaemonUser(`${binary} --session ${CMUX_TUI_SESSION} raw command --request-json ${request}`);
+  // An old daemon retains its already-running starter shell. A real bootstrap
+  // failure on a capable daemon must remain retryable instead of falling
+  // through to a second terminal created by the client.
+  // Older images must still attach: their control-plane grant and pending
+  // file remain intact, but automatic delivery requires the new image's
+  // pre-shell reservation. Never retrofit it into an existing live shell.
+  const unsupported = welcome ? `echo ${BUNDLE_MARKERS.welcomePending}` : ":";
+  return `if cmux_bootstrap_result=$(${command} 2>&1); then :; else `
+    + `case "$cmux_bootstrap_result" in *'unknown variant'*|*'unknown command'*|*'Unknown command'*) ${unsupported} ;; `
+    + `*) printf '%s\\n' "$cmux_bootstrap_result" >&2; exit 1 ;; esac; fi`;
+}
+
 export type CmuxTuiAttachBundle = {
   readonly daemonBuild: CmuxRemoteEndpoint["daemonBuild"] | null;
   /** The caller's device is on the daemon's enrolled list (only known when a fingerprint was given). */
@@ -580,6 +602,8 @@ export type CmuxTuiAttachBundle = {
   readonly trustedCarrier: boolean;
   /** Legacy invitation field; trusted listeners leave it null. */
   readonly invitation: NonNullable<CmuxRemoteEndpoint["invitation"]> | null;
+  /** Eligible delivery remains pending because this native image lacks bootstrap support. */
+  readonly cloudWelcomePending: boolean;
 };
 
 /** Parses the fenced stdout of {@link cmuxTuiAttachBundleCommand}. */
@@ -622,5 +646,6 @@ export function parseCmuxTuiAttachBundle(
   const trustedCarrier = trustedText.split("\n").pop()?.trim() === "1";
   void provider;
   void vmId;
-  return { daemonBuild, enrolled, trustedCarrier, invitation: null };
+  const cloudWelcomePending = stdout.split("\n").some(line => line.trim() === BUNDLE_MARKERS.welcomePending);
+  return { daemonBuild, enrolled, trustedCarrier, invitation: null, cloudWelcomePending };
 }

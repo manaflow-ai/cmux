@@ -37,4 +37,3 @@ public struct AgentRestoreReadableFileResolver: Sendable {
         predicate(path)
     }
 }
-

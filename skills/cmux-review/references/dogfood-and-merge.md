@@ -45,4 +45,3 @@ After a merge directive, re-dogfood (rebuild the tag and re-notify with the
 checklist) when a later fix changes user-visible behavior beyond what was
 dogfooded; skip it for internal, test-only or tightly scoped fixes. Either way,
 say on the PR which you did and why.
-

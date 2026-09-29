@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45.
+// cmux-tui mux protocol 12, IR 19e5dd742735eee4f1ccfac6cc6aabe2594f39cc4c13dab306739bad93705cbf.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -206,6 +206,18 @@ pub struct CloseTerminalResult {
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudBootstrapResult {
+    pub created_path: Nullable<JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub generation: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub occupied: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub revision: Optional<String>,
 }
 
 #[rustfmt::skip]

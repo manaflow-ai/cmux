@@ -122,6 +122,8 @@ pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 /// client. Cloud clients use this over the private cmux-tui link, so routine
 /// port inventory never needs a provider or web control-plane call.
 pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
+/// Advertises the daemon-owned first Cloud workspace bootstrap.
+pub const CLOUD_FIRST_WORKSPACE_CAPABILITY: &str = "cloud-first-workspace-v1";
 /// Advertises `set-terminal-idle-policy` and the owner-side reaper that
 /// closes a terminal once it has had no attached view for its policy.
 pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
@@ -203,6 +205,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
+        CLOUD_FIRST_WORKSPACE_CAPABILITY,
+        "cloud-first-workspace-v1",
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -1085,6 +1089,19 @@ enum Command {
     },
     BrowserActivate {
         surface: SurfaceId,
+    },
+    /// Finish the daemon-owned first Cloud workspace after guest preparation.
+    CloudBootstrap {
+        #[serde(default)]
+        welcome: bool,
+    },
+    /// Opens the reserved first Cloud terminal without typing shell input.
+    CloudFirstWorkspace {
+        machine_id: String,
+        #[serde(default)]
+        workspace: Option<String>,
+        #[serde(default)]
+        welcome: bool,
     },
     NewWorkspace {
         #[serde(default)]
@@ -12189,6 +12206,18 @@ fn handle_command_with_cancellation(
             surface.browser_activate()?;
             Ok(json!({}))
         }
+        Command::CloudBootstrap { welcome } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("Cloud bootstrap requires a trusted local connection");
+            }
+            mux.start_cloud_initial_terminal(welcome)
+        }
+        Command::CloudFirstWorkspace { machine_id, workspace, welcome } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("Cloud startup requires the machine control link");
+            }
+            mux.open_cloud_initial_terminal(welcome, Some(&machine_id), workspace.as_deref())
+        }
         Command::NewWorkspace { name, cols, rows } => {
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
@@ -14018,6 +14047,36 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    #[test]
+    fn cloud_bootstrap_rejects_remote_clients_before_starting_a_shell() {
+        let mux = test_mux();
+        mux.reserve_cloud_initial_workspace().unwrap();
+        let command: Command = serde_json::from_value(json!({
+            "cmd": "cloud-bootstrap", "welcome": true,
+        }))
+        .unwrap();
+        let error = handle_command(&mux, 42, command, &test_writer()).unwrap_err();
+        assert!(error.to_string().contains("trusted local connection"));
+        assert!(mux.with_state(|state| state.surfaces.is_empty()));
+    }
+
+    #[test]
+    fn cloud_bootstrap_returns_the_same_creation_receipt_to_repeated_first_opens() {
+        let mux = test_mux();
+        mux.reserve_cloud_initial_workspace().unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let first =
+            handle_command(&mux, client, Command::CloudBootstrap { welcome: false }, &writer)
+                .unwrap();
+        assert!(first["created_path"]["terminal_id"].as_str().is_some());
+        let replay =
+            handle_command(&mux, client, Command::CloudBootstrap { welcome: false }, &writer)
+                .unwrap();
+        assert_eq!(first["created_path"], replay["created_path"]);
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), 1);
     }
 
     fn sizing_browser(mux: &Arc<Mux>, size: (u16, u16)) -> Arc<crate::Surface> {

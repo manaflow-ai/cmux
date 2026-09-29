@@ -292,6 +292,8 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
     readonly displayName?: string | null;
+    /** Request onboarding only for this user's first machine, across teams. */
+    readonly welcomeOnFirstMachine?: boolean;
     /** The individual machine shape used for fork, snapshot, and resize recovery. */
     readonly resourceReservation?: VmResourceReservation;
     /** Mark an unfinished provider clone for shape reconciliation. */
@@ -957,6 +959,24 @@ function reservationMetadataForInput(
     : metadata;
 }
 
+/** One successful-create boundary for regular and Base machines, across teams. */
+async function firstCloudWelcomeGrant(tx: CloudDbTransaction, id: string): Promise<Record<string, boolean>> {
+  const [owner] = await tx.select({ userId: cloudVms.userId }).from(cloudVms).where(eq(cloudVms.id, id));
+  if (!owner) throw new Error(`vm row missing during create finalization: ${id}`);
+  // Serialize successful creates for this user, including creates in other
+  // teams. Failed provisioning never consumes first use. Retained destroyed
+  // rows still prove prior Cloud use, even if they predate this feature.
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(owner.userId)}, 0))`);
+  const [current] = await tx.select().from(cloudVms).where(eq(cloudVms.id, id));
+  const [prior] = await tx.select({ id: cloudVms.id }).from(cloudVms).where(and(
+    eq(cloudVms.userId, owner.userId), ne(cloudVms.id, id), isNotNull(cloudVms.providerVmId),
+  )).limit(1);
+  const eligible = current?.providerMetadata.cloudWelcomeEligible === true || (
+    current?.providerVmId === null && current.providerMetadata.cloudWelcomeCandidate === true && !prior
+  );
+  return eligible ? { cloudWelcomeEligible: true } : {};
+}
+
 /** Provider responses cannot write control-plane reservation markers. */
 function providerMetadataPatchForPersistence(
   metadata: Record<string, unknown> | null | undefined,
@@ -968,6 +988,8 @@ function providerMetadataPatchForPersistence(
       key !== VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_PENDING_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY &&
+      key !== "cloudWelcomeEligible" &&
+      key !== "cloudWelcomeCandidate" &&
       key !== CREATE_CLEANUP_PROVIDER_VM_ID_KEY &&
       key !== CREATE_CLEANUP_ATTEMPT_KEY &&
       key !== CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY &&
@@ -1699,6 +1721,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               });
             }
 
+            const welcome = input.welcomeOnFirstMachine
+              ? { cloudWelcomeCandidate: true } : {};
             const [vm] = await tx
               .insert(cloudVms)
               .values({
@@ -1711,11 +1735,11 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 status: "provisioning",
                 displayName: input.displayName ?? null,
                 idempotencyKey,
-                providerMetadata: reservationMetadataForInput(
+                providerMetadata: { ...welcome, ...reservationMetadataForInput(
                   input.resourceReservation,
                   input.forkPending,
                   input.forkMinimumResourceReservation ?? input.resourceReservation,
-                ),
+                ) },
                 slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
               .returning();
@@ -1826,9 +1850,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
                 idempotencyKey,
-                providerMetadata: reservationMetadataForInput(
-                  input.resourceReservation,
-                ),
+                providerMetadata: {
+                  ...reservationMetadataForInput(input.resourceReservation),
+                  cloudWelcomeCandidate: true,
+                },
                 slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
               .returning();
@@ -2128,6 +2153,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const providerMetadata = providerMetadataPatchForPersistence(input.providerMetadata);
       return await db.transaction(async (tx) => {
         const now = new Date();
+        const welcome = await firstCloudWelcomeGrant(tx, input.vmId);
         const [vm] = await tx
           .update(cloudVms)
           .set({
@@ -2142,7 +2168,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             ) || case
               when ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}' is null then '{}'::jsonb
               else jsonb_build_object('${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}', ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}')
-            end`,
+            end || ${JSON.stringify(welcome)}::jsonb`,
             status: "running",
             failureCode: null,
             failureMessage: null,
@@ -2155,7 +2181,18 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             isNull(cloudVms.failureCode),
           ))
           .returning();
-        if (!vm) throw new Error(`vm row missing during base finalization: ${input.vmId}`);
+        if (!vm) {
+          const [replayed] = await tx
+            .select()
+            .from(cloudVms)
+            .where(and(
+              eq(cloudVms.id, input.vmId),
+              eq(cloudVms.providerVmId, input.providerVmId),
+              eq(cloudVms.status, "running"),
+            ));
+          if (replayed) return replayed;
+          throw new Error(`vm row missing during base finalization: ${input.vmId}`);
+        }
 
         await tx
           .update(cloudVmBaseGenerations)
@@ -3129,34 +3166,48 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
     dbEffect("markCreateRunning", async () => {
       const db = cloudDb();
       const providerMetadata = providerMetadataPatchForPersistence(input.providerMetadata);
-      const [vm] = await db
-        .update(cloudVms)
-        .set({
-          providerVmId: input.providerVmId,
-          imageId: input.image,
-          imageVersion: input.imageVersion ?? null,
-          // Keep the reservation from the transactional create claim. It is
-          // the control-plane accounting record, not provider metadata.
-          providerMetadata: sql`(
-            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(providerMetadata)}::jsonb
-          ) || case
-            when ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}' is null then '{}'::jsonb
-            else jsonb_build_object('${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}', ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}')
-          end`,
-          status: "running",
-          failureCode: null,
-          failureMessage: null,
-          updatedAt: new Date(),
-        })
-        .where(and(
-          eq(cloudVms.id, input.id),
-          eq(cloudVms.status, "provisioning"),
-          isNull(cloudVms.providerVmId),
-          isNull(cloudVms.failureCode),
-        ))
-        .returning();
-      if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
-      return vm;
+      return db.transaction(async (tx) => {
+        const welcome = await firstCloudWelcomeGrant(tx, input.id);
+        const [vm] = await tx
+          .update(cloudVms)
+          .set({
+            providerVmId: input.providerVmId,
+            imageId: input.image,
+            imageVersion: input.imageVersion ?? null,
+            // Keep the reservation from the transactional create claim. It is
+            // the control-plane accounting record, not provider metadata.
+            providerMetadata: sql`(
+              coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(providerMetadata)}::jsonb
+            ) || case
+              when ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}' is null then '{}'::jsonb
+              else jsonb_build_object('${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}', ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}')
+            end || ${JSON.stringify(welcome)}::jsonb`,
+            status: "running",
+            failureCode: null,
+            failureMessage: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.status, "provisioning"),
+            isNull(cloudVms.providerVmId),
+            isNull(cloudVms.failureCode),
+          ))
+          .returning();
+      if (!vm) {
+        const [replayed] = await tx
+          .select()
+          .from(cloudVms)
+          .where(and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            eq(cloudVms.status, "running"),
+          ));
+        if (replayed) return replayed;
+        throw new Error(`vm row missing during create finalization: ${input.id}`);
+      }
+        return vm;
+      });
     }),
 
   markCreateFailed: (input) =>

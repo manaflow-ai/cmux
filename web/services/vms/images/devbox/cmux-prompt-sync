@@ -136,6 +136,10 @@ def bound_terminal():
 
 
 def seed_terminal(ready, directory):
+    # This image reserves its starter in the daemon until interactive open.
+    # Name synchronization must not create a competing shell or send input.
+    if (directory / "cloud-first-workspace-v1").exists():
+        return
     marker = directory / "first-terminal.json"
     terminal = None
     try:

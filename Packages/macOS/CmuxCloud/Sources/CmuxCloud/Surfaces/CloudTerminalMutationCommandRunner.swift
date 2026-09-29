@@ -7,14 +7,17 @@ import Foundation
 public struct CloudTerminalMutationCommandRunner: CloudTuiCommandRunning {
     public init(
         base: any CloudTuiCommandRunning,
+        validateAfterResponse: Bool = true,
         validate: @escaping @MainActor @Sendable () throws -> Void
     ) {
         self.base = base
         self.validate = validate
+        self.validateAfterResponse = validateAfterResponse
     }
 
     public let base: any CloudTuiCommandRunning
     public let validate: @MainActor @Sendable () throws -> Void
+    public let validateAfterResponse: Bool
 
     public func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         try validate()
@@ -32,7 +35,7 @@ public struct CloudTerminalMutationCommandRunner: CloudTuiCommandRunning {
             } else {
                 data = try await base.runTuiCommand(arguments: arguments, deadline: deadline)
             }
-            try validate()
+            if validateAfterResponse { try validate() }
             return data
         } catch {
             // Transport failure is not proof that a mutation did not commit. A retired

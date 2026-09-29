@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45";
+pub const ir_sha256 = "19e5dd742735eee4f1ccfac6cc6aabe2594f39cc4c13dab306739bad93705cbf";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -225,6 +225,17 @@ pub const CloseTerminalResult = struct {
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
     terminal_revision: u64,
+};
+
+pub const CloudBootstrapResult = struct {
+    created_path: wire.Nullable(JsonValue),
+    generation: wire.Field([]const u8) = .absent,
+    occupied: ?bool = null,
+    revision: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "occupied",
+    };
 };
 
 pub const ColorHex = []const u8;
@@ -2480,6 +2491,52 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
             },
+        },
+        request,
+    );
+}
+
+pub const CloudBootstrapRequest = struct {
+    welcome: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "welcome",
+    };
+};
+
+pub fn cloudBootstrap(client: anytype, request: CloudBootstrapRequest) !wire.Decoded(CloudBootstrapResult) {
+    return client.callTyped(
+        CloudBootstrapResult,
+        .{
+            .name = "cloud-bootstrap",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const CloudFirstWorkspaceRequest = struct {
+    machine_id: []const u8,
+    welcome: ?bool = null,
+    workspace: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "welcome",
+    };
+};
+
+pub const CloudFirstWorkspaceResult = CloudBootstrapResult;
+
+pub fn cloudFirstWorkspace(client: anytype, request: CloudFirstWorkspaceRequest) !wire.Decoded(CloudFirstWorkspaceResult) {
+    return client.callTyped(
+        CloudFirstWorkspaceResult,
+        .{
+            .name = "cloud-first-workspace",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
         },
         request,
     );
@@ -5335,7 +5392,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 113;
+pub const command_count: usize = 115;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5361,6 +5418,8 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "cloud-bootstrap", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "cloud-first-workspace", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "create-surface-with-receipt", .authority = "control", .since = 10, .capability = "creation-receipts-v1", .stream = null },
     .{ .name = "create-terminal", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },

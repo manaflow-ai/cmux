@@ -246,12 +246,14 @@
       "url-open-result"
     ],
     "local-admin": [
-      "server-stats",
-      "register-browser-provider",
+      "cloud-bootstrap",
+      "cloud-first-workspace",
       "get-browser-provider",
-      "unregister-browser-provider",
-      "shutdown-daemon",
       "pairing-response",
+      "register-browser-provider",
+      "server-stats",
+      "shutdown-daemon",
+      "unregister-browser-provider",
       "url-open"
     ],
     "provider-authority": [

@@ -173,6 +173,7 @@ export async function GET(request: Request): Promise<Response> {
         createdAt: entry.createdAt,
         displayName: entry.displayName,
         slug: entry.slug,
+        cloudWelcomeEligible: entry.cloudWelcomeEligible,
         // The account that made this machine, for display. `displayName` is
         // null when nothing has recorded a name for that account; clients fall
         // back to "Unknown", never to the raw id.
@@ -348,6 +349,7 @@ export async function POST(request: Request): Promise<Response> {
         // (~2 s measured) for data this response already had.
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
+        cloudWelcomeEligible: created.cloudWelcomeEligible,
       });
     },
   );

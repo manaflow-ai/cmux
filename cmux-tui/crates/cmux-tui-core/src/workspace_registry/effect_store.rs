@@ -18,6 +18,28 @@ const TRANSIENT_INPUT_EFFECT_SQL: &str = "(
   OR effect.operation = 'terminal.viewport.scroll'
 )";
 
+/// A proven failed spawn may already have a terminal tombstone. New attempts
+/// keep the workspace and request, but cannot resurrect that terminal identity.
+fn retry_creation_intent(connection: &Connection, encoded: &str) -> anyhow::Result<Value> {
+    let mut intent: Value = serde_json::from_str(encoded)?;
+    let Some(reservation) = intent.get_mut("terminal_reservation").and_then(Value::as_object_mut)
+    else {
+        return Ok(intent);
+    };
+    let id = reservation
+        .get("terminal_id")
+        .and_then(Value::as_str)
+        .context("failed creation omitted its terminal identity")?;
+    let Some(terminal) = read_terminal(connection, id)? else { return Ok(intent) };
+    anyhow::ensure!(
+        matches!(terminal.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned),
+        "cannot retry a creation while its reserved terminal may still be running"
+    );
+    reservation.insert("terminal_id".into(), Value::String(new_uuid_v4().replace('-', "")));
+    reservation.insert("mutation_id".into(), Value::String(new_uuid_v4()));
+    Ok(intent)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResourceEffectPreparation {
     Execute { intent: Value, resumed: bool },
@@ -471,22 +493,23 @@ impl WorkspaceRegistry {
                         read_effect_record(&tx, idempotency_key)?.is_none(),
                         "resource effect receipt {idempotency_key:?} already exists without its creation correlation"
                     );
+                    let stable_intent = retry_creation_intent(&tx, &stored.intent_json)?;
+                    let stable_intent_json = canonical_json(&stable_intent)?;
                     tx.execute(
                         "INSERT INTO resource_effect_receipts(
                            idempotency_key, operation, fingerprint, intent_json, state,
                            outcome_json, committed_revision
                          ) VALUES(?1, ?2, ?3, ?4, 'pending', NULL, NULL)",
-                        params![idempotency_key, operation, fingerprint, &stored.intent_json,],
+                        params![idempotency_key, operation, fingerprint, &stable_intent_json],
                     )?;
                     let changed = tx.execute(
                         "UPDATE resource_creation_receipts
                          SET idempotency_key = ?2, state = 'prepared',
-                             execution_generation = NULL, attempt = attempt + 1
+                             execution_generation = NULL, attempt = attempt + 1, intent_json = ?3
                          WHERE correlation_key = ?1 AND state = 'not_applied'",
-                        params![correlation_key, idempotency_key],
+                        params![correlation_key, idempotency_key, &stable_intent_json],
                     )?;
                     anyhow::ensure!(changed == 1, "creation attempt changed while rebinding");
-                    let stable_intent: Value = serde_json::from_str(&stored.intent_json)?;
                     tx.commit()?;
                     return Ok(ResourceCreationPreparation::Execute {
                         idempotency_key: idempotency_key.to_string(),

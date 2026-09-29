@@ -1165,6 +1165,7 @@
 		D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */; };
 		3694B7A8D2894E549E59A8F6 /* CMUXCLI+Vault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */; };
 		E02A94E613C7C3565FA40A26 /* CMUXCLI+VMDev.swift in Sources */ = {isa = PBXBuildFile; fileRef = A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */; };
+		FC131150A8CC4B118508A001 /* CMUXCLI+VMFirstWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC131150A8CC4B118508A002 /* CMUXCLI+VMFirstWorkspace.swift */; };
 		CC0033E15A1B2C3D4E5F0030 /* CMUXCLI+VMHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */; };		CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */; };
 		E082D369A3254DC975D8B371 /* CMUXCLI+VMLayoutEnv.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */; };
 		21D721AF457D40CD877B8D01 /* CMUXCLI+VMSCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D721AF457D40CD877B8D02 /* CMUXCLI+VMSCP.swift */; };
@@ -3834,6 +3835,7 @@
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		C10DC1000000000000000013 /* VMClientTelemetry+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10DC1000000000000000014 /* VMClientTelemetry+Live.swift */; };
 		C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */; };
+		B9FC5B08E89D4A9B29F61739 /* VMFirstWorkspaceCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0654AA9458FF4600CDB76B /* VMFirstWorkspaceCommandTests.swift */; };
 		B81607322100000000000002 /* VMMachineTerminalResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81607322100000000000004 /* VMMachineTerminalResolution.swift */; };
 		B81607322100000000000003 /* VMMachineTerminalResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81607322100000000000004 /* VMMachineTerminalResolution.swift */; };
 		65F8FEC592CFA22BD1F4FA29 /* VMRemoteWorkspaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */; };
@@ -5353,6 +5355,7 @@
 		D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TypedDiffViewer.swift"; sourceTree = "<group>"; };
 		74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Vault.swift"; sourceTree = "<group>"; };
 		A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMDev.swift"; sourceTree = "<group>"; };
+		FC131150A8CC4B118508A002 /* CMUXCLI+VMFirstWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMFirstWorkspace.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMHelp.swift"; sourceTree = "<group>"; };		CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTransfer.swift"; sourceTree = "<group>"; };
 		D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMLayoutEnv.swift"; sourceTree = "<group>"; };
 		21D721AF457D40CD877B8D02 /* CMUXCLI+VMSCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSCP.swift"; sourceTree = "<group>"; };
@@ -7892,6 +7895,7 @@
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		C10DC1000000000000000014 /* VMClientTelemetry+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientTelemetry+Live.swift"; sourceTree = "<group>"; };
 		C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMDefaultCloudCommandTests.swift; sourceTree = "<group>"; };
+		2C0654AA9458FF4600CDB76B /* VMFirstWorkspaceCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMFirstWorkspaceCommandTests.swift"; sourceTree = "<group>"; };
 		B81607322100000000000004 /* VMMachineTerminalResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMMachineTerminalResolution.swift; sourceTree = "<group>"; };
 		BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMRemoteWorkspaceResolver.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
@@ -11141,6 +11145,7 @@
 				CC0033E15A1B2C3D4E5F0002 /* CMUXCLI+Comments.swift */,
 				74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */,
 				7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */,
+				FC131150A8CC4B118508A002 /* CMUXCLI+VMFirstWorkspace.swift */,
 				CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */,
 				CC0033E15A1B2C3D4E5F0033 /* CMUXCLI+VMTuiWorkspaceNaming.swift */,
 				F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */,
@@ -12377,6 +12382,7 @@
 				E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */,
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
+				2C0654AA9458FF4600CDB76B /* VMFirstWorkspaceCommandTests.swift */,
 				787B6BD93E69D2D1157A3AF8 /* GhosttyWorkspaceActionTestHarness.swift */,
 				5C9035917ADD1609A214451A /* GhosttyWorkspaceActionTests.swift */,
 				382F96CE151B2550BECC488E /* GhosttyHostKeybindDefaultsTests.swift */,
@@ -15817,6 +15823,7 @@
 				D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */,
 				3694B7A8D2894E549E59A8F6 /* CMUXCLI+Vault.swift in Sources */,
 				E02A94E613C7C3565FA40A26 /* CMUXCLI+VMDev.swift in Sources */,
+				FC131150A8CC4B118508A001 /* CMUXCLI+VMFirstWorkspace.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0030 /* CMUXCLI+VMHelp.swift in Sources */,				CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */,
 				E082D369A3254DC975D8B371 /* CMUXCLI+VMLayoutEnv.swift in Sources */,
 				21D721AF457D40CD877B8D01 /* CMUXCLI+VMSCP.swift in Sources */,
@@ -17074,6 +17081,7 @@
 				9D44FE10A33B02E0D4C891B1 /* VMClientReadCoalescingTests+ListRecovery.swift in Sources */,
 				C12625000000000000000002 /* VMClientReadCoalescingTests.swift in Sources */,
 				C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */,
+				B9FC5B08E89D4A9B29F61739 /* VMFirstWorkspaceCommandTests.swift in Sources */,
 				B81607322100000000000003 /* VMMachineTerminalResolution.swift in Sources */,
 				D017093861349E48BF816E02 /* VMRemoteWorkspaceResolver.swift in Sources */,
 				C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */,

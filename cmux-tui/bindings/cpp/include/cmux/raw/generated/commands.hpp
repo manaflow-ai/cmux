@@ -65,6 +65,8 @@ public:
     [[nodiscard]] Result<EmptyResult> close_surface(const CloseSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CloseTerminalResult> close_terminal(const CloseTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> close_workspace(const CloseWorkspaceRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<CloudBootstrapResult> cloud_bootstrap(const CloudBootstrapRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<CloudBootstrapResult> cloud_first_workspace(const CloudFirstWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CopyResult> copy(const CopyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_surface_with_receipt(const CreateSurfaceWithReceiptRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalPlacement> create_terminal(const CreateTerminalRequest& request = {}, RequestOptions options = {});

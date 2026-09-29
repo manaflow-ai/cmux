@@ -371,6 +371,15 @@ class CloseTerminalResult:
 
 
 @dataclass(frozen=True)
+class CloudBootstrapResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/CloudBootstrapResult'
+    created_path: Union[JsonValue, None]
+    generation: Union[str, None, MissingType] = field(default=MISSING)
+    occupied: Union[bool, MissingType] = field(default=MISSING)
+    revision: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CopyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/CopyResult'
     mode: Literal['screen', 'selection', 'scrollback']
@@ -1470,6 +1479,20 @@ class CloseWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudBootstrapRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-bootstrap/request'
+    welcome: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudFirstWorkspaceRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-first-workspace/request'
+    machine_id: str
+    workspace: Union[str, None, MissingType] = field(default=MISSING)
+    welcome: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2798,6 +2821,7 @@ __all__ = [
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
+    'CloudBootstrapResult',
     'CopyResult',
     'DeadPane',
     'DeclarativeLayoutLeaf',
@@ -2913,6 +2937,8 @@ __all__ = [
     'CloseSurfaceRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
+    'CloudBootstrapRequest',
+    'CloudFirstWorkspaceRequest',
     'CopyRequest',
     'CreateSurfaceWithReceiptRequest',
     'CreateTerminalRequest',

@@ -343,4 +343,3 @@ extension SidebarWorkspaceTaskStatusGlyphModel.Mark {
         return path
     }
 }
-
