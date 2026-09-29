@@ -370,7 +370,7 @@ import Testing
         #expect(maxConcurrentOperations == 1)
     }
 
-    @Test func aLateInstallReconcilesAndDoesNotEnrollAgain() async {
+    @Test func aLateInstallIsRemovedAfterTheTimeout() async {
         let rig = Rig(operationTimeout: .milliseconds(100))
         rig.manager.installDelay = .milliseconds(250)
         await signedIn(rig)
@@ -379,12 +379,10 @@ import Testing
         await rig.controller.waitForPendingOperation()
         #expect(rig.controller.phase == .failed(.configuration))
 
-        rig.controller.enable()
-        #expect(rig.service.calls.enroll.count == 1)
-
         await rig.manager.waitForInstallCompletion()
-        await rig.waitForPhase(.failed(.configuration))
+        await rig.manager.waitForStopCompletion()
         #expect(rig.manager.installed.count == 1)
+        #expect(rig.manager.stops == [true])
         #expect(rig.controller.phase == .failed(.configuration))
     }
 

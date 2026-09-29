@@ -312,7 +312,7 @@ public final class CloudSystemVPNController {
                         credentials: credentials
                     )
                     guard attempt.isValid, self.isCurrent(generation), self.scope == scope else {
-                        self.manager.cancelPendingOperation()
+                        await self.removeLateInstallation()
                         await self.revokeEnrollmentIfOwned(
                             enrollment,
                             scope: scope,
@@ -369,6 +369,21 @@ public final class CloudSystemVPNController {
                 credentials: credentials
             )
             throw error
+        }
+    }
+
+    private func removeLateInstallation() async {
+        manager.cancelPendingOperation()
+        let removal = Task { @MainActor in
+            try await self.manager.stop(removeConfiguration: true)
+        }
+        do {
+            try await timeout.value(removal)
+            cleanupPending = false
+            needsPlatformReconciliation = false
+        } catch {
+            removal.cancel()
+            cleanupPending = true
         }
     }
 

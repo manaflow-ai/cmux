@@ -89,9 +89,12 @@ public struct CloudVPNConfigurationKeychain: Sendable {
         return configuration
     }
 
-    /// Deletes the configuration. Deleting a missing item succeeds.
+    /// Deletes every configuration in this service. Deleting missing items
+    /// succeeds, including generated candidate items with unique accounts.
     public func remove() throws {
-        let status = SecItemDelete(baseQuery() as CFDictionary)
+        var query = baseQuery()
+        query.removeValue(forKey: kSecAttrAccount as String)
+        let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.storage(status) }
     }
 
