@@ -243,7 +243,7 @@ struct WorkspaceContentView: View {
                 let isFocusedPanel = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
                 // Gated focus for the ring/active state only: the main pane yields
                 // its focus ring while the right sidebar (Dock) owns focus.
-                let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
+                let isFocused = isMainContentFocused && workspace.focusedPanelId == panel.id
                 let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
                 let isSelectedInPane = selectedTab?.id == tab.id
                 let isVisibleInUI = Self.panelVisibleInUI(
