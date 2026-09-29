@@ -755,6 +755,37 @@ class ReuseProducts(TestProductHandoff):
         self.identity = {**self.identity, "revision": revision}
         self.seal()
 
+    def test_a_receipt_sealed_under_another_contract_names_the_fields_that_moved(self):
+        """An artifact found by this job's key but sealed with another contract
+        says which contract fields differ, not only product_provenance_invalid.
+
+        On 2026-09-29 PR media tours of #14563 found CI's artifact by name six
+        times and refused it each time with that reason alone (e.g. run
+        36540512350): the producer named its artifact before sealing a
+        receipt whose contract hashes differently, and nothing said why.
+        """
+        sealed = {**self.contract, "tools": {**self.contract["tools"], "zig": "0.16.0"}}
+        root = self.producer / "Build/Products"
+        receipt = json.loads((root / reuse.RECEIPT).read_text())
+        (root / reuse.RECEIPT).write_text(json.dumps({**receipt, "contract": sealed}))
+        self.api.artifact["digest"] = self.package(self.producer, self.api.archive)
+        report = {}
+        output = io.StringIO()
+        with mock.patch("sys.stdout", output):
+            self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertIn("contract mismatch in tools.zig", output.getvalue())
+        self.assertIn(f"artifact {self.api.artifact['id']} of run {self.api.run['id']}", output.getvalue())
+
+    def test_contract_differences_names_nested_fields(self):
+        self.assertEqual(
+            reuse.contract_differences(
+                {"a": 1, "tools": {"zig": "1", "go": "absent"}, "only_sealed": 1},
+                {"a": 1, "tools": {"zig": "2", "go": "absent"}, "only_wanted": 2},
+            ),
+            ["only_sealed", "only_wanted", "tools.zig"],
+        )
+
     def test_pull_request_producer_sealed_at_its_merge_commit_is_reusable(self):
         """A pull request producer seals the merge commit it checked out.
 
