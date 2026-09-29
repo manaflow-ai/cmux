@@ -81,7 +81,7 @@ verify_ipa_aps_environment_production() {
       rm -rf "$workdir"
       return 1
     fi
-  done < <(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0 2>/dev/null)
+  done < <(find "$app/PlugIns" -type d -name '*.appex' -prune -print0 2>/dev/null)
   rm -rf "$workdir"
   return 0
 }
@@ -95,7 +95,7 @@ verify_ipa_app_store_main_entitlements() {
     rm -rf "$workdir"
     return 1
   fi
-  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  app="$(find "$workdir/Payload" -type d -name '*.app' -prune -print 2>/dev/null | head -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "error: IPA has no Payload/*.app to verify App Store entitlements: $ipa" >&2
     rm -rf "$workdir"
