@@ -15,6 +15,8 @@ import threading
 import time
 import uuid
 
+SOCKET_PASSWORD = "omp-naming-fixture-password"
+
 
 def run_case(cli, agent, override=None):
     with tempfile.TemporaryDirectory(prefix="omp-naming-", dir="/tmp") as temporary:
@@ -84,6 +86,7 @@ def run_case(cli, agent, override=None):
                 "CMUX_CLAUDE_HOOK_STATE_PATH": str(store),
                 "CMUX_SOCKET_PATH": socket_path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_SOCKET_PASSWORD": SOCKET_PASSWORD,
             }
             result = subprocess.run([
                 cli, "--socket", socket_path, "hooks", agent, "auto-name",

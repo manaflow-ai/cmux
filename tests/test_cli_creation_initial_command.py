@@ -21,6 +21,7 @@ PANE_REF = "pane:2"
 SURFACE_ID = "33333333-3333-4333-8333-333333333333"
 SURFACE_REF = "surface:3"
 COMMAND_TEXT = r"""printf '%s\n' "spaces 'single' \"double\" $CMUX_VALUE $(printf nested) \\tail 日本語"""
+SOCKET_PASSWORD = "creation-fixture-password"
 
 
 def creation_initial_input(command: str) -> str:
@@ -170,6 +171,9 @@ def invoke_cli(
     ]:
         env.pop(key, None)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    # Exercise the authentication prelude deterministically, without reading
+    # the runner's saved socket password.
+    env["CMUX_SOCKET_PASSWORD"] = SOCKET_PASSWORD
 
     request_start = state.request_count()
     proc = subprocess.run(
