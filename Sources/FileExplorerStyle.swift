@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 // MARK: - Explorer Visual Style
 
