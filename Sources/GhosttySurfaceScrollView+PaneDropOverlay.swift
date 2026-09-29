@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 extension GhosttySurfaceScrollView {
     /// Sets the zone SwiftUI forwards, or the zone resolved by the pane drag target.

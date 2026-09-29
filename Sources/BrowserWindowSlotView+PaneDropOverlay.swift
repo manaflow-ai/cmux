@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 extension WindowBrowserSlotView {
     func setPortalDragDropZone(_ zone: DropZone?) {
