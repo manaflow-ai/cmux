@@ -86,6 +86,9 @@ public actor IrxPeerEngine {
     private var state: IrxSessionState = .idle
     var dialTask: Task<IrxClientSession, any Error>?
     var dialDeadlineTask: Task<Void, Never>?
+    /// Includes retired native work until its late connection has closed.
+    var dialCompletionTasks: [UInt64: Task<Void, Never>] = [:]
+    var dialCleanupRetryGeneration: UInt64?
     var dialWaiters: [UUID: CheckedContinuation<IrxClientSession, any Error>] = [:]
     /// Monotonic owner token for the dial slot. Cancelling a task does not
     /// guarantee that its underlying transport stops before its waiter
@@ -285,8 +288,10 @@ public actor IrxPeerEngine {
     }
 
     public func currentSession() async -> IrxClientSession? {
-        if let session, await !connectionIsClosed(session.connection) {
-            return session
+        while !Task.isCancelled, let current = session {
+            let closed = await connectionIsClosed(current.connection)
+            guard session?.connection === current.connection else { continue }
+            return closed ? nil : current
         }
         return nil
     }
@@ -447,7 +452,7 @@ public actor IrxPeerEngine {
         ])
     }
 
-    private func scheduleRemainingCooldown(until deadline: ContinuousClock.Instant) {
+    func scheduleRemainingCooldown(until deadline: ContinuousClock.Instant) {
         redialTimer?.cancel()
         redialTimer = nil
         guard applicationActive, hasConnectionIntent else { return }

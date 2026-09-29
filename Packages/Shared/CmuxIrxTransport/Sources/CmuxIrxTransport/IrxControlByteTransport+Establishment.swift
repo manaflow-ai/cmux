@@ -21,7 +21,7 @@ extension IrxControlByteTransport {
                 guard connectInFlight == nil else { return }
                 let task = Task { [establish] in try await establish() }
                 connectInFlight = task
-                Task {
+                establishmentCompletionTask = Task {
                     await self.finishEstablishment(await task.result)
                 }
             }
@@ -41,6 +41,7 @@ extension IrxControlByteTransport {
     private func finishEstablishment(
         _ result: Result<(IrxConnection, IrxLaneStream), any Error>
     ) async {
+        defer { establishmentCompletionTask = nil }
         connectInFlight = nil
         if isClosed {
             if case let .success((connection, lane)) = result {

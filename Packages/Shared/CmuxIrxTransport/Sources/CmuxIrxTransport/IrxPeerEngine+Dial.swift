@@ -7,8 +7,7 @@ extension IrxPeerEngine {
     public func ensureSession(explicit: Bool = false, trigger: String) async throws -> IrxClientSession {
         try Task.checkCancellation()
         hasConnectionIntent = true
-        if let current = session, !explicit, await !connectionIsClosed(current.connection),
-           session?.connection === current.connection {
+        if !explicit, let current = await currentSession() {
             try Task.checkCancellation()
             return current
         }
@@ -54,6 +53,19 @@ extension IrxPeerEngine {
     private func startDial(trigger: String) {
         redialTimer?.cancel()
         redialTimer = nil
+        // One recovery may run beside one cancellation-ignoring predecessor.
+        // A third allocation waits for actual cleanup, even for explicit retry.
+        guard dialCompletionTasks.count < 2 else {
+            dialCleanupRetryGeneration = dialGeneration
+            let error = IrxDialCleanupBlocked()
+            lastDialError = error
+            setState(.closed(code: "dial-cleanup-blocked"))
+            let waiters = dialWaiters.values
+            dialWaiters = [:]
+            for waiter in waiters { waiter.resume(throwing: error) }
+            return
+        }
+        dialCleanupRetryGeneration = nil
         setState(.connecting)
         record("dial-started", ["trigger": trigger])
         dialGeneration &+= 1
@@ -65,7 +77,9 @@ extension IrxPeerEngine {
         dialTask = task
         // Neither the waiter nor the deadline awaits native cleanup. A late
         // result belongs only to this generation and is closed on arrival.
-        Task { [weak self] in
+        // This owner survives logical retirement. Cancelling it would discard
+        // late native cleanup; its registry slot is released only by completion.
+        dialCompletionTasks[generation] = Task { [weak self] in
             let result = await task.result
             guard let self else {
                 if case let .success(late) = result {
@@ -73,13 +87,34 @@ extension IrxPeerEngine {
                 }
                 return
             }
-            await self.finishDial(result, generation: generation, trigger: trigger)
+            await self.nativeDialFinished(result, generation: generation, trigger: trigger)
         }
         dialDeadlineTask = Task { [weak self, dialClock, limit = config.dialDeadline] in
             do { try await dialClock.sleep(for: limit) } catch { return }
             guard !Task.isCancelled else { return }
             await self?.expireDial(generation: generation, trigger: trigger)
         }
+    }
+
+    private func nativeDialFinished(
+        _ result: Result<IrxClientSession, any Error>,
+        generation: UInt64,
+        trigger: String
+    ) async {
+        if dialGeneration == generation, dialTask != nil {
+            dialCompletionTasks[generation] = nil
+            finishDial(result, generation: generation, trigger: trigger)
+        } else {
+            if case let .success(late) = result {
+                await late.connection.close(code: .explicitRedial, origin: .local)
+            }
+            dialCompletionTasks[generation] = nil
+        }
+        guard dialCleanupRetryGeneration == dialGeneration,
+              dialCompletionTasks.count < 2, applicationActive, hasConnectionIntent,
+              parkedCode == nil, session == nil, dialTask == nil else { return }
+        dialCleanupRetryGeneration = nil
+        scheduleRemainingCooldown(until: cooldownUntil ?? clockNow())
     }
 
     private func expireDial(generation: UInt64, trigger: String) {
@@ -93,12 +128,7 @@ extension IrxPeerEngine {
         generation: UInt64,
         trigger: String
     ) {
-        guard dialGeneration == generation, dialTask != nil else {
-            if case let .success(late) = result {
-                Task { await late.connection.close(code: .explicitRedial, origin: .local) }
-            }
-            return
-        }
+        guard dialGeneration == generation, dialTask != nil else { return }
         dialTask = nil
         dialDeadlineTask?.cancel()
         dialDeadlineTask = nil
@@ -136,6 +166,7 @@ extension IrxPeerEngine {
 
     func invalidateDial() {
         dialGeneration &+= 1
+        dialCleanupRetryGeneration = nil
         if dialTask != nil { record("dial-cancelled") }
         dialTask?.cancel()
         dialTask = nil

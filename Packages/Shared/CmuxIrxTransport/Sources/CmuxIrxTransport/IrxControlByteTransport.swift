@@ -68,6 +68,8 @@ public actor IrxControlByteTransport: CmxByteTransport {
     var pair: (IrxConnection, IrxLaneStream)?
     var lastConnection: IrxConnection?
     var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
+    /// Survives close until the exact native result and its late cleanup settle.
+    var establishmentCompletionTask: Task<Void, Never>?
     var connectWaiters: [UUID: CheckedContinuation<(IrxConnection, IrxLaneStream), any Error>] = [:]
     var isClosed = false
     var controlTerminationObserved = false
