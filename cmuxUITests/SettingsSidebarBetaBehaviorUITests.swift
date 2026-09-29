@@ -150,6 +150,7 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         )
         let control = toggle(window, id: id)
         let initialValue = isOn(control)
+        XCTAssertFalse(initialValue, "\(id): toggle should start off")
 
         control.click()
         XCTAssertTrue(

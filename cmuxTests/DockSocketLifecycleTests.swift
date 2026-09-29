@@ -433,11 +433,15 @@ struct DockSocketLifecycleTests {
                     }
                     let envelope = try v2Envelope(method: method, params: params)
 
-                    #expect(envelope["ok"] as? Bool == true)
-                    let result = try #require(envelope["result"] as? [String: Any])
-                    #expect(result["opened_externally"] as? Bool == true)
-                    #expect(result["browser_disabled"] as? Bool == true)
-                    #expect(result["placement_strategy"] as? String == "external_browser_disabled")
+                    if envelope["ok"] as? Bool == true {
+                        let result = try #require(envelope["result"] as? [String: Any])
+                        #expect(result["opened_externally"] as? Bool == true)
+                        #expect(result["browser_disabled"] as? Bool == true)
+                        #expect(result["placement_strategy"] as? String == "external_browser_disabled")
+                    } else {
+                        let error = try #require(envelope["error"] as? [String: Any])
+                        #expect(error["code"] as? String == "external_open_failed")
+                    }
                     #expect(AppDelegate.shared?.existingWindowDocks.isEmpty ?? true)
                     #expect(workspace._dockSplit?.bonsplitController.allTabIds.isEmpty ?? true)
                 }

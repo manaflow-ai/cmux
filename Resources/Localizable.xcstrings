@@ -206345,6 +206345,72 @@
             "state": "translated",
             "value": "Dock 배치를 사용할 수 없습니다"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavljanje Docka nije dostupno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-placering er ikke tilgængelig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il posizionamento del Dock non è disponibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការដាក់ Dock មិនអាចប្រើបានទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-plassering er ikke tilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umieszczanie w Docku jest niedostępne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O posicionamento do Dock não está disponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размещение в Dock недоступно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถวางใน Dock ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock yerleşimi kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розміщення в Dock недоступне"
+          }
         }
       }
     },
