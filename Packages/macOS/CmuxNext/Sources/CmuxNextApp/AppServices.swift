@@ -19,6 +19,7 @@ final class AppServices {
     private(set) var dragSession: TabDragSession!
     private(set) var palette: PaletteController!
     private(set) var previews: TabPreviewSource!
+    let presentation = ContentPresentationScheduler()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!

@@ -28,6 +28,11 @@ public actor DaemonConnection {
         public var treeEvents: TreeEventMode
         /// Reconnect delays; the last one repeats.
         public var backoff: [Duration]
+        /// Deadline for every control-plane request (architecture.md 5a).
+        /// A miss throws `DaemonError.timedOut`; nil disables it (tests only).
+        public var requestTimeout: Duration?
+        /// Deadline for `list-workspaces` snapshots, which can be large.
+        public var snapshotTimeout: Duration?
         /// Per-terminal `env` the convenience spawn calls send when the daemon
         /// supports `terminal-env-v1` and the caller passed none. Nil sends none.
         public var terminalEnvironment: (@Sendable () async -> [String: String])?
@@ -38,6 +43,8 @@ public actor DaemonConnection {
             advertisedCapabilities: [String] = DaemonCapabilities.advertised,
             treeEvents: TreeEventMode = .deltas,
             backoff: [Duration] = [.milliseconds(50), .milliseconds(250), .seconds(1), .seconds(2)],
+            requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
+            snapshotTimeout: Duration? = .seconds(10),
             terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.shared()
         ) {
             self.clientName = clientName
@@ -45,6 +52,8 @@ public actor DaemonConnection {
             self.advertisedCapabilities = advertisedCapabilities
             self.treeEvents = treeEvents
             self.backoff = backoff
+            self.requestTimeout = requestTimeout
+            self.snapshotTimeout = snapshotTimeout
             self.terminalEnvironment = terminalEnvironment
         }
     }
@@ -113,30 +122,41 @@ public actor DaemonConnection {
         return false
     }
 
-    /// Sends one command and decodes its response.
+    /// Control-plane deadline default: 2 s (architecture.md 5a).
+    public static let defaultRequestTimeout: Duration = .seconds(2)
+
+    /// Sends one command and decodes its response. Fails with
+    /// `DaemonError.timedOut` after `timeout` (default: the configured
+    /// `requestTimeout`) instead of waiting forever.
     public func request<R: DaemonRequest>(_ request: R) async throws -> R.Response {
+        try await self.request(request, timeout: configuration.requestTimeout)
+    }
+
+    public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
         guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
-        return try await Self.perform(request, on: transport)
+        return try await Self.perform(request, on: transport, timeout: timeout)
     }
 
     /// `list-workspaces` plus the sequence of the last event it supersedes.
     public func snapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
         guard case .ready(let transport, let serial) = phase else { throw DaemonError.notConnected }
-        let response = try await transport.request(cmd: ListWorkspacesRequest.command) { id in
+        let response = try await transport.request(cmd: ListWorkspacesRequest.command, timeout: configuration.snapshotTimeout) { id in
             try WireCoding.encodeRequest(ListWorkspacesRequest(), id: id)
         }
         var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
         if identity?.supports(DaemonCapabilities.savedTabGroups) == true, tree.savedTabGroups.isEmpty {
             // Saved groups are not part of `list-workspaces`. Their changes
             // emit `tree-changed`, which triggers this snapshot again.
-            tree.savedTabGroups = try await Self.perform(ListSavedTabGroupsRequest(), on: transport).savedGroups
+            tree.savedTabGroups = try await Self.perform(ListSavedTabGroupsRequest(), on: transport,
+                                                         timeout: configuration.requestTimeout).savedGroups
             tree.linkSavedTabGroups()
         }
         return (tree, DaemonEventEnvelope.sequence(serial: serial, index: response.eventBarrier))
     }
 
-    static func perform<R: DaemonRequest>(_ request: R, on transport: LineTransport) async throws -> R.Response {
-        let response = try await transport.request(cmd: R.command) { id in
+    static func perform<R: DaemonRequest>(_ request: R, on transport: LineTransport,
+                                          timeout: Duration? = defaultRequestTimeout) async throws -> R.Response {
+        let response = try await transport.request(cmd: R.command, timeout: timeout) { id in
             try WireCoding.encodeRequest(request, id: id)
         }
         return try WireCoding.decodeResponse(R.Response.self, from: response.line)
@@ -192,7 +212,7 @@ public actor DaemonConnection {
     }
 
     private func handshake(_ transport: LineTransport) async throws -> DaemonIdentity {
-        let identity = try await Self.perform(IdentifyRequest(), on: transport)
+        let identity = try await Self.perform(IdentifyRequest(), on: transport, timeout: configuration.requestTimeout)
         guard identity.app == "cmux-tui" else {
             transport.close()
             throw DaemonError.wrongApp(identity.app)
@@ -208,9 +228,10 @@ public actor DaemonConnection {
         }
         _ = try await Self.perform(
             SetClientInfoRequest(name: configuration.clientName, kind: "frontend", capabilities: configuration.advertisedCapabilities),
-            on: transport
+            on: transport, timeout: configuration.requestTimeout
         )
-        _ = try await Self.perform(SubscribeRequest(treeEvents: configuration.treeEvents), on: transport)
+        _ = try await Self.perform(SubscribeRequest(treeEvents: configuration.treeEvents), on: transport,
+                                   timeout: configuration.requestTimeout)
         return identity
     }
 

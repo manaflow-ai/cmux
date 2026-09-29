@@ -40,7 +40,9 @@ public final class ControlService {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
-        passwordVerifier: (@Sendable (String) -> Bool)? = nil
+        passwordVerifier: (@Sendable (String) -> Bool)? = nil,
+        frameSource: any ControlFrameSource = MainQueueFrameSource(),
+        watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = explicitMode
@@ -62,7 +64,9 @@ public final class ControlService {
             registry: registry,
             settingsStore: settings?.file,
             configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode, passwordVerifier: verifier),
-            identity: identity
+            identity: identity,
+            frameSource: frameSource,
+            watchdog: watchdog
         )
     }
 
@@ -71,10 +75,13 @@ public final class ControlService {
         registry: ActionRegistry,
         settingsStore: (any ControlSettingsStore)?,
         configuration: ControlSocketServer.Configuration,
-        identity: ControlIdentity
+        identity: ControlIdentity,
+        frameSource: any ControlFrameSource = MainQueueFrameSource(),
+        watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let bridge = RegistryControlBridge(registry: registry)
-        let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore)
+        let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, frameSource: frameSource)
+        router.attach(watchdog: watchdog)
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
         try server.start()
