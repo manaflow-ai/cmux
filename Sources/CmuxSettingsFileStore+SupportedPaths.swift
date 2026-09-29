@@ -130,6 +130,7 @@ extension CmuxSettingsFileStore {
         "automation.piIntegration",
         "automation.claudeBinaryPath",
         "automation.codexIntegration",
+        "automation.canonicalAgentScratch",
         "automation.workspaceAutoNaming",
         "automation.autoNamingAgent",
         "automation.ripgrepBinaryPath",
