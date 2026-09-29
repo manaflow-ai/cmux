@@ -480,6 +480,7 @@ extension DockSplitStore {
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
             focusPlacement: .rightSidebarDock,
+            isRemoteTerminal: terminalSnapshot.isRemoteTerminal == true,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .pacedSessionRestore,
                 willRunStartupInput: willRunAgentInput,

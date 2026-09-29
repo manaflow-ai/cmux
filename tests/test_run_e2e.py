@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the focused-run launcher against a fake GitHub CLI."""
 import importlib.util
+import io
 import json
 import re
 import os
@@ -1713,6 +1714,23 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         with mock.patch.object(self.pool.pr_runner_pool.GitHub, "runners", side_effect=RuntimeError("403")), \
                 mock.patch("sys.stderr"):
             self.assertIsNone(read("manaflow-ai/cmux", {"ROUTE_TOKEN": "t"}, "1", "/Applications/Xcode_26.6.app"))
+
+    def test_main_routes_by_the_online_runners_not_the_slot_variable(self):
+        root = self.pool.pr_runner_pool.root_label(MINI)
+        runners = [{"status": "online", "busy": False, "labels": [{"name": MINI}, {"name": root}]}]
+        argv = ["--requested", MINI, "--owned", "1", "--owned-slots", '{"std": 40}',
+                "--pr-xcode-app", "/Applications/Xcode_26.6.app"]
+        env = {"ROUTE_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+
+        def run(listing):
+            with mock.patch.object(self.pool.pr_runner_pool.GitHub, "runners", **listing), \
+                    mock.patch("sys.stderr"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                self.assertEqual(self.pool.main(argv, env), 0)
+            return out.getvalue().strip()
+        # An online root runner turns root routing on without a root count in CI_OWNED_POOL_SLOTS.
+        self.assertEqual(run({"return_value": runners}), root)
+        # No listing: the variable decides, and it has no root count.
+        self.assertEqual(run({"side_effect": RuntimeError("403")}), MINI)
 
     def test_the_workflow_mints_the_routing_token_for_auto_only(self):
         steps = self.jobs[next(name for name, job in self.jobs.items()

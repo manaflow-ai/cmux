@@ -471,7 +471,7 @@ Example:
 | status | implemented |
 | since | protocol 12 additive extension; capability `machine-listening-tcp-v1` |
 
-Returns the host's listening TCP socket table. The daemon runs a fixed `ss -H -ltn` command, with fixed `netstat -ltn` compatibility when `ss` is absent. The request accepts no command text. A Cloud client uses this command through its authenticated private cmux-tui link. Routine port discovery does not call the web control plane or the VM provider.
+Returns the host's listening TCP socket table. The daemon runs a fixed `ss -H -ltnp` command, with fixed `netstat -ltnp` compatibility on Linux when `ss` is absent (`netstat -ltn` on other Unix platforms). On Linux it first attempts those fixed read-only commands with `sudo -n`, using existing guest permissions to identify root-owned services; it falls back to unprivileged commands when that permission is unavailable and never prompts. Process ownership, when visible to the daemon, lets clients distinguish application listeners from infrastructure services on dynamically assigned ports. Missing ownership does not imply that a listener is an infrastructure service. The request accepts no command text. A Cloud client uses this command through its authenticated private cmux-tui link. Routine port discovery does not call the web control plane or the VM provider.
 
 Params: none.
 

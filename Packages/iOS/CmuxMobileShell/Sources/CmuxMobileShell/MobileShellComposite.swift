@@ -15297,33 +15297,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         startLatencyProbeIfReady()
         #endif
-        // The first viewport callback commits a generation before this sink is
-        // registered. Let its viewport acknowledgement schedule the one
-        // authoritative replay, avoiding a cold attach request that races the
-        // geometry RPC and gets immediately superseded.
-        let preparationSequenceKey = MobileTerminalViewportSequenceKey(
-            ownerKey: foregroundMacKey,
-            surfaceID: surfaceID
-        )
-        // SSH surfaces never wait for that acknowledgement: their grid is
-        // recorded when the viewport is prepared, and tying the attach to
-        // the Mac negotiation stranded the one-shot seed whenever a late
-        // teardown of the previous view retired the negotiation.
-        if sshOwnsSurface(surfaceID)
-            || terminalViewportPreparationGenerationsBySequenceKey[
-                preparationSequenceKey
-            ] == nil {
-            requestColdAttachTerminalReplay(surfaceID: surfaceID)
-        } else {
-            terminalViewportDeferredColdReplayGenerationsBySequenceKey[
-                preparationSequenceKey
-            ] = terminalViewportPreparationGenerationsBySequenceKey[
-                preparationSequenceKey
-            ]
-            MobileDebugLog.anchormux(
-                "terminal.output.defer_cold_replay surface=\(surfaceID)"
-            )
-        }
+        // Start cold replay as soon as the viewport report is issued. The replay
+        // barrier handles viewport-transition responses and retries after the
+        // Mac acknowledges settled geometry, so waiting here would serialize
+        // two round trips and leave a newly selected workspace blank.
+        requestColdAttachTerminalReplay(surfaceID: surfaceID)
         ensureTerminalLane(surfaceID: surfaceID)
         return registrationToken
     }
