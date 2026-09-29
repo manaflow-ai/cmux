@@ -32,6 +32,8 @@ final class CloudMenuModel {
     @ObservationIgnored private let listMachines: @MainActor () async throws -> VMListPage
     @ObservationIgnored private let isAvailable: @MainActor () -> Bool
     @ObservationIgnored private let pinStore: @MainActor () -> CloudMachinePinStore?
+    /// The account and team a read belongs to; the pin store's scope by default.
+    @ObservationIgnored private let scope: @MainActor () -> String?
     @ObservationIgnored private var lastLoadedAt: ContinuousClock.Instant?
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -46,6 +48,7 @@ final class CloudMenuModel {
             CloudMachinesFeature.isEnabled && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true
         },
         pinStore: @escaping @MainActor () -> CloudMachinePinStore? = { AppDelegate.shared?.cloudMachinePinStore },
+        scope: (@MainActor () -> String?)? = nil,
         isFeatureEnabled: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isEnabled },
         mainMenu: @escaping @MainActor () -> NSMenu? = { NSApp?.mainMenu }
     ) {
@@ -55,6 +58,7 @@ final class CloudMenuModel {
         }
         self.isAvailable = isAvailable
         self.pinStore = pinStore
+        self.scope = scope ?? { pinStore()?.scopeIdentifier }
         self.mainMenu = mainMenu
         observers = [Notification.Name.cmuxCloudVMAccessDidEnd, .cmuxCloudTeamScopeDidChange].map { name in
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -95,13 +99,13 @@ final class CloudMenuModel {
         guard isAvailable() else { reset(); return }
         task?.cancel()
         let requested = generation
-        let scope = pinStore()?.scopeIdentifier
+        let scope = self.scope()
         if machines.isEmpty || loadState != .loaded { publish(loadState: .loading) }
         task = Task { [weak self, listMachines] in
             let result: Result<VMListPage, Error>
             do { result = .success(try await listMachines()) } catch { result = .failure(error) }
             guard !Task.isCancelled, let self, self.generation == requested,
-                  self.pinStore()?.scopeIdentifier == scope else { return }
+                  self.scope() == scope else { return }
             self.task = nil
             self.apply(result)
         }

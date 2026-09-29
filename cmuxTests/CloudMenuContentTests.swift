@@ -201,10 +201,39 @@ struct CloudMenuContentTests {
         #expect(model.machines.map(\.id) == ["vm-2"])
     }
 
+    @Test("A read that lands after a scope change does not leave the menu loading")
+    func scopeChangeDuringReadRecovers() async throws {
+        let reads = ReadCounter()
+        let scope = ScopeBox(value: "team:personal")
+        let model = CloudMenuModel(
+            center: NotificationCenter(),
+            listMachines: {
+                reads.count += 1
+                // The team is confirmed while the first read is in flight.
+                if reads.count == 1 { scope.value = "team:confirmed" }
+                return VMListPage(vms: [VMSummary(id: "vm-\(reads.count)", provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil)])
+            },
+            isAvailable: { true },
+            pinStore: { nil },
+            scope: { scope.value },
+            isFeatureEnabled: { true },
+            mainMenu: { nil }
+        )
+        model.menuWillOpen()
+        try await Self.waitUntil { model.loadState == .loaded }
+        #expect(model.machines.map(\.id) == ["vm-2"])
+    }
+
     // MARK: Fixtures
 
     @MainActor
     final class ReadCounter { var count = 0 }
+
+    @MainActor
+    final class ScopeBox {
+        var value: String?
+        init(value: String?) { self.value = value }
+    }
 
     @MainActor
     final class Recorder {
