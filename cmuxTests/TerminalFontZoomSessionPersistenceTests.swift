@@ -273,6 +273,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("workspace font-size adjustment reaches every terminal and seeds new ones")
     func workspaceFontSizeAdjustmentFansOutAndInherits() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let workspace = Workspace()
         let firstPanelID = try #require(workspace.focusedPanelId)
         let firstPanel = try #require(workspace.panels[firstPanelID] as? TerminalPanel)
@@ -329,6 +332,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("Window-Dock-only workspace font-size adjustment seeds its first main terminal")
     func windowDockOnlyWorkspaceFontSizeAdjustmentSeedsFirstMainTerminal() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let workspace = Workspace()
         let firstPanelID = try #require(workspace.focusedPanelId)
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
@@ -376,6 +382,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("queued Window Dock zoom seeds a terminal-free workspace")
     func queuedWindowDockZoomSeedsTerminalFreeWorkspace() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let firstPanelID = try #require(workspace.focusedPanelId)
@@ -450,6 +459,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("queued workspaces inherit the Dock lineage at their own event")
     func queuedWorkspacesInheritOrderedDockPrefixes() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let manager = TabManager()
         let firstWorkspace = try #require(manager.selectedWorkspace)
         let firstPanelID = try #require(firstWorkspace.focusedPanelId)
@@ -555,6 +567,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("queued workspaces without a Dock keep independent lineage")
     func queuedWorkspacesWithoutDockKeepIndependentLineage() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let manager = TabManager()
         let firstWorkspace = try #require(manager.selectedWorkspace)
         let firstPanelID = try #require(firstWorkspace.focusedPanelId)
@@ -648,6 +663,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("terminal-free relative no-op does not cache configured lineage")
     func terminalFreeRelativeNoOpClearsConfiguredFallback() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let workspace = Workspace()
         let terminalPanelID = try #require(workspace.focusedPanelId)
         let paneID = try #require(
@@ -708,6 +726,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("Dock terminal at the clamp bound still seeds first main terminal")
     func boundedWindowDockFontSizeAdjustmentSeedsFirstMainTerminal() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let workspace = Workspace()
         let firstPanelID = try #require(workspace.focusedPanelId)
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
@@ -764,6 +785,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("terminal-free reset replaces stale Dock-only zoom inheritance")
     func terminalFreeResetReplacesStaleDockOnlyLineage() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let workspace = Workspace()
         let firstPanelID = try #require(workspace.focusedPanelId)
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
@@ -848,6 +872,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("empty Window Dock keeps its own font-size lineage during a shortcut")
     func emptyWindowDockKeepsOwnFontSizeLineageDuringShortcut() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let workspacePanelID = try #require(workspace.focusedPanelId)
@@ -912,6 +939,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("workspace zoom seeds a legacy Dock created afterward")
     func workspaceZoomSeedsLazyLegacyDock() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let workspace = Workspace()
         let sourcePanelID = try #require(workspace.focusedPanelId)
         let sourcePanel = try #require(workspace.panels[sourcePanelID] as? TerminalPanel)
@@ -937,6 +967,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("workspace zoom refreshes existing legacy Dock inheritance")
     func workspaceZoomRefreshesExistingLegacyDock() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let workspace = Workspace()
         let dock = workspace.requiredDockSplitForTesting
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
@@ -967,6 +1000,9 @@ struct TerminalFontZoomSessionPersistenceTests {
 
     @Test("workspace font-size adjustment reaches remote tmux mirrors and seeds new panes")
     func workspaceFontSizeAdjustmentIncludesRemoteTmuxMirrors() throws {
+        let restoreMagnification = useUnmagnifiedFonts()
+        defer { restoreMagnification() }
+
         let workspace = Workspace()
         let outerPanelID = try #require(workspace.focusedPanelId)
         let outerPanel = try #require(workspace.panels[outerPanelID] as? TerminalPanel)
@@ -1294,6 +1330,23 @@ struct TerminalFontZoomSessionPersistenceTests {
             restoredWorkspace.lastRememberedTerminalFontSizeLineageForConfigInheritance()?
                 .isExplicitOverride == true
         )
+    }
+
+    /// Relative-zoom expectations below use base points, so one runtime point
+    /// must equal one base point. Restore the inherited preference after each
+    /// synchronous MainActor test instead of depending on the runner's scale.
+    private func useUnmagnifiedFonts() -> () -> Void {
+        let defaults = UserDefaults.standard
+        let key = GlobalFontMagnification.percentKey
+        let previous = defaults.object(forKey: key)
+        defaults.set(GlobalFontMagnification.defaultPercent, forKey: key)
+        return {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
     }
 
     private func snapshotBySettingTerminalFontSize(

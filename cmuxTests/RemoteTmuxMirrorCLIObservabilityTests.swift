@@ -59,9 +59,11 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         }
 
         let paneList = try #require(TerminalController.shared.controlPaneList(routing: routing))
-        #expect(paneList.panes.map(\.paneID) == expectedPaneIDs)
-        #expect(paneList.panes.compactMap(\.selectedSurfaceID) == expectedSurfaceIDs)
-        #expect(paneList.panes.map(\.isFocused) == [false, true])
+        // List/tree also expose Dock panes; this regression covers the mirror's workspace panes.
+        let workspacePanes = paneList.panes.filter { $0.dockScopeRawValue == nil }
+        #expect(workspacePanes.map(\.paneID) == expectedPaneIDs)
+        #expect(workspacePanes.compactMap(\.selectedSurfaceID) == expectedSurfaceIDs)
+        #expect(workspacePanes.map(\.isFocused) == [false, true])
 
         let activePaneID = try #require(expectedPaneIDs.last)
         let activeSurfaceID = try #require(expectedSurfaceIDs.last)
@@ -253,8 +255,9 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             harness.mirror.syntheticPaneID(forPane: $0)?.id
         }
         let paneList = try #require(TerminalController.shared.controlPaneList(routing: routing))
-        #expect(paneList.panes.map(\.paneID) == expectedPaneIDs)
-        #expect(paneList.panes.first(where: \.isFocused)?.paneID == seededPaneID)
+        let workspacePanes = paneList.panes.filter { $0.dockScopeRawValue == nil }
+        #expect(workspacePanes.map(\.paneID) == expectedPaneIDs)
+        #expect(workspacePanes.first(where: \.isFocused)?.paneID == seededPaneID)
 
         let defaultSend = TerminalController.shared.controlSurfaceSendText(
             routing: routing,

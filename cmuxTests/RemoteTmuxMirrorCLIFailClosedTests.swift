@@ -333,8 +333,9 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             workspaceFilter: harness.workspace.id
         )
         let workspaceNode = try #require(tree.windows.first?.workspaces.first)
-        #expect(workspaceNode.panes.map(\.paneID) == expectedPaneIDs)
-        #expect(workspaceNode.panes.flatMap(\.surfaceIDs) == expectedSurfaceIDs)
+        let workspacePanes = workspaceNode.panes.filter { $0.dockScopeRawValue == nil }
+        #expect(workspacePanes.map(\.paneID) == expectedPaneIDs)
+        #expect(workspacePanes.flatMap(\.surfaceIDs) == expectedSurfaceIDs)
 
         let identify = TerminalController.shared.controlSystemIdentify(params: [:]).foundationObject
         let root = try #require(identify as? [String: Any])
