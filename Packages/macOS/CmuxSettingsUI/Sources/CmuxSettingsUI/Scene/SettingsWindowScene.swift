@@ -294,7 +294,10 @@ public struct SettingsWindowRoot: View {
         .listStyle(.sidebar)
         .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
-        .navigationSplitViewColumnWidth(210)
+        // Capped so the detail column keeps room for the widest card row
+        // (the 434 pt sound matrix plus page and card padding) at the
+        // window's 820 pt minimum width.
+        .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 260)
     }
 
     /// Renders one existing search-index entry as a selectable sidebar leaf.
