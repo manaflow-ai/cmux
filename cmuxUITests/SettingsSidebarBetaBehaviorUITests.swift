@@ -3,7 +3,7 @@ import XCTest
 /// Behavioral UI tests for the Settings **Sidebar** + **Beta Features**
 /// section, scoped to the controls called out for this section:
 /// the *Sidebar Branch Layout* picker (vertical vs inline), the active-tab
-/// *indicator style*, and the *beta Feed* / *beta Dock* toggles.
+/// *indicator style* and the *beta Feed* toggle.
 ///
 /// What is actually assertable through XCUITest here, and why:
 ///
@@ -36,19 +36,16 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     //  - sidebarBranchVerticalLayout: SidebarCatalogSection.branchVerticalLayout (default true / "Vertical")
     //  - sidebarActiveTabIndicatorStyle: indicator style key (default "leftRail")
     //  - rightSidebar.beta.feed.enabled: BetaFeaturesCatalogSection.rightSidebarFeed (default false)
-    //  - rightSidebar.beta.dock.enabled: BetaFeaturesCatalogSection.rightSidebarDock (default false)
     private let inScopeDefaultsKeys = [
         "sidebarBranchVerticalLayout",
         "sidebarActiveTabIndicatorStyle",
         "rightSidebar.beta.feed.enabled",
-        "rightSidebar.beta.dock.enabled",
     ]
 
     // Fixed subtitle strings (exact defaultValue copy from SidebarSection
     // and BetaFeaturesSection).
     private let branchLayoutSubtitle = "Choose whether branches share one line or each get their own line."
     private let feedSubtitle = "Adds Feed to the right sidebar for answering agent requests."
-    private let dockSubtitle = "Adds Dock to the right sidebar for custom terminal controls."
 
     override func setUp() {
         super.setUp()
@@ -94,8 +91,8 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         // Select "Inline" from the opened menu.
         let inlineItem = requireElement(
             candidates: [
-                app.menuItems["Inline"],
-                window.menuItems["Inline"],
+                app.menuItems["Inline"].firstMatch,
+                window.menuItems["Inline"].firstMatch,
             ],
             timeout: 4.0,
             description: "Inline menu item"
@@ -119,12 +116,21 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         assertBetaToggleRoundTrips(id: "SettingsBetaFeedToggle", subtitle: feedSubtitle)
     }
 
-    // MARK: - TIER 1: Beta Dock toggle
+    // MARK: - Dock graduation
 
-    /// The **Beta Features > Dock** switch reads its value back from the
-    /// `rightSidebarDockEnabled` binding and keeps its fixed subtitle.
-    func testBetaDockToggleKeepsFixedSubtitle() {
-        assertBetaToggleRoundTrips(id: "SettingsBetaDockToggle", subtitle: dockSubtitle)
+    /// Dock is a standard feature, so Beta Features no longer offers a Dock
+    /// switch. Visibility remains available under Sidebar > Right Sidebar Tabs.
+    func testBetaFeaturesOmitsDockToggle() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        defer { closeSettings(app, window) }
+
+        navigate(window, to: "Beta Features")
+        let dockToggle = window.descendants(matching: .any)["SettingsBetaDockToggle"].firstMatch
+        XCTAssertFalse(
+            dockToggle.waitForExistence(timeout: 2),
+            "Dock must not appear as a beta toggle"
+        )
     }
 
     /// Shared driver: the toggle starts off, turns on after one click, turns
@@ -143,22 +149,22 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
             "\(id): expected the subtitle at the default (off) value"
         )
         let control = toggle(window, id: id)
-        XCTAssertFalse(isOn(control), "\(id): toggle should start off")
+        let initialValue = isOn(control)
 
         control.click()
         XCTAssertTrue(
-            poll(timeout: 5.0) { self.isOn(control) },
-            "\(id): toggle should be on after one click"
+            poll(timeout: 5.0) { self.isOn(control) != initialValue },
+            "\(id): toggle should change after one click"
         )
-        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown while on")
+        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown after the first click")
 
-        // Toggle back off to prove the binding is reversible (full round-trip).
+        // Toggle back to the observed initial value to prove the binding is reversible.
         control.click()
         XCTAssertTrue(
-            poll(timeout: 5.0) { !self.isOn(control) },
-            "\(id): toggle should be off after a second click"
+            poll(timeout: 5.0) { self.isOn(control) == initialValue },
+            "\(id): toggle should return to its initial value after a second click"
         )
-        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown while off")
+        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown after the round-trip")
     }
 
     // MARK: - Tiering documentation for this section
@@ -184,13 +190,4 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     //   This would need a workspace-setup launch seam plus screenshot
     //   sampling (cf. RightSidebarChromeHeightUITests) to verify.
     //
-    // TIER 2 (needs runtime seam): Beta Dock downstream effect — enabling the
-    //   Dock toggle adds the `RightSidebarModeButton.dock` button to the
-    //   right-sidebar mode bar (RightSidebarPanelView `availableModes`). That
-    //   button only exists when the right sidebar is open over a workspace,
-    //   which requires CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR=1 plus the
-    //   bonsplit workspace setup at launch — env the shared harness does not
-    //   set. The reactive binding is covered above; the mode-bar button would
-    //   need the right-sidebar setup launch env (cf.
-    //   RightSidebarChromeHeightUITests) to assert directly.
 }

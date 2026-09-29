@@ -4387,7 +4387,10 @@
     "emailUnavailable": "e-mail indisponível",
     "organization": "Organização",
     "personalAccount": "conta pessoal",
-    "switchAccountButton": "Usar outra conta"
+    "switchAccountButton": "Usar outra conta",
+    "signedOutTitle": "Entre para autorizar o coderouter",
+    "signedOutBody": "Um aplicativo de linha de comando está aguardando você entrar. Entre com sua conta cmux para concluir a conexão deste terminal. Se você não iniciou esta solicitação, feche esta página.",
+    "signInButton": "Entrar"
   },
   "MobileRelease106": {
     "title": "Novidades da versão 1.0.6",

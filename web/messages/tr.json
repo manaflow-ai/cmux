@@ -4385,7 +4385,10 @@
     "emailUnavailable": "e-posta kullanılamıyor",
     "organization": "Kuruluş",
     "personalAccount": "kişisel hesap",
-    "switchAccountButton": "Farklı bir hesap kullan"
+    "switchAccountButton": "Farklı bir hesap kullan",
+    "signedOutTitle": "coderouter'ı yetkilendirmek için giriş yapın",
+    "signedOutBody": "Bir komut satırı uygulaması giriş yapmanızı bekliyor. Bu terminalin bağlantısını tamamlamak için cmux hesabınızla giriş yapın. Bu isteği siz başlatmadıysanız bu sayfayı kapatın.",
+    "signInButton": "Giriş yap"
   },
   "MobileRelease106": {
     "title": "1.0.6 sürümündeki yenilikler",
