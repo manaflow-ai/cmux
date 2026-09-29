@@ -15,12 +15,13 @@ extension CmuxTuiSurfaceProvider {
         attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil,
         displayCoordinator: CloudDisplayCoordinator? = nil,
-        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
+        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() },
+        onMachineNotFound: (@MainActor (String, CloudVMHTTPError) -> Void)? = nil
     ) {
         self.init(summary: .cloud(summary), fileAccessTeamScope: fileAccessTeamScope, links: links, catalog: catalog,
                   portForwards: portForwards, attachmentClock: attachmentClock,
                   portAccessStore: portAccessStore, displayCoordinator: displayCoordinator,
-                  browserPolicy: browserPolicy)
+                  browserPolicy: browserPolicy, onMachineNotFound: onMachineNotFound)
     }
     static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
         info(from: .cloud(summary), linkState: linkState, linkError: linkError, stats: stats, remoteWorkspaces: remoteWorkspaces)
