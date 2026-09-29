@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import yaml
@@ -126,12 +127,13 @@ class GuiOverflow(unittest.TestCase):
             return {label: queued if label == GUI else retry_queued for label in labels}
         return count, calls
 
-    def test_a_full_gui_pool_sends_the_jobs_past_one_round_to_blacksmith(self):
+    def test_a_full_gui_pool_sends_every_queued_job_to_an_idle_blacksmith_pool(self):
         count, calls = self.backlog(queued=6)
         placed, why = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
-        # Ten online gui runners and six jobs queued ahead: four more places within one round.
-        self.assertEqual(placed, {"shard-5": RETRY, "shard-6": RETRY, "shard-7": RETRY,
-                                  "lag": RETRY, "cli-product": RETRY})
+        # Six queued ahead on ten busy gui runners: the first job would start in 7/10 x 407 s = 285 s there,
+        # against 15 s on an idle 12vcpu pool, and the ninth 15 s + 4/5 x 295 s = 251 s. No round of queue
+        # is kept on the minis while Blacksmith would start the job sooner.
+        self.assertEqual(placed, {key: RETRY for key in (*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product")})
         self.assertEqual(calls, [[GUI, RETRY]])
         self.assertIn(f"6 gui job(s) queued ahead on 10 online and 0 on `{RETRY}`", why)
 
@@ -143,14 +145,14 @@ class GuiOverflow(unittest.TestCase):
         self.assertIn(f"and 50 on `{RETRY}`", why)
 
     def test_jobs_move_only_while_blacksmith_would_start_them_sooner(self):
-        # 25 ahead on ten gui runners: a job starts in 2.6 rounds there, 1.8 behind 8 on 12vcpu's five.
-        # A move lengthens Blacksmith's queue by a fifth of a round, a job that stays the gui one by a
-        # tenth: 1st to 4th move (1.8 to 2.4), 5th stays (2.6 against 2.6), 6th moves (2.6 against 2.7),
-        # 7th and 8th stay, 9th moves (2.8 against 2.9).
-        count, _ = self.backlog(queued=25, retry_queued=8)
+        # 25 ahead on ten gui runners: the next job starts in 26/10 x 407 s = 1,058 s there, and each that
+        # stays adds 40.7 s; behind 15 on 12vcpu's five it starts in 15 s + 16/5 x 295 s = 959 s, and each
+        # move adds 59 s. 1st and 2nd move (959, 1,018), 3rd stays (1,077 against 1,058), 4th moves
+        # (1,077 against 1,099), 5th stays, 6th moves (1,136 against 1,140), 7th and 8th stay, 9th moves.
+        count, _ = self.backlog(queued=25, retry_queued=15)
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
         mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
-        self.assertEqual(placed, {mine[i]: RETRY for i in (0, 1, 2, 3, 5, 8)})
+        self.assertEqual(placed, {mine[i]: RETRY for i in (0, 1, 3, 5, 8)})
 
     def test_an_empty_blacksmith_pool_takes_its_machines_at_once(self):
         # Twenty gui runners, twenty jobs ahead: each job waits over a round there, none on an idle 12vcpu.
@@ -183,10 +185,22 @@ class GuiOverflow(unittest.TestCase):
         self.assertEqual(late.decide(OWNED, [*roots(idle=2), *guis(idle=9, busy=1)], count)[0], {})
         self.assertEqual(calls, [])
 
-    def test_the_idle_gui_runners_start_the_first_jobs_and_the_rest_queue_within_a_round(self):
+    def test_the_idle_gui_runners_keep_the_first_jobs_and_an_idle_blacksmith_takes_the_rest(self):
         count, _ = self.backlog(queued=0)
-        # Three idle now, and a round of the ten online: all nine stay on the gui label.
-        self.assertEqual(late.decide(OWNED, [*roots(idle=2), *guis(idle=3, busy=7)], count)[0], {})
+        # Minis first: three idle gui runners take the three highest priority jobs. The other six would
+        # queue there (the first 1/10 x 407 s = 41 s): five start in 15 s on 12vcpu's five idle machines,
+        # and the sixth, 15 s + 1/5 x 295 s = 74 s there, stays.
+        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=3, busy=7)], count)
+        mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
+        self.assertEqual(placed, {key: RETRY for key in mine[3:8]})
+
+    def test_a_tie_keeps_the_job_on_the_minis(self):
+        # Nothing ahead on one gui runner of 20 s jobs, against an idle retry pool's 20 s start: minis first.
+        with mock.patch.object(late, "GUI_JOB_SECONDS", late.DEFAULT_BLACKSMITH_START_SECONDS):
+            self.assertEqual(late.overflow(("shard-1",), owned_jobs="shard-1", gui_idle=0, gui_online=1, backlog=0,
+                                           retry_queued=0, retry_capacity=1, retry="unknown"), ())
+            self.assertEqual(late.overflow(("shard-1",), owned_jobs="shard-1", gui_idle=0, gui_online=1, backlog=1,
+                                           retry_queued=0, retry_capacity=1, retry="unknown"), ("shard-1",))
 
     def test_an_unreadable_backlog_moves_nothing(self):
         def broken(labels):
@@ -216,17 +230,23 @@ class GuiOverflow(unittest.TestCase):
         count, _ = self.backlog(queued=0)
         env = dict(OWNED, OWNED_JOBS=" admission shard-1 shard-2 shard-3 ")
         # Three owned shards and two idle gui runners: the owned ones keep both, so none is free
-        # for shard-4 and up, which stay on Blacksmith where the picker put them.
-        self.assertEqual(late.decide(env, [*roots(idle=0, busy=16), *guis(idle=2, busy=8)], count)[0], {})
+        # for shard-4 and up, which stay on Blacksmith where the picker put them; the third owned
+        # shard would queue on the gui label and starts sooner on the idle retry pool.
+        self.assertEqual(late.decide(env, [*roots(idle=0, busy=16), *guis(idle=2, busy=8)], count)[0],
+                         {"shard-3": RETRY})
 
     def test_the_backlog_takes_the_idle_runners_first(self):
         count, _ = self.backlog(queued=12)
         # Two idle, ten online, twelve queued before this run: nothing of it starts within a round.
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=2, busy=8)], count)
         self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
-        count, calls = self.backlog(queued=8)
+        count, calls = self.backlog(queued=1)
+        # One queued ahead takes one of the two idle runners; the highest priority job the other. Of the
+        # rest, five take 12vcpu's idle machines (15 s against 41 s), the next stays (74 s against 41 s),
+        # one more moves (74 s against 81 s) and the last two stay (133 s against 81 s and 122 s).
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=2, busy=8)], count)
-        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(5, 8)), "lag", "cli-product"})
+        mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
+        self.assertEqual(placed, {key: RETRY for key in (*mine[1:6], mine[7])})
         self.assertEqual(calls, [[GUI, RETRY]])
 
     def test_the_kill_switch_with_nothing_idle_moves_every_owned_gui_job_without_a_read(self):
