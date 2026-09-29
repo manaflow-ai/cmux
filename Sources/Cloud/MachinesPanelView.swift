@@ -77,9 +77,7 @@ struct MachinesPanelView: View {
         return CloudMachinesFeature.isEnabled
     }
 
-    private var treeSource: CloudTreeMachineSource {
-        .cloudWithDevicesSection
-    }
+    private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
         viewModel.visibleCatalog.applyingDeviceVisibility(
@@ -492,7 +490,8 @@ struct MachinesPanelView: View {
                 incomingAccessManaged: incomingAccessManaged
             ),
             canCreateCloudMachine: includesCloud,
-            reveal: devicesModel.revealRequest
+            reveal: devicesModel.revealRequest,
+            creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
