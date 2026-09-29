@@ -78,23 +78,32 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     // MARK: - Catalog rows
 
     var info: SurfaceMachineInfo {
+        let live = link.isConnected
         let state = Self.linkState(
             record: record, phase: link.phase, lastFailure: link.lastFailure?.message, needsAuthorization: link.needsAuthorization
         )
+        // A restored mirror can still contain the last workspace snapshot after
+        // its transport has gone away. Never publish that stale snapshot as a
+        // connected device: the Cloud tree would otherwise make its terminals
+        // look openable even though the Mac is offline.
+        let effectiveState: (linkState: SurfaceLinkState, linkError: String?) =
+            (!live && state.linkState == .connected)
+                ? (.offline, nil)
+                : state
         let workspaces = link.mirror.workspaces.hasState
-            ? DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
+            ? DeviceWorkspaceProjection(machine: machine, isLive: live)
                 .remoteWorkspaces(link.mirror.workspaces.orderedRecords)
             : nil
         return SurfaceMachineInfo(
             id: machine,
             name: record.displayName,
-            status: record.isOnline || link.isConnected ? "running" : "offline",
+            status: record.isOnline || live ? "running" : "offline",
             image: nil,
             hasDesktop: false,
             memoryMb: nil,
             diskMb: nil,
-            linkState: state.linkState,
-            linkError: state.linkError,
+            linkState: effectiveState.linkState,
+            linkError: effectiveState.linkError,
             cpuPercent: nil,
             memoryUsedMb: nil,
             diskUsedMb: nil,
