@@ -163,26 +163,14 @@ impl KittyInFlightTracker {
 
     #[cfg(test)]
     pub(crate) fn replay_prefix(&self, max_bytes: usize) -> Vec<u8> {
-        self.replay_prefix_checked(max_bytes, true).unwrap_or_default()
+        self.replay_prefix_checked(max_bytes).unwrap_or_default()
     }
 
-    /// Whether the stream is inside a direct Kitty command this tracker
-    /// retains completely.
-    pub(crate) fn has_partial_command(&self) -> bool {
-        !self.overflowed
-            && matches!(&self.scan, KittyStreamScan::Kitty(command) if !command.overflowed)
-    }
-
-    fn replay_prefix_parts(&self, include_partial: bool) -> Result<(&[u8], &[u8])> {
+    fn replay_prefix_parts(&self) -> Result<(&[u8], &[u8])> {
         if self.overflowed
-            || (include_partial
-                && matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed))
+            || matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed)
         {
             return Err(Error::OutOfSpace);
-        }
-        if !include_partial {
-            let prefix = if self.loading { self.prefix.as_slice() } else { &[] };
-            return Ok((prefix, &[]));
         }
         let partial = match &self.scan {
             KittyStreamScan::Escape => &b"\x1b"[..],
@@ -198,15 +186,30 @@ impl KittyInFlightTracker {
         Ok((prefix, partial))
     }
 
-    /// The upload prefix a replay must restore. `include_partial` adds the
-    /// incomplete command being received; leave it out when the caller
-    /// replays the incomplete sequence's raw bytes itself.
-    pub(crate) fn replay_prefix_checked(
+    /// Whether the stream is inside a direct Kitty command this tracker
+    /// retains completely.
+    pub(crate) fn has_partial_command(&self) -> bool {
+        !self.overflowed
+            && matches!(&self.scan, KittyStreamScan::Kitty(command) if !command.overflowed)
+    }
+
+    /// The completed upload chunks and the partial command, separately, under
+    /// the same budget as [`Self::replay_prefix_checked`].
+    pub(crate) fn replay_prefix_and_partial_checked(
         &self,
         max_bytes: usize,
-        include_partial: bool,
-    ) -> Result<Vec<u8>> {
-        let (prefix, partial) = self.replay_prefix_parts(include_partial)?;
+    ) -> Result<(Vec<u8>, Vec<u8>)> {
+        let (prefix, partial) = self.replay_prefix_parts()?;
+        let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;
+        if total > max_bytes {
+            return Err(Error::OutOfSpace);
+        }
+        Ok((prefix.to_vec(), partial.to_vec()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replay_prefix_checked(&self, max_bytes: usize) -> Result<Vec<u8>> {
+        let (prefix, partial) = self.replay_prefix_parts()?;
         let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;
         if total > max_bytes {
             return Err(Error::OutOfSpace);
@@ -1236,14 +1239,14 @@ mod tests {
             tracker.write(&command);
 
             assert!(
-                tracker.replay_prefix_checked(usize::MAX, true).is_ok(),
+                tracker.replay_prefix_checked(usize::MAX).is_ok(),
                 "completed oversized {header} command poisoned replay"
             );
 
             let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
             tracker.write(first);
             assert_eq!(
-                tracker.replay_prefix_checked(usize::MAX, true).unwrap(),
+                tracker.replay_prefix_checked(usize::MAX).unwrap(),
                 first,
                 "completed oversized {header} command poisoned a later upload"
             );

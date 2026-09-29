@@ -160,9 +160,34 @@ impl Default for KittyReplayState {
 /// Terminal state replay plus Kitty metadata that cannot share one APC command.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VtReplay {
+    /// Formatted state. Always ends at a parser boundary, so a consumer may
+    /// append its own sequences (for example color overrides) after it.
     pub bytes: Vec<u8>,
     pub kitty_image_aliases: Vec<KittyImageAlias>,
     pub kitty_state: KittyReplayState,
+    /// The incomplete escape sequence, control string, Kitty command, or
+    /// UTF-8 code point the source parser is inside. Write it after `bytes`
+    /// and after anything the consumer appends, immediately before the live
+    /// stream that completes it.
+    pub pending_sequence: Vec<u8>,
+}
+
+impl VtReplay {
+    /// One byte stream for consumers that append nothing between the replay
+    /// and the live stream.
+    pub fn into_self_contained_bytes(mut self) -> Vec<u8> {
+        self.bytes.append(&mut self.pending_sequence);
+        self.bytes
+    }
+
+    /// Borrowing form of [`Self::into_self_contained_bytes`].
+    pub fn self_contained_bytes(&self) -> Cow<'_, [u8]> {
+        if self.pending_sequence.is_empty() {
+            Cow::Borrowed(&self.bytes)
+        } else {
+            Cow::Owned([self.bytes.as_slice(), &self.pending_sequence].concat())
+        }
+    }
 }
 
 /// RGB color triple.
@@ -2639,11 +2664,14 @@ impl Terminal {
 
     /// Apply one complete replay sidecar and byte stream to this terminal.
     pub fn apply_vt_replay(&mut self, replay: &VtReplay) -> Result<()> {
-        self.apply_vt_replay_parts(&replay.bytes, &replay.kitty_image_aliases, replay.kitty_state)
+        self.apply_vt_replay_parts(&replay.bytes, &replay.kitty_image_aliases, replay.kitty_state)?;
+        self.vt_write(&replay.pending_sequence);
+        Ok(())
     }
 
     /// Apply replay bytes and their non-VT sidecar through the same ordering
-    /// used by owned [`VtReplay`] values.
+    /// used by owned [`VtReplay`] values. The caller writes the replay's
+    /// `pending_sequence` afterwards, after any sequences of its own.
     pub fn apply_vt_replay_parts(
         &mut self,
         bytes: &[u8],
@@ -3361,7 +3389,7 @@ impl Terminal {
 
     /// Byte-only compatibility replay. This discards Kitty number aliases.
     pub fn vt_replay_bytes(&mut self) -> Result<Vec<u8>> {
-        Ok(self.vt_replay()?.bytes)
+        Ok(self.vt_replay()?.into_self_contained_bytes())
     }
 
     /// Reject replay state that cannot fit under `max_bytes` regardless of
@@ -3369,6 +3397,7 @@ impl Terminal {
     /// destructive geometry change, then build the full replay afterward.
     pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
         let (inflight, pending) = self.replay_inflight_and_pending(max_bytes)?;
+        let pending = pending.as_slice();
         let suffix_len = self.replay_state_suffix().len();
         if inflight
             .len()
@@ -3381,18 +3410,21 @@ impl Terminal {
         Ok(())
     }
 
-    /// The Kitty upload prefix and the incomplete-sequence bytes a replay
-    /// ends with. The generic pending bytes already contain any partial Kitty
-    /// command, so the Kitty tracker contributes only completed chunks then.
-    fn replay_inflight_and_pending(&self, max_bytes: usize) -> Result<(Vec<u8>, &[u8])> {
-        match self.pending_sequence_replay() {
-            Some(PendingSequenceReplay::Bytes(pending)) => {
-                Ok((self.kitty_inflight.replay_prefix_checked(max_bytes, false)?, pending))
-            }
-            Some(PendingSequenceReplay::None | PendingSequenceReplay::KittyCommand) | None => {
-                Ok((self.kitty_inflight.replay_prefix_checked(max_bytes, true)?, &[]))
-            }
-        }
+    /// The completed Kitty upload chunks a replay restores, and the
+    /// incomplete sequence it hands back separately. The generic pending
+    /// bytes already contain any partial Kitty command; a Kitty command past
+    /// their budget comes from the Kitty tracker instead.
+    fn replay_inflight_and_pending(&self, max_bytes: usize) -> Result<(Vec<u8>, Vec<u8>)> {
+        // Always ask the Kitty tracker, so its per-surface upload budget
+        // applies whichever tracker supplies the partial command.
+        let (inflight, kitty_partial) =
+            self.kitty_inflight.replay_prefix_and_partial_checked(max_bytes)?;
+        let pending = match self.pending_sequence_replay() {
+            Some(PendingSequenceReplay::Bytes(pending)) => pending.to_vec(),
+            Some(PendingSequenceReplay::KittyCommand) => kitty_partial,
+            Some(PendingSequenceReplay::None) | None => Vec::new(),
+        };
+        Ok((inflight, pending))
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
@@ -3417,7 +3449,9 @@ impl Terminal {
     /// did not set. This byte-only compatibility API discards Kitty number
     /// aliases.
     pub fn vt_replay_bounded_theme_portable(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        Ok(self.vt_replay_bounded_theme_portable_with_aliases(max_bytes)?.bytes)
+        Ok(self
+            .vt_replay_bounded_theme_portable_with_aliases(max_bytes)?
+            .into_self_contained_bytes())
     }
 
     /// Theme-portable replay retaining aliases for the Kitty images admitted
@@ -3494,7 +3528,6 @@ impl Terminal {
         include_palette: bool,
     ) -> Result<VtReplay> {
         let (inflight, pending) = self.replay_inflight_and_pending(max_bytes)?;
-        let pending = pending.to_vec();
         let state_suffix = self.replay_state_suffix();
         let remaining = max_bytes
             .checked_sub(inflight.len())
@@ -3558,18 +3591,17 @@ impl Terminal {
         bytes.extend_from_slice(&state_suffix);
         let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
-        // Last, so the fresh parser ends inside the same incomplete sequence.
-        bytes.extend_from_slice(&pending);
         Ok(VtReplay {
             bytes,
             kitty_image_aliases: graphics.aliases,
             kitty_state: self.kitty_replay_state(replay_cursor_offset)?,
+            pending_sequence: pending,
         })
     }
 
     /// Bounded byte-only compatibility replay. This discards Kitty aliases.
     pub fn vt_replay_bounded_bytes(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        Ok(self.vt_replay_bounded(max_bytes)?.bytes)
+        Ok(self.vt_replay_bounded(max_bytes)?.into_self_contained_bytes())
     }
 
     fn vt_replay_text_layout_bounded(

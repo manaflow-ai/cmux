@@ -514,10 +514,15 @@ fn assert_theme_portable_replay_resumes_mid_sequence(
         let mut source = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
         source.vt_write(&transcript[..split]);
         let resumable = source.vt_replay_resumes_stream();
-        let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+        let replay = source.vt_replay_bounded_theme_portable_with_aliases(8 * 1024 * 1024).unwrap();
 
+        // Consumers append their own color sequences after the replay bytes,
+        // so those must end at a parser boundary. The incomplete sequence is
+        // written last, right before the live stream that completes it.
         let mut mirror = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
-        mirror.vt_write(&replay);
+        mirror.vt_write(&replay.bytes);
+        let bytes_end_at_boundary = mirror.vt_stream_is_ground();
+        mirror.vt_write(&replay.pending_sequence);
         source.vt_write(&transcript[split..]);
         mirror.vt_write(&transcript[split..]);
 
@@ -526,10 +531,16 @@ fn assert_theme_portable_replay_resumes_mid_sequence(
         let cells_equal = snapshot_cells(&mut source) == snapshot_cells(&mut mirror);
         let cursor_equal = source.cursor_position() == mirror.cursor_position();
         let title_equal = source.title() == mirror.title();
-        if !resumable || source_text != mirror_text || !cells_equal || !cursor_equal || !title_equal
+        if !resumable
+            || !bytes_end_at_boundary
+            || source_text != mirror_text
+            || !cells_equal
+            || !cursor_equal
+            || !title_equal
         {
             failures.push(format!(
-                "{label} split {split}: resumable={resumable} source={source_text:?} \
+                "{label} split {split}: resumable={resumable} \
+                 bytes_end_at_boundary={bytes_end_at_boundary} source={source_text:?} \
                  mirror={mirror_text:?} cells_equal={cells_equal} cursor_equal={cursor_equal} \
                  title_equal={title_equal}"
             ));
