@@ -4,15 +4,22 @@ import Foundation
 /// section header shows it. Only the plan facts the count depends on, so the
 /// outline rebuilds its header when they change and not on unrelated plan metadata.
 public struct CloudMachinesUsage: Equatable, Sendable {
+    /// Creates the plan facts displayed by the Cloud Machines header.
+    /// - Parameters:
+    ///   - activeCount: Number of machines currently counted against the plan.
+    ///   - maxActiveVms: Maximum active machines, or nil for an uncapped plan.
+    ///   - isPaidPlan: Whether limit help should omit the free-plan upgrade prompt.
     public init(activeCount: Int, maxActiveVms: Int? = nil, isPaidPlan: Bool) {
         self.activeCount = activeCount
         self.maxActiveVms = maxActiveVms
         self.isPaidPlan = isPaidPlan
     }
 
+    /// Number of machines currently counted against the plan.
     public let activeCount: Int
     /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
     public let maxActiveVms: Int?
+    /// Whether this usage belongs to a paid plan.
     public let isPaidPlan: Bool
 
     /// An uncapped plan is never at the limit.
