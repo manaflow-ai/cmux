@@ -11,6 +11,8 @@ import CmuxNextTerminal
 final class AppServices {
     let environment: AppEnvironment
     let daemon = DaemonService()
+    /// Phone access; started by the account layer once signed in.
+    let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
     /// cmux.json controller; set by `AppDelegate` once it starts.
     var settings: SettingsController?

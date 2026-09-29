@@ -33,9 +33,13 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     /// it, so it starts as the socket's digest and becomes the name the
     /// owner reports once connected.
     private(set) var session: String
-    private let connection: SSHConnection
-    private let remote: CmuxTUIRemote
-    private let route: Route
+    /// Opens a new control connection to the session's owner.
+    private let connectControl: @MainActor (_ session: String) async throws -> CmuxTUIControl
+    /// Whether the carrier under the control is still up (a dropped owner
+    /// on a live carrier relists; a dead carrier is the runtime's to report).
+    private let isCarrierOpen: @MainActor () -> Bool
+    /// True for a hashed socket whose name is learned from the owner.
+    private let learnsSessionName: Bool
     private var control: CmuxTUIControl?
     /// Session-wide notifications of the live control (`subscribe`).
     private var subscription: Task<Void, Never>?
@@ -48,26 +52,42 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     private let idleCloseSeconds: Int?
 
     init(connection: SSHConnection, remote: CmuxTUIRemote, session: String, route: Route, idleCloseSeconds: Int?) {
-        self.connection = connection
-        self.remote = remote
         self.session = session
-        self.route = route
         self.idleCloseSeconds = idleCloseSeconds
+        switch route {
+        case .ensure:
+            connectControl = { session in try await remote.connect(on: connection, session: session) }
+            learnsSessionName = false
+        case .socket(let socket):
+            connectControl = { _ in try await remote.connect(on: connection, socket: socket) }
+            learnsSessionName = socket.name == nil
+        }
+        isCarrierOpen = { connection.isOpen }
+    }
+
+    /// A session reached over another carrier, e.g. an irx daemon lane to a
+    /// paired Mac's cmux-tui daemon (cmux-next). `connect` opens one carrier
+    /// and returns a handshaken control on it.
+    init(session: String, idleCloseSeconds: Int?,
+         connect: @escaping @MainActor () async throws -> CmuxTUIControl,
+         isCarrierOpen: @escaping @MainActor () -> Bool) {
+        self.session = session
+        self.idleCloseSeconds = idleCloseSeconds
+        connectControl = { _ in try await connect() }
+        learnsSessionName = true
+        self.isCarrierOpen = isCarrierOpen
     }
 
     private func liveControl() async throws -> CmuxTUIControl {
         if let control { return control }
-        let control = switch route {
-        case .ensure: try await remote.connect(on: connection, session: session)
-        case .socket(let socket): try await remote.connect(on: connection, socket: socket)
-        }
+        let control = try await connectControl(session)
         if let current = self.control {
             // A concurrent caller connected first; keep one connection.
             await control.close()
             return current
         }
         self.control = control
-        if case .socket(let socket) = route, socket.name == nil {
+        if learnsSessionName {
             session = await control.session
         }
         watchTopology(of: control)
@@ -94,7 +114,7 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
                         // connection lives: relist so its rows go away. A
                         // closed SSH connection is the runtime's to report.
                         self.control = nil
-                        guard self.connection.isOpen else { return }
+                        guard self.isCarrierOpen() else { return }
                     default:
                         break
                     }
