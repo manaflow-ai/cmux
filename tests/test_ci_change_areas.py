@@ -3642,11 +3642,19 @@ def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -
     return "\n".join(body)
 
 
-def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSUMER_GATE_STEP) -> subprocess.CompletedProcess:
+def run_consumer_gate(
+    jobs: object,
+    *,
+    status: int = 200,
+    step_name: str = CONSUMER_GATE_STEP,
+    next_page: object | None = None,
+) -> subprocess.CompletedProcess:
     import http.server
     import threading
 
-    body = json.dumps(jobs).encode()
+    bodies = [json.dumps(jobs).encode()]
+    if next_page is not None:
+        bodies.append(json.dumps(next_page).encode())
     requests: list[str] = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -3654,8 +3662,13 @@ def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSU
             requests.append(self.path)
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
+            if next_page is not None and len(requests) == 1:
+                self.send_header(
+                    "Link",
+                    f'<http://127.0.0.1:{server.server_port}/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100&page=2>; rel="next"',
+                )
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(bodies[min(len(requests) - 1, len(bodies) - 1)])
 
         def log_message(self, *args: object) -> None:
             pass
@@ -3684,7 +3697,10 @@ def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSU
     finally:
         server.shutdown()
         server.server_close()
-    assert requests == ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    expected = ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    if next_page is not None:
+        expected.append("/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100&page=2")
+    assert requests == expected
     return result
 
 
@@ -3697,6 +3713,15 @@ def _gate_job(status: str, conclusion: object) -> dict:
 
 def test_consumer_gate_fails_admission_when_the_gate_declined() -> None:
     result = run_consumer_gate(_gate_job("completed", "failure"))
+    assert result.returncode == 1
+    assert "Not admitting macOS consumers" in result.stdout
+
+
+def test_consumer_gate_follows_pagination_before_admitting() -> None:
+    result = run_consumer_gate(
+        {"jobs": [{"name": "changes", "status": "completed", "conclusion": "success"}]},
+        next_page={"jobs": [{"name": "macOS admission gate", "status": "completed", "conclusion": "failure"}]},
+    )
     assert result.returncode == 1
     assert "Not admitting macOS consumers" in result.stdout
 
