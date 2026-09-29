@@ -1698,6 +1698,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.licenses",
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
+    "cmux.cloudTeamMembers",
     "cmux.configEditor",
     "cmux.computerUse.onboarding",
     "cmux.defaultTerminalRegistrationError",
