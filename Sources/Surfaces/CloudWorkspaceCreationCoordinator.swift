@@ -202,6 +202,9 @@ final class CloudWorkspaceCreationCoordinator {
             // not send remote close-tab mutations.
             let partial = operation.openedProjections
             let reservation = operation.reservation
+            let wasInvalidated = operations[operation.id] !== operation
+                || operation.host?.isAvailable == false
+                || catalog.provider(for: operation.machine) !== operation.provider
             operations[operation.id] = nil
             if let reservation {
                 // Retire the reserved pane first. Closing its last panel can
@@ -219,7 +222,7 @@ final class CloudWorkspaceCreationCoordinator {
                 }
             }
             catalog.notifyChange()
-            if error is CancellationError || Task.isCancelled { throw CancellationError() }
+            if wasInvalidated || error is CancellationError || Task.isCancelled { throw CancellationError() }
             throw error
         }
     }

@@ -20,6 +20,8 @@ struct CloudWorkspaceCreationSidebarTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
+            fixture.manager.window = fixture.window
+            fixture.window.makeKeyAndOrderFront(nil)
             let workspace = SurfaceRemoteWorkspace(id: "ws_existing", name: "Existing", index: 0, focused: true)
             fixture.provider.createdWorkspaces = [workspace]
             fixture.provider.info.remoteWorkspaces = [workspace]
@@ -84,6 +86,8 @@ struct CloudWorkspaceCreationSidebarTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
+            fixture.manager.window = fixture.window
+            fixture.window.makeKeyAndOrderFront(nil)
             let workspace = SurfaceRemoteWorkspace(id: "ws_failure", name: "Failure", index: 0, focused: true)
             let other = try #require(fixture.manager.addWorkspaceIfActive(title: "Other", select: false))
             fixture.provider.createdWorkspaces = [workspace]
@@ -125,6 +129,8 @@ struct CloudWorkspaceCreationSidebarTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
+            fixture.manager.window = fixture.window
+            fixture.window.makeKeyAndOrderFront(nil)
             let workspace = SurfaceRemoteWorkspace(id: "ws_cancel", name: "Cancel", index: 0, focused: true)
             fixture.provider.createdWorkspaces = [workspace]
             fixture.provider.info.remoteWorkspaces = [workspace]
