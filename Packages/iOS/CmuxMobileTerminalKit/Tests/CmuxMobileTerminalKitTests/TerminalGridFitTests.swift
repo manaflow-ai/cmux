@@ -95,7 +95,7 @@ import Testing
     private let viewport = CGRect(x: 0, y: 100, width: 390, height: 600)
 
     /// 175×78 on the 54×44 phone: the whole grid shows, scaled to the width
-    /// and bottom-pinned, with slack above it.
+    /// and top-pinned, with slack below it.
     @Test func largerOnBothAxesFitsTheWidth() {
         let layout = TerminalScaledGridLayout(gridSize: CGSize(width: 1260, height: 1060.8), viewport: viewport)
         let scale = 390.0 / 1260.0
@@ -105,7 +105,7 @@ import Testing
         #expect(abs(layout.displayRect.width - 390) < 1e-9)
         #expect(abs(layout.displayRect.height - 1060.8 * scale) < 1e-9)
         #expect(layout.displayRect.minX == 0)
-        #expect(abs(layout.displayRect.maxY - viewport.maxY) < 1e-9)
+        #expect(layout.displayRect.minY == viewport.minY)
         #expect(layout.displayRect.height < viewport.height)
         #expect(layout.offset == .zero)
     }
@@ -115,7 +115,7 @@ import Testing
         let layout = TerminalScaledGridLayout(gridSize: grid, viewport: viewport)
         #expect(abs(layout.displayRect.width - 390) < 1e-9)
         #expect(abs(layout.displayRect.width / layout.displayRect.height - grid.width / grid.height) < 1e-9)
-        #expect(abs(layout.displayRect.maxY - viewport.maxY) < 1e-9)
+        #expect(layout.displayRect.minY == viewport.minY)
     }
 
     /// Taller only: the width already fits, so nothing shrinks. The grid
@@ -139,7 +139,7 @@ import Testing
     @Test func gridThatFitsIsNotEnlarged() {
         let layout = TerminalScaledGridLayout(gridSize: CGSize(width: 300, height: 400), viewport: viewport)
         #expect(layout.displayScale == 1)
-        #expect(layout.displayRect == CGRect(x: 0, y: 300, width: 300, height: 400))
+        #expect(layout.displayRect == CGRect(x: 0, y: 100, width: 300, height: 400))
     }
 
     @Test func magnificationIsClampedBetweenFitAndOneToOne() {
@@ -183,7 +183,7 @@ import Testing
         let refit = top.zoomed(to: 1, about: focus)
         #expect(refit.magnification == 1)
         #expect(refit.displayRect.minX == viewport.minX)
-        #expect(abs(refit.displayRect.maxY - viewport.maxY) < 1e-6)
+        #expect(refit.displayRect.minY == viewport.minY)
     }
 
     /// A viewport change (keyboard, rotation) keeps the magnification and
@@ -202,5 +202,17 @@ import Testing
         #expect(shorter.magnification == 3)
         #expect(abs(shorter.displayRect.minY - 100) < 1e-6)
         #expect(abs(shorter.displayRect.maxX - 390) < 1e-6)
+    }
+
+    /// A scaled grid shorter than the viewport stays top-pinned at every
+    /// magnification that leaves it shorter; a pan cannot move it off the top.
+    @Test func shortScaledGridStaysTopPinned() {
+        let layout = TerminalScaledGridLayout(
+            gridSize: CGSize(width: 1260, height: 408), viewport: viewport, magnification: 1.2,
+            offset: CGPoint(x: 0, y: 40)
+        )
+        #expect(layout.displayRect.height < viewport.height)
+        #expect(layout.displayRect.minY == viewport.minY)
+        #expect(layout.offset.y == 0)
     }
 }

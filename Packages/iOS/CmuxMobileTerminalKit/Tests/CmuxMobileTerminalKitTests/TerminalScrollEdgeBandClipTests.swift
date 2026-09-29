@@ -20,38 +20,36 @@ import Testing
         CGSize(width: gridSize.width, height: gridSize.height + topInset + bottomInset)
     }
 
-    @Test func scaledGridBelowTheViewportTopHidesTheTopBand() throws {
+    /// A scaled grid shorter than the viewport is top-pinned: the top band
+    /// sits under the navigation bar as usual, and the bottom band would
+    /// render the rows below the grid in the unused area, so it is hidden.
+    @Test func topPinnedScaledGridHidesOnlyTheBottomBand() throws {
         let layout = TerminalScaledGridLayout(gridSize: gridSize, viewport: viewport)
         #expect(layout.isScaled)
-        #expect(layout.displayRect.minY > viewport.minY)
+        #expect(layout.displayRect.minY == viewport.minY)
+        #expect(layout.displayRect.maxY < viewport.maxY)
 
         let visible = try #require(TerminalScrollEdgeBandClip.visibleLayerRect(
             layerSize: layerSize,
             topInset: topInset,
+            bottomInset: bottomInset,
             gridDisplayRect: layout.displayRect,
             viewportRect: viewport
         ))
-        // Layer-local, unscaled: everything from the grid's top row down.
-        #expect(visible == CGRect(x: 0, y: topInset, width: layerSize.width, height: layerSize.height - topInset))
-
-        // Mapped to the view, the visible part starts exactly at the
-        // displayed grid, so nothing renders in the slack above it.
-        let scale = layout.displayScale
-        let layerTopInView = layout.displayRect.minY - topInset * scale
-        #expect(abs(layerTopInView + visible.minY * scale - layout.displayRect.minY) < 0.001)
+        // Layer-local, unscaled: everything down to the grid's last row.
+        #expect(visible == CGRect(x: 0, y: 0, width: layerSize.width, height: topInset + gridSize.height))
     }
 
-    @Test func scaledGridKeepsTheChipAndBorderOnTheDisplayedGrid() throws {
+    @Test func topPinnedScaledGridPutsTheChipBelowTheGrid() throws {
         let layout = TerminalScaledGridLayout(gridSize: gridSize, viewport: viewport)
         let decoration = TerminalSizingBoundsDecoration(
             gridColumns: 120, gridRows: 40, viewerColumns: 66, viewerRows: 41
         )
         let geometry = decoration.geometry(viewportRect: viewport, renderRect: layout.displayRect)
         let border = try #require(geometry.borderRect)
-        #expect(abs(border.minX - layout.displayRect.minX) < 0.001)
         #expect(abs(border.minY - layout.displayRect.minY) < 0.001)
-        #expect(abs(border.width - layout.displayRect.width) < 0.001)
         #expect(abs(border.height - layout.displayRect.height) < 0.001)
+        #expect(geometry.borderEdges == [.bottom])
 
         let placement = TerminalSizingChipPlacement.place(
             chipSize: CGSize(width: 190, height: 24),
@@ -59,16 +57,8 @@ import Testing
             gridRect: layout.displayRect,
             viewportRect: viewport
         )
-        #expect(placement.anchor == .aboveGrid)
+        #expect(placement.anchor == .belowGrid)
         #expect(!placement.frame.intersects(layout.displayRect))
-        // The chip sits where the top band would have rendered scrollback.
-        let bandInView = CGRect(
-            x: layout.displayRect.minX,
-            y: layout.displayRect.minY - topInset * layout.displayScale,
-            width: layout.displayRect.width,
-            height: topInset * layout.displayScale
-        )
-        #expect(placement.frame.intersects(bandInView))
     }
 
     @Test func letterboxedGridBelowTheViewportTopHidesTheTopBand() {
@@ -77,6 +67,7 @@ import Testing
         let visible = TerminalScrollEdgeBandClip.visibleLayerRect(
             layerSize: size,
             topInset: topInset,
+            bottomInset: bottomInset,
             gridDisplayRect: grid,
             viewportRect: viewport
         )
@@ -90,6 +81,7 @@ import Testing
         #expect(TerminalScrollEdgeBandClip.visibleLayerRect(
             layerSize: CGSize(width: 402, height: 482 + topInset + bottomInset),
             topInset: topInset,
+            bottomInset: bottomInset,
             gridDisplayRect: grid,
             viewportRect: viewport
         ) == nil)
@@ -108,6 +100,7 @@ import Testing
         #expect(TerminalScrollEdgeBandClip.visibleLayerRect(
             layerSize: CGSize(width: tall.width, height: tall.height + topInset + bottomInset),
             topInset: topInset,
+            bottomInset: bottomInset,
             gridDisplayRect: layout.displayRect,
             viewportRect: viewport
         ) == nil)
@@ -118,8 +111,23 @@ import Testing
         #expect(TerminalScrollEdgeBandClip.visibleLayerRect(
             layerSize: gridSize,
             topInset: 0,
+            bottomInset: 0,
             gridDisplayRect: layout.displayRect,
             viewportRect: viewport
         ) == nil)
+    }
+
+    /// A top-pinned letterbox (a shared grid shorter than the phone) keeps
+    /// the top band and hides the bottom band below the grid.
+    @Test func topPinnedLetterboxHidesTheBottomBand() {
+        let grid = CGRect(x: 0, y: viewport.minY, width: 300, height: 280)
+        let size = CGSize(width: 300, height: 280 + topInset + bottomInset)
+        #expect(TerminalScrollEdgeBandClip.visibleLayerRect(
+            layerSize: size,
+            topInset: topInset,
+            bottomInset: bottomInset,
+            gridDisplayRect: grid,
+            viewportRect: viewport
+        ) == CGRect(x: 0, y: 0, width: 300, height: topInset + 280))
     }
 }
