@@ -111,7 +111,7 @@ def test_zsh_shim_refresh_is_silent_and_refreshes_under_noclobber() -> None:
 
     with tempfile.TemporaryDirectory(prefix="cmux-6714-") as td:
         tmp = Path(td)
-        (tmp / "home").mkdir()
+        (tmp / "home" / ".cmuxterm").mkdir(parents=True)
         proc = _run_driver(tmp)
         debug = (
             f"\nexit={proc.returncode}"
