@@ -15,6 +15,7 @@ import {
 } from "../../../../services/billing/subscriptionManagement";
 import { captureBillingError } from "../../../../services/errors";
 import { browserMutationOriginAllowed } from "../../../../services/vms/routeHelpers";
+import { canManageTeamBilling } from "../../../../services/billing/teamBillingPermission";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -67,11 +68,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const applied = await applySubscriptionAction({
-      scope,
-      ownerId: scope === "team" ? await verifiedBillingTeamId(user, formData) : user.id,
-      action,
-    });
+    const ownerId = scope === "team" ? await verifiedBillingTeamId(user, formData) : user.id;
+    if (scope === "team" && !(await canManageTeamBilling(user, ownerId))) {
+      return billingRedirect(request, "team_admin_only");
+    }
+    const applied = await applySubscriptionAction({ scope, ownerId, action });
     if (!applied) {
       return billingRedirect(request, "nosub");
     }
@@ -123,7 +124,7 @@ async function verifiedBillingTeamId(user: unknown, formData: FormData): Promise
 
 function billingRedirect(
   request: NextRequest,
-  billing: "cancelled" | "resumed" | "nosub" | "error",
+  billing: "cancelled" | "resumed" | "nosub" | "error" | "team_admin_only",
 ) {
   const url = new URL(localizedBillingPath(request), request.url);
   url.searchParams.set("billing", billing);

@@ -35,6 +35,7 @@ import {
   resolveProPlanStatus,
 } from "@/services/billing/pro";
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
+import { canManageTeamBilling } from "@/services/billing/teamBillingPermission";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
@@ -96,7 +97,8 @@ export default async function DashboardBillingPage({
     billingTeamPromise,
     latestActiveStripeSubscription(user.id),
   ]);
-  const [teamSubscription, hasTeamStripeCustomer] = await teamBillingDetails(billingTeam?.id);
+  const [teamSubscription, hasTeamStripeCustomer, canChangeTeamBilling] =
+    await teamBillingDetails(user, billingTeam?.id);
   const goPlanEnabled = await isGoPlanEnabled(user.id);
   const banner = billingBanner(firstBillingParam(query?.billing));
   // Use the resolver's authoritative recoverability state for the personal
@@ -141,11 +143,15 @@ export default async function DashboardBillingPage({
       {teamPaymentPastDue ? (
         <div className="mb-3 border border-border bg-background p-3 text-sm">
           <span>{t("banners.pastDue")}</span>{" "}
-          {/* The portal route creates a session and needs a full document navigation. */}
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a href="/api/billing/portal?scope=team" className="underline">
-            {t("actions.manageBilling")}
-          </a>
+          {canChangeTeamBilling ? (
+            // The portal route creates a session and needs a full document navigation.
+            // eslint-disable-next-line @next/next/no-html-link-for-pages
+            <a href="/api/billing/portal?scope=team" className="underline">
+              {t("actions.manageBilling")}
+            </a>
+          ) : (
+            <span>{t("banners.teamAdminOnly")}</span>
+          )}
         </div>
       ) : null}
 
@@ -175,6 +181,7 @@ export default async function DashboardBillingPage({
           team={billingTeam}
           subscription={teamSubscription}
           canManageBilling={hasTeamStripeCustomer}
+          canChangeBilling={canChangeTeamBilling}
         />
       ) : null}
     </div>
@@ -514,12 +521,14 @@ function TeamPlan({
   team,
   subscription,
   canManageBilling,
+  canChangeBilling,
 }: {
   t: Awaited<ReturnType<typeof getTranslations>>;
   locale: string;
   team: BillingTeamLike;
   subscription: StripeSubscriptionRow;
   canManageBilling: boolean;
+  canChangeBilling: boolean;
 }) {
   const periodDate = subscription.currentPeriodEnd
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
@@ -545,60 +554,82 @@ function TeamPlan({
         {price ? <BillingMetric label={t("details.price")} value={price} /> : null}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-start gap-2">
-        {subscription.cancelAtPeriodEnd ? (
-          <form method="post" action="/api/billing/subscription">
+      {canChangeBilling ? (
+        <TeamBillingActions t={t} team={team} subscription={subscription} periodDate={periodDate} canManageBilling={canManageBilling} />
+      ) : (
+        <p className="mt-4 text-muted">{t("banners.teamAdminOnly")}</p>
+      )}
+    </section>
+  );
+}
+
+function TeamBillingActions({
+  t,
+  team,
+  subscription,
+  periodDate,
+  canManageBilling,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  team: BillingTeamLike;
+  subscription: StripeSubscriptionRow;
+  periodDate: string;
+  canManageBilling: boolean;
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap items-start gap-2">
+      {subscription.cancelAtPeriodEnd ? (
+        <form method="post" action="/api/billing/subscription">
+          <input type="hidden" name="scope" value="team" />
+          <input type="hidden" name="teamId" value={team.id} />
+          <input type="hidden" name="action" value="resume" />
+          <button
+            type="submit"
+            className="border border-border bg-foreground px-3 py-1.5 text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+          >
+            {t("actions.resume")}
+          </button>
+        </form>
+      ) : (
+        <details className="border border-border px-3 py-1.5">
+          <summary className="cursor-pointer text-foreground">{t("actions.cancelSummary")}</summary>
+          <form method="post" action="/api/billing/subscription" className="mt-3 max-w-md">
             <input type="hidden" name="scope" value="team" />
             <input type="hidden" name="teamId" value={team.id} />
-            <input type="hidden" name="action" value="resume" />
+            <input type="hidden" name="action" value="cancel" />
+            <p className="text-muted">{t("cancel.teamBody", { date: periodDate })}</p>
+            <label className="mt-3 flex items-start gap-2 text-muted">
+              <input
+                required
+                type="checkbox"
+                name="confirm"
+                value="yes"
+                className="mt-0.5"
+              />
+              <span>{t("cancel.checkbox")}</span>
+            </label>
             <button
               type="submit"
-              className="border border-border bg-foreground px-3 py-1.5 text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+              className="mt-3 border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
             >
-              {t("actions.resume")}
+              {t("actions.confirmCancel")}
             </button>
           </form>
-        ) : (
-          <details className="border border-border px-3 py-1.5">
-            <summary className="cursor-pointer text-foreground">{t("actions.cancelSummary")}</summary>
-            <form method="post" action="/api/billing/subscription" className="mt-3 max-w-md">
-              <input type="hidden" name="scope" value="team" />
-              <input type="hidden" name="teamId" value={team.id} />
-              <input type="hidden" name="action" value="cancel" />
-              <p className="text-muted">{t("cancel.teamBody", { date: periodDate })}</p>
-              <label className="mt-3 flex items-start gap-2 text-muted">
-                <input
-                  required
-                  type="checkbox"
-                  name="confirm"
-                  value="yes"
-                  className="mt-0.5"
-                />
-                <span>{t("cancel.checkbox")}</span>
-              </label>
-              <button
-                type="submit"
-                className="mt-3 border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
-              >
-                {t("actions.confirmCancel")}
-              </button>
-            </form>
-          </details>
-        )}
+        </details>
+      )}
 
-        {canManageBilling ? (
-          // This API route creates a Stripe portal session and must perform a
-          // full document navigation rather than a Next.js client transition.
-          // eslint-disable-next-line @next/next/no-html-link-for-pages
-          <a
-            href="/api/billing/portal?scope=team"
-            className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
-          >
-            {t("actions.manageBilling")}
-          </a>
-        ) : null}
-      </div>
-    </section>
+      {canManageBilling ? (
+        // This API route creates a Stripe portal session and must perform a
+        // full document navigation rather than a Next.js client transition.
+        // eslint-disable-next-line @next/next/no-html-link-for-pages
+        <a
+          href="/api/billing/portal?scope=team"
+          className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("actions.manageBilling")}
+        </a>
+      ) : null}
+    </div>
   );
 }
 
@@ -612,6 +643,7 @@ function BillingMetric({ label, value }: { label: string; value: string }) {
 }
 
 function billingBanner(value: string | undefined) {
+  if (value === "team_admin_only") return "teamAdminOnly";
   return value === "cancelled" || value === "resumed" || value === "nosub" || value === "error"
     ? value
     : null;
@@ -688,9 +720,15 @@ function formatBillingDate(date: Date, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
 }
 
-async function teamBillingDetails(teamId: string | undefined) {
-  if (!teamId) return [null, false] as const;
-  return Promise.all([latestActiveStripeSubscriptionForTeam(teamId), hasTeamCustomerRow(teamId)]);
+async function teamBillingDetails(user: unknown, teamId: string | undefined) {
+  if (!teamId) return [null, false, false] as const;
+  // Members see the team plan; only a team billing administrator gets the
+  // cancel, resume, and portal controls the API routes would otherwise refuse.
+  return Promise.all([
+    latestActiveStripeSubscriptionForTeam(teamId),
+    hasTeamCustomerRow(teamId),
+    canManageTeamBilling(user, teamId).catch(() => false),
+  ]);
 }
 
 function firstBillingParam(value: string | string[] | undefined) {
