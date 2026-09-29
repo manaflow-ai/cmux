@@ -1693,6 +1693,11 @@ impl WorkspaceRegistry {
                 .map(|(revision, _)| revision)
             })
             .transpose()?;
+        if let Some(ledger) = workspace_ledger
+            && let Some(update) = &ledger.presentation
+        {
+            presentation_store::write_workspace_presentation(&tx, &ledger.workspace_key, update)?;
+        }
 
         apply_resource_patch(&tx, patch, sqlite_revision)?;
         tx.execute(
@@ -2158,6 +2163,9 @@ pub struct ResourceWorkspaceLedger {
     pub workspace_key: String,
     pub workspaces: Vec<RegistryWorkspace>,
     pub legacy_result: Value,
+    /// Presentation (such as the group of a workspace the commit creates)
+    /// written in the same transaction.
+    pub presentation: Option<WorkspacePresentationUpdate>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

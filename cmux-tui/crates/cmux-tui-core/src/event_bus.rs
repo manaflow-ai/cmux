@@ -730,6 +730,7 @@ mod tests {
             index: Some(0),
             entity: serde_json::json!({}),
             workspace_revision: None,
+            transaction: None,
         }));
 
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
@@ -748,6 +749,7 @@ mod tests {
             index: Some(0),
             entity: serde_json::json!({}),
             workspace_revision: None,
+            transaction: None,
         };
 
         broadcaster.emit(MuxEvent::TreeDelta(moved));

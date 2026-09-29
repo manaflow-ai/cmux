@@ -63,6 +63,12 @@ The modeless `Alt-n` binding creates a new pane and reapplies Zellij's default d
 
 Each screen keeps an in-memory history of its latest structural layout actions. `Ctrl-b U` undoes the newest entry on the focused screen. Repeated changes to one divider are coalesced. Undoing pane creation requires confirmation because it removes the pane's tab placements and closes single-view browser surfaces. PTY terminal resources remain session-owned. The confirmation carries the exact layout revision, so a later layout action makes an older prompt fail without changing anything. A direct pane close clears the history because the journal cannot reconstruct exact removed tab membership or a closed browser target.
 
+Tab drags are single commands. Dropping a tab on a pane edge, between
+columns, on another pane's tab strip, or on the sidebar moves the existing
+placement in one commit, so the terminal never restarts. A drag that stays on
+one screen and keeps its source pane is one layout-undo entry; undo moves the
+tab back instead of closing the pane it created.
+
 ## Collapse Behavior
 
 Closing a tab removes one placement. A PTY terminal remains addressable with zero or more placements; closing its process requires `terminal.close`. A browser closes with its only tab. If the pane still has tabs, the active tab index moves to a remaining tab.

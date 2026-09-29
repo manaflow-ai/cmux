@@ -134,6 +134,20 @@ frames for them, and `attach-surface` refuses them. Tabs report
 `browser_renderer:"frontend"` and `browser_engine`. CDP browser tabs keep
 their existing behavior and report `browser_renderer:"daemon"`.
 
+`tab-drag-v1` makes every tab drag outcome one atomic command:
+`move-tab` (pane and index, across screens and workspaces),
+`move-tab-to-split` (pane edge), `move-tab-to-column` (new niri column),
+`move-tab-to-workspace`, and `move-tab-to-new-workspace` (optional group and
+index; returns the new workspace). Each takes an optional client
+`transaction`, echoed in the moved tab's `tab-changed` delta. Drags that stay
+on one screen and keep their source pane record a layout-undo entry that
+moves the tab back without closing anything:
+
+```json
+{"id":15,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","transaction":"drop-9"}
+{"id":16,"cmd":"undo-layout","pane":2}
+```
+
 ## Events
 
 `subscribe` starts event streaming:

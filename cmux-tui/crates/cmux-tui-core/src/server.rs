@@ -140,6 +140,10 @@ pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 /// `update-frontend-browser-tab`, and the `browser_renderer`,
 /// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
 pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
+/// Tab drag outcomes as single atomic commands: `move-tab-to-split`,
+/// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
+/// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
+pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -246,6 +250,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         WORKSPACE_METADATA_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
+        TAB_DRAG_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1274,6 +1279,8 @@ enum Command {
         surface: SurfaceId,
         pane: PaneId,
         index: usize,
+        #[serde(default)]
+        transaction: Option<String>,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {
@@ -1284,6 +1291,42 @@ enum Command {
         surface: SurfaceId,
         #[serde(default)]
         workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Drop a tab on a pane edge: a new split beside `pane` holding the tab.
+    MoveTabToSplit {
+        surface: SurfaceId,
+        pane: PaneId,
+        edge: String,
+        #[serde(default)]
+        ratio: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Drop a tab between niri columns: a new column holding the tab.
+    MoveTabToColumn {
+        surface: SurfaceId,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        screen: Option<ScreenId>,
+        #[serde(default)]
+        after_column: Option<SplitId>,
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Drop a tab on the sidebar: a new workspace holding the tab.
+    MoveTabToNewWorkspace {
+        surface: SurfaceId,
+        #[serde(default)]
+        group: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        transaction: Option<String>,
     },
     MoveWorkspace {
         #[serde(default)]
@@ -1610,6 +1653,39 @@ impl Command {
                 | Self::ScrollSurface { .. }
         )
     }
+}
+
+/// A client transaction id: opaque, 1-128 printable ASCII characters.
+fn validate_client_transaction(transaction: Option<&str>) -> anyhow::Result<()> {
+    if let Some(transaction) = transaction {
+        anyhow::ensure!(
+            !transaction.is_empty()
+                && transaction.len() <= 128
+                && transaction.bytes().all(|byte| byte.is_ascii_graphic()),
+            "bad request: transaction must be 1-128 printable ASCII characters"
+        );
+    }
+    Ok(())
+}
+
+fn surface_placement(mux: &Mux, surface: SurfaceId) -> (Option<WorkspaceId>, Option<PaneId>) {
+    mux.with_state(|state| {
+        let pane = state.pane_of(surface);
+        let workspace = pane
+            .and_then(|pane| state.screen_of(pane))
+            .map(|(workspace, _)| state.workspaces[workspace].id);
+        (workspace, pane)
+    })
+}
+
+fn tab_drag_outcome_json(outcome: &crate::TabDragOutcome) -> Value {
+    json!({
+        "surface": outcome.surface,
+        "pane": outcome.pane,
+        "screen": outcome.screen,
+        "workspace": outcome.workspace,
+        "undoable": outcome.undoable,
+    })
 }
 
 /// Deserialize a field whose absence and `null` mean different things:
@@ -10256,6 +10332,9 @@ fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     if let Some(index) = delta.index {
         value["index"] = json!(index);
     }
+    if let Some(transaction) = &delta.transaction {
+        value["transaction"] = json!(transaction.as_ref());
+    }
     if let Some(revision) = delta.workspace_revision {
         value["workspace_revision"] = json!(revision);
         if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
@@ -12675,11 +12754,66 @@ fn handle_command_with_cancellation(
                 "generation":generation,
             }))
         }
-        Command::MoveTabToWorkspace { surface, workspace } => {
+        Command::MoveTabToWorkspace { surface, workspace, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
             mux.move_tab_to_workspace(surface, workspace)?;
-            Ok(json!({}))
+            mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
+            let (workspace, pane) = surface_placement(mux, surface);
+            Ok(json!({"surface": surface, "workspace": workspace, "pane": pane, "undoable": false}))
         }
-        Command::MoveTab { surface, pane, index } => {
+        Command::MoveTabToSplit { surface, pane, edge, ratio, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            get_surface(mux, surface)?;
+            let edge = crate::TabDropEdge::parse(&edge)?;
+            let outcome = mux.move_tab_to_split(surface, pane, edge, ratio, transaction)?;
+            Ok(tab_drag_outcome_json(&outcome))
+        }
+        Command::MoveTabToColumn { surface, pane, screen, after_column, width, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            get_surface(mux, surface)?;
+            let anchor = match (pane, screen) {
+                (Some(pane), None) => pane,
+                (None, Some(screen)) => mux
+                    .with_state(|state| {
+                        state
+                            .workspaces
+                            .iter()
+                            .flat_map(|workspace| workspace.screens.iter())
+                            .find_map(|candidate| {
+                                (candidate.id == screen).then_some(candidate.active_pane)
+                            })
+                    })
+                    .ok_or_else(|| anyhow::anyhow!("unknown screen {screen}"))?,
+                _ => anyhow::bail!("bad request: exactly one of pane or screen"),
+            };
+            let outcome =
+                mux.move_tab_to_column(surface, anchor, after_column, width, transaction)?;
+            Ok(tab_drag_outcome_json(&outcome))
+        }
+        Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            get_surface(mux, surface)?;
+            let workspace = mux.move_tab_to_new_workspace(surface, group.clone(), index)?;
+            mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
+            let (key, workspace_index) = mux
+                .with_state(|state| {
+                    let index = state.workspace_index(workspace)?;
+                    Some((state.workspaces[index].key.clone(), index))
+                })
+                .ok_or_else(|| anyhow::anyhow!("new workspace disappeared"))?;
+            let (_, pane) = surface_placement(mux, surface);
+            Ok(json!({
+                "surface": surface,
+                "workspace": workspace,
+                "key": key,
+                "index": workspace_index,
+                "group": group,
+                "pane": pane,
+                "undoable": false,
+            }))
+        }
+        Command::MoveTab { surface, pane, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
             let valid = mux.with_state(|state| {
                 state.surfaces.contains_key(&surface)
                     && state.panes.contains_key(&pane)
@@ -12689,8 +12823,8 @@ fn handle_command_with_cancellation(
                 anyhow::bail!("unknown surface/pane");
             }
             let index = mux.pinned_tab_move_index(surface, pane, index);
-            mux.move_tab(surface, pane, index);
-            Ok(json!({}))
+            let (moved, undoable) = mux.move_tab_with_undo(surface, pane, index, transaction);
+            Ok(json!({"moved": moved, "undoable": undoable}))
         }
         Command::SetTabPinned { surface, pinned } => {
             get_surface(mux, surface)?;
@@ -21447,6 +21581,74 @@ mod tests {
             json!({"cmd":"attach-surface","surface":surface,"cols":80,"rows":24}),
         );
         assert!(attach.unwrap_err().to_string().contains("frontend-rendered"));
+    }
+
+    #[test]
+    fn cmux_next_tab_drag_commands_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TAB_DRAG_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let third = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let split = run_json_command(
+            &mux,
+            json!({
+                "cmd":"move-tab-to-split",
+                "surface":second,
+                "pane":pane,
+                "edge":"right",
+                "transaction":"tx-split",
+            }),
+        )
+        .unwrap();
+        assert_eq!(split["undoable"], true);
+        let split_pane = split["pane"].as_u64().unwrap();
+        assert_ne!(split_pane, pane);
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"move-tab-to-split","surface":third,"pane":pane,"edge":"middle"}),
+            )
+            .is_err()
+        );
+        let screen = mux
+            .with_state(|state| {
+                state.screen_of(pane).map(|(w, s)| state.workspaces[w].screens[s].id)
+            })
+            .unwrap();
+        let column = run_json_command(
+            &mux,
+            json!({"cmd":"move-tab-to-column","surface":third,"screen":screen}),
+        )
+        .unwrap();
+        assert_eq!(column["screen"], screen);
+        let moved = run_json_command(
+            &mux,
+            json!({
+                "cmd":"move-tab",
+                "surface":third,
+                "pane":split_pane,
+                "index":0,
+                "transaction":"tx-move",
+            }),
+        )
+        .unwrap();
+        assert_eq!(moved["moved"], true);
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"move-tab-to-new-workspace","surface":third,"transaction":"tx-new"}),
+        )
+        .unwrap();
+        assert!(created["workspace"].as_u64().is_some());
+        assert!(created["key"].as_str().is_some());
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"move-tab","surface":first,"pane":split_pane,"index":0,"transaction":""}),
+            )
+            .is_err()
+        );
     }
 
     #[cfg(unix)]

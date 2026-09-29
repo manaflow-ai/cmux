@@ -254,7 +254,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`.
 
 Errors:
 
@@ -3149,6 +3149,13 @@ Example:
 {"id":26,"ok":true,"data":{}}
 ```
 
+With `tab-drag-v1`, `move-tab` accepts an optional `transaction` (echoed in the
+moved tab's `tab-changed` delta) and returns `object{moved:bool, undoable:bool}`.
+A move between two panes of one screen whose source pane keeps a tab records a
+layout-undo entry that moves the tab back. Same-pane reorders are not
+undoable. With `tab-metadata-v1`, the index is clamped so pinned tabs stay
+first.
+
 ### set-tab-pinned
 
 | Field | Value |
@@ -3194,9 +3201,108 @@ move. The destination becomes selected. Unknown source/destination IDs fail.
 Provider-owned workspace creation is rejected. The server advertises
 `tab-workspace-move-v1`; clients hide these UI actions for older owners.
 
+With `tab-drag-v1` the command accepts an optional `transaction`, echoed in
+the moved tab's `tab-changed` delta, and returns
+`object{surface:Id, workspace:Id, pane:Id, undoable:false}`.
+
 ```json
 {"id":26,"cmd":"move-tab-to-workspace","surface":1}
 {"id":26,"ok":true,"data":{}}
+```
+
+### move-tab-to-split
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-split` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-drag-v1` |
+
+Drops a tab on a pane edge: creates a pane beside `pane` on `edge` and moves
+the tab into it, in one atomic commit. The tab keeps its terminal or browser;
+nothing restarts. The source pane collapses when it loses its last tab. A tab
+cannot be split out of a pane where it is the only tab.
+
+When the source pane survives on the destination screen, the drag records one
+layout-undo entry: `undo-layout` on that screen moves the tab back to its
+original pane and index and removes the created pane, without confirmation
+and without closing anything. Other drags clear the undo history of the
+screens they touch and return `undoable:false`.
+
+Emits `tree-changed`, `layout-changed`, and `tab-changed` for the moved tab;
+`tab-changed` carries `transaction` when the request did.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Tab to move |
+| `pane` | `Id` | required | Pane whose edge received the drop |
+| `edge` | string | required | `"left"`, `"right"`, `"top"`, or `"bottom"` |
+| `ratio` | float | default 0.5 | The new pane's share, 0.05 through 0.95 |
+| `transaction` | string | optional | Client id echoed in `tab-changed`; 1-128 printable ASCII |
+
+Result:
+
+```text
+object{surface:Id, pane:Id, screen:Id, workspace:Id, undoable:bool}
+```
+
+### move-tab-to-column
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-column` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-drag-v1` |
+
+Drops a tab between niri columns: creates a horizontal viewport column on the
+screen and moves the tab into it, in one atomic commit, with the same undo,
+event, and transaction rules as `move-tab-to-split`. A screen without columns
+becomes a two-column screen.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Tab to move |
+| `pane` | `Id` | exactly one of `pane`/`screen` | Any pane on the destination screen |
+| `screen` | `Id` | exactly one of `pane`/`screen` | Destination screen |
+| `after_column` | `Id` | default: after the last column | Column (`Screen.columns[].id`) to insert after |
+| `width` | float | default 2/3 | Column width as a fraction of the viewport, 0.1 through 1.0 |
+| `transaction` | string | optional | As in `move-tab-to-split` |
+
+Result: as `move-tab-to-split`.
+
+### move-tab-to-new-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-new-workspace` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-drag-v1` |
+
+Drops a tab on the sidebar: creates a workspace holding the tab in one
+durable transaction, like `move-tab-to-workspace` without a destination, and
+optionally places it in a group at a final index among that section's
+members (the group membership commits in the same transaction). Without
+`index` the workspace goes after the section's last member. The move is not
+layout-undoable. Frontends tear a tab off into a new window by opening the
+returned workspace there.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Tab to move |
+| `group` | string | optional | Existing group id |
+| `index` | usize | optional | Final index among the section's members |
+| `transaction` | string | optional | As in `move-tab-to-split` |
+
+Result:
+
+```text
+object{surface:Id, workspace:Id, key:string, index:usize, group:string|null, pane:Id, undoable:false}
 ```
 
 ### move-workspace

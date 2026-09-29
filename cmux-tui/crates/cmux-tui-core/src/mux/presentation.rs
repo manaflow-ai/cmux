@@ -138,7 +138,7 @@ fn tab_is_pinned(state: &State, presentation: &PresentationSnapshot, surface: Su
         .is_some_and(|tab| presentation.pinned_tabs.contains(tab.as_str()))
 }
 
-fn tab_changed_delta(
+pub(super) fn tab_changed_delta(
     state: &State,
     decorations: &TreeDecorations,
     surface: SurfaceId,
@@ -157,6 +157,7 @@ fn tab_changed_delta(
         index,
         entity,
         workspace_revision: None,
+        transaction: None,
     })
 }
 
@@ -176,7 +177,7 @@ impl Mux {
 
     /// Reload the presentation snapshot from the registry. The caller holds
     /// the registry lock, so no other commit can interleave.
-    fn reload_presentation(&self, registry: &WorkspaceRegistry) -> anyhow::Result<()> {
+    pub(super) fn reload_presentation(&self, registry: &WorkspaceRegistry) -> anyhow::Result<()> {
         let snapshot = registry.presentation_snapshot()?;
         *self.presentation.lock().unwrap() = Arc::new(snapshot);
         Ok(())
@@ -257,14 +258,7 @@ impl Mux {
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,
     /// unread marker) changed, with the refreshed tab entity.
     pub(crate) fn emit_tab_changed(&self, surface: SurfaceId) {
-        let decorations = self.tree_decorations();
-        let delta = {
-            let state = self.state.lock().unwrap();
-            tab_changed_delta(&state, &decorations, surface)
-        };
-        if let Some(delta) = delta {
-            self.emit(MuxEvent::TreeDelta(delta));
-        }
+        self.emit_tab_changed_for_transaction(surface, None);
     }
 
     /// Refresh the git HEAD for a terminal whose directory changed and emit
@@ -595,6 +589,7 @@ impl Mux {
                     index: Some(new_idx),
                     entity,
                     workspace_revision: Some(commit.revision),
+                    transaction: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -698,6 +693,7 @@ impl Mux {
                     index: Some(index),
                     entity,
                     workspace_revision: Some(commit.revision),
+                    transaction: None,
                 },
                 workspace_mutation_result(&commit)?,
             )

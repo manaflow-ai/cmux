@@ -6,11 +6,13 @@ mod presentation;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
+mod tab_drag;
 mod terminal_directory;
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use presentation::{TabDirectory, TabPinChange, TreeDecorations, WorkspaceGroupChange};
 pub(crate) use resource_content::ResourceEffectProjection;
+pub use tab_drag::{TabDragOutcome, TabDropEdge};
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -1052,6 +1054,9 @@ pub struct TreeDelta {
     /// Present for ordered workspace-registry mutations. Consumers can apply
     /// only the exact next revision and refetch after a gap.
     pub workspace_revision: Option<u64>,
+    /// The client transaction id of the command that caused this delta, so
+    /// a frontend can reconcile its optimistic UI.
+    pub transaction: Option<Arc<str>>,
 }
 
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
@@ -4715,6 +4720,7 @@ impl Mux {
                     workspace_key: key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -4805,6 +4811,7 @@ impl Mux {
                     workspace_key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -4908,6 +4915,7 @@ impl Mux {
                     workspace_key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -5053,6 +5061,7 @@ impl Mux {
                     workspace_key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -5205,6 +5214,7 @@ impl Mux {
                     workspace_key,
                     workspaces: desired,
                     legacy_result: result,
+                    presentation: None,
                 })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
@@ -13053,6 +13063,7 @@ impl Mux {
                     index: Some(index),
                     entity,
                     workspace_revision: Some(revision),
+                    transaction: None,
                 },
                 selection_resync,
             )
@@ -13664,6 +13675,7 @@ impl Mux {
                             index: Some(index),
                             entity,
                             workspace_revision: None,
+                            transaction: None,
                         },
                         true,
                         created_path,
@@ -13714,6 +13726,7 @@ impl Mux {
                             index: Some(0),
                             entity,
                             workspace_revision: None,
+                            transaction: None,
                         },
                         false,
                         created_path,
@@ -13951,6 +13964,7 @@ impl Mux {
                         index: Some(0),
                         entity,
                         workspace_revision: None,
+                        transaction: None,
                     }
                 };
                 self.emit(MuxEvent::TreeDelta(delta));
@@ -14042,6 +14056,7 @@ impl Mux {
                     index: Some(index),
                     entity,
                     workspace_revision: Some(workspace_revision),
+                    transaction: None,
                 }
             };
             let selection_resync = delta.index.is_some_and(|index| index > 0);
@@ -14083,6 +14098,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
+                        transaction: None,
                     })
                 }
                 None => {
@@ -14163,6 +14179,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
+                        transaction: None,
                     },
                     true,
                 )
@@ -14203,6 +14220,7 @@ impl Mux {
                         index: Some(0),
                         entity,
                         workspace_revision: None,
+                        transaction: None,
                     },
                     false,
                 )
@@ -14315,6 +14333,7 @@ impl Mux {
                             index: Some(index),
                             entity,
                             workspace_revision: None,
+                            transaction: None,
                         })
                     })();
                     BrowserSurfaceAttach::Attached(delta)
@@ -15163,6 +15182,7 @@ impl Mux {
                     index: None,
                     entity,
                     workspace_revision: Some(workspace_revision),
+                    transaction: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -15229,6 +15249,7 @@ impl Mux {
                     index: None,
                     entity,
                     workspace_revision: None,
+                    transaction: None,
                 })
             })()
         };
@@ -15287,6 +15308,7 @@ impl Mux {
                 index: None,
                 entity,
                 workspace_revision: None,
+                transaction: None,
             }
         };
         self.emit(MuxEvent::TreeDelta(renamed));
@@ -16334,21 +16356,40 @@ impl Mux {
                     )
                     .into());
                 };
-                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
-                let Some(entry) = screen.layout_undo.pop_back() else {
-                    return Err(
-                        LayoutUndoError::Stale("layout undo disappeared".to_string()).into()
-                    );
+                let entry = {
+                    let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                    let Some(entry) = screen.layout_undo.pop_back() else {
+                        return Err(
+                            LayoutUndoError::Stale("layout undo disappeared".to_string()).into()
+                        );
+                    };
+                    if entry.after_revision != screen.layout_revision
+                        || expected_revision
+                            .is_some_and(|expected| expected != entry.after_revision)
+                    {
+                        screen.layout_undo.push_back(entry);
+                        return Err(LayoutUndoError::Stale(
+                            "layout changed before undo could commit".to_string(),
+                        )
+                        .into());
+                    }
+                    entry
                 };
-                if entry.after_revision != screen.layout_revision
-                    || expected_revision.is_some_and(|expected| expected != entry.after_revision)
-                {
-                    screen.layout_undo.push_back(entry);
-                    return Err(LayoutUndoError::Stale(
-                        "layout changed before undo could commit".to_string(),
+                if let Some(restore) = entry.tab_restore
+                    && let Err(error) = restore_dragged_tab(
+                        self,
+                        &mut state,
+                        workspace_index,
+                        screen_index,
+                        restore,
                     )
-                    .into());
+                {
+                    state.workspaces[workspace_index].screens[screen_index]
+                        .layout_undo
+                        .push_back(entry);
+                    return Err(error);
                 }
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                 let revision = screen.layout_revision.saturating_add(1);
                 screen.restore_layout_snapshot(entry.before);
                 screen.layout_revision = revision;
@@ -16626,6 +16667,7 @@ impl Mux {
                 index: Some(index),
                 entity,
                 workspace_revision: None,
+                transaction: None,
             }
         };
         let projection_result = self.with_state(|state| {
@@ -17247,6 +17289,7 @@ impl Mux {
                     index: Some(new_idx),
                     entity,
                     workspace_revision: Some(workspace_revision),
+                    transaction: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -18849,6 +18892,7 @@ fn close_surface_delta(
             index: Some(tab_index),
             entity,
             workspace_revision: None,
+            transaction: None,
         });
     }
     close_pane_delta(state, notifications, pane_id)
@@ -18876,6 +18920,7 @@ fn close_pane_delta(
             index: Some(panes.iter().position(|candidate| *candidate == pane)?),
             entity,
             workspace_revision: None,
+            transaction: None,
         });
     }
     close_screen_delta(state, notifications, screen.id)
@@ -18901,6 +18946,7 @@ fn close_screen_delta(
         index: Some(si),
         entity,
         workspace_revision: None,
+        transaction: None,
     })
 }
 
@@ -18925,6 +18971,7 @@ fn close_workspace_delta(
         index: Some(index),
         entity,
         workspace_revision: None,
+        transaction: None,
     })
 }
 
@@ -19123,6 +19170,73 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
     // stable workspace identity.
     stamp_changed_active_pane(mux, state, previous_active);
     (removed, true)
+}
+
+/// Undo one same-screen tab drag: move the tab back to its origin pane and
+/// index, and remove the pane the drag created. Every precondition is
+/// checked first, so a stale entry fails without changing anything.
+fn restore_dragged_tab(
+    mux: &Mux,
+    state: &mut State,
+    workspace_index: usize,
+    screen_index: usize,
+    restore: crate::model::LayoutUndoTabRestore,
+) -> anyhow::Result<()> {
+    let stale = |message: &str| anyhow::Error::new(LayoutUndoError::Stale(message.to_string()));
+    let screen_panes = state.workspaces[workspace_index].screens[screen_index].root.pane_ids_vec();
+    let current = state.pane_of(restore.surface).ok_or_else(|| stale("the dragged tab closed"))?;
+    if !screen_panes.contains(&restore.origin_pane)
+        || !state.panes.contains_key(&restore.origin_pane)
+    {
+        return Err(stale("the dragged tab's origin pane closed"));
+    }
+    if !screen_panes.contains(&current) {
+        return Err(stale("the dragged tab left its screen"));
+    }
+    match restore.created_pane {
+        Some(created) => {
+            let alone = state
+                .panes
+                .get(&created)
+                .is_some_and(|pane| pane.tabs.as_slice() == [restore.surface]);
+            if current != created || !alone {
+                return Err(stale("the pane created by the drag changed"));
+            }
+        }
+        None if current == restore.origin_pane => {
+            return Err(stale("the dragged tab is already in its origin pane"));
+        }
+        None => {}
+    }
+    {
+        let pane = state.panes.get_mut(&current).expect("checked current pane");
+        let old = pane
+            .tabs
+            .iter()
+            .position(|candidate| *candidate == restore.surface)
+            .expect("checked tab membership");
+        pane.tabs.remove(old);
+        if !pane.tabs.is_empty() && pane.active_tab >= old && pane.active_tab > 0 {
+            pane.active_tab -= 1;
+        }
+    }
+    if restore.created_pane == Some(current) {
+        state.remove_pane(current);
+    }
+    let origin = state.panes.get_mut(&restore.origin_pane).expect("checked origin pane");
+    let index = restore.origin_index.min(origin.tabs.len());
+    origin.tabs.insert(index, restore.surface);
+    origin.active_tab = index;
+    state.resource_indexes.tab_pane.insert(restore.surface, restore.origin_pane);
+    let workspace = state.workspaces[workspace_index].id;
+    let screen = state.workspaces[workspace_index].screens[screen_index].id;
+    mux.subscribers.update_surface_session_path(
+        restore.surface,
+        workspace,
+        screen,
+        restore.origin_pane,
+    );
+    Ok(())
 }
 
 fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {

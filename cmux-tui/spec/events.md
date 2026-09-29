@@ -501,8 +501,14 @@ notification marker. `entity` is the full refreshed `Tab`. It carries no
 workspace revision.
 
 ```text
-object{event:"tab-changed",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab}
+object{event:"tab-changed",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab,transaction?:string}
 ```
+
+After a tab drag command (`move-tab`, `move-tab-to-workspace`,
+`move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`), the
+moved tab's `tab-changed` carries the request's `transaction` so the frontend
+that dropped the tab can reconcile its optimistic layout. It follows the
+drag's `tree-changed`.
 
 ### tree-changed
 
