@@ -6,7 +6,7 @@ import Testing
 @Suite("Cloud banner core")
 struct CloudBannerCoreTests {
     @MainActor
-    @Test("separate clients preserve persisted dismissals")
+    @Test("two live clients preserve each other's dismissals")
     func clientsReadModifyWriteTheCurrentMap() {
         let suiteName = "cloud-banner-core-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -17,8 +17,9 @@ struct CloudBannerCoreTests {
         first.dismiss(id: "tunnel", signature: "awaiting-v1")
         second.dismiss(id: "stale", signature: "error-v1")
 
-        let restored = CloudBannerDismissalStore(defaults: defaults)
-        #expect(restored.isDismissed(id: "tunnel", signature: "awaiting-v1"))
-        #expect(restored.isDismissed(id: "stale", signature: "error-v1"))
+        #expect(first.isDismissed(id: "tunnel", signature: "awaiting-v1"))
+        #expect(first.isDismissed(id: "stale", signature: "error-v1"))
+        #expect(second.isDismissed(id: "tunnel", signature: "awaiting-v1"))
+        #expect(second.isDismissed(id: "stale", signature: "error-v1"))
     }
 }
