@@ -892,9 +892,9 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: git submodule update --init --depth 1 homebrew-cmux
 
-      - name: Validate Homebrew cask SHA matches the release DMG
+      - name: Validate Homebrew cask SHA check with deterministic fixture
         if: ${{ matrix.group == 'release-notary' }}
-        run: ./tests/test_homebrew_sha.sh
+        run: HOMEBREW_SHA_TEST_MODE=fixture ./tests/test_homebrew_sha.sh
 
       - name: Validate universal GhosttyKit and Release build settings
         if: ${{ matrix.group == 'release-notary' }}

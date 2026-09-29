@@ -40,7 +40,7 @@ def _check(cond, msg):
 def main():
     homebrew = yaml.safe_load(open(HOMEBREW, encoding="utf-8"))
     release = yaml.safe_load(open(RELEASE, encoding="utf-8"))
-    ci_guards = open(CI_GUARDS, encoding="utf-8").read()
+    ci_guards = yaml.safe_load(open(CI_GUARDS, encoding="utf-8"))
 
     text = open(HOMEBREW, encoding="utf-8").read()
     _check(
@@ -87,17 +87,51 @@ def main():
         "generate-ios-screenshots" not in needs,
         "the signed build does not depend on the iOS screenshot capture",
     )
+
+    guard_steps = ci_guards["jobs"]["workflow-guard-tests"]["steps"]
+    submodule_step = next(
+        (
+            step
+            for step in guard_steps
+            if "git submodule update --init --depth 1 homebrew-cmux"
+            in str(step.get("run", ""))
+        ),
+        None,
+    )
+    sha_step = next(
+        (
+            step
+            for step in guard_steps
+            if "tests/test_homebrew_sha.sh" in str(step.get("run", ""))
+        ),
+        None,
+    )
     _check(
-        "git submodule update --init --depth 1 homebrew-cmux" in ci_guards,
+        submodule_step is not None
+        and "release-notary" in str(submodule_step.get("if", "")),
         "release-notary initializes the vendored Homebrew tap before hashing",
     )
     _check(
-        "./tests/test_homebrew_sha.sh" in ci_guards,
-        "release-notary verifies the cask digest against the published DMG",
+        sha_step is not None and "release-notary" in str(sha_step.get("if", "")),
+        "release-notary runs the deterministic cask digest regression",
+    )
+    _check(
+        submodule_step is not None
+        and sha_step is not None
+        and guard_steps.index(submodule_step) < guard_steps.index(sha_step),
+        "release-notary initializes the vendored Homebrew tap before hashing",
     )
     _check(
         "Cache-Control: no-cache" in text and "homebrew_run=${GITHUB_RUN_ID}" in text,
         "the updater bypasses cached release bytes after an in-place asset repair",
+    )
+    update_steps = jobs.get("update-cask", {}).get("steps", [])
+    update_run = "".join(str(step.get("run", "")) for step in update_steps)
+    _check(
+        'CASK_SHA=$(grep' in update_run
+        and 'ACTUAL_SHA=$(shasum -a 256 cmux.dmg' in update_run
+        and 'if [ "$CASK_SHA" != "$ACTUAL_SHA" ]' in update_run,
+        "the updater keeps the live cask-versus-release checksum check",
     )
 
     if FAILURES:

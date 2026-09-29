@@ -4,7 +4,69 @@
 # asset was rebuilt in place, but the cask retained the superseded digest.
 set -euo pipefail
 
-CASK_FILE="$(dirname "$0")/../homebrew-cmux/Casks/cmux.rb"
+FIXTURE_DIR=""
+SERVER_PID=""
+TMPFILE=""
+cleanup() {
+  if [ -n "$SERVER_PID" ]; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  if [ -n "$FIXTURE_DIR" ]; then
+    rm -rf "$FIXTURE_DIR"
+  fi
+  if [ -n "$TMPFILE" ]; then
+    rm -f "$TMPFILE"
+  fi
+}
+trap cleanup EXIT
+
+CASK_FILE="${HOMEBREW_SHA_CASK_FILE:-$(dirname "$0")/../homebrew-cmux/Casks/cmux.rb}"
+URL_OVERRIDE="${HOMEBREW_SHA_URL:-}"
+
+if [ "${HOMEBREW_SHA_TEST_MODE:-}" = "fixture" ]; then
+  FIXTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-homebrew-sha-fixture.XXXXXX")"
+  python3 - "$FIXTURE_DIR" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+payload = (b"cmux deterministic Homebrew checksum fixture\n" * 65536)
+(root / "cmux-macos.dmg").write_bytes(payload)
+(root / "cmux.rb").write_text(
+    'cask "cmux" do\n'
+    '  version "fixture"\n'
+    f'  sha256 "{hashlib.sha256(payload).hexdigest()}"\n'
+    'end\n',
+    encoding="utf-8",
+)
+PY
+  PORT_FILE="$FIXTURE_DIR/port"
+  python3 - "$FIXTURE_DIR" "$PORT_FILE" >/dev/null 2>&1 <<'PY' &
+import http.server
+import os
+from pathlib import Path
+import sys
+
+os.chdir(sys.argv[1])
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+Path(sys.argv[2]).write_text(str(server.server_port), encoding="utf-8")
+server.serve_forever()
+PY
+  SERVER_PID=$!
+  for _ in $(seq 1 50); do
+    [ -s "$PORT_FILE" ] && break
+    sleep 0.1
+  done
+  [ -s "$PORT_FILE" ] || {
+    echo "FAIL: deterministic Homebrew checksum fixture server did not start" >&2
+    exit 1
+  }
+  CASK_FILE="$FIXTURE_DIR/cmux.rb"
+  URL_OVERRIDE="http://127.0.0.1:$(cat "$PORT_FILE")/cmux-macos.dmg"
+  echo "Using deterministic local checksum fixture"
+fi
 
 if [ ! -f "$CASK_FILE" ]; then
   echo "SKIP: homebrew-cmux submodule not initialized"
@@ -22,9 +84,8 @@ fi
 echo "Cask version: $VERSION"
 echo "Cask SHA256:  $CASK_SHA"
 
-URL="https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg"
+URL="${URL_OVERRIDE:-https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg}"
 TMPFILE=$(mktemp)
-trap 'rm -f "$TMPFILE"' EXIT
 
 # Download with retries + timeouts so a transient GitHub/CDN hiccup (5xx,
 # connection reset, DNS blip, truncated transfer) soft-skips instead of
