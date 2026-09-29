@@ -99,6 +99,7 @@ struct RightSidebarPanelView: View {
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
+    @LiveSetting(\.rightSidebar.toggleButton) private var toggleButtonPlacement
     /// The right rail's OWN worker client. Never share the left sidebar's:
     /// the remote host swaps files in place on one client, so a shared client
     /// would make the two rails fight over one worker process.
@@ -282,7 +283,7 @@ struct RightSidebarPanelView: View {
                 }
                 Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
-                    openAsPaneButton(mode: fileExplorerState.mode)
+                    RightSidebarOpenAsPaneButton(mode: fileExplorerState.mode, onOpenAsPane: onOpenAsPane)
                 }
                 closeButton
             }
@@ -326,33 +327,6 @@ struct RightSidebarPanelView: View {
         }
     }
 
-    private func openAsPaneButton(mode: RightSidebarMode) -> some View {
-        Button {
-            onOpenAsPane(mode)
-        } label: {
-            HeaderChromeIconStyle.symbol("rectangle.split.2x1")
-        }
-        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderOpenAsPaneIcon"))
-        .frame(
-            width: RightSidebarChromeMetrics.headerControlSize,
-            height: RightSidebarChromeMetrics.headerControlSize
-        )
-        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
-            keyPrefix: "rightSidebarHeaderOpenAsPane",
-            isVisible: true
-        )
-        .rightSidebarHeaderControlAlignment()
-        .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
-        .accessibilityLabel(
-            String.localizedStringWithFormat(
-                String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
-                mode.label
-            )
-        )
-        .accessibilityIdentifier("RightSidebar.openAsPaneButton")
-        .titlebarInteractiveControl()
-    }
-
     private var closeButton: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
@@ -364,7 +338,13 @@ struct RightSidebarPanelView: View {
         )
         return ZStack {
             Button(action: onClose) {
-                HeaderChromeIconStyle.symbol("xmark")
+                // With the corner placement this button and the corner button
+                // share one screen position, so they share one glyph.
+                if toggleButtonPlacement == .titlebar {
+                    SidebarGlyph(iconSize: HeaderChromeControlMetrics.iconSize, side: .trailing)
+                } else {
+                    HeaderChromeIconStyle.symbol("xmark")
+                }
             }
             .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
             .frame(

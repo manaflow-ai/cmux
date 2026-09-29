@@ -236,6 +236,14 @@ Right-sidebar file explorer routing for file previews.
 |---|---|---|---|
 | `fileExplorer.doubleClickAction` | `"preview"` or `"defaultEditor"` or `"preferredEditor"` | `"preview"` | What double-clicking a file in the file explorer does. `preview` opens the built-in cmux file preview; the editor choices use the macOS default app or `app.preferredEditor`. |
 
+## rightSidebar
+
+Right-sidebar chrome. The same object also keeps legacy and extension-owned configuration; only this key is a setting.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `rightSidebar.toggleButton` | `"titlebar"` or `"paneTabBar"` or `"sidebarFooter"` or `"hidden"` | `"titlebar"` | Where the persistent right-sidebar show/hide button lives: the window's top-right corner, the end of the top-right pane's tab bar, the left sidebar footer, or nowhere. |
+
 ## diffViewer
 
 Built-in diff viewer settings. See [the detailed diff configuration](https://cmux.com/docs/configuration#schema-diffViewer) for invocation overrides.

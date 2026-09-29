@@ -2534,7 +2534,10 @@
       "exampleConfig": "Example config",
       "schemaDescriptions": {
         "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
-        "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
+        "rightSidebar": {
+          "description": "Right-sidebar chrome settings. The object also keeps legacy and extension-owned right-sidebar configuration.",
+          "toggleButton": "Where the persistent right-sidebar show/hide button lives. `titlebar` puts it in the window's top-right corner, where it stays at one position whether the sidebar is shown or hidden. `paneTabBar` puts it at the end of the top-right pane's tab bar. `sidebarFooter` puts it in the left sidebar footer. `hidden` removes it; the mode bar button and the Toggle Right Sidebar shortcut still work."
+        },
         "packs": {
           "description": "Local cmux pack files or directories loaded before this configuration. Directories resolve to cmux.pack.json. Use a path string or an object with a path field.",
           "path": "Local file or directory path, relative to this configuration file unless absolute."
@@ -2674,6 +2677,7 @@
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileEditorWordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
       "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
+      "exampleRightSidebarToggleButton": "Right sidebar show/hide button: titlebar (default), paneTabBar, sidebarFooter, or hidden.",
       "shortcutsWhenIntro": "Optional per-action context predicates (VS Code-style when clauses), keyed by cmux action id. A binding only fires — and only conflicts with another binding on the same keystroke — when its clause holds. Omit a clause to keep the action's built-in context. The clause vocabulary:",
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",

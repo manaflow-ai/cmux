@@ -1337,7 +1337,10 @@
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
         "root": "cmux-konfigurasjon. Den globale cmux.json støtter appinnstillinger, snarveier, handlinger, egendefinerte kommandoer, varslingshooks og arbeidsområdeoppsett. En prosjektlokal .cmux/cmux.json eller cmux.json støtter handlinger, kommandoer, varslingshooks, kobling av UI-handlinger, overstyringer for Agent Chat, vault-agenter, overstyringer for arbeidsområdegrupper samt konfigurasjon av oppstart og knapper for arbeidsområder.",
-        "rightSidebar": "Eldre og utvidelseseid konfigurasjon av høyre sidefelt som bevares i cmux.json.",
+        "rightSidebar": {
+          "description": "Innstillinger for kontrollene i høyre sidepanel. Objektet tar også vare på eldre og utvidelseseid konfigurasjon av høyre sidepanel.",
+          "toggleButton": "Hvor den faste knappen for å vise og skjule høyre sidepanel ligger. `titlebar` legger den i vinduets øvre høyre hjørne, der den blir på samme sted enten panelet vises eller er skjult. `paneTabBar` legger den på slutten av fanelinjen i ruten øverst til høyre. `sidebarFooter` legger den i bunnen av venstre sidepanel. `hidden` fjerner den; knappen i moduslinjen og snarveien for å veksle virker fortsatt."
+        },
         "packs": {
           "description": "Lokale cmux-pakkefiler eller mapper som lastes før denne konfigurasjonen. Mapper viser til cmux.pack.json. Bruk en stistreng eller et objekt med et path-felt.",
           "path": "Lokal fil- eller mappesti, relativ til denne konfigurasjonsfilen med mindre den er absolutt."
@@ -1426,6 +1429,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileExplorerDoubleClickAction": "Dobbeltklikk på en fil: preview (standard), defaultEditor (macOS-standardapp) eller preferredEditor (kommandoen app.preferredEditor).",
+      "exampleRightSidebarToggleButton": "Knapp for høyre sidepanel: titlebar (standard), paneTabBar, sidebarFooter eller hidden.",
       "shortcutsWhenIntro": "Valgfrie kontekstpredikater per handling (VS Code-lignende when-klausuler), indeksert etter cmux-handlings-id. En binding utløses bare — og kolliderer bare med en annen binding på samme tastetrykk — når klausulen er sann. Utelat klausulen for å beholde handlingens innebygde kontekst. Klausulenes vokabular:",
       "shortcutsWhenBooleanKeys": "boolske nøkler. En ukjent eller fraværende nøkkel leses som false; literalene true og false godtas også.",
       "shortcutsWhenTypedKeys": "typede nøkler for sammenligninger: høyre sidelinjes aktive modus (streng) samt antall paneler og arbeidsområder (heltall).",

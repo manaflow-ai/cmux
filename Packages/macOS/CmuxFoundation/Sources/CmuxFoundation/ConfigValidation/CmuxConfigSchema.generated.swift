@@ -2007,10 +2007,19 @@ enum CmuxEmbeddedConfigSchema {
     },
     "rightSidebar": {
       "title": "rightSidebar",
-      "description": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
-      "descriptionKey": "schemaDescriptions.rightSidebar",
+      "description": "Right-sidebar chrome settings. The object also keeps legacy and extension-owned right-sidebar configuration.",
+      "descriptionKey": "schemaDescriptions.rightSidebar.description",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "properties": {
+        "toggleButton": {
+          "type": "string",
+          "enum": ["titlebar", "paneTabBar", "sidebarFooter", "hidden"],
+          "default": "titlebar",
+          "description": "Where the persistent right-sidebar show/hide button lives. `titlebar` puts it in the window's top-right corner, where it stays at one position whether the sidebar is shown or hidden. `paneTabBar` puts it at the end of the top-right pane's tab bar. `sidebarFooter` puts it in the left sidebar footer. `hidden` removes it; the mode bar button and the Toggle Right Sidebar shortcut still work.",
+          "descriptionKey": "schemaDescriptions.rightSidebar.toggleButton"
+        }
+      }
     },
     "shortcuts": {
       "x-cmux-scopes": ["global"],
