@@ -67,6 +67,22 @@ enum WelcomeBannerDelivery: Equatable {
     }
 }
 
+enum CloseDontAskAgainCheckbox {
+    static func add(to alert: NSAlert, offering kinds: CloseWarningKinds) {
+        guard !kinds.isEmpty else { return }
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = String(
+            localized: "dialog.close.dontAskAgain",
+            defaultValue: "Don’t ask again"
+        )
+    }
+
+    static func apply(from alert: NSAlert, offering kinds: CloseWarningKinds, defaults: UserDefaults) {
+        guard !kinds.isEmpty, alert.suppressionButton?.state == .on else { return }
+        CloseTabWarningStore(defaults: defaults).disableWarnings(kinds)
+    }
+}
+
 enum WorkspaceOrderChangeNotificationKey {
     static let movedWorkspaceIds = "movedWorkspaceIds"
 }
@@ -1026,6 +1042,13 @@ class TabManager: ObservableObject {
             return
         }
         focusedMarkdownPanel?.findPrevious()
+    }
+
+    @discardableResult
+    func pasteLastScreenshotIntoFocusedTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        panel.pasteLastScreenshot()
+        return true
     }
 
     @discardableResult
@@ -3402,6 +3425,12 @@ class TabManager: ObservableObject {
         }
 #endif
         return workspace.needsConfirmClose()
+    }
+
+    func shouldConfirmWindowClose(windowDockNeedsConfirmation: Bool) -> Bool {
+        CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmWindowClose(
+            anyPanelNeedsConfirmation: windowDockNeedsConfirmation || tabs.contains(where: workspaceNeedsConfirmClose)
+        )
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
