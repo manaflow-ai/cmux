@@ -394,6 +394,11 @@ impl TerminalSizingEngine {
         if let Some(explicit) = participant.counts_override {
             return explicit;
         }
+        // Fit-everyone modes promise to count every attached view; the handheld
+        // deferral only stops a phone from taking the grid by activity.
+        if matches!(self.policy.mode, TerminalSizingMode::Smallest | TerminalSizingMode::Largest) {
+            return true;
+        }
         let (true, Some(user)) = (participant.device_kind.is_handheld(), &participant.user_id)
         else {
             return true;
