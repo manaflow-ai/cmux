@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         if !environment.noActivate { NSApp.activate() }
-        services.daemon.start()
+        services.daemon.start(launch: environment.launch)
         services.windows.restoreWhenLoaded()
     }
 
@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {
-                control = try ControlService.start(registry: registry, settings: settings)
+                control = try ControlService.start(registry: registry, settings: settings, launch: environment.launch)
                 logger.info("control socket \(self.control?.socketPath ?? "", privacy: .public)")
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")

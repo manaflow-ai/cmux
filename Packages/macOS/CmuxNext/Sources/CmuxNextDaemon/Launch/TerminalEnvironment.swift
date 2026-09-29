@@ -37,10 +37,15 @@ public enum TerminalEnvironment {
 
     /// Per-terminal `env` for `new-tab`, `split`, and `create-terminal`: the
     /// allowlisted login environment (or the app's, when capture failed),
-    /// plus the app's own `CMUX_*` keys.
+    /// plus the app's own `CMUX_*` keys. The app's `CMUX_NEXT_*` launch knobs
+    /// (`CMUX_NEXT_SOCKET_PATH`, `CMUX_NEXT_NO_ACTIVATE`) configure this
+    /// process only and are not forwarded, so a cmux-next started from one of
+    /// its terminals does not inherit them.
     public static func terminal(login: [String: String]?, base: [String: String]) -> [String: String] {
         var env = filter(login ?? base)
-        for (key, value) in base where key.hasPrefix("CMUX_") && isAllowed(key) && env[key] == nil { env[key] = value }
+        for (key, value) in base where key.hasPrefix("CMUX_") && !key.hasPrefix("CMUX_NEXT_") && isAllowed(key) && env[key] == nil {
+            env[key] = value
+        }
         if login == nil, let path = env["PATH"], !path.contains("/opt/homebrew/bin") {
             // Best effort when capture failed: add the common tool prefixes.
             env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + path
@@ -59,7 +64,17 @@ public enum TerminalEnvironment {
 
     /// Shared per-launch provider for terminal `env`: the login environment
     /// captured once (the launcher's capture) and filtered.
-    public static func shared(base: [String: String] = ProcessInfo.processInfo.environment) -> @Sendable () async -> [String: String] {
-        { terminal(login: await LoginEnvironmentCache.shared.value(), base: base) }
+    /// `overrides` (the app's `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`,
+    /// `CMUX_TAG`) win, so terminals created in a daemon that an older launch
+    /// started still reach this app.
+    public static func shared(
+        base: [String: String] = ProcessInfo.processInfo.environment,
+        overrides: [String: String] = [:]
+    ) -> @Sendable () async -> [String: String] {
+        {
+            var env = terminal(login: await LoginEnvironmentCache.shared.value(), base: base)
+            for (key, value) in overrides { env[key] = value }
+            return env
+        }
     }
 }

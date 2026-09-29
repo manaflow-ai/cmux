@@ -154,13 +154,12 @@ import Testing
     let home = URL(fileURLWithPath: "/Users/u")
 
     @Test func matchesTheOldConventions() {
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug", environment: ["CMUX_TAG": "My Tag"], isDebugBuild: true, home: home) == "/tmp/cmux-debug-my-tag.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug.ctl", environment: [:], isDebugBuild: true, home: home) == "/tmp/cmux-debug-ctl.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug", environment: [:], isDebugBuild: true, home: home) == "/tmp/cmux-debug.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.nightly", environment: [:], isDebugBuild: false, home: home) == "/tmp/cmux-nightly.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.rc.x1", environment: [:], isDebugBuild: false, home: home) == "/tmp/cmux-rc-x1.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app", environment: [:], isDebugBuild: false, home: home) == "/Users/u/.local/state/cmux/cmux.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app", environment: ["CMUX_SOCKET_PATH": "/tmp/x.sock"], isDebugBuild: false, home: home) == "/tmp/x.sock")
+        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug", tag: "My Tag", isDebugBuild: true, home: home) == "/tmp/cmux-debug-my-tag.sock")
+        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug.ctl", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug-ctl.sock")
+        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug.sock")
+        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.nightly", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-nightly.sock")
+        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.rc.x1", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-rc-x1.sock")
+        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app", tag: "ignored", isDebugBuild: false, home: home) == "/Users/u/.local/state/cmux/cmux.sock")
     }
 
     @Test func parsesAccessModesWithLegacyAliases() {
