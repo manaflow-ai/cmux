@@ -1,7 +1,8 @@
 import CmuxFoundation
 
 enum ResolvedControlPathFixture {
+    /// A resolved socket in the private directory cmux uses on this machine.
     static let path =
-        "/tmp/cmux-ssh-\(SSHConnectionSharingOptions().userID)-" +
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        (SSHConnectionSharingOptions().controlSocketDirectoryPath ?? "/unavailable-cmux-ssh") +
+        "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 }
