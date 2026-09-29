@@ -123,6 +123,9 @@ let package = Package(
         .target(
             name: "CmuxNextLayout",
             dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
