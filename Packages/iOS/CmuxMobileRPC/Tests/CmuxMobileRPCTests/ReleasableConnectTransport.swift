@@ -8,6 +8,7 @@ actor ReleasableConnectTransport: CmxByteTransport {
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var queuedResponses: [Data] = []
     private var connectStarted = false
+    private(set) var connectCount = 0
     private var connectReleased = false
     private var isClosed = false
     private var closeStarted = false
@@ -20,6 +21,7 @@ actor ReleasableConnectTransport: CmxByteTransport {
     }
 
     func connect() async throws {
+        connectCount += 1
         connectStarted = true
         if isClosed {
             throw CancellationError()

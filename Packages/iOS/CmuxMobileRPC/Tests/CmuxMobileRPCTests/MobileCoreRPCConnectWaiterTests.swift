@@ -228,7 +228,8 @@ import Testing
         #expect(try await transport.sentRequests().map(\.id) == ["surviving-connect-waiter"])
     }
 
-    @Test func cancelledPostConnectWaiterDoesNotCloseTransportForSurvivor() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func cancelledPostConnectWaiterDoesNotCloseTransportForSurvivor() async throws {
         let cancellation = ConnectCancellationBox()
         let arrivals = ConnectedCandidateBarrier(expectedCount: 2)
         let transport = ReleasableConnectTransport()
@@ -281,6 +282,7 @@ import Testing
         let response = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
         #expect(response["status"] == "ok")
         #expect(!(await transport.closed()))
+        #expect(await transport.connectCount == 1, "concurrent callers must reserve one connection before awaiting admission")
         #expect(try await transport.sentRequests().map(\.id) == ["surviving-after-connect"])
         await session.tearDown(error: .connectionClosed)
     }
