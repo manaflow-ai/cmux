@@ -103,13 +103,25 @@ extension TerminalGridFit {
         rows: Int,
         natural: TerminalNaturalGridMeasurement
     ) -> (width: Int, height: Int) {
-        guard natural.columns > 0, natural.rows > 0 else { return (1, 1) }
-        let cellWidth = CGFloat(natural.widthPx) / CGFloat(natural.columns)
-        let cellHeight = CGFloat(natural.heightPx) / CGFloat(natural.rows)
-        return (
-            max(1, Int((CGFloat(columns) * cellWidth).rounded(.down))),
-            max(1, Int((CGFloat(rows) * cellHeight).rounded(.down)))
+        (
+            requestedPixels(count: columns, naturalCount: natural.columns, naturalPx: natural.widthPx, cellPx: natural.cellWidthPx),
+            requestedPixels(count: rows, naturalCount: natural.rows, naturalPx: natural.heightPx, cellPx: natural.cellHeightPx)
         )
+    }
+
+    /// libghostty subtracts padding, then floors to whole cells. The natural
+    /// surface's remainder (`naturalPx - naturalCount * cellPx`) is that
+    /// padding plus less than one cell, so `count` cells plus the remainder
+    /// lays out exactly `count` for any `count`. Dividing the surface by its
+    /// cell count instead folds the remainder into every cell, which adds a
+    /// whole column or row once the grid is wider than the phone.
+    private static func requestedPixels(count: Int, naturalCount: Int, naturalPx: Int, cellPx: Int) -> Int {
+        guard count > 0, naturalCount > 0, naturalPx > 0 else { return 1 }
+        guard cellPx > 0 else {
+            return max(1, Int((CGFloat(count) * CGFloat(naturalPx) / CGFloat(naturalCount)).rounded(.down)))
+        }
+        let remainder = max(0, naturalPx - naturalCount * cellPx)
+        return max(1, count * cellPx + remainder)
     }
 }
 

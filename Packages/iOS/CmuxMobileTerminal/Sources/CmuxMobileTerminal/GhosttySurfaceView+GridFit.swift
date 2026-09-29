@@ -38,13 +38,21 @@ extension GhosttySurfaceView {
         // Bounded refinement: a few single-pixel nudges are enough to land on
         // the exact grid. A high cap let a fast-zoom storm run this loop tens
         // of thousands of times across frames and burn the main thread.
+        // The render-grid apply fence needs the exact grid, so an overshoot
+        // is corrected as well as a shortfall.
         while steps < 8,
-              Int(actual.columns) < cols || Int(actual.rows) < rows {
+              Int(actual.columns) != cols || Int(actual.rows) != rows {
             if Int(actual.columns) < cols {
                 requestedW += 1
+            } else if Int(actual.columns) > cols {
+                let excess = UInt32(Int(actual.columns) - cols) * max(1, actual.cell_width_px)
+                requestedW = requestedW > excess ? requestedW - excess : 1
             }
             if Int(actual.rows) < rows {
                 requestedH += 1
+            } else if Int(actual.rows) > rows {
+                let excess = UInt32(Int(actual.rows) - rows) * max(1, actual.cell_height_px)
+                requestedH = requestedH > excess ? requestedH - excess : 1
             }
             ghostty_surface_set_size(surface, requestedW, requestedH)
             actual = ghostty_surface_size(surface)
