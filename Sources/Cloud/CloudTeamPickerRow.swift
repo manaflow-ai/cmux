@@ -50,7 +50,7 @@ struct CloudTeamPickerRow: View {
             }
             .padding(.horizontal, 7)
             .frame(height: 22)
-            .contentShape(Capsule(style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .overlay {

@@ -2074,7 +2074,7 @@
       "data3": "Telefonunuzu Mac'inize bağlamak için eşleştirme ve cihaz meta verileri.",
       "dataNot": "Etkileşimli terminal oturumunuz, içeriği ve tuş vuruşları doğrudan telefonunuz ile Mac'iniz arasında kendi ağınız üzerinden akar; cmux sunucuları aracılığıyla aktarılmaz ya da bunlarda saklanmaz. Tek istisna, telefonunuza ulaşmak için cmux ve Apple'ın push hizmeti üzerinden geçen iletilmiş bildirim metnidir; ancak Hide content seçeneğini etkinleştirirseniz bu da geçerli olmaz (yukarıdaki Bildirimler bölümüne bakın).",
       "enterpriseTitle": "Kurumsal ve kendi sunucunuzda barındırma",
-      "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@manaflow.com</link> ile iletişime geçin."
+      "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@cmux.com</link> ile iletişime geçin."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4323,7 +4323,7 @@
         "description": "Hataları bildirin, özellik isteklerinizi herkese açık şekilde iletin."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "E-postayı mı tercih ediyorsunuz? Doğrudan bize yazın."
       }
     },
@@ -4345,8 +4345,8 @@
       "privacy": "E-posta adresinizi yalnızca destek talebinize yanıt vermek için kullanırız. İletişim bilgilerini satmayız.",
       "submit": "Mesaj gönder",
       "submitting": "Gönderiliyor…",
-      "success": "Teşekkürler. Mesajınızı aldık; founders@manaflow.com adresinden e-postanıza yanıt vereceğiz.",
-      "error": "Bir şeyler ters gitti. Lütfen tekrar deneyin veya founders@manaflow.com adresine e-posta gönderin."
+      "success": "Teşekkürler. Mesajınızı aldık; founders@cmux.com adresinden e-postanıza yanıt vereceğiz.",
+      "error": "Bir şeyler ters gitti. Lütfen tekrar deneyin veya founders@cmux.com adresine e-posta gönderin."
     }
   },
   "emails": {
