@@ -227,6 +227,10 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func notifyShortcutSettingsDidChange() {
+        reloadSettingsFile()
+    }
+
+    func reloadSettingsFile() {
         // reload() already posts didChangeNotification when the file's
         // contents changed; posting again here double-notified every
         // listener. Only post when the reload saw no change, so callers

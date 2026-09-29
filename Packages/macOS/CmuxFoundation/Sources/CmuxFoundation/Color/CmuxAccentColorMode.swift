@@ -39,4 +39,28 @@ public enum CmuxAccentColorMode: String, CaseIterable, Sendable {
         guard digits.count == 6, digits.allSatisfy(\.isHexDigit) else { return nil }
         return "#" + digits.uppercased()
     }
+
+    /// The `app.accentColor` value in cmux.json: `"cmux"`, `"system"`, or
+    /// the `#RRGGBB` color for ``custom``. `nil` for ``custom`` without a
+    /// valid color, which cmux.json cannot express.
+    public static func settingsFileValue(mode: CmuxAccentColorMode, customHex: String?) -> String? {
+        switch mode {
+        case .cmux, .system:
+            return mode.rawValue
+        case .custom:
+            return normalizedCustomHex(customHex)
+        }
+    }
+
+    /// Parses an `app.accentColor` value from cmux.json. A `#RRGGBB` hex
+    /// selects ``custom`` with that color. The bare `"custom"` is rejected
+    /// because it carries no color.
+    public static func parseSettingsFileValue(_ raw: String) -> (mode: CmuxAccentColorMode, customHex: String?)? {
+        if raw.hasPrefix("#") {
+            guard let hex = normalizedCustomHex(raw) else { return nil }
+            return (.custom, hex)
+        }
+        guard let mode = CmuxAccentColorMode(rawValue: raw), mode != .custom else { return nil }
+        return (mode, nil)
+    }
 }

@@ -26,6 +26,7 @@ public struct AppSection: View {
     @State private var appearance: DefaultsValueModel<AppearanceMode>
     @State private var accentColor: DefaultsValueModel<CmuxAccentColorMode>
     @State private var accentColorCustomHex: DefaultsValueModel<String>
+    @State private var accentColorWriter: AccentColorSettingsFileWriter
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
@@ -90,13 +91,24 @@ public struct AppSection: View {
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
+        jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
+        errorLog: SettingsErrorLog,
         hostActions: SettingsHostActions,
         soundAgentCache: NotificationSoundAgentCache = NotificationSoundAgentCache()
     ) {
         self.catalog = catalog
         self.hostActions = hostActions
         self.soundAgentCache = soundAgentCache
+        _accentColorWriter = State(initialValue: AccentColorSettingsFileWriter(
+            write: { value in
+                _ = try await jsonStore.setWithReceipt(value, for: AccentColorSettingsFileWriter.settingsFileKey)
+                hostActions.reloadSettingsFile()
+            },
+            didFail: { error in
+                errorLog.record(error, keyID: AccentColorSettingsFileWriter.settingsFileKey.id)
+            }
+        ))
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
         _accentColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.accentColor))
@@ -196,14 +208,32 @@ public struct AppSection: View {
         )
     }
 
-    /// Switching to Custom without a stored color seeds it with the accent
-    /// currently drawn, so the chrome does not jump before a color is picked.
-    private func selectAccentColorMode(_ mode: CmuxAccentColorMode) {
-        if mode == .custom, CmuxAccentColorMode.normalizedCustomHex(accentColorCustomHex.current) == nil {
-            let current = CmuxAccentColor(mode: accentColor.current, customHex: accentColorCustomHex.current)
-            accentColorCustomHex.set(current.nsColor(isDark: colorScheme == .dark).hexString())
+    /// The accent the row shows: the newest choice still being written to
+    /// cmux.json, else the applied setting.
+    private var displayedAccentColor: CmuxAccentColor {
+        if let requested = accentColorWriter.requestedValue,
+           let parsed = CmuxAccentColorMode.parseSettingsFileValue(requested) {
+            return CmuxAccentColor(mode: parsed.mode, customHex: parsed.customHex ?? accentColorCustomHex.current)
         }
-        accentColor.set(mode)
+        return CmuxAccentColor(mode: accentColor.current, customHex: accentColorCustomHex.current)
+    }
+
+    /// Switching to Custom keeps the last custom color, or seeds it with the
+    /// accent currently drawn so the chrome does not jump before a color is
+    /// picked.
+    private func selectAccentColorMode(_ mode: CmuxAccentColorMode) {
+        let displayed = displayedAccentColor
+        let customHex = mode == .custom
+            ? displayed.customHex ?? displayed.nsColor(isDark: colorScheme == .dark).hexString()
+            : nil
+        requestAccentColor(mode: mode, customHex: customHex)
+    }
+
+    /// Writes the choice to cmux.json (`app.accentColor`); the host reload
+    /// then applies it to UserDefaults and the live chrome.
+    private func requestAccentColor(mode: CmuxAccentColorMode, customHex: String?) {
+        guard let value = CmuxAccentColorMode.settingsFileValue(mode: mode, customHex: customHex) else { return }
+        accentColorWriter.request(value)
     }
 
     private func setGlobalFontMagnification(_ percent: Int) {
@@ -247,7 +277,7 @@ public struct AppSection: View {
                 controlWidth: Self.columnWidth
             ) {
                 HStack(spacing: 8) {
-                    Picker("", selection: Binding(get: { accentColor.current }, set: { selectAccentColorMode($0) })) {
+                    Picker("", selection: Binding(get: { displayedAccentColor.mode }, set: { selectAccentColorMode($0) })) {
                         Text(String(localized: "settings.app.accentColor.cmux", defaultValue: "cmux Blue")).tag(CmuxAccentColorMode.cmux)
                         Text(String(localized: "settings.app.accentColor.system", defaultValue: "System")).tag(CmuxAccentColorMode.system)
                         Text(String(localized: "settings.app.accentColor.custom", defaultValue: "Custom")).tag(CmuxAccentColorMode.custom)
@@ -255,13 +285,13 @@ public struct AppSection: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .accessibilityIdentifier("SettingsAccentColorPicker")
-                    if accentColor.current == .custom {
+                    if displayedAccentColor.mode == .custom {
                         HexColorPicker(
-                            storedHex: accentColorCustomHex.current,
+                            storedHex: displayedAccentColor.customHex ?? "",
                             fallback: Color(nsColor: CmuxAccentColor.cmuxBlue(isDark: colorScheme == .dark)),
-                            reconcileRevision: accentColorCustomHex.revision
+                            reconcileRevision: accentColor.revision &+ accentColorCustomHex.revision
                         ) { hex in
-                            accentColorCustomHex.set(hex)
+                            requestAccentColor(mode: .custom, customHex: hex)
                         }
                         .accessibilityIdentifier("SettingsAccentColorCustomPicker")
                     }
