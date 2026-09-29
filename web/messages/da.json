@@ -25,6 +25,11 @@
       "message": "Opsætningen af Cloud VM mislykkedes, og oprydningen afventer stadig.",
       "action": "Kontakt support med sporings-ID’et, før du opretter en ny maskine."
     },
+    "recreateRequired": {
+      "title": "Genopret denne maskine",
+      "message": "Denne maskine blev oprettet før en Cloud-opdatering og kan ikke tilknyttes.",
+      "action": "Opret en ny maskine, kopiér dine filer over med cmux vm pull og cmux vm push, og slet så denne."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",

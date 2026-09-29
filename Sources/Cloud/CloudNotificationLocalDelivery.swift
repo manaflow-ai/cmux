@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxNotifications
 import Foundation
 
 /// Turns one of a machine's notification rows into a local notification
@@ -46,19 +47,11 @@ struct CloudNotificationLocalDelivery {
         }
         let terminalTitle = row.terminalID.flatMap(terminalTitle) ?? ""
         let machineName = machineName()
-        let subtitle: String
-        if let explicit = row.subtitle {
-            // The producer's own subtitle wins, as `cmux notify --subtitle` does locally.
-            subtitle = explicit
-        } else if terminalTitle.isEmpty {
-            subtitle = machineName
-        } else {
-            subtitle = String(
-                format: String(localized: "cloudNotification.subtitle.machine", defaultValue: "%@ on %@"),
-                terminalTitle,
-                machineName
-            )
-        }
+        // The producer's own subtitle replaces the terminal title, as
+        // `cmux notify --subtitle` does locally, but the machine name stays.
+        let subtitle = RemoteMachineNotificationSubtitle(
+            format: String(localized: "cloudNotification.subtitle.machine", defaultValue: "%@ on %@")
+        ).subtitle(explicit: row.subtitle, terminalTitle: terminalTitle, machineName: machineName)
         let recorded = store.addNotification(
             tabId: target.workspaceID,
             surfaceId: target.panelID,

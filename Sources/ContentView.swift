@@ -15941,10 +15941,11 @@ struct TabItemView: View, Equatable {
     // percent here and applying a primitive `.font(...)` keeps magnification
     // working while dropping those per-label modifier bodies.
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
-    // Window activation and Increase Contrast only: the selection wash dims to
-    // neutral when the window is inactive, like Finder. Neither changes per
-    // keystroke.
-    @Environment(\.controlActiveState) private var controlActiveState
+    // Increase Contrast strengthens the multi-selection and subtle selection
+    // washes; it changes only when the accessibility option does. Window
+    // activation is read by `SidebarSelectionWindowActivationReader`, and
+    // only for subtle-selection rows that are selected, so focus changes
+    // don't invalidate every row.
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 #if DEBUG
     // Plain-value environment probe (closure struct, not an object reference):
@@ -16245,10 +16246,6 @@ struct TabItemView: View, Equatable {
 #endif
         let signpost = SidebarProfilingSignposts.begin("sidebar-tab-item-body", "index=\(index) workspace=\(sidebarShortTabId(workspaceId)) active=\(isActive) unread=\(unreadCount)")
         let workspaceSnapshot = self.workspaceSnapshot
-        let rowBackgroundStyle = backgroundStyle(for: workspaceSnapshot)
-        let rowBackgroundColor = rowBackgroundStyle.color.map {
-            Color(nsColor: $0).opacity(rowBackgroundStyle.opacity)
-        } ?? .clear
         let rowRailColor = railColor(for: workspaceSnapshot)
         let accessibilityTitle = workspaceSnapshot.accessibilityLabel(index: index, workspaceCount: accessibilityWorkspaceCount)
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -16695,27 +16692,7 @@ struct TabItemView: View, Equatable {
         // they appear; content changes now apply in one discrete layout pass.
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(rowBackgroundColor)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(
-                            activeBorderColor(for: rowBackgroundStyle),
-                            lineWidth: activeBorderLineWidth(for: rowBackgroundStyle)
-                        )
-                }
-                .overlay(alignment: .leading) {
-                    if showsLeadingRail(for: workspaceSnapshot) {
-                        Capsule(style: .continuous)
-                        .fill(rowRailColor)
-                            .frame(width: 3)
-                            .padding(.leading, 4)
-                            .padding(.vertical, 5)
-                            .offset(x: -1)
-                    }
-                }
-        )
+        .background(rowBackground(for: workspaceSnapshot, railColor: rowRailColor))
         .sidebarShortcutHintOverlay(
             text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
             emphasis: shortcutHintEmphasis,
@@ -16815,8 +16792,68 @@ struct TabItemView: View, Equatable {
         isEditing = true
     }
 
+    /// Only a selected row painted with the subtle selection changes with
+    /// window activation. Legacy and unselected rows never read it.
+    private var selectionChromeTracksWindowActivation: Bool {
+        (isActive || isMultiSelected)
+            && sidebarUsesSubtleSelection(
+                activeTabIndicatorStyle: activeTabIndicatorStyle,
+                subtleSelection: settings.subtleSelection,
+                sidebarSelectionColorHex: sidebarSelectionColorHex
+            )
+    }
+
+    @ViewBuilder
+    private func rowBackground(
+        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        railColor: Color
+    ) -> some View {
+        if selectionChromeTracksWindowActivation {
+            SidebarSelectionWindowActivationReader { isEmphasized in
+                rowBackgroundShape(
+                    style: backgroundStyle(for: workspaceSnapshot, isEmphasized: isEmphasized),
+                    workspaceSnapshot: workspaceSnapshot,
+                    railColor: railColor
+                )
+            }
+        } else {
+            rowBackgroundShape(
+                style: backgroundStyle(for: workspaceSnapshot, isEmphasized: true),
+                workspaceSnapshot: workspaceSnapshot,
+                railColor: railColor
+            )
+        }
+    }
+
+    private func rowBackgroundShape(
+        style: SidebarWorkspaceRowBackgroundStyle,
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        railColor: Color
+    ) -> some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(style.color.map { Color(nsColor: $0).opacity(style.opacity) } ?? .clear)
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(
+                        activeBorderColor(for: style),
+                        lineWidth: activeBorderLineWidth(for: style)
+                    )
+            }
+            .overlay(alignment: .leading) {
+                if showsLeadingRail(for: workspaceSnapshot) {
+                    Capsule(style: .continuous)
+                        .fill(railColor)
+                        .frame(width: 3)
+                        .padding(.leading, 4)
+                        .padding(.vertical, 5)
+                        .offset(x: -1)
+                }
+            }
+    }
+
     private func backgroundStyle(
-        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        isEmphasized: Bool
     ) -> SidebarWorkspaceRowBackgroundStyle {
         sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
@@ -16826,7 +16863,7 @@ struct TabItemView: View, Equatable {
             colorScheme: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             subtleSelection: settings.subtleSelection,
-            isEmphasized: controlActiveState != .inactive,
+            isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
             accent: settings.accentColor
         )
