@@ -1878,24 +1878,15 @@ impl Inner {
                 return;
             }
             match event.get("event").and_then(Value::as_str).unwrap_or_default() {
-                // A replay's optional `pending` bytes are the incomplete
-                // sequence the daemon parser is inside; the live output that
-                // follows completes it.
                 "vt-state" | "output" => {
                     if let Some(bytes) = decode_b64_field(event, "data") {
                         event_stream.push_output(bytes);
-                    }
-                    if let Some(pending) = decode_b64_field(event, "pending") {
-                        event_stream.push_output(pending);
                     }
                 }
                 "resized" => {
                     if let Some(replay) = decode_b64_field(event, "replay") {
                         let mut reset = b"\x1bc".to_vec();
                         reset.extend_from_slice(&replay);
-                        if let Some(pending) = decode_b64_field(event, "pending") {
-                            reset.extend_from_slice(&pending);
-                        }
                         event_stream.push_output(Bytes::from(reset));
                     }
                 }

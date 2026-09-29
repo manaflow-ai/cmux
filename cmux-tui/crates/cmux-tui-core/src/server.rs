@@ -105,6 +105,10 @@ const LOCAL_JOURNAL_PRINCIPAL: &str = "cmux.local-owner";
 pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
 pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-v1";
+/// Byte viewers that write their own sequences after a replay advertise this
+/// to receive the replay's incomplete sequence as a separate `pending` field.
+/// Other attachments get it appended to the replay bytes, in the legacy shape.
+pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequence-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
@@ -229,6 +233,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
+        TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -2180,8 +2185,9 @@ impl RenderService {
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
-        include_color_overrides: bool,
+        shape: AttachWireShape,
     ) -> std::io::Result<Arc<BudgetedText>> {
+        let include_color_overrides = shape.color_overrides;
         let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
         match frame {
             AttachFrame::Output(output) => {
@@ -2212,12 +2218,14 @@ impl RenderService {
                     writer,
                     "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
                 )?;
-                write_base64_json_string(&mut writer, replay)?;
+                write_resized_replay_json(&mut writer, replay, pending_sequence, shape)?;
                 writer.write_all(b"\",\"kitty_image_aliases\":")?;
                 write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
                 writer.write_all(b",\"kitty_graphics_state\":")?;
                 write_kitty_replay_state_json(&mut writer, *kitty_state)?;
-                write_pending_sequence_json(&mut writer, pending_sequence)?;
+                if shape.pending_sequence {
+                    write_pending_sequence_json(&mut writer, pending_sequence)?;
+                }
                 writer.write_all(b"}")?;
             }
             AttachFrame::ResizedWithColors {
@@ -2233,7 +2241,7 @@ impl RenderService {
                     writer,
                     "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
                 )?;
-                write_base64_json_string(&mut writer, replay)?;
+                write_resized_replay_json(&mut writer, replay, pending_sequence, shape)?;
                 writer.write_all(b"\",\"kitty_image_aliases\":")?;
                 write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
                 writer.write_all(b",\"kitty_graphics_state\":")?;
@@ -2244,7 +2252,9 @@ impl RenderService {
                     &terminal_colors_json(**colors, include_color_overrides),
                 )
                 .map_err(json_error_to_io)?;
-                write_pending_sequence_json(&mut writer, pending_sequence)?;
+                if shape.pending_sequence {
+                    write_pending_sequence_json(&mut writer, pending_sequence)?;
+                }
                 writer.write_all(b"}")?;
             }
             AttachFrame::ColorsChanged(colors) => {
@@ -2270,10 +2280,35 @@ fn json_error_to_io(error: serde_json::Error) -> std::io::Error {
 }
 
 fn write_base64_json_string(writer: &mut BudgetedJsonWriter, bytes: &[u8]) -> std::io::Result<()> {
+    write_base64_json_parts(writer, &[bytes])
+}
+
+/// One base64 string for the concatenation of `parts`, without copying them.
+fn write_base64_json_parts(
+    writer: &mut BudgetedJsonWriter,
+    parts: &[&[u8]],
+) -> std::io::Result<()> {
     let mut encoder =
         base64::write::EncoderWriter::new(writer, &base64::engine::general_purpose::STANDARD);
-    encoder.write_all(bytes)?;
+    for part in parts {
+        encoder.write_all(part)?;
+    }
     encoder.finish().map(|_| ())
+}
+
+/// A resized replay and its pending sequence: separate fields for viewers
+/// that advertised the capability, one self-contained replay otherwise.
+fn write_resized_replay_json(
+    writer: &mut BudgetedJsonWriter,
+    replay: &[u8],
+    pending: &[u8],
+    shape: AttachWireShape,
+) -> std::io::Result<()> {
+    if shape.pending_sequence {
+        write_base64_json_string(writer, replay)
+    } else {
+        write_base64_json_parts(writer, &[replay, pending])
+    }
 }
 
 fn write_kitty_image_aliases_json(
@@ -2518,7 +2553,7 @@ impl MessageWriter {
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
-        include_color_overrides: bool,
+        shape: AttachWireShape,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         if !self.is_open() {
@@ -2526,7 +2561,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize_attach_frame(surface, frame, include_color_overrides)
+            .serialize_attach_frame(surface, frame, shape)
             .and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -4165,6 +4200,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
+                    || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
@@ -10495,6 +10531,14 @@ struct VtStateMessage {
     pending_sequence: Arc<[u8]>,
 }
 
+/// Additive attach-event fields captured from the client's advertised
+/// capabilities when it attaches.
+#[derive(Clone, Copy, Debug, Default)]
+struct AttachWireShape {
+    color_overrides: bool,
+    pending_sequence: bool,
+}
+
 /// Appends the optional `pending` field: the incomplete sequence a replay's
 /// source parser is inside. Clients write it after the replay and its colors,
 /// immediately before the live stream. Omitted when the parser is at a
@@ -13362,18 +13406,30 @@ fn handle_command_with_cancellation(
                     return Err(error.into());
                 }
             };
-            let include_color_overrides = mux
-                .control_clients
-                .supports_capability(client, TERMINAL_COLOR_OVERRIDES_CAPABILITY);
+            let shape = AttachWireShape {
+                color_overrides: mux
+                    .control_clients
+                    .supports_capability(client, TERMINAL_COLOR_OVERRIDES_CAPABILITY),
+                pending_sequence: mux
+                    .control_clients
+                    .supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
+            };
+            let (replay, pending_sequence) = if shape.pending_sequence
+                || attach.pending_sequence.is_empty()
+            {
+                (attach.replay.clone(), attach.pending_sequence.clone())
+            } else {
+                (Arc::from([&*attach.replay, &*attach.pending_sequence].concat()), Arc::from([]))
+            };
             let initial = VtStateMessage {
                 surface: surface_id,
                 cols: attach.cols,
                 rows: attach.rows,
-                replay: attach.replay.clone(),
+                replay,
                 kitty_image_aliases: attach.kitty_image_aliases.clone(),
                 kitty_state: attach.kitty_state,
-                colors: terminal_colors_json(attach.colors, include_color_overrides),
-                pending_sequence: attach.pending_sequence.clone(),
+                colors: terminal_colors_json(attach.colors, shape.color_overrides),
+                pending_sequence,
             };
             if let Err(error) = writer.send_initial_vt_state(&initial, &outbound_stream) {
                 handle_attach_send_error(&lifecycle, &error);
@@ -13424,7 +13480,7 @@ fn handle_command_with_cancellation(
                         if let Err(error) = writer.send_attach_frame_backpressured(
                             surface_id,
                             &frame,
-                            include_color_overrides,
+                            shape,
                             &outbound_stream,
                         ) {
                             handle_attach_send_error(&attach.lifecycle, &error);
@@ -18403,11 +18459,20 @@ mod tests {
             colors: Box::new(TerminalColors::default()),
             pending_sequence: Arc::from(&b"\xce"[..]),
         };
-        let serialized = RenderService::new().serialize_attach_frame(7, &resized, true).unwrap();
+        let shape = AttachWireShape { color_overrides: true, pending_sequence: true };
+        let serialized = RenderService::new().serialize_attach_frame(7, &resized, shape).unwrap();
         let decoded: Value = serde_json::from_str(&serialized).unwrap();
         assert_eq!(decoded["event"], "resized");
         assert_eq!(decoded["replay"], base64.encode(b"screen"));
         assert_eq!(decoded["pending"], base64.encode(b"\xce"));
+
+        // Viewers that did not advertise the capability keep the legacy
+        // shape: the pending bytes end the replay itself.
+        let legacy = AttachWireShape { color_overrides: true, pending_sequence: false };
+        let serialized = RenderService::new().serialize_attach_frame(7, &resized, legacy).unwrap();
+        let decoded: Value = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(decoded["replay"], base64.encode(b"screen\xce"));
+        assert!(decoded.get("pending").is_none());
     }
 
     #[test]
@@ -18544,7 +18609,9 @@ mod tests {
             pending_sequence: Arc::from([]),
         };
 
-        let error = writer.send_attach_frame_backpressured(7, &frame, false, &stream).unwrap_err();
+        let error = writer
+            .send_attach_frame_backpressured(7, &frame, AttachWireShape::default(), &stream)
+            .unwrap_err();
 
         assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
         assert!(outbound.try_pop().is_none());

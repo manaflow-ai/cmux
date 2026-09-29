@@ -23,7 +23,8 @@ use cmux_tui_core::{
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
-        ProtocolKeyInput, VIEW_ATTACHMENT_DETACH_CAPABILITY, VIEW_ATTACHMENT_LEASE_CAPABILITY,
+        ProtocolKeyInput, TERMINAL_PENDING_SEQUENCE_CAPABILITY, VIEW_ATTACHMENT_DETACH_CAPABILITY,
+        VIEW_ATTACHMENT_LEASE_CAPABILITY,
     },
 };
 use cmux_tui_machine_protocol::BearerToken;
@@ -2056,6 +2057,11 @@ impl RemoteSession {
         }
         if self.supports_capability(CREATION_SELECTOR_FALLBACKS_CAPABILITY) {
             negotiated.push(CREATION_SELECTOR_FALLBACKS_CAPABILITY);
+        }
+        // Replays are applied with colors written after them, so the
+        // daemon's incomplete sequence must arrive separately.
+        if self.supports_capability(TERMINAL_PENDING_SEQUENCE_CAPABILITY) {
+            negotiated.push(TERMINAL_PENDING_SEQUENCE_CAPABILITY);
         }
         if !negotiated.is_empty() {
             client_info["capabilities"] = json!(negotiated);
@@ -4889,6 +4895,44 @@ mod tests {
             b"\x1b[32;36;21M",
             "ambiguous legacy replay must preserve its last selector instead of guessing SGR"
         );
+    }
+
+    /// The daemon replayed while its parser was inside an SGR. The client
+    /// writes its color sidecar after the replay, so the incomplete sequence
+    /// must come last for the next output to complete it.
+    #[test]
+    fn daemon_replay_resumes_its_pending_sequence_after_the_colors() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        host.vt_write(b"before \x1b[1;3");
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+        assert_eq!(replay.pending_sequence, b"\x1b[1;3");
+        let colors = RemoteTerminalColors {
+            fg: Some(Rgb { r: 1, g: 2, b: 3 }),
+            bg: None,
+            cursor: None,
+            cursor_style: Some(CursorShape::Bar),
+            cursor_blink: Some(false),
+            palette: [None; 256],
+        };
+
+        let (_session, surface) = test_unleased_view_surface(15);
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                Some(&colors),
+                &replay.pending_sequence,
+            )
+            .unwrap();
+        let mut term = surface.term.lock().unwrap();
+        term.vt_write(b"1mred\x1b[0m after");
+        assert_eq!(term.viewport_text().unwrap().lines().next(), Some("before red after"));
+        assert_eq!(term.effective_colors().0, Some(Rgb { r: 1, g: 2, b: 3 }));
     }
 
     #[test]
