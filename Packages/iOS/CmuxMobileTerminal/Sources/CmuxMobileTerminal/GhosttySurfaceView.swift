@@ -1662,7 +1662,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastRenderRect = aligned
         syncRendererLayerFrame(
             scale: preferredScreenScale,
-            renderRect: rendererLayerRect(forGridRenderRect: aligned)
+            gridRenderRect: aligned,
+            viewportRect: snapshot.layoutViewportRect
         )
         updateLetterboxBorder(
             renderRect: aligned,
@@ -2262,7 +2263,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastRenderRect = renderRect
         syncRendererLayerFrame(
             scale: preferredScreenScale,
-            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+            gridRenderRect: renderRect,
+            viewportRect: snapshot.layoutViewportRect
         )
         updateLetterboxBorder(
             renderRect: renderRect,
@@ -5814,7 +5816,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         syncRendererLayerFrame(
             scale: scale,
-            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+            gridRenderRect: renderRect,
+            viewportRect: snapshot.layoutViewportRect
         )
         updateLetterboxBorder(
             renderRect: renderRect,
@@ -5926,7 +5929,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         delegate?.ghosttySurfaceView(self, didResize: report, reportID: viewportReportID)
     }
 
-    private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {
+    /// Places the renderer layer for a grid displayed at `gridRenderRect`.
+    /// - Parameters:
+    ///   - scale: The screen scale.
+    ///   - gridRenderRect: Where the grid displays (`lastRenderRect`).
+    ///   - viewportRect: The visible terminal area.
+    private func syncRendererLayerFrame(scale: CGFloat, gridRenderRect: CGRect, viewportRect: CGRect) {
+        let renderRect = rendererLayerRect(forGridRenderRect: gridRenderRect)
         // Resize the render layer WITHOUT CoreAnimation's implicit ~0.25s
         // bounds/position animation. While that animation runs, the layer's
         // presentation size differs from the size libghostty just rendered, and
@@ -5969,6 +5978,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 geometryChanged = true
             }
             sublayer.contentsScale = scale
+            applyScrollEdgeBandClip(
+                to: sublayer,
+                boundsSize: placement.boundsSize,
+                gridRenderRect: gridRenderRect,
+                viewportRect: viewportRect
+            )
         }
         CATransaction.commit()
         if geometryChanged {
@@ -6104,6 +6119,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             border.path = path
         }
     }
+
+    /// Hides the top scroll-edge band while the displayed grid starts below
+    /// the viewport's top edge (`TerminalScrollEdgeBandClip`), so scrollback
+    /// never renders in the unused area the sizing chrome hatches.
+    private func applyScrollEdgeBandClip(
+        to renderer: CALayer,
+        boundsSize: CGSize,
+        gridRenderRect: CGRect,
+        viewportRect: CGRect
+    ) {
+        guard let visible = TerminalScrollEdgeBandClip.visibleLayerRect(
+            layerSize: boundsSize,
+            topInset: appliedRenderTopInsetPts,
+            gridDisplayRect: gridRenderRect,
+            viewportRect: viewportRect
+        ) else {
+            if renderer.mask?.name == Self.scrollEdgeBandClipName {
+                renderer.mask = nil
+            }
+            return
+        }
+        let mask: CALayer
+        if let existing = renderer.mask, existing.name == Self.scrollEdgeBandClipName {
+            mask = existing
+        } else {
+            mask = CALayer()
+            mask.name = Self.scrollEdgeBandClipName
+            mask.backgroundColor = UIColor.black.cgColor
+            mask.actions = ["bounds": NSNull(), "frame": NSNull(), "position": NSNull()]
+            renderer.mask = mask
+        }
+        if mask.frame != visible {
+            mask.frame = visible
+        }
+    }
+
+    private static let scrollEdgeBandClipName = "cmux.scrollEdgeBandClip"
 
     func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
         String(describing: type(of: layer)) == "IOSurfaceLayer"

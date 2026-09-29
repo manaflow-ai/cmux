@@ -176,7 +176,9 @@ exact shared grid scaled to its width and pinned to the bottom. Pinch zooms
 and pans; the chip then adds `· scaled`. The phone shows sizing chrome only
 after the host's latest size state includes the phone's confirmed viewport
 and no viewport report of its own is pending, so it never draws bounds for a
-grid it is about to change.
+grid it is about to change. While the displayed grid's top edge is inside the
+viewport (scaled or letterboxed), the phone hides the scroll-edge band of
+scrollback above the grid, so that area shows only the hatch and the chip.
 
 The cmux-tui frontend joins as `device_kind: "tui"` named after its host
 (`cmux-tui` when the host name is unknown). It takes the size state from the
