@@ -76,6 +76,9 @@ struct CMUXMobileRootView: View {
     /// first team transition invalidates attempts created in the teamless
     /// scope, so connection startup belongs after this barrier.
     @State private var didFinishAuthBootstrap = false
+    /// Set while the saved-Mac dial started on the cached account during
+    /// launch restore owns startup, so bootstrap does not start a second one.
+    @State private var didStartStoredReconnectDuringRestore = false
     @State private var didExceedStartupRestoringGate = false
     /// One owner for the setup requirement's loading and required phases.
     /// Durable readiness remains in the shell store.
@@ -456,6 +459,7 @@ struct CMUXMobileRootView: View {
             syncShellAuthentication(isAuthenticated)
             if !isAuthenticated {
                 didFinishAuthBootstrap = false
+                didStartStoredReconnectDuringRestore = false
                 startupConnectionCoordinator.reset()
             } else {
                 Task { await finishAuthenticationBootstrapAndConnect() }
@@ -1271,22 +1275,27 @@ struct CMUXMobileRootView: View {
         // policy fetch must never become a connection-startup barrier.
         startMacCompatibilityRefreshIfNeeded()
         #endif
-        _ = reconnectStoredMacDuringRestoreIfPossible()
+        if reconnectStoredMacDuringRestoreIfPossible() {
+            didStartStoredReconnectDuringRestore = true
+        }
         await authManager.awaitBootstrapped()
         guard !Task.isCancelled else { return }
         diagnosticLog?.recordAppEvent(
             .authBootstrapCompleted,
             count: authManager.isAuthenticated ? 1 : 0
         )
+        var didChangeAccountScope = false
         if authManager.isAuthenticated {
-            guard prepareResolvedAccountScope() != nil else { return }
+            guard let applied = prepareResolvedAccountScope() else { return }
+            didChangeAccountScope = applied
         }
         didFinishAuthBootstrap = true
-        // The startup coordinator serializes this with any restore-time dial.
-        // Always give the post-bootstrap path a chance: an early restore dial
-        // may have completed without a connection, and must not suppress the
-        // normal persisted-pairing reconnect.
-        if !consumePendingURLIfReady() {
+        // The restore-time dial, or its retry, still owns startup when
+        // validation kept the cached account and team.
+        let restoreDialOwnsStartup = didStartStoredReconnectDuringRestore
+            && !didChangeAccountScope
+        didStartStoredReconnectDuringRestore = false
+        if !consumePendingURLIfReady(), !restoreDialOwnsStartup {
             reconnectStoredMacIfNeeded()
         }
     }
