@@ -1,0 +1,129 @@
+import Foundation
+public import Observation
+
+// Main-actor mirror records. Each record is a small @Observable final class
+// with stable identity (durable ids), patched in place: a field is assigned
+// only when its value changed, so Observation invalidates exactly the views
+// that read it. A resync after a reconnect or daemon restart updates the same
+// objects; numeric handles are refreshed on every snapshot.
+//
+// Focus, hover, drag, and scroll are not here: the daemon's `active*` fields
+// are shared compatibility defaults, and user focus is client-local.
+
+@Observable @MainActor
+public final class TabModel: Identifiable {
+    public let id: String
+    public internal(set) var surface: SurfaceID
+    public internal(set) var terminalID: TerminalID?
+    public internal(set) var terminalIncarnation: TerminalIncarnation?
+    /// Public terminal id (`term_…`) used by `attach-identity-v1`.
+    public internal(set) var terminalResourceID: ResourceID?
+    public internal(set) var kind: TabKind
+    public internal(set) var name: String?
+    public internal(set) var title: String
+    public internal(set) var size: CellSize?
+    public internal(set) var dead: Bool
+    public internal(set) var notification: TabNotification?
+    public internal(set) var url: String?
+    public internal(set) var pinned: Bool
+    public internal(set) var cwd: String?
+    public internal(set) var gitBranch: String?
+    public internal(set) var gitDetached: Bool
+    public internal(set) var browserEngine: String?
+    public internal(set) var faviconURL: String?
+    public internal(set) var isFrontendOwned: Bool
+    public internal(set) var tabGroup: TabGroupID?
+    public internal(set) var agent: AgentStatus?
+    /// Last snapshot, for fields the record does not surface. Views should
+    /// read the typed fields; this one changes whenever any field does.
+    @ObservationIgnored public private(set) var snapshot: TabSnapshot
+
+    public var displayTitle: String {
+        if let name, !name.isEmpty { return name }
+        return title
+    }
+
+    public var hasUnread: Bool { notification?.unread == true }
+
+    init(_ s: TabSnapshot) {
+        id = Self.identity(s)
+        snapshot = s
+        surface = s.surface
+        terminalID = s.terminalID
+        terminalIncarnation = s.terminalIncarnation
+        terminalResourceID = s.terminalResourceID
+        kind = s.kind
+        name = s.name
+        title = s.title
+        size = s.size
+        dead = s.dead
+        notification = s.notification
+        url = s.url
+        pinned = s.pinned
+        cwd = s.cwd
+        gitBranch = s.gitBranch
+        gitDetached = s.gitDetached
+        browserEngine = s.browserEngine
+        faviconURL = s.faviconURL
+        isFrontendOwned = s.isFrontendOwned
+        tabGroup = s.tabGroup
+    }
+
+    static func identity(_ s: TabSnapshot) -> String {
+        s.tabResourceID?.rawValue ?? s.terminalID.map { "terminal:\($0.rawValue)" } ?? "surface:\(s.surface.rawValue)"
+    }
+
+    func update(_ s: TabSnapshot) {
+        guard s != snapshot else { return }
+        snapshot = s
+        if surface != s.surface { surface = s.surface }
+        if terminalID != s.terminalID { terminalID = s.terminalID }
+        if terminalIncarnation != s.terminalIncarnation { terminalIncarnation = s.terminalIncarnation }
+        if terminalResourceID != s.terminalResourceID { terminalResourceID = s.terminalResourceID }
+        if kind != s.kind { kind = s.kind }
+        if name != s.name { name = s.name }
+        if title != s.title { title = s.title }
+        if size != s.size { size = s.size }
+        if dead != s.dead { dead = s.dead }
+        if notification != s.notification { notification = s.notification }
+        if url != s.url { url = s.url }
+        if pinned != s.pinned { pinned = s.pinned }
+        if cwd != s.cwd { cwd = s.cwd }
+        if gitBranch != s.gitBranch { gitBranch = s.gitBranch }
+        if gitDetached != s.gitDetached { gitDetached = s.gitDetached }
+        if browserEngine != s.browserEngine { browserEngine = s.browserEngine }
+        if faviconURL != s.faviconURL { faviconURL = s.faviconURL }
+        if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
+        if tabGroup != s.tabGroup { tabGroup = s.tabGroup }
+    }
+
+    /// Point updates from surface events (no full snapshot).
+    func setTitle(_ value: String) {
+        if title != value { title = value }
+        snapshot.title = value
+    }
+
+    func setSize(_ value: CellSize) {
+        if size != value { size = value }
+        snapshot.size = value
+    }
+
+    func setAgent(_ value: AgentStatus?) {
+        if agent != value { agent = value }
+    }
+
+    func markDead() {
+        if !dead { dead = true }
+        snapshot.dead = true
+    }
+
+    func setPinned(_ value: Bool) {
+        if pinned != value { pinned = value }
+        snapshot.pinned = value
+    }
+
+    func setName(_ value: String?) {
+        if name != value { name = value }
+        snapshot.name = value
+    }
+}
