@@ -302,6 +302,10 @@ public protocol SettingsHostActions: AnyObject {
     /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
     func notifyShortcutSettingsDidChange()
 
+    /// Reloads cmux.json after Settings writes it, so its values apply to
+    /// UserDefaults and live chrome before the file watcher notices.
+    func reloadSettingsFile()
+
     /// Whether the host can register `shortcut` as its system-wide hotkey.
     ///
     /// The macOS host applies Carbon conversion and app-reservation checks that
@@ -362,6 +366,9 @@ public protocol SettingsHostActions: AnyObject {
     /// Reveals the right-sidebar Machines panel in the active main window.
     func openCloudMachinesPanel()
 
+    /// Opens the optional system-wide VPN explanation and its explicit connection controls.
+    func openCloudVPNSetup()
+
     /// Opens the host's plan management / upgrade flow.
     func openCloudMachinesBilling()
 
@@ -406,28 +413,6 @@ public struct AutomationRulesStatus: Equatable, Sendable {
     /// Number of configured rules that are currently disabled.
     public var disabledCount: Int {
         ruleCount - enabledCount
-    }
-}
-
-/// Snapshot of the caller's Cloud Machines plan for the settings section.
-public struct CloudMachinesPlanSummary: Equatable, Sendable {
-    public let planLabel: String
-    public let activeMachines: Int
-    /// Active-machine ceiling; nil when the plan has no cap.
-    public let maxMachines: Int?
-    public let isPaidPlan: Bool
-
-    /// Creates a plan summary.
-    /// - Parameters:
-    ///   - planLabel: Display name of the plan, already localized.
-    ///   - activeMachines: Machines currently counted against the plan.
-    ///   - maxMachines: Active-machine ceiling, or nil when the plan has no cap.
-    ///   - isPaidPlan: Whether the plan is one the backend provisions for.
-    public init(planLabel: String, activeMachines: Int, maxMachines: Int?, isPaidPlan: Bool) {
-        self.planLabel = planLabel
-        self.activeMachines = activeMachines
-        self.maxMachines = maxMachines
-        self.isPaidPlan = isPaidPlan
     }
 }
 
@@ -498,6 +483,7 @@ public extension SettingsHostActions {
     var isCloudMachinesAvailable: Bool { false }
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
     func openCloudMachinesPanel() {}
+    func openCloudVPNSetup() {}
     func openCloudMachinesBilling() {}
 
     /// No release-app switch for previews, tests, and package-only hosts.
@@ -531,6 +517,9 @@ public extension SettingsHostActions {
 
     /// Default no-op for hosts with no app-owned shortcut caches.
     func notifyShortcutSettingsDidChange() {}
+
+    /// Default no-op for hosts without a settings file store.
+    func reloadSettingsFile() {}
 
     /// Custom-sidebar defaults for package previews and tests without a live host.
     func customSidebarNames() -> [String] { [] }

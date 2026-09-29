@@ -34,7 +34,9 @@ extension SettingsWindowRoot {
         slot(.app, proxy: proxy) {
             AppSection(
                 defaultsStore: defaultsStore,
+                jsonStore: jsonStore,
                 catalog: catalog,
+                errorLog: runtime.errorLog,
                 hostActions: hostActions,
                 soundAgentCache: soundAgentCache
             )
