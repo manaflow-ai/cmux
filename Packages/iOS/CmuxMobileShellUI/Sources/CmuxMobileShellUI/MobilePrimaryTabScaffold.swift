@@ -2,6 +2,21 @@
 import CmuxMobileSupport
 import SwiftUI
 
+private struct TopContentHitRegion: Shape {
+    let bottomInset: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        Path(
+            CGRect(
+                x: rect.minX,
+                y: rect.minY,
+                width: rect.width,
+                height: max(0, rect.height - bottomInset)
+            )
+        )
+    }
+}
+
 /// Native primary navigation shared by the live shell and deterministic UI
 /// fixtures. Keeping the tab construction here guarantees that previews exercise
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
@@ -40,19 +55,77 @@ struct MobilePrimaryTabScaffold<
         if #available(iOS 26.0, *) {
             ZStack(alignment: .bottomTrailing) {
                 TabView(selection: tabSelection) {
-                    primaryTabs
-
-                    Tab(value: MobilePrimaryTab.search, role: .search) {
-                        search
-                            .environment(\.mobilePrimarySearchDestination, true)
+                    Tab(value: MobilePrimaryTab.workspaces) {
+                        tabBarPlaceholder
+                    } label: {
+                        workspacesLabel
                     }
-                    .accessibilityIdentifier("MobilePrimaryTabSearch")
+                        .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
+                    Tab(value: MobilePrimaryTab.notifications) {
+                        tabBarPlaceholder
+                    } label: {
+                        notificationsLabel
+                    }
+                        .badge(notificationUnreadCount)
+                        .accessibilityIdentifier("MobilePrimaryTabNotifications")
+                    Tab(value: MobilePrimaryTab.search, role: .search) {
+                        tabBarPlaceholder
+                    }
+                        .accessibilityIdentifier("MobilePrimaryTabSearch")
                 }
                 .tabViewSearchActivation(.searchTabSelection)
+                .tabViewStyle(.tabBarOnly)
+                .background(Color.clear)
                 .accessibilityIdentifier("MobilePrimaryTabs")
+                .animation(nil, value: selection)
+                // Each tab owns a NavigationStack. SwiftUI's tab transition
+                // otherwise crossfades the stacks before the incoming stack's
+                // toolbar items are installed, leaving a blank frame at the
+                // top of the screen.
+                .transaction { transaction in
+                    transaction.disablesAnimations = true
+                }
+                .overlay(alignment: .top) {
+                    // Keep each navigation stack mounted outside the system
+                    // tab content transition. iOS 26 crossfades a tab's
+                    // hosted NavigationStack before its toolbar items have
+                    // been laid out, which produces a blank top frame. This
+                    // overlay swaps the already-mounted stacks synchronously;
+                    // its bottom inset leaves the native tab bar on top.
+                    GeometryReader { geometry in
+                        ZStack {
+                            workspaces
+                                .opacity(selection == .workspaces ? 1 : 0)
+                                .allowsHitTesting(selection == .workspaces)
+                                .accessibilityHidden(selection != .workspaces)
+                            notifications
+                                .opacity(selection == .notifications ? 1 : 0)
+                                .allowsHitTesting(selection == .notifications)
+                                .accessibilityHidden(selection != .notifications)
+                            search
+                                .environment(\.mobilePrimarySearchDestination, true)
+                                .opacity(selection == .search ? 1 : 0)
+                                .allowsHitTesting(selection == .search)
+                                .accessibilityHidden(selection != .search)
+                        }
+                        .frame(
+                            width: geometry.size.width,
+                            height: max(0, geometry.size.height - iOS26TabBarInteractionHeight),
+                            alignment: .top
+                        )
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .contentShape(TopContentHitRegion(bottomInset: iOS26TabBarInteractionHeight))
+                }
                 .onChange(of: selection, initial: true) { _, selection in
                     searchCoordinator.synchronizeSelection(selection)
                 }
+
+                // The persistent content layer sits above the tab bar's
+                // transparent content host, so route the tab bar's hit area
+                // back to the same selection binding while leaving its native
+                // visuals intact.
+                tabBarInteractionOverlay
 
                 if selection == .workspaces, let taskComposerAction {
                     TaskComposerButton(
@@ -101,6 +174,41 @@ struct MobilePrimaryTabScaffold<
         iOS26BottomControlInset + iOS26BottomControlDiameter + iOS26BottomControlSpacing
     }
 
+    private var iOS26TabBarInteractionHeight: CGFloat { 90 }
+
+    private var tabBarPlaceholder: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+    }
+
+    private var tabBarInteractionOverlay: some View {
+        HStack(spacing: 0) {
+            tabBarButton(for: .workspaces)
+                .frame(width: 110)
+            tabBarButton(for: .notifications)
+                .frame(width: 110)
+            Spacer(minLength: 0)
+            tabBarButton(for: .search)
+                .frame(width: 90)
+        }
+        .padding(.horizontal, 45)
+        .frame(height: iOS26TabBarInteractionHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .accessibilityHidden(true)
+    }
+
+    private func tabBarButton(for tab: MobilePrimaryTab) -> some View {
+        Button {
+            tabSelection.wrappedValue = tab
+        } label: {
+            Color.clear
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+    }
+
     private var tabSelection: Binding<MobilePrimaryTab> {
         Binding(
             get: { selection },
@@ -115,7 +223,19 @@ struct MobilePrimaryTabScaffold<
                         searchCoordinator.deactivateCurrentSearch()
                     }
                 }
-                selection = newValue
+                // Each primary tab owns a NavigationStack. Letting the
+                // selection write inherit SwiftUI's default animation makes
+                // UIKit animate the outgoing stack's toolbar away before the
+                // incoming stack has installed its own toolbar items. The
+                // resulting empty frame is the brief flash seen at the top
+                // while switching between Workspaces and Notifications.
+                // Keep the tab contents and their navigation state intact,
+                // but commit the stack swap as one layout transaction.
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    selection = newValue
+                }
             }
         )
     }

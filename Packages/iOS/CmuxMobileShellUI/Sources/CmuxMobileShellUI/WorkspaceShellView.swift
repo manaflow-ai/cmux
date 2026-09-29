@@ -447,7 +447,13 @@ struct WorkspaceShellView: View {
                         if notificationNavigationPath.isEmpty {
                             rootToolbarContent
                         }
+                        ToolbarItem(id: "mobile-primary-toolbar-anchor", placement: .topBarTrailing) {
+                            Color.clear
+                                .frame(width: 1, height: 1)
+                                .accessibilityHidden(true)
+                        }
                     }
+                    .toolbar(.visible, for: .navigationBar)
                     .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                         workspaceDestination(
                             for: workspaceID,
@@ -778,7 +784,13 @@ struct WorkspaceShellView: View {
                 if compactNavigationPath.isEmpty {
                     rootToolbarContent
                 }
+                ToolbarItem(id: "mobile-primary-toolbar-anchor", placement: .topBarTrailing) {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .accessibilityHidden(true)
+                }
             }
+            .toolbar(.visible, for: .navigationBar)
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
