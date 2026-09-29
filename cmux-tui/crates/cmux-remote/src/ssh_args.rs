@@ -106,6 +106,7 @@ impl CallerOptions {
     fn parse(extra_args: &[String]) -> Self {
         let mut master_flag = false;
         let mut control_master = None;
+        let mut control_path_disabled = false;
         let mut forwards_ports = false;
         let mut arguments = extra_args.iter();
         while let Some(argument) = arguments.next() {
@@ -126,10 +127,15 @@ impl CallerOptions {
                 };
                 match flag {
                     'L' | 'R' | 'D' => forwards_ports = true,
+                    'S' => {
+                        control_path_disabled |= value.is_some_and(|value| value.eq_ignore_ascii_case("none"));
+                    }
                     'o' => {
                         if let Some((keyword, value)) = value.and_then(option_keyword_and_value) {
                             if keyword.eq_ignore_ascii_case("ControlMaster") {
                                 control_master.get_or_insert(value);
+                            } else if keyword.eq_ignore_ascii_case("ControlPath") {
+                                control_path_disabled |= value.eq_ignore_ascii_case("none");
                             } else if ["LocalForward", "RemoteForward", "DynamicForward"]
                                 .iter()
                                 .any(|forward| keyword.eq_ignore_ascii_case(forward))
@@ -146,7 +152,10 @@ impl CallerOptions {
         let pinned_off = control_master.is_some_and(|value: &str| {
             value.eq_ignore_ascii_case("no") || value.eq_ignore_ascii_case("false")
         });
-        Self { can_become_master: master_flag || !pinned_off, forwards_ports }
+        Self {
+            can_become_master: master_flag || (!pinned_off && !control_path_disabled),
+            forwards_ports,
+        }
     }
 }
 
@@ -198,6 +207,8 @@ mod tests {
         for extra in [
             &["-o", "ControlMaster=auto", "-o", "ControlPath=/tmp/cmux-ssh-%C"][..],
             &["-o", "ControlMaster=no", "-M"],
+            &["-o", "ControlMaster=auto", "-o", "ControlPath=none"],
+            &["-S", "none", "-o", "ControlMaster=auto"],
             &["-TMo", "ControlMaster=no"],
             &["-o", "ControlMaster=auto", "-o", "ControlMaster=no"],
         ] {

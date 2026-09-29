@@ -156,7 +156,10 @@ enum SSHPTYAttachStartupCommandBuilder {
         var arguments = ["/usr/bin/ssh"]
         let options = SSHAgentSocketResolver().removingOptions(
             named: "RemoteCommand",
-            from: sharingOptions.mergingDefaults(into: auth.sshOptions)
+            from: sharingOptions.mergingDefaults(
+                into: auth.sshOptions,
+                routeSensitiveOptions: auth.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+            )
         )
         if !hasSSHOptionKey(options, key: "ConnectTimeout") {
             arguments += ["-o", "ConnectTimeout=6"]

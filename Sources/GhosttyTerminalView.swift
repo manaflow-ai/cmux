@@ -867,8 +867,14 @@ class GhosttyApp {
                 )
             }
         }
-        runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
-            guard let content = content, len > 0 else { return }
+        runtimeConfig.write_clipboard_cb = { userdata, location, content, len, _ in
+            // Manual-I/O surfaces are remote terminal projections (SSH/tmux/Cloud).
+            // OSC 52 from them is remote-origin input and must never overwrite this
+            // Mac's clipboard without a user gesture or confirmation.
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
+                  let terminalSurface = callbackContext.terminalSurface,
+                  !terminalSurface.ioMode.usesManualIO,
+                  let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
             let decoder = TerminalClipboardRepresentationDecoder()
 

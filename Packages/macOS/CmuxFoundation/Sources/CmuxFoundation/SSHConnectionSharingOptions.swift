@@ -28,6 +28,9 @@ public struct SSHConnectionSharingOptions: Sendable {
         "preferredauthentications", "canonicalizehostname", "canonicalizemaxdots",
         "canonicalizepermittedcnames", "remotecommand", "localcommand",
         "permitlocalcommand", "matchfinal", "sendenv", "setenv",
+        "addressfamily", "bindaddress", "bindinterface", "localaddress",
+        "gssapiauthentication", "gssapikexalgorithms", "gssapiserveridentity",
+        "gssapidelegatecredentials", "kerberosauthentication", "kerberosorlocalpasswd",
     ]
 
     /// Creates an option merger for the current local user, creating
@@ -96,7 +99,7 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// - Parameter options: OpenSSH `-o` values in caller precedence order.
     /// - Returns: Trimmed options plus only the missing cmux defaults.
     public func mergingDefaults(into options: [String]) -> [String] {
-        mergingDefaults(into: options, userConfiguredControlOptions: nil)
+        mergingDefaults(into: options, userConfiguredControlOptions: nil, routeSensitiveOptions: [])
     }
 
     /// Adds sharing defaults while honoring effective control settings from
@@ -113,10 +116,15 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// - Returns: Effective explicit options for native SSH commands.
     public func mergingDefaults(
         into options: [String],
-        userConfiguredControlOptions: [String]?
+        userConfiguredControlOptions: [String]?,
+        routeSensitiveOptions: [String] = []
     ) -> [String] {
         let resolver = SSHAgentSocketResolver()
-        let routeSensitive = options.contains { SSHAgentSocketResolver().optionKey($0) == Self.routeSensitiveMarker.split(separator: "=").first.map(String.init) }
+        let routeSensitive = !routeSensitiveOptions.isEmpty
+            || options.contains { option in
+                guard let key = resolver.optionKey(option) else { return false }
+                return Self.routeSensitiveKeys.contains(key)
+            }
             || userConfiguredControlOptions?.contains(where: { SSHAgentSocketResolver().optionKey($0) == Self.routeSensitiveMarker.split(separator: "=").first.map(String.init) }) == true
         var merged = options.compactMap { option -> String? in
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)

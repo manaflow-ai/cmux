@@ -64,7 +64,10 @@ public struct SSHTuiConnection: Sendable {
     /// options, so without this a restored carrier opens its own connection,
     /// which batch mode can't log in on a password-only host.
     private var sshOptions: [String] {
-        SSHConnectionSharingOptions().mergingDefaults(into: configuration.sshOptions)
+        SSHConnectionSharingOptions().mergingDefaults(
+            into: configuration.sshOptions,
+            routeSensitiveOptions: configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+        )
     }
 
     /// The daemon owns the login shell and therefore keeps it alive when SSH disconnects.
