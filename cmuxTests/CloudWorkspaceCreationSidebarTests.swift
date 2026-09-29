@@ -85,7 +85,7 @@ struct CloudWorkspaceCreationSidebarTests {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
             let workspace = SurfaceRemoteWorkspace(id: "ws_failure", name: "Failure", index: 0, focused: true)
-            _ = try #require(fixture.manager.addWorkspaceIfActive(title: "Other", select: false))
+            let other = try #require(fixture.manager.addWorkspaceIfActive(title: "Other", select: false))
             fixture.provider.createdWorkspaces = [workspace]
             fixture.provider.info.remoteWorkspaces = [workspace]
             fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
@@ -113,7 +113,7 @@ struct CloudWorkspaceCreationSidebarTests {
             actions.openWorkspace(fixture.provider.machine, workspace, try #require(row.dragGroup))
             #expect(await completed.result == true)
             #expect(failure != nil)
-            #expect(fixture.manager.tabs.map(\.id) == [fixture.originalWorkspaceID])
+            #expect(fixture.manager.tabs.map(\.id) == [fixture.originalWorkspaceID, other.id])
             #expect(fixture.manager.selectedTabId == fixture.originalWorkspaceID)
             #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
             #expect(fixture.catalog.projections.isEmpty)
