@@ -5,7 +5,7 @@ import Testing
 /// `batch-close-v1` against the pinned branch cmux-tui: many tabs, and the
 /// terminals they end, close in one daemon command.
 @Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
-       .timeLimit(.minutes(2)))
+       .timeLimit(.minutes(2)), .liveDaemon)
 struct BatchCloseTests {
     @Test func closeTabsEndsTerminalsWithNoTabLeft() async throws {
         try await BranchDaemonHarness.with { h in
