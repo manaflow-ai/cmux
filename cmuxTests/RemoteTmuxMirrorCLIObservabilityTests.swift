@@ -405,17 +405,18 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: contentSize))
             outerPanelID = try #require(workspace.focusedPanelId)
             if focusAwayFromMirror {
-                nonMirrorPanelID = try #require({
-                    switch workspace.newTerminalSplitOutcome(
-                        from: outerPanelID,
-                        orientation: .horizontal,
-                        focus: true,
-                        autoLayout: true
-                    ) {
-                    case .created(let panel): return panel.id
-                    default: return nil
-                    }
-                }())
+                let splitPanelID: UUID?
+                if case .created(let panel) = workspace.newTerminalSplitOutcome(
+                    from: outerPanelID,
+                    orientation: .horizontal,
+                    focus: true,
+                    autoLayout: true
+                ) {
+                    splitPanelID = panel.id
+                } else {
+                    splitPanelID = nil
+                }
+                nonMirrorPanelID = try #require(splitPanelID)
             } else {
                 nonMirrorPanelID = nil
             }
