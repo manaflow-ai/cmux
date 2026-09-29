@@ -102,10 +102,7 @@ final class PaneController {
     /// Pushes daemon truth into the strip. `force` resets optimistic strip
     /// state after a rejected command (order, membership, closes).
     func apply(_ snapshot: Snapshot, force: Bool = false) {
-        if force {
-            stripModel.tabs = []
-            stripModel.groups = []
-        }
+        if force { view.stripView.discardPendingReorder() }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
         var focusNew = false

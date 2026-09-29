@@ -206,4 +206,13 @@ extension TabStripView {
         detachedID = nil
         sync(fromModel: false)
     }
+
+    /// Drops a local reorder the App could not commit (the daemon rejected
+    /// it) and shows the model's order again, even when that order did not
+    /// change.
+    public func discardPendingReorder() {
+        guard orderOverride != nil else { return }
+        orderOverride = nil
+        sync(fromModel: false)
+    }
 }
