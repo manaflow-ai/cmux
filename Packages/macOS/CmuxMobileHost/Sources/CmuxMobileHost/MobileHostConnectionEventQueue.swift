@@ -170,11 +170,11 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         MobileSyncFrameCodec.defaultMaximumFrameByteCount
         + MobileSyncFrameCodec.headerByteCount
 
-    private let lock = NSLock()
+    fileprivate let lock = NSLock()
     private let maximumEventCount: Int
     private let maximumByteCount: Int
     private var subscribedTopics: Set<String> = []
-    private var queuedEvents: [UUID: QueuedEvent] = [:]
+    fileprivate var queuedEvents: [UUID: QueuedEvent] = [:]
     /// Arrival order across every lane; shedding walks it oldest first.
     private(set) var arrivalOrder = MobileHostQueuedEventOrder()
     /// Arrival order within each lane with queued events; a lane's drain
@@ -187,15 +187,15 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
     /// Lanes with a running drain. At most one drain per lane.
     private var drainingLanes: Set<MobileHostEventLane> = []
     private var overflowed = false
-    private var isClosed = false
+    fileprivate var isClosed = false
     /// How many focused surfaces hold their own lane; 0 disables surface lanes.
-    private var surfaceLaneLimit = 0
+    fileprivate var surfaceLaneLimit = 0
     /// Canonical keys of recently focused surfaces, oldest first. Background
     /// output never earns or takes a lane, so it cannot churn streams.
-    private var focusedSurfaceKeys: [String] = []
+    fileprivate var focusedSurfaceKeys: [String] = []
     /// Render-grid key spelling for each canonical focused surface.
-    private var surfaceLaneCoalesceKeysByCanonicalKey: [String: String] = [:]
-    private var surfaceLaneGenerations: [String: UInt64] = [:]
+    fileprivate var surfaceLaneCoalesceKeysByCanonicalKey: [String: String] = [:]
+    fileprivate var surfaceLaneGenerations: [String: UInt64] = [:]
     private var surfaceLaneFailureCounts: [String: Int] = [:]
     private var sharedLanePinnedSurfaceIDs: Set<String> = []
     private var queuedCountByLane: [MobileHostEventLane: Int] = [:]
@@ -203,7 +203,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
     /// Surfaces whose delta chain was broken by a shed frame. Only a
     /// full-frame render-grid event readmits the surface; deltas are refused so
     /// the client can never apply a delta whose predecessor was dropped.
-    private var poisonedRenderGridSurfaceIDs: Set<String> = []
+    fileprivate var poisonedRenderGridSurfaceIDs: Set<String> = []
     /// Poisoned surfaces whose replacement full frame ALSO had to be dropped
     /// (queue full of non-droppable events). Re-requested once the drain frees
     /// room, so a fully stalled connection cannot spin the producer.
@@ -475,41 +475,6 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// One key per terminal: focus signals and render-grid events can differ
-    /// in case or surrounding whitespace.
-    public static func canonicalSurfaceKey(_ rawSurfaceKey: String) -> String {
-        let trimmed = rawSurfaceKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        return UUID(uuidString: trimmed)?.uuidString ?? trimmed.lowercased()
-    }
-
-    /// Gives a focused surface its own lane and releases the least recently
-    /// focused surface when the limit is exceeded. Released frames are
-    /// poisoned so the producer must rebase with a full frame on the shared
-    /// lane; the writer resets the old native stream separately.
-    public func focusSurfaceLane(_ rawSurfaceKey: String) -> [String: UInt64] {
-        let key = Self.canonicalSurfaceKey(rawSurfaceKey)
-        lock.lock()
-        defer { lock.unlock() }
-        guard !isClosed, surfaceLaneLimit > 0, !key.isEmpty else { return [:] }
-        if let index = focusedSurfaceKeys.firstIndex(of: key) {
-            focusedSurfaceKeys.remove(at: index)
-        }
-        focusedSurfaceKeys.append(key)
-        var released: [String: UInt64] = [:]
-        while focusedSurfaceKeys.count > surfaceLaneLimit {
-            let victim = focusedSurfaceKeys.removeFirst()
-            guard let surfaceID = surfaceLaneCoalesceKeysByCanonicalKey
-                .removeValue(forKey: victim) else { continue }
-            let generation = surfaceLaneGenerations[surfaceID, default: 0] &+ 1
-            surfaceLaneGenerations[surfaceID] = generation
-            var dropped = MobileHostEventShedSummary()
-            removeRenderGridEventsLocked(surfaceIDs: [surfaceID], summary: &dropped)
-            poisonedRenderGridSurfaceIDs.insert(surfaceID)
-            released[surfaceID] = generation
-        }
-        return released
-    }
-
     public var surfaceLanesEnabled: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -701,7 +666,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
     }
 
     /// Drops every queued render-grid frame for `surfaceIDs`, on any lane.
-    private func removeRenderGridEventsLocked(
+    fileprivate func removeRenderGridEventsLocked(
         surfaceIDs: Set<String>,
         summary: inout MobileHostEventShedSummary
     ) {

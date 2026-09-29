@@ -1009,9 +1009,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 tunnelHost: tunnelHost,
                 journal: journal,
                 onInteractiveSurface: { surfaceID in
-                    // The admitted connection serializes focus, stream
-                    // release, and priority updates. Input remains ordered;
-                    // the writer no longer owns a second focus state.
+                    // The admitted connection serializes focus and stream updates.
                     await eventWriter.reportInteractiveSurface(surfaceID.uuidString)
                 })
         }

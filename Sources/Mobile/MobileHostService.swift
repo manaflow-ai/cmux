@@ -1437,7 +1437,7 @@ actor MobileHostConnection {
     nonisolated var connectionID: UUID { id }
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
-    private let independentEventWriter: (any MobileHostIndependentEventWriting)?
+    fileprivate let independentEventWriter: (any MobileHostIndependentEventWriting)?
     private let firstFrameTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     /// Per-request authorization for transports whose admission lease can
@@ -1476,16 +1476,14 @@ actor MobileHostConnection {
     private var independentEventNegotiationInProgress = false
     /// Whether the event queue currently routes render-grid frames onto
     /// per-surface lanes (mirrors the subscriptions that negotiated them).
-    private var surfaceEventLanesActive = false
+    fileprivate var surfaceEventLanesActive = false
     /// Last surface this connection wrote terminal input to; its output lane
     /// is scheduled first so keystroke echo never waits behind other surfaces.
-    private var lastInteractiveSurfaceKey: String?
-    /// Monotonic owner for serialized focus transitions. Actor reentrancy can
-    /// suspend one writer hop while a newer focus arrives; stale continuations
-    /// must not apply priority after the newer transition commits.
-    private var focusTransitionGeneration: UInt64 = 0
+    fileprivate var lastInteractiveSurfaceKey: String?
+    /// Monotonic owner for focus transitions across actor suspension.
+    fileprivate var focusTransitionGeneration: UInt64 = 0
     private var didDecodeFirstFrame = false
-    private var isClosed = false
+    fileprivate var isClosed = false
     private var exit = CmxIrohAdmittedConnectionExit(
         lifecycle: .explicitlyInvalidated,
         failure: .none
@@ -2499,12 +2497,7 @@ actor MobileHostConnection {
             }
         }
     }
-
-    /// Aligns the queue's render-grid routing and the writer's surface lanes
-    /// with the subscriptions that negotiated them. Surface lanes stay active
-    /// only while a render-grid subscription still uses the independent
-    /// events path; a fallback to control returns every surface to the shared
-    /// lane and re-bases each chain with a full frame.
+    /// Aligns queue routing and native surface lanes with negotiated subscriptions.
     private func syncSurfaceEventLanes() async {
         guard let independentEventWriter, !isClosed else { return }
         let desired = subscriptions.values.contains {
@@ -2544,39 +2537,6 @@ actor MobileHostConnection {
             await independentEventWriter.setInteractiveSurfaceHandler(nil)
         }
     }
-
-    /// Applies one authorized focus transition through the connection-owned
-    /// queue and writer, preserving release-before-priority ordering.
-    func noteInteractiveSurface(_ rawSurfaceKey: String) async {
-        let surfaceKey = MobileHostConnectionEventQueue.canonicalSurfaceKey(rawSurfaceKey)
-        guard !surfaceKey.isEmpty, lastInteractiveSurfaceKey != surfaceKey else { return }
-        lastInteractiveSurfaceKey = surfaceKey
-        focusTransitionGeneration &+= 1
-        let transitionGeneration = focusTransitionGeneration
-        guard surfaceEventLanesActive, let independentEventWriter else { return }
-        await focusSurfaceLane(
-            surfaceKey,
-            writer: independentEventWriter,
-            transitionGeneration: transitionGeneration
-        )
-    }
-
-    private func focusSurfaceLane(
-        _ surfaceKey: String,
-        writer: any MobileHostIndependentEventWriting,
-        transitionGeneration: UInt64
-    ) async {
-        let released = eventQueue.focusSurfaceLane(surfaceKey)
-        if !released.isEmpty {
-            MobileTerminalRenderObserver.requestRenderGridFullResync(
-                surfaceIDStrings: Set(released.keys)
-            )
-            await writer.releaseSurfaceLanes(released)
-        }
-        guard transitionGeneration == focusTransitionGeneration else { return }
-        await writer.noteInteractiveSurface(surfaceKey)
-    }
-
     /// Writes one serialized frame until the transport completes or fails.
     /// An application deadline cannot cancel writeAll safely: it may already
     /// have sent a prefix. Native transport failure still ends the drain.
