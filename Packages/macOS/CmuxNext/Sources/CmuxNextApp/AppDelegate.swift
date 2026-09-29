@@ -34,12 +34,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {
-                control = try ControlService.start(registry: registry, settings: settings)
+                let control = try ControlService.start(registry: registry, settings: settings)
+                self.control = control
+                installCompat(on: control)
                 logger.info("control socket \(self.control?.socketPath ?? "", privacy: .public)")
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// The old `cmux` CLI's v2/v1 verbs (plans/cmux-next/cli-compat.md).
+    private func installCompat(on control: ControlService) {
+        let frontend = services.compat!
+        let compat = CompatService(identity: control.router.identity, frontend: frontend) { frontend.currentConnection() }
+        compat.install(on: control.router)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

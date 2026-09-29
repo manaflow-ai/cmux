@@ -19,6 +19,8 @@ final class AppServices {
     private(set) var dragSession: TabDragSession!
     private(set) var palette: PaletteController!
     private(set) var previews: TabPreviewSource!
+    /// App side of the cmux CLI compat layer (window/focus state, intents).
+    private(set) var compat: AppCompatFrontend!
     private let terminalDelegate = TerminalHostDelegate()
 
     init(environment: AppEnvironment) {
@@ -28,6 +30,7 @@ final class AppServices {
         windows = WindowManager(services: self)
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
+        compat = AppCompatFrontend(services: self)
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
         cache.onBrowserReady = { [weak self] key in

@@ -54,12 +54,13 @@ public final class ControlRouter: Sendable {
     public let identity: ControlIdentity
     private let executor: any ControlActionExecutor
     private let settings: (any ControlSettingsStore)?
-    private let state: Mutex<State>
+    let state: Mutex<State>
 
     struct State {
         var catalog: ControlCatalog = .empty
         var socketPath: String?
         var accessMode: String?
+        var providers: [any ControlMethodProvider] = []
     }
 
     public init(identity: ControlIdentity, executor: any ControlActionExecutor, settings: (any ControlSettingsStore)? = nil) {
@@ -72,7 +73,6 @@ public final class ControlRouter: Sendable {
     // MARK: - Catalog
 
     public var catalog: ControlCatalog { state.withLock { $0.catalog } }
-
     public func updateCatalog(_ catalog: ControlCatalog) {
         state.withLock { $0.catalog = catalog }
     }
@@ -80,7 +80,6 @@ public final class ControlRouter: Sendable {
     public func updateContextMask(_ mask: UInt32) {
         state.withLock { $0.catalog.contextMask = mask }
     }
-
     func setTransportInfo(socketPath: String, accessMode: String) {
         state.withLock {
             $0.socketPath = socketPath
@@ -97,7 +96,7 @@ public final class ControlRouter: Sendable {
             // v1 plain-text commands: only the liveness probe is kept.
             switch trimmed.split(separator: " ", maxSplits: 1).first.map({ $0.lowercased() }) {
             case "ping": return "PONG"
-            default: return "ERROR: Unknown command '\(trimmed.split(separator: " ").first ?? "")'. cmux-next speaks v2 JSON requests only."
+            default: return await v1Fallback(trimmed)
             }
         }
         let request: ControlRequest
@@ -150,6 +149,7 @@ public final class ControlRouter: Sendable {
     }
 
     private func dispatch(_ request: ControlRequest) async throws -> JSONValue {
+        if let provider = claimingProvider(request.method) { return try await provider.handle(request) }
         let params = request.params
         switch request.method {
         case "system.ping":

@@ -26,7 +26,10 @@ final class WindowManager {
         return lastActive ?? controllers.first
     }
 
-    func didActivate(_ controller: WindowController) { lastActive = controller }
+    func didActivate(_ controller: WindowController) {
+        lastActive = controller
+        services.compat.publish()
+    }
 
     // MARK: Restore
 
@@ -118,6 +121,7 @@ final class WindowManager {
     func windowWillClose(_ controller: WindowController) {
         controllers.removeAll { $0 === controller }
         controller.teardown()
+        services.compat.publish()
         guard !isTerminating, let windowState = services.daemon.windowState else { return }
         let id = controller.state.id
         Task { try? await windowState.removeWindow(id: id) }
@@ -126,6 +130,7 @@ final class WindowManager {
     // MARK: Persistence
 
     func stateDidChange(_ state: WindowState) {
+        services.compat.publish()
         guard restored, !isTerminating else { return }
         saveTask?.cancel()
         saveTask = Task { [weak self] in

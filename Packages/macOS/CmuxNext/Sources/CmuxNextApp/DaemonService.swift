@@ -22,7 +22,7 @@ final class DaemonService {
         runTask = Task { [weak self, scheduler, logger] in
             do {
                 let launcher = try DaemonLauncher.forApp()
-                let connection = DaemonConnection(endpointProvider: launcher.endpointProvider)
+                let connection = DaemonConnection(configuration: AppTerminalIdentity.configuration(), endpointProvider: launcher.endpointProvider)
                 let identity = try await connection.start()
                 self?.connection = connection
                 self?.identity = identity
