@@ -34,8 +34,8 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
     /// Human-readable label of the Cloud VM action currently running from this
-    /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
-    /// header while set — the in-app substitute for a floating progress HUD.
+    /// panel ("Checkpointing noble-wren…"). Shows in the status row under the
+    /// Cloud toolbar while set — the in-app substitute for a floating progress HUD.
     @Published private(set) var activeOperation: String?
     /// The surface catalog as one value: machines (this Mac first), their
     /// terminals/screens/browsers, and which local panes project them.
@@ -139,7 +139,7 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
     var treeTask: Task<Void, Never>?
-    let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
+    let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refreshPortDiscovery(machine: $0) }
     /// Explicit machine pins and the stable fleet order; nil keeps fleet order.
     let machinePinStore: CloudMachinePinStore?
     private let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot

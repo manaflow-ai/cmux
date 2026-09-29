@@ -2073,7 +2073,7 @@
       "data3": "Parrings- og enhedsmetadata for at forbinde din telefon med din Mac.",
       "dataNot": "Din interaktive terminalsession, dens indhold og tastetryk går direkte mellem din telefon og din Mac over dit eget netværk og videresendes ikke gennem eller gemmes på cmux-serverne. Den eneste undtagelse er videresendt notifikationstekst, som passerer gennem cmux og Apple's push service for at nå din telefon, medmindre du aktiverer Hide content (se Notifikationer ovenfor).",
       "enterpriseTitle": "Enterprise og selvhostet",
-      "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4322,7 +4322,7 @@
         "description": "Rapportér fejl, og ønsk nye funktioner i fuld åbenhed."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Foretrækker du e-mail? Skriv direkte til os."
       }
     },
@@ -4344,8 +4344,8 @@
       "privacy": "Vi bruger kun din e-mailadresse til at svare på din supporthenvendelse. Vi sælger ikke kontaktoplysninger.",
       "submit": "Send besked",
       "submitting": "Sender…",
-      "success": "Tak. Vi har modtaget din besked og svarer på din e-mail fra founders@manaflow.com.",
-      "error": "Noget gik galt. Prøv igen, eller skriv til founders@manaflow.com."
+      "success": "Tak. Vi har modtaget din besked og svarer på din e-mail fra founders@cmux.com.",
+      "error": "Noget gik galt. Prøv igen, eller skriv til founders@cmux.com."
     }
   },
   "emails": {
@@ -4384,7 +4384,10 @@
     "emailUnavailable": "e-mail ikke tilgængelig",
     "organization": "Organisation",
     "personalAccount": "personlig konto",
-    "switchAccountButton": "Brug en anden konto"
+    "switchAccountButton": "Brug en anden konto",
+    "signedOutTitle": "Log ind for at godkende coderouter",
+    "signedOutBody": "Et kommandolinjeprogram venter på, at du logger ind. Log ind med din cmux-konto for at færdiggøre forbindelsen af denne terminal. Hvis du ikke startede denne anmodning, så luk denne side.",
+    "signInButton": "Log ind"
   },
   "MobileRelease106": {
     "title": "Nyt i 1.0.6",

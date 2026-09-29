@@ -134,7 +134,6 @@ struct WorkspaceDetailView: View {
     /// not activate its panel over a selection the user made in the meantime,
     /// so completion applies only while its request is still current.
     @State private var browserCreateRequest: UUID?
-    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Local presenter identity remains separate from the artifact popover payload.
     @State var isTerminalArtifactFilesPresented = false
     /// The SFTP browser an SSH terminal's Files chip opened.
@@ -285,7 +284,6 @@ struct WorkspaceDetailView: View {
             }
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
-                syncTerminalPickerRows(includeTitleChanges: true)
             }
             .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
                 visibleArtifactCount = 0
@@ -924,7 +922,6 @@ struct WorkspaceDetailView: View {
             value: TerminalPickerMenuValue(
                 liveTerminals: workspace.terminals,
                 liveSurfaces: workspace.surfaces,
-                snapshotRows: terminalPickerRows,
                 selectedID: store.selectedTerminalID,
                 // Resolved through the workspace so the auto-presented
                 // fallback surface (no terminals, no explicit selection)
@@ -962,10 +959,6 @@ struct WorkspaceDetailView: View {
             ),
             terminalTheme: store.activeTerminalTheme
         )
-        .equatable()
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
-        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
     }
 
     #if canImport(UIKit)

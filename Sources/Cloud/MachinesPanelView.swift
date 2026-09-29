@@ -77,9 +77,7 @@ struct MachinesPanelView: View {
         return CloudMachinesFeature.isEnabled
     }
 
-    private var treeSource: CloudTreeMachineSource {
-        .cloudWithDevicesSection
-    }
+    private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
         viewModel.visibleCatalog.applyingDeviceVisibility(
@@ -199,7 +197,6 @@ struct MachinesPanelView: View {
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: viewModel.treeErrorDescription,
-            plan: viewModel.plan,
             onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
             performListStatusAction: performListStatusAction
         )
@@ -491,8 +488,11 @@ struct MachinesPanelView: View {
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged
             ),
+            showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
-            reveal: devicesModel.revealRequest
+            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
+            reveal: devicesModel.revealRequest,
+            creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
@@ -545,7 +545,7 @@ struct MachinesPanelView: View {
                 .padding(.top, 2)
                 if let plan = viewModel.plan, !plan.isPaidPlan {
                     // The upgrade nudge under the create button: same Pro flow
-                    // as the meter's at-limit hint and the ＋ at the ceiling.
+                    // as the header count's at-limit tooltip and the ＋ at the ceiling.
                     Button {
                         ProUpgradePresenter.present(source: .machinesPanelUpgradeNudge)
                     } label: {
@@ -595,9 +595,9 @@ struct MachinesPanelView: View {
     }
 
     /// Paid plans: "Your plan includes 50 machines" under the create button,
-    /// so the empty state answers "what do I get" before the meter shows a
-    /// count. The uncapped wording only appears when an operator lifted the
-    /// cap.
+    /// so the empty state answers "what do I get" before the Cloud Machines
+    /// header shows a count. The uncapped wording only appears when an
+    /// operator lifted the cap.
     private func planIncludesLabel(_ plan: MachinePlanSnapshot) -> String {
         guard let maxActiveVms = plan.maxActiveVms else {
             return String(

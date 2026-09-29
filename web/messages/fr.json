@@ -2078,7 +2078,7 @@
       "data3": "Les métadonnées d'appairage et d'appareil, pour relier votre téléphone à votre Mac.",
       "dataNot": "Votre session de terminal interactive, son contenu et vos frappes circulent directement entre votre téléphone et votre Mac via votre propre réseau, et ne sont ni relayés ni stockés sur les serveurs de cmux. La seule exception est le texte des notifications transférées, qui transite par cmux et le service de notifications d'Apple pour atteindre votre téléphone, sauf si vous activez Hide content (voir Notifications ci-dessus).",
       "enterpriseTitle": "Entreprise et auto-hébergement",
-      "enterpriseDesc": "Pour un déploiement auto-hébergé ou isolé du réseau, contactez <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "Pour un déploiement auto-hébergé ou isolé du réseau, contactez <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4327,7 +4327,7 @@
         "description": "Signalez des bugs et proposez des fonctionnalités publiquement."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Vous préférez l'e-mail ? Écrivez-nous directement."
       }
     },
@@ -4349,8 +4349,8 @@
       "privacy": "Nous utilisons votre adresse e-mail uniquement pour répondre à votre demande de support. Nous ne vendons pas vos coordonnées.",
       "submit": "Envoyer le message",
       "submitting": "Envoi en cours…",
-      "success": "Merci. Nous avons bien reçu votre message et vous répondrons par e-mail depuis founders@manaflow.com.",
-      "error": "Une erreur s'est produite. Veuillez réessayer ou écrire à founders@manaflow.com."
+      "success": "Merci. Nous avons bien reçu votre message et vous répondrons par e-mail depuis founders@cmux.com.",
+      "error": "Une erreur s'est produite. Veuillez réessayer ou écrire à founders@cmux.com."
     }
   },
   "emails": {
@@ -4389,7 +4389,10 @@
     "emailUnavailable": "adresse e-mail indisponible",
     "organization": "Organisation",
     "personalAccount": "compte personnel",
-    "switchAccountButton": "Utiliser un autre compte"
+    "switchAccountButton": "Utiliser un autre compte",
+    "signedOutTitle": "Connectez-vous pour autoriser coderouter",
+    "signedOutBody": "Une application en ligne de commande attend votre connexion. Connectez-vous avec votre compte cmux pour terminer la connexion de ce terminal. Si vous n'êtes pas à l'origine de cette demande, fermez cette page.",
+    "signInButton": "Se connecter"
   },
   "MobileRelease106": {
     "title": "Nouveautés de la version 1.0.6",
