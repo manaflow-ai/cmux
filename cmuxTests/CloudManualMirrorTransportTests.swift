@@ -80,7 +80,7 @@ struct CloudManualMirrorTransportTests {
                 "palette": ["1": "#112233", "300": "#000000", "9": "red", "15": "#ABCDEF"],
             ],
         ])))
-        guard case let .snapshot(surfaceID, _, _, bytes, colors) = snapshot else {
+        guard case let .snapshot(surfaceID, _, _, bytes, colors, _) = snapshot else {
             Issue.record("expected a snapshot frame, got \(snapshot)")
             return
         }
