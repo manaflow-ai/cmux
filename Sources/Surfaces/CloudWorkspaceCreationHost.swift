@@ -22,7 +22,8 @@ struct CloudWorkspaceCreationHost {
         title: String,
         machine: SurfaceMachineID,
         receipt: SurfaceWorkspaceCreationReceipt? = nil,
-        focus: Bool
+        focus: Bool,
+        remoteView: SurfaceRemoteView? = nil
     ) throws -> CloudTerminalPaneReservation {
         guard let manager,
               let workspace = manager.addWorkspaceIfActive(
@@ -37,7 +38,11 @@ struct CloudWorkspaceCreationHost {
                 sourcePlacement: CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: receipt?.workspace.id, remoteTabID: nil),
                 attachmentPlacement: receipt.flatMap { receipt in
                     guard let terminal = receipt.terminal else { return nil }
-                    return SurfaceResourcePlacement(resource: terminal.id, remoteView: terminal.remoteViews?.first { $0.workspace.id == receipt.workspace.id }, remoteWorkspaceID: receipt.workspace.id)
+                    return SurfaceResourcePlacement(
+                        resource: terminal.id,
+                        remoteView: remoteView ?? terminal.remoteViews?.first { $0.workspace.id == receipt.workspace.id },
+                        remoteWorkspaceID: receipt.workspace.id
+                    )
                 }
               ) else {
             manager.closeWorkspace(workspace, recordHistory: false)

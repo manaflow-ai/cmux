@@ -506,7 +506,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         nodeActions.project(openRow.resource.id, .tab, true)
                     }
                 } else if let group = node.dragGroup, !group.isEmpty {
-                    nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
+                    // A workspace-row activation owns the workspace itself. It
+                    // admits a local destination through the shared optimistic
+                    // creation coordinator; open-here/split and drag/drop keep
+                    // their explicit group destinations below.
+                    nodeActions.openWorkspace(machine, workspace, group)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)

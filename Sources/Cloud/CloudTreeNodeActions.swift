@@ -31,6 +31,10 @@ struct CloudTreeNodeActions {
     /// pane (what clicking a remote workspace row does). An empty group starts a fresh
     /// terminal in `remoteWorkspaceID` on the machine instead.
     let openGroupAsWorkspace: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ remoteWorkspaceID: String?) -> Void
+    /// Open an existing Cloud workspace row as one local workspace. This is the
+    /// optimistic row verb; explicit group/open-here routes keep using
+    /// ``openGroupAsWorkspace`` so their destination semantics remain distinct.
+    var openWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace, _ group: SurfaceResourceGroup) -> Void = { _, _, _ in }
     /// Create a workspace on the machine (its ⌘N: `workspace create`, then a starter
     /// terminal) and open it as a new local workspace.
     let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
@@ -424,6 +428,56 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.openWorkspace = { machine, workspace, group in
+            if let pending = catalog().cloudWorkspaceCreationCoordinator.pendingLocalWorkspaceID(
+                machine: machine,
+                remoteWorkspaceID: workspace.id
+            ) {
+                selectLocalWorkspace(pending)
+                return
+            }
+            let host = workspaceCreationHost() ?? selectedWorkspaceID()
+                .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
+                .map { CloudWorkspaceCreationHost(manager: $0) }
+            guard let host, host.isAvailable else { return }
+            let key = "cloud-workspace-open:\(machine.rawValue):\(workspace.id)"
+            let label = String(
+                format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"),
+                machineName(machine)
+            )
+            let operation: @MainActor () async throws -> Void = {
+                let task = run(label) { catalog in
+                    guard let current = try catalog.currentCloudWorkspace(group),
+                          let provider = catalog.provider(for: machine) else {
+                        throw CancellationError()
+                    }
+                    let currentWorkspace = SurfaceRemoteWorkspace(
+                        id: workspace.id,
+                        name: current.group.title,
+                        index: workspace.index,
+                        focused: workspace.focused
+                    )
+                    _ = try await catalog.cloudWorkspaceCreationCoordinator.openExistingWorkspace(
+                        provider: provider,
+                        workspace: currentWorkspace,
+                        group: current.group,
+                        focus: true,
+                        host: host,
+                        validateOperation: {
+                            guard try catalog.currentCloudWorkspace(group) != nil else {
+                                throw CancellationError()
+                            }
+                        }
+                    )
+                }
+                await task.value
+            }
+            if let operationController = operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController {
+                _ = operationController.start(key: key, operation)
+            } else {
+                Task { @MainActor in _ = try? await operation() }
+            }
+        }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
