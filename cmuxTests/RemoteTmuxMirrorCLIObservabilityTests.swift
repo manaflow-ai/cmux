@@ -370,6 +370,10 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
 
     @MainActor
     struct Harness {
+        private enum HarnessError: Error {
+            case splitCreationFailed
+        }
+
         let appDelegate: AppDelegate
         let windowID: UUID
         let workspace: Workspace
@@ -396,17 +400,16 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             workspace = try #require(manager.selectedWorkspace)
             outerPanelID = try #require(workspace.focusedPanelId)
             if focusAwayFromMirror {
-                nonMirrorPanelID = try #require({
-                    switch workspace.newTerminalSplitOutcome(
-                        from: outerPanelID,
-                        orientation: .horizontal,
-                        focus: true,
-                        autoLayout: true
-                    ) {
-                    case .created(let panel): return panel.id
-                    default: return nil
-                    }
-                }())
+                let splitOutcome = workspace.newTerminalSplitOutcome(
+                    from: outerPanelID,
+                    orientation: .horizontal,
+                    focus: true,
+                    autoLayout: true
+                )
+                guard case .created(let panel) = splitOutcome else {
+                    throw HarnessError.splitCreationFailed
+                }
+                nonMirrorPanelID = panel.id
             } else {
                 nonMirrorPanelID = nil
             }
