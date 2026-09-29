@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileCloud
 
@@ -786,5 +787,25 @@ import Testing
         let policy = CloudVPNRoutePolicy()
         let config = Fixtures.serverConfig + "\nDNS = 1.1.1.1\n"
         #expect(!policy.permitsOnlyPrivateRoutes(inQuickConfig: config))
+    }
+
+    @Test func persistedRevocationsCompactOldScopes() async {
+        let suiteName = "cmux.cloud-system-vpn.pending-revocation-compaction"
+        let key = "pending-revocations-test"
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let store = UserDefaultsCloudSystemVPNPendingRevocationStore(
+            suiteName: suiteName,
+            key: key
+        )
+
+        for index in 0..<80 {
+            await store.save(["fingerprint-\(index)"], scope: "scope-\(index)")
+        }
+
+        let persisted = UserDefaults(suiteName: suiteName)?.dictionary(forKey: key) as? [String: [String]]
+        #expect(persisted?.count == 64)
+        #expect(await store.load(scope: "scope-79") == ["fingerprint-79"])
+        #expect(await store.load(scope: "scope-0").isEmpty)
     }
 }
