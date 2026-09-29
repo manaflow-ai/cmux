@@ -17,6 +17,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: CmuxAccentColorMode.userDefaultsKey
     )
 
+    /// `#RRGGBB` color drawn when ``accentColor`` is
+    /// ``CmuxAccentColorMode/custom``. cmux.json sets it through a hex
+    /// `app.accentColor` value.
+    public let accentColorCustomHex = DefaultsKey<String>(
+        id: "app.accentColorCustomHex",
+        defaultValue: "",
+        userDefaultsKey: CmuxAccentColorMode.customHexUserDefaultsKey
+    )
+
     public let language = DefaultsKey<AppLanguage>(
         id: "app.language",
         defaultValue: .system,

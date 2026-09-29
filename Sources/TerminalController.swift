@@ -16327,9 +16327,13 @@ class TerminalController {
         // the surface exists.
         if requireTerminal,
            let surfaceId,
-           let owned = workspace.terminalInputTarget(forPanelID: surfaceId),
-           let target = workspace.controlSocketTerminalTarget(for: owned) {
-            target.surface.requestBackgroundSurfaceStartIfNeeded()
+           let owned = workspace.terminalInputTarget(forPanelID: surfaceId) {
+            // Resolve the panel before asking the registry for a socket target.
+            // Restored, never-foregrounded terminals are intentionally absent
+            // from that registry until this request materializes their runtime.
+            // Resolving the canonical target first made the on-demand start
+            // unreachable for exactly the terminals mobile attach needs.
+            owned.panel.surface.requestBackgroundSurfaceStartIfNeeded()
         }
 
         return (tabManager, workspace, surfaceId)
