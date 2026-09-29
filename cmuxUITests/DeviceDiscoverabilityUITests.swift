@@ -24,6 +24,14 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         navigate(window, to: "Devices")
         let incoming = toggle(window, id: "SettingsComputersIncomingAccessToggle")
         let discovery = toggle(window, id: "SettingsComputersDiscoveryToggle")
+        if isOn(incoming) {
+            incoming.click()
+            XCTAssertTrue(poll(timeout: 5) { !self.isOn(incoming) })
+        }
+        if isOn(discovery) {
+            discovery.click()
+            XCTAssertTrue(poll(timeout: 5) { !self.isOn(discovery) })
+        }
         XCTAssertEqual(incoming.label, "Make this Mac discoverable")
         XCTAssertEqual(discovery.label, "Discover other Macs")
 
@@ -72,6 +80,14 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         XCTAssertTrue(incoming.waitForExistence(timeout: 5))
         XCTAssertTrue(discovery.waitForExistence(timeout: 5))
         XCTAssertTrue(incoming.isHittable && discovery.isHittable)
+        if incoming.label == "Hide this Mac from My Devices" {
+            incoming.click()
+            XCTAssertTrue(poll(timeout: 5) { incoming.label == "Make this Mac discoverable" })
+        }
+        if discovery.label == "Stop discovering other Macs" {
+            discovery.click()
+            XCTAssertTrue(poll(timeout: 5) { discovery.label == "Discover other Macs" })
+        }
         XCTAssertEqual(incoming.label, "Make this Mac discoverable")
         XCTAssertEqual(discovery.label, "Discover other Macs")
         capture(app, "devices-controls-off-at-rest")
