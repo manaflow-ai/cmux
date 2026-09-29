@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 import Security
 
 /// The system VPN's wg-quick configuration, shared by the app and the packet
