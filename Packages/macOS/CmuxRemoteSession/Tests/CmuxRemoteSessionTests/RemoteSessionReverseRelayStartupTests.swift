@@ -61,7 +61,7 @@ struct RemoteSessionReverseRelayStartupTests {
             destination: "user@example.test",
             port: nil,
             identityFile: nil,
-            sshOptions: sshOptions ?? ["StrictHostKeyChecking=accept-new"],
+            sshOptions: sshOptions ?? [],
             localProxyPort: nil,
             relayPort: relayPort,
             relayID: "relay-startup-cancellation",
