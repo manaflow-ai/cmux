@@ -8,7 +8,7 @@ final class MobileRPCTransportDialDiagnostics: Sendable {
     private let startedAt = ContinuousClock.now
     private let transport: DiagnosticTransportKind?
     private let observer: MobileCoreRPCSession.TransportConnectObserver?
-    // A short synchronous compare-and-set arbitrates native completion,
+    // Sanctioned synchronous compare-and-set carve-out: native completion,
     // cancellation and deinit; it holds no transport or mutable domain state.
     private let finished = OSAllocatedUnfairLock(initialState: false)
 

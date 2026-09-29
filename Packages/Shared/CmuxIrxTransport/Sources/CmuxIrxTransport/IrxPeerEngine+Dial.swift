@@ -73,7 +73,7 @@ extension IrxPeerEngine {
                 }
                 return
             }
-            self.finishDial(result, generation: generation, trigger: trigger)
+            await self.finishDial(result, generation: generation, trigger: trigger)
         }
         dialDeadlineTask = Task { [dialSleep, config] in
             do { try await dialSleep(config.dialDeadline) } catch { return }
