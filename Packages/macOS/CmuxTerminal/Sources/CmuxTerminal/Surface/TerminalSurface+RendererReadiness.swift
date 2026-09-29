@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 
 extension TerminalSurface {
     /// Reopens the presentation gate after AppKit commits a new drawable size.
