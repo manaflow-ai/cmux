@@ -284,12 +284,14 @@ struct CloudTeamInviteSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "cloudInvite.emails.label", defaultValue: "Email addresses"))
                 .cmuxFont(size: 12, weight: .medium)
+            // Single-line on purpose: a vertical-axis TextField inside an
+            // AppKit sheet sized by preferred content size reports an
+            // unbounded ideal height, AppKit clamps the constraint and then
+            // throws during the sheet's open animation.
             TextField(
                 String(localized: "cloudInvite.emails.placeholder", defaultValue: "name@company.com, another@company.com"),
-                text: $model.emails,
-                axis: .vertical
+                text: $model.emails
             )
-            .lineLimit(1...4)
             .textFieldStyle(.roundedBorder)
             .focused($emailFieldFocused)
             .onSubmit { model.send() }
