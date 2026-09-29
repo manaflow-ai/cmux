@@ -31,6 +31,9 @@ struct TmuxWorkspacePaneOverlayRefresher: View {
             .onChange(of: builder.settings) { _, _ in
                 refreshRevision &+= 1
             }
+            .onChange(of: builder.tabManager.selectedWorkspace?.tmuxWorkspaceFlashToken) { _, _ in
+                refreshRevision &+= 1
+            }
             .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                       tabId == builder.tabManager.selectedTabId else { return }
@@ -45,11 +48,4 @@ struct TmuxWorkspacePaneOverlayRefresher: View {
                 refreshRevision &+= 1
             }
     }
-}
-
-extension Notification.Name {
-    /// Posted when a workspace's restored pane unread indicators change.
-    static let workspacePaneUnreadStateDidChange = Notification.Name(
-        "cmux.workspacePaneUnreadStateDidChange"
-    )
 }

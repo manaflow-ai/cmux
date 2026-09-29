@@ -15,7 +15,8 @@ import Observation
 /// like any other. It holds no values: each member is a `Void` marker the
 /// model reports reads and writes against, while the model keeps the values
 /// and their property observers.
-final class WorkspacesModelObservation: Observable, Sendable {
+@MainActor
+final class WorkspacesModelObservation: Observable {
     /// Marks reads and writes of `WorkspacesModel.tabs`.
     var tabs: Void { () }
 
