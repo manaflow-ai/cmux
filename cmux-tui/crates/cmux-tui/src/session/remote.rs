@@ -669,11 +669,22 @@ impl RemoteSurface {
         replay: Option<&[u8]>,
         kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
     ) -> ghostty_vt::Result<()> {
-        self.apply_stream_resize_with_colors(cols, rows, replay, kitty_image_aliases, None, None)
+        self.apply_stream_resize_with_colors(
+            cols,
+            rows,
+            replay,
+            kitty_image_aliases,
+            None,
+            None,
+            &[],
+        )
     }
 
     /// Apply one authoritative replay and its coupled Kitty alias and color
     /// state before the mirror can be observed at the new size.
+    /// `pending_sequence` is the daemon parser's incomplete sequence, written
+    /// last so the live stream completes it.
+    #[allow(clippy::too_many_arguments)]
     fn apply_stream_resize_with_colors(
         &self,
         cols: u16,
@@ -682,6 +693,7 @@ impl RemoteSurface {
         kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
         kitty_state: Option<KittyReplayState>,
         colors: Option<&RemoteTerminalColors>,
+        pending_sequence: &[u8],
     ) -> ghostty_vt::Result<()> {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeStarted);
@@ -693,11 +705,12 @@ impl RemoteSurface {
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeCommitBoundary);
         let mut term = self.term.lock().unwrap();
         let owned_replay;
-        let (replay, replay_aliases, replay_state) = match replay {
+        let (replay, replay_aliases, replay_state, pending_sequence) = match replay {
             Some(replay) => (
                 replay,
                 kitty_image_aliases,
                 kitty_state.unwrap_or_else(KittyReplayState::disabled),
+                pending_sequence,
             ),
             None => {
                 if !kitty_image_aliases.is_empty() || kitty_state.is_some() {
@@ -708,6 +721,7 @@ impl RemoteSurface {
                     owned_replay.bytes.as_slice(),
                     owned_replay.kitty_image_aliases.as_slice(),
                     owned_replay.kitty_state,
+                    owned_replay.pending_sequence.as_slice(),
                 )
             }
         };
@@ -717,6 +731,7 @@ impl RemoteSurface {
         if let Some(colors) = colors {
             apply_terminal_colors(&mut fresh, colors);
         }
+        fresh.vt_write(pending_sequence);
         *term = fresh;
         if daemon_replay {
             // Daemon-built replays carry resolved state, not application
@@ -2222,6 +2237,10 @@ impl RemoteSession {
                     return;
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
+                let Ok(pending_sequence) = parse_pending_sequence(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 self.log_frame(
                     id,
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
@@ -2243,6 +2262,7 @@ impl RemoteSession {
                             &kitty_image_aliases,
                             Some(kitty_state),
                             colors.as_ref(),
+                            &pending_sequence,
                         )
                         .is_err()
                     {
@@ -2332,6 +2352,10 @@ impl RemoteSession {
                     return;
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
+                let Ok(pending_sequence) = parse_pending_sequence(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 self.log_frame(
                     id,
                     format_args!(
@@ -2348,6 +2372,7 @@ impl RemoteSession {
                             &kitty_image_aliases,
                             Some(kitty_state),
                             colors.as_ref(),
+                            &pending_sequence,
                         )
                         .is_err()
                     {
@@ -3707,6 +3732,19 @@ fn parse_kitty_image_aliases(
     Ok(aliases)
 }
 
+/// Decodes the optional `pending` field of `vt-state` and `resized`: the
+/// incomplete sequence the daemon's parser is inside. Absent from older
+/// daemons and whenever the parser is at a boundary.
+fn parse_pending_sequence(value: &Value) -> Result<Vec<u8>, ()> {
+    match value.get("pending") {
+        None => Ok(Vec::new()),
+        Some(Value::String(data)) => {
+            base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| ())
+        }
+        Some(_) => Err(()),
+    }
+}
+
 fn parse_kitty_replay_state(value: &Value) -> Result<KittyReplayState, &'static str> {
     let Some(state) = value.get("kitty_graphics_state") else {
         return Ok(KittyReplayState::disabled());
@@ -4656,7 +4694,7 @@ mod tests {
         surface.scan_cursor_provenance(b"\x1b[6 q");
         assert!(surface.cursor_style_authored());
         surface
-            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[5 q"), &[], None, None)
+            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[5 q"), &[], None, None, &[])
             .unwrap();
         assert!(!surface.cursor_style_authored());
     }
@@ -4702,7 +4740,7 @@ mod tests {
         let (_session, surface) = test_unleased_view_surface(11);
         assert!(!surface.term.lock().unwrap().mouse_tracking());
         surface
-            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[?1002h"), &[], None, None)
+            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[?1002h"), &[], None, None, &[])
             .unwrap();
         assert!(
             surface.term.lock().unwrap().mouse_tracking(),
@@ -4737,6 +4775,7 @@ mod tests {
                 &replay.kitty_image_aliases,
                 Some(replay.kitty_state),
                 None,
+                &replay.pending_sequence,
             )
             .unwrap();
         match surface.try_pointer_semantics() {
@@ -4785,6 +4824,7 @@ mod tests {
                 &replay.kitty_image_aliases,
                 Some(replay.kitty_state),
                 None,
+                &replay.pending_sequence,
             )
             .unwrap();
 
@@ -4814,6 +4854,7 @@ mod tests {
                 &replay.kitty_image_aliases,
                 Some(replay.kitty_state),
                 None,
+                &replay.pending_sequence,
             )
             .unwrap();
 
@@ -4839,6 +4880,7 @@ mod tests {
                 &[],
                 None,
                 None,
+                &[],
             )
             .unwrap();
 
@@ -8982,6 +9024,7 @@ mod tests {
                 &[ghostty_vt::KittyImageAlias { image_id: 999, image_number: 77 }],
                 Some(replay.kitty_state),
                 None,
+                &replay.pending_sequence,
             )
             .unwrap_err();
 

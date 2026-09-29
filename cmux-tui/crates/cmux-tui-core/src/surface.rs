@@ -354,6 +354,10 @@ pub struct AttachStream {
     pub kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     pub kitty_state: KittyReplayState,
     pub colors: TerminalColors,
+    /// The incomplete sequence the parser is inside. `replay` ends at a
+    /// parser boundary; write this after it and after the colors, right
+    /// before the live stream that completes it.
+    pub pending_sequence: Arc<[u8]>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -367,12 +371,14 @@ pub enum AttachFrame {
         output: Vec<u8>,
         colors: Box<TerminalColors>,
     },
+    /// `pending_sequence` has the meaning documented on [`AttachStream`].
     Resized {
         cols: u16,
         rows: u16,
         replay: Arc<[u8]>,
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         kitty_state: KittyReplayState,
+        pending_sequence: Arc<[u8]>,
     },
     /// One parser transition: `replay` is theme-portable, so `colors` is part
     /// of the same replacement snapshot rather than a subsequent callback.
@@ -383,6 +389,7 @@ pub enum AttachFrame {
         kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
         kitty_state: KittyReplayState,
         colors: Box<TerminalColors>,
+        pending_sequence: Arc<[u8]>,
     },
     ColorsChanged(Arc<TerminalColors>),
 }
@@ -3377,6 +3384,9 @@ impl Surface {
                                         colors: Box::new(
                                             pty.terminal_colors_locked(term, defaults),
                                         ),
+                                        // Terminal hosts replay only at a
+                                        // parser boundary.
+                                        pending_sequence: Arc::from([]),
                                     });
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                                 });
@@ -3680,6 +3690,7 @@ impl Surface {
                                 kitty_image_aliases: replacement_snapshot.kitty_image_aliases,
                                 kitty_state: replacement_snapshot.kitty_state,
                                 colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
+                                pending_sequence: Arc::from([]),
                             });
                             pty.stream_progress.notify_reconnect();
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
@@ -5840,6 +5851,7 @@ impl Surface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
+            pending_sequence: replay.pending_sequence.into(),
             stream,
             lifecycle,
         })
@@ -6722,6 +6734,7 @@ impl PtySurface {
             kitty_image_aliases: replay.kitty_image_aliases,
             kitty_state: replay.kitty_state,
             colors,
+            pending_sequence: replay.pending_sequence.into(),
         });
     }
 
@@ -7114,6 +7127,7 @@ impl PtySurface {
                 kitty_image_aliases: replay.kitty_image_aliases,
                 kitty_state: replay.kitty_state,
                 colors,
+                pending_sequence: replay.pending_sequence.into(),
             });
         }
         // Geometry changes are terminal-stream transitions too. Publish the
@@ -8372,23 +8386,42 @@ mod tests {
     .as_bytes();
 
     /// Models the native Cloud pane with its grid pinned to the daemon: a byte
-    /// mirror that rebuilds from every replay at the advertised grid and then
+    /// mirror that rebuilds from every replay at the advertised grid, writes
+    /// its color sidecar after the replay the way the pane does, and then
     /// follows the live byte stream.
     struct PinnedByteMirror {
         term: Terminal,
         attach: AttachStream,
+        replay_ended_mid_sequence: bool,
     }
 
     impl PinnedByteMirror {
         fn attach(surface: &Surface) -> Self {
             let attach = surface.attach_stream().unwrap();
-            let term = Self::from_replay(attach.cols, attach.rows, &attach.replay);
-            Self { term, attach }
+            let mut replay_ended_mid_sequence = false;
+            let term = Self::from_replay(
+                attach.cols,
+                attach.rows,
+                &attach.replay,
+                &attach.pending_sequence,
+                &mut replay_ended_mid_sequence,
+            );
+            Self { term, attach, replay_ended_mid_sequence }
         }
 
-        fn from_replay(cols: u16, rows: u16, replay: &[u8]) -> Terminal {
+        fn from_replay(
+            cols: u16,
+            rows: u16,
+            replay: &[u8],
+            pending_sequence: &[u8],
+            replay_ended_mid_sequence: &mut bool,
+        ) -> Terminal {
             let mut term = Terminal::new(cols, rows, 1000, Callbacks::default()).unwrap();
             term.vt_write(replay);
+            // The pane appends color sequences here, which is only safe at a
+            // parser boundary.
+            *replay_ended_mid_sequence |= !term.vt_stream_is_ground();
+            term.vt_write(pending_sequence);
             term
         }
 
@@ -8397,9 +8430,17 @@ mod tests {
                 match frame {
                     AttachFrame::Output(bytes) => self.term.vt_write(&bytes),
                     AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
-                    AttachFrame::Resized { cols, rows, replay, .. }
-                    | AttachFrame::ResizedWithColors { cols, rows, replay, .. } => {
-                        self.term = Self::from_replay(cols, rows, &replay);
+                    AttachFrame::Resized { cols, rows, replay, pending_sequence, .. }
+                    | AttachFrame::ResizedWithColors {
+                        cols, rows, replay, pending_sequence, ..
+                    } => {
+                        self.term = Self::from_replay(
+                            cols,
+                            rows,
+                            &replay,
+                            &pending_sequence,
+                            &mut self.replay_ended_mid_sequence,
+                        );
                     }
                     AttachFrame::ColorsChanged(_) => {}
                 }
@@ -8419,11 +8460,17 @@ mod tests {
             let mirror_text = self.term.viewport_text().unwrap();
             let cursor = source.cursor_position();
             let mirror_cursor = self.term.cursor_position();
-            (disconnected || grid != mirror_grid || text != mirror_text || cursor != mirror_cursor)
+            let mid_sequence = self.replay_ended_mid_sequence;
+            (disconnected
+                || mid_sequence
+                || grid != mirror_grid
+                || text != mirror_text
+                || cursor != mirror_cursor)
                 .then(|| {
                     format!(
-                        "disconnected={disconnected} grid={grid:?}/{mirror_grid:?} \
-                         cursor={cursor:?}/{mirror_cursor:?} text={text:?} mirror={mirror_text:?}"
+                        "disconnected={disconnected} replay_ended_mid_sequence={mid_sequence} \
+                         grid={grid:?}/{mirror_grid:?} cursor={cursor:?}/{mirror_cursor:?} \
+                         text={text:?} mirror={mirror_text:?}"
                     )
                 })
         }
@@ -8571,6 +8618,7 @@ mod tests {
             kitty_image_aliases: Vec::new(),
             kitty_state: KittyReplayState::disabled(),
             colors: Box::new(TerminalColors::default()),
+            pending_sequence: Arc::from([]),
         });
 
         let first_replay = match first.stream.recv_timeout(Duration::from_secs(1)).unwrap() {

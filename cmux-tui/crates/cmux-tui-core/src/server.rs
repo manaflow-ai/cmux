@@ -2171,6 +2171,7 @@ impl RenderService {
         write_kitty_replay_state_json(&mut writer, value.kitty_state)?;
         writer.write_all(b",\"colors\":")?;
         serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
+        write_pending_sequence_json(&mut writer, &value.pending_sequence)?;
         writer.write_all(b"}")?;
         Ok(writer.finish())
     }
@@ -2199,7 +2200,14 @@ impl RenderService {
                 .map_err(json_error_to_io)?;
                 writer.write_all(b"}")?;
             }
-            AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state } => {
+            AttachFrame::Resized {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                pending_sequence,
+            } => {
                 write!(
                     writer,
                     "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
@@ -2209,6 +2217,7 @@ impl RenderService {
                 write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
                 writer.write_all(b",\"kitty_graphics_state\":")?;
                 write_kitty_replay_state_json(&mut writer, *kitty_state)?;
+                write_pending_sequence_json(&mut writer, pending_sequence)?;
                 writer.write_all(b"}")?;
             }
             AttachFrame::ResizedWithColors {
@@ -2218,6 +2227,7 @@ impl RenderService {
                 kitty_image_aliases,
                 kitty_state,
                 colors,
+                pending_sequence,
             } => {
                 write!(
                     writer,
@@ -2234,6 +2244,7 @@ impl RenderService {
                     &terminal_colors_json(**colors, include_color_overrides),
                 )
                 .map_err(json_error_to_io)?;
+                write_pending_sequence_json(&mut writer, pending_sequence)?;
                 writer.write_all(b"}")?;
             }
             AttachFrame::ColorsChanged(colors) => {
@@ -9363,7 +9374,7 @@ fn send_vt_state_command_response(
         id.as_ref(),
         cols,
         rows,
-        &replay.bytes,
+        &replay.self_contained_bytes(),
         &replay.kitty_image_aliases,
         replay.kitty_state,
     )?;
@@ -10481,6 +10492,23 @@ struct VtStateMessage {
     kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     kitty_state: KittyReplayState,
     colors: Value,
+    pending_sequence: Arc<[u8]>,
+}
+
+/// Appends the optional `pending` field: the incomplete sequence a replay's
+/// source parser is inside. Clients write it after the replay and its colors,
+/// immediately before the live stream. Omitted when the parser is at a
+/// boundary, so those events are unchanged for older clients.
+fn write_pending_sequence_json(
+    writer: &mut BudgetedJsonWriter,
+    pending: &[u8],
+) -> std::io::Result<()> {
+    if pending.is_empty() {
+        return Ok(());
+    }
+    writer.write_all(b",\"pending\":\"")?;
+    write_base64_json_string(writer, pending)?;
+    writer.write_all(b"\"")
 }
 
 fn rgb_hex(color: Rgb) -> String {
@@ -13345,6 +13373,7 @@ fn handle_command_with_cancellation(
                 kitty_image_aliases: attach.kitty_image_aliases.clone(),
                 kitty_state: attach.kitty_state,
                 colors: terminal_colors_json(attach.colors, include_color_overrides),
+                pending_sequence: attach.pending_sequence.clone(),
             };
             if let Err(error) = writer.send_initial_vt_state(&initial, &outbound_stream) {
                 handle_attach_send_error(&lifecycle, &error);
@@ -18335,6 +18364,7 @@ mod tests {
             kitty_image_aliases: Vec::new(),
             kitty_state: KittyReplayState::disabled(),
             colors: Value::Null,
+            pending_sequence: Arc::from([]),
         };
 
         let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
@@ -18342,6 +18372,42 @@ mod tests {
         assert!(serialized.starts_with(r#"{"event":"vt-state","surface":7,"#), "{}", &**serialized);
         let decoded: Value = serde_json::from_str(&serialized).unwrap();
         assert_eq!(decoded["data"], base64::engine::general_purpose::STANDARD.encode(replay));
+        assert!(decoded.get("pending").is_none(), "a boundary replay must not add `pending`");
+    }
+
+    #[test]
+    fn attach_replays_carry_the_pending_sequence_after_their_colors() {
+        let base64 = &base64::engine::general_purpose::STANDARD;
+        let message = VtStateMessage {
+            surface: 7,
+            cols: 80,
+            rows: 24,
+            replay: Arc::from(&b"screen"[..]),
+            kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
+            colors: json!({"foreground": "#010203"}),
+            pending_sequence: Arc::from(&b"\x1b[1;3"[..]),
+        };
+        let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
+        let decoded: Value = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(decoded["data"], base64.encode(b"screen"));
+        assert_eq!(decoded["pending"], base64.encode(b"\x1b[1;3"));
+        assert_eq!(decoded["colors"]["foreground"], "#010203");
+
+        let resized = AttachFrame::ResizedWithColors {
+            cols: 100,
+            rows: 30,
+            replay: Arc::from(&b"screen"[..]),
+            kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
+            colors: Box::new(TerminalColors::default()),
+            pending_sequence: Arc::from(&b"\xce"[..]),
+        };
+        let serialized = RenderService::new().serialize_attach_frame(7, &resized, true).unwrap();
+        let decoded: Value = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(decoded["event"], "resized");
+        assert_eq!(decoded["replay"], base64.encode(b"screen"));
+        assert_eq!(decoded["pending"], base64.encode(b"\xce"));
     }
 
     #[test]
@@ -18448,6 +18514,7 @@ mod tests {
             kitty_image_aliases: Vec::new(),
             kitty_state: KittyReplayState::disabled(),
             colors: Value::Null,
+            pending_sequence: Arc::from([]),
         };
 
         let error = service
@@ -18474,6 +18541,7 @@ mod tests {
             replay: Arc::from(vec![b'x'; 1024]),
             kitty_image_aliases: Vec::new(),
             kitty_state: KittyReplayState::disabled(),
+            pending_sequence: Arc::from([]),
         };
 
         let error = writer.send_attach_frame_backpressured(7, &frame, false, &stream).unwrap_err();

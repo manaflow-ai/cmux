@@ -1261,22 +1261,31 @@ fn attach_and_resize_replays_restore_the_osc_title() {
             bytes: attach.replay.to_vec(),
             kitty_image_aliases: attach.kitty_image_aliases.clone(),
             kitty_state: attach.kitty_state,
+            pending_sequence: attach.pending_sequence.to_vec(),
         })
         .unwrap();
     assert_eq!(initial.title().as_deref(), Some("renamed tab"));
 
     mux.resize_surface(surface.id, 21, 4).unwrap();
-    let (cols, rows, replay, aliases, kitty_state) =
+    let (cols, rows, replay, aliases, kitty_state, pending_sequence) =
         match attach.stream.recv_timeout(Duration::from_secs(2)) {
-            Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state })
+            Ok(AttachFrame::Resized {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                pending_sequence,
+            })
             | Ok(AttachFrame::ResizedWithColors {
                 cols,
                 rows,
                 replay,
                 kitty_image_aliases,
                 kitty_state,
+                pending_sequence,
                 ..
-            }) => (cols, rows, replay, kitty_image_aliases, kitty_state),
+            }) => (cols, rows, replay, kitty_image_aliases, kitty_state, pending_sequence),
             other => panic!("missing ordered resize replay: {other:?}"),
         };
     let mut resized =
@@ -1286,6 +1295,7 @@ fn attach_and_resize_replays_restore_the_osc_title() {
             bytes: replay.to_vec(),
             kitty_image_aliases: aliases,
             kitty_state,
+            pending_sequence: pending_sequence.to_vec(),
         })
         .unwrap();
     assert_eq!(resized.title().as_deref(), Some("renamed tab"));
@@ -1310,21 +1320,30 @@ fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
             bytes: attach.replay.to_vec(),
             kitty_image_aliases: attach.kitty_image_aliases.clone(),
             kitty_state: attach.kitty_state,
+            pending_sequence: attach.pending_sequence.to_vec(),
         })
         .unwrap();
 
     mux.resize_surface(surface.id, 21, 4).unwrap();
-    let (cols, rows, replay, aliases, kitty_state) =
+    let (cols, rows, replay, aliases, kitty_state, pending_sequence) =
         match attach.stream.recv_timeout(Duration::from_secs(2)) {
-            Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state })
+            Ok(AttachFrame::Resized {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                pending_sequence,
+            })
             | Ok(AttachFrame::ResizedWithColors {
                 cols,
                 rows,
                 replay,
                 kitty_image_aliases,
                 kitty_state,
+                pending_sequence,
                 ..
-            }) => (cols, rows, replay, kitty_image_aliases, kitty_state),
+            }) => (cols, rows, replay, kitty_image_aliases, kitty_state, pending_sequence),
             other => panic!("missing ordered resize replay: {other:?}"),
         };
     let mut resized =
@@ -1334,6 +1353,7 @@ fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
             bytes: replay.to_vec(),
             kitty_image_aliases: aliases,
             kitty_state,
+            pending_sequence: pending_sequence.to_vec(),
         })
         .unwrap();
 
