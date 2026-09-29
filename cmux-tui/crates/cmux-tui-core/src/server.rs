@@ -9814,7 +9814,7 @@ fn reject_message_during_pending_handoff(message: &str, writer: &MessageWriter) 
                 let operation = request.envelope.operation;
                 send_resource_response(
                     writer,
-                    request.envelope.id.clone(),
+                    request.envelope.id,
                     operation,
                     Err(ResourceError::new(
                         "operation.failed",
