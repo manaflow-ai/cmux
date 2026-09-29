@@ -67,9 +67,15 @@ const CREATE_ERRORS = {
 
 /**
  * Loads the renderer. `env` is passed to the WASI environment; the renderer
- * reads TINYSKY_AX_TREE_DIFF_MIN_SAVED_RATIO / _BYTES from it.
+ * reads TINYSKY_AX_TREE_DIFF_MIN_SAVED_RATIO / _BYTES from it (defaults
+ * 0.3 and 1000).
  */
-export async function loadChatGPTAccessibilityCore({ wasmPath = defaultWasmPath(), env = {} } = {}) {
+export async function loadChatGPTAccessibilityCore({ wasmPath = defaultWasmPath(), env = {}, deterministic = true } = {}) {
+  // The renderer is Swift; its Dictionary/Set order is seeded from WASI
+  // random_get. The URL shortener's truncation choice depends on that order,
+  // so production output can vary between runs. Deterministic hashing makes
+  // goldens reproducible.
+  if (deterministic) env = { SWIFT_DETERMINISTIC_HASHING: "1", ...env };
   const raw = fs.readFileSync(wasmPath);
   const bytes = wasmPath.endsWith(".br") ? zlib.brotliDecompressSync(raw) : raw;
   const wasi = new WASI({ version: "preview1", env, stdout: 2, stderr: 2 });
@@ -483,7 +489,6 @@ export class ChatGPTAxReference {
     // The renderer requires a numeric tab id (a Chrome extension tab id).
     this.tabId = Number(tabId);
     this.revision = undefined;
-    this.documentKey = undefined;
   }
 
   async #mainSession() {
@@ -591,48 +596,50 @@ export class ChatGPTAxReference {
     const nodes = stitchFrames(captured, warnings);
     return {
       capturedAt: new Date().toISOString(),
-      tab: { id: this.tabId, title: (await this.page.title()) ?? null, url: this.page.url() ?? null, active: true },
+      tab: { id: this.tabId, title: await this.#tabTitle(), url: this.page.url() ?? null, active: true },
       nodes,
       warnings,
     };
   }
 
-  #render(snapshot, disableDiffing, documentKey) {
-    // A revision from another document cannot be diffed against.
-    const previous = documentKey === this.documentKey ? this.revision : undefined;
-    const rev = this.core.buildRevision(previous, snapshot, { mode: disableDiffing ? "full" : "auto" });
+  // Like the service, always diff against the previous revision of this tab,
+  // across navigations too. The renderer only refuses a revision from another
+  // tab id.
+  #render(snapshot, disableDiffing) {
+    const rev = this.core.buildRevision(this.revision, snapshot, { mode: disableDiffing ? "full" : "auto" });
     this.revision = rev;
-    this.documentKey = documentKey;
     return `Browser tab: ${snapshot.tab.id}, Title: ${JSON.stringify(snapshot.tab.title ?? "Unknown")}, URL: ${JSON.stringify(snapshot.tab.url ?? "Unknown")}.\n${rev.text}`;
   }
 
-  async #documentKey() {
-    const { frameTree } = await (await this.#mainSession()).send("Page.getFrameTree");
-    return `${frameTree.frame.id}:${frameTree.frame.loaderId}`;
+  // Tab title as the browser reports it; works while a JavaScript dialog blocks the page.
+  async #tabTitle() {
+    const { targetInfo } = await (await this.#mainSession()).send("Target.getTargetInfo");
+    return targetInfo.title ?? null;
   }
 
   /** Equivalent of `await tab.ax.get("state", { disableDiffing })`. */
   async state({ disableDiffing = false } = {}) {
     const snapshot = await this.snapshot();
-    return this.#render(snapshot, disableDiffing, await this.#documentKey());
+    return this.#render(snapshot, disableDiffing);
   }
 
   /** State while a JavaScript dialog is open. `dialog` is a Playwright Dialog. */
   async dialogState(dialog, { id = "1", disableDiffing = false } = {}) {
+    const title = await this.#tabTitle();
     const snapshot = {
       capturedAt: new Date().toISOString(),
-      tab: { id: this.tabId, title: (await this.page.title()) ?? null, url: this.page.url() ?? null, active: true },
+      tab: { id: this.tabId, title, url: this.page.url() ?? null, active: true },
       nodes: javaScriptDialogNodes({
         id,
         type: dialog.type(),
         message: dialog.message(),
         defaultPrompt: dialog.defaultValue(),
         url: this.page.url(),
-        pageTitle: await this.page.title(),
+        pageTitle: title ?? undefined,
       }),
       warnings: [],
     };
-    return this.#render(snapshot, disableDiffing, this.documentKey);
+    return this.#render(snapshot, disableDiffing);
   }
 }
 

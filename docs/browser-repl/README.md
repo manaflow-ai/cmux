@@ -22,8 +22,12 @@ Representations:
 - `snapshot()` reproduces Aside's text exactly: title header, ARIA roles,
   `[ref=eN]` on actionable nodes, `fN` prefixes for frames, unified diff. Rules:
   [aside-snapshot-spec.md](aside-snapshot-spec.md).
-- `tab.ax` reproduces ChatGPT's numbered Chromium accessibility tree and its
-  revision diff. Rules: [chatgpt-ax-spec.md](chatgpt-ax-spec.md).
+- `tab.ax` reproduces ChatGPT's accessibility text: macOS AX role names
+  (`AXWebArea`, `container`, `text field`), preorder IDs that persist by parent
+  and sibling position, and its revision diff. Rules:
+  [chatgpt-ax-spec.md](chatgpt-ax-spec.md). `tests/browser-parity/lib/chatgpt-ax-reference.mjs`
+  renders any fixture with ChatGPT's own renderer (from the installed plugin,
+  not copied) for offline goldens.
 
 ## Choosing between the references
 
@@ -95,7 +99,7 @@ goldens recorded from the references, and a runner. See
 - [x] Reference API surfaces captured
 - [x] Fixture site, runner, Aside and Playwright goldens (13 scenarios)
 - [ ] ChatGPT goldens (needs a Codex login with a ChatGPT account)
-- [ ] Snapshot and AX format specs
+- [x] Snapshot and AX format specs
 - [ ] Page script (both formats) passing format goldens on WebKit
 - [ ] Native input, dialogs, file chooser, downloads, popups, PDF
 - [ ] JavaScriptCore REPL host and `cmux browser repl`
