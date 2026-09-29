@@ -40,7 +40,7 @@ struct CloudBrowserAccessView<Content: View>: View {
                     }
                 }
             } else if let message = state.unavailable {
-                CloudBrowserConnectionCard(address: "", message: message, onRetry: nil)
+                CloudBrowserConnectionCard(address: "", message: message, onRetry: state.unavailableRetryAction)
             } else {
                 content()
             }
