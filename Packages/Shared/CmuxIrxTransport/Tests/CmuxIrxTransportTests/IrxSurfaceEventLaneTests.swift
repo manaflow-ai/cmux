@@ -444,6 +444,15 @@ struct IrxSurfaceEventLanesTests {
         }
     }
 
+    private func makeLanes(
+        _ opener: PendingLaneOpener,
+        configuration: IrxSurfaceEventLanes.Configuration = .init()
+    ) -> IrxSurfaceEventLanes {
+        IrxSurfaceEventLanes(configuration: configuration) { descriptor in
+            await opener.open(descriptor)
+        }
+    }
+
     @Test func stalledSurfaceDoesNotDelayAnotherSurfacesWrite() async throws {
         let opener = FakeLaneOpener()
         await opener.block("a")
@@ -568,7 +577,7 @@ struct IrxSurfaceEventLanesTests {
             }
         }
         #expect(try await waitUntil { await opener.openCount == 1 })
-        #expect(await timedOut.value == .failed(.openTimedOut))
+        #expect(await timedOut.value == SurfaceLaneSendOutcome.failed(.openTimedOut))
         await #expect(throws: IrxSurfaceEventLanes.LaneError.laneLimit) {
             try await lanes.send(frame("retry"), surfaceID: "surface", generation: 1)
         }
@@ -591,7 +600,7 @@ struct IrxSurfaceEventLanesTests {
         }
         #expect(try await waitUntil { await opener.openCount == 2 })
         await opener.releaseAll()
-        #expect(await recovered.value == .completed)
+        #expect(await recovered.value == SurfaceLaneSendOutcome.completed)
         await lanes.closeAll()
     }
 
