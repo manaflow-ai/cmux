@@ -809,6 +809,10 @@ if [[ -n "$SOAK_PROFILE" ]]; then
   # The first launch verified sign-in and pairing. The measured launch must
   # restore those saved values through the same startup path as a user launch.
   # --ensure-mac would otherwise inject a new URL and bypass that path entirely.
+  # The prewarm intentionally runs without the release-gate environment. End
+  # that process before the measured launch so the gate runner is initialized
+  # from the requested environment instead of reusing the prewarm scene.
+  xcrun simctl terminate "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
   MOBILE_LAUNCH_ARGS+=(--restore-pairing)
 fi
 
