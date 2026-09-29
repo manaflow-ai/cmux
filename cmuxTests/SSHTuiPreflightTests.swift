@@ -44,8 +44,8 @@ struct SSHTuiPreflightTests {
 
     @Test("Different SSH agent sockets use different route-specific control masters")
     func agentSocketsDoNotShareRouteSpecificControlMaster() throws {
-        let first = SSHTuiConnection(configuration: configuration(identityFile: nil, agent: "/tmp/agent-a.sock"))
-        let second = SSHTuiConnection(configuration: configuration(identityFile: nil, agent: "/tmp/agent-b.sock"))
+        let first = SSHTuiConnection(configuration: configuration(agent: "/tmp/agent-a.sock", identityFile: nil))
+        let second = SSHTuiConnection(configuration: configuration(agent: "/tmp/agent-b.sock", identityFile: nil))
         let firstPath = first.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
         let secondPath = second.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
 
