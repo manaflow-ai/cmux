@@ -38,7 +38,7 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         settingsIncoming.click()
         assertConfirmation(app)
         capture(app, "discoverability-confirmation")
-        app.buttons["Cancel"].firstMatch.click()
+        app.sheets.buttons["Cancel"].firstMatch.click()
         XCTAssertTrue(app.sheets.firstMatch.waitForNonExistence(timeout: 5))
         XCTAssertFalse(isOn(settingsIncoming))
 
