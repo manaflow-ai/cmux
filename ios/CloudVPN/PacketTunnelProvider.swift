@@ -84,6 +84,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 cidrs += values
             case "address":
                 cidrs += values
+            case "dns":
+                return false
             default:
                 continue
             }

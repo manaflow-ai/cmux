@@ -647,4 +647,10 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(!policy.permits("10.0.0.0/33"))
         #expect(!policy.permits("not-an-address/8"))
     }
+
+    @Test func routePolicyRejectsDNSDirectives() {
+        let policy = CloudVPNRoutePolicy()
+        let config = Fixtures.serverConfig + "\nDNS = 1.1.1.1\n"
+        #expect(!policy.permitsOnlyPrivateRoutes(inQuickConfig: config))
+    }
 }

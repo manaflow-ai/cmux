@@ -85,6 +85,9 @@ public final class CloudSystemVPNController {
     /// A VPN saved under another scope is removed before anything else, so
     /// one account's routes never survive into another's session.
     public func setScope(_ newScope: String?) {
+        if hasLoadedScope, scope == newScope, cleanupPending, operation != nil {
+            return
+        }
         guard !hasLoadedScope || scope != newScope || cleanupPending else { return }
         hasLoadedScope = true
         enableRetryRequested = false
@@ -280,7 +283,7 @@ public final class CloudSystemVPNController {
             }
             try await manager.installAndStart(configuration: configuration.text, scope: scope)
         } catch {
-            guard enrollment.created else { throw error }
+            guard enrollment.created || enrollment.rotated else { throw error }
             do {
                 try await service.revokeTunnel(
                     deviceFingerprint: enrollment.deviceFingerprint,
