@@ -209,6 +209,11 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     }
 
     private static func outputText(for item: MobileAgentFeedItem) -> String? {
+        // Pending question controls render the header, prompt, and options
+        // together. Suppress every generic preview for that composed surface.
+        if item.kind == .question, item.status.isPending, !item.questions.isEmpty {
+            return nil
+        }
         if item.kind != .toolResult, let preview = normalized(item.fullTextPreview) {
             return preview
         }

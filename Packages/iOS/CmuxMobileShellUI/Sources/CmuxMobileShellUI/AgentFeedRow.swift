@@ -29,29 +29,24 @@ struct AgentFeedActions {
     var filterChanged: @MainActor (AgentFeedFilter) -> Void = { _ in }
 }
 
-/// The one visual family every Feed action shares: option-bar-shaped
-/// rounded rects. Primary fills with the accent, neutral with a quiet
-/// fill, destructive with a red tint — no stock bordered styles, no
-/// bare red-on-gray labels.
-enum AgentFeedActionRole {
+/// The one visual family every Feed action shares: native bordered controls
+/// with a compact rounded-rectangle shape. Primary uses the accent, neutral
+/// stays quiet, and destructive uses the system destructive tint.
+enum AgentFeedActionRole: Equatable {
     case primary
     case neutral
     case destructive
 
-    var fill: Color {
+    var tint: Color {
         switch self {
-        case .primary: return Color.accentColor
-        case .neutral: return Color.secondary.opacity(0.15)
-        case .destructive: return Color.red.opacity(0.16)
+        case .primary: return .accentColor
+        case .neutral: return .secondary
+        case .destructive: return .red
         }
     }
 
-    var label: Color {
-        switch self {
-        case .primary: return .white
-        case .neutral: return .primary
-        case .destructive: return .red
-        }
+    var buttonRole: ButtonRole? {
+        self == .destructive ? .destructive : nil
     }
 }
 
@@ -61,29 +56,38 @@ struct AgentFeedActionButton: View {
     let action: @MainActor () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Group {
+            if role == .primary {
+                button
+                    .buttonStyle(.borderedProminent)
+            } else {
+                button
+                    .buttonStyle(.bordered)
+            }
+        }
+        .tint(role.tint)
+        .controlSize(.regular)
+        .buttonBorderShape(.roundedRectangle(radius: 9))
+    }
+
+    private var button: some View {
+        Button(role: role.buttonRole, action: action) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 10).fill(role.fill))
-                .foregroundStyle(role.label)
+                .frame(minHeight: 32)
         }
-        .buttonStyle(.plain)
     }
 }
 
-/// The overflow menu chip, matching the action buttons' height and fill at
-/// full label strength (never dimmed).
+/// The overflow menu label uses the same 44-point control height as the text
+/// actions while letting the system provide the border and pressed state.
 struct AgentFeedOverflowMenuLabel: View {
     var body: some View {
         Image(systemName: "ellipsis")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
-            .frame(width: 44)
-            .padding(.vertical, 12)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.15)))
+            .frame(width: 20, height: 30)
     }
 }
 
@@ -652,6 +656,11 @@ private struct AgentFeedDecisionControls: View {
             } label: {
                 AgentFeedOverflowMenuLabel()
             }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .buttonBorderShape(.roundedRectangle(radius: 9))
+            .tint(.secondary)
+            .frame(width: 44, height: 44)
             .accessibilityLabel(String(
                 localized: "mobile.agentFeed.permission.moreOptions",
                 defaultValue: "More permission options",
@@ -718,6 +727,11 @@ private struct AgentFeedExitPlanControls: View {
                 } label: {
                     AgentFeedOverflowMenuLabel()
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .buttonBorderShape(.roundedRectangle(radius: 9))
+                .tint(.secondary)
+                .frame(width: 44, height: 44)
                 .accessibilityLabel(String(
                     localized: "mobile.agentFeed.exitPlan.moreModes",
                     defaultValue: "More approval modes",
@@ -945,6 +959,36 @@ private struct AgentFeedQuestionControls: View {
         role: AgentFeedActionRole,
         action: @escaping @MainActor () -> Void
     ) -> some View {
+        Group {
+            if role == .primary {
+                pagerButton(
+                    title: title,
+                    chevron: chevron,
+                    chevronLeading: chevronLeading,
+                    action: action
+                )
+                .buttonStyle(.borderedProminent)
+            } else {
+                pagerButton(
+                    title: title,
+                    chevron: chevron,
+                    chevronLeading: chevronLeading,
+                    action: action
+                )
+                .buttonStyle(.bordered)
+            }
+        }
+        .tint(role.tint)
+        .controlSize(.regular)
+        .buttonBorderShape(.roundedRectangle(radius: 9))
+    }
+
+    private func pagerButton(
+        title: String,
+        chevron: String,
+        chevronLeading: Bool,
+        action: @escaping @MainActor () -> Void
+    ) -> some View {
         Button {
             withAnimation(.snappy) { action() }
         } label: {
@@ -958,11 +1002,8 @@ private struct AgentFeedQuestionControls: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 10).fill(role.fill))
-            .foregroundStyle(role.label)
+            .frame(minHeight: 32)
         }
-        .buttonStyle(.plain)
     }
 
     private var answeredQuestionCount: Int {
@@ -991,12 +1032,27 @@ private struct AgentFeedQuestionControls: View {
                     bundle: .module
                 ), systemImage: "checklist")
                 .font(.caption.weight(.medium))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.secondary)
             }
-            ForEach(question.options, id: \.id) { option in
-                optionChip(option, question: question)
+            VStack(spacing: 0) {
+                ForEach(Array(question.options.enumerated()), id: \.element.id) { index, option in
+                    optionChip(option, question: question)
+                    if index < question.options.count - 1 {
+                        Divider()
+                            .padding(.leading, 14)
+                    }
+                }
+                if !question.options.isEmpty {
+                    Divider()
+                        .padding(.leading, 14)
+                }
+                customAnswerControl(for: question)
             }
-            customAnswerControl(for: question)
+            .background(
+                Color.secondary.opacity(0.10),
+                in: RoundedRectangle(cornerRadius: 12)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 1)
@@ -1010,10 +1066,14 @@ private struct AgentFeedQuestionControls: View {
             actions.questionReply(item, answers)
         } label: {
             Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
                 .frame(maxWidth: .infinity)
+                .frame(minHeight: 32)
         }
         .buttonStyle(.borderedProminent)
-        .controlSize(.small)
+        .controlSize(.regular)
+        .buttonBorderShape(.roundedRectangle(radius: 10))
         .disabled(!canSubmitAll || isReplyPending)
         .accessibilityIdentifier("MobileAgentFeedQuestionSubmit")
     }
@@ -1057,18 +1117,12 @@ private struct AgentFeedQuestionControls: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 10).fill(
-                    isSelected ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.12)
-                )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.55) : .clear, lineWidth: 1)
-            )
+            .frame(minHeight: 44)
+            .background(isSelected ? Color.accentColor.opacity(0.14) : .clear)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("MobileAgentFeedQuestionOption-\(question.id)-\(option.id)")
     }
 
@@ -1093,10 +1147,10 @@ private struct AgentFeedQuestionControls: View {
             )
             .lineLimit(2...5)
             .focused($focusedCustomAnswerQuestionID, equals: question.id)
+            .textFieldStyle(.plain)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.10)))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.28), lineWidth: 1))
+            .padding(.vertical, 10)
             .onAppear {
                 if isEditing { focusedCustomAnswerQuestionID = question.id }
             }
@@ -1105,16 +1159,20 @@ private struct AgentFeedQuestionControls: View {
                 editingCustomAnswerForQuestionID = question.id
                 focusedCustomAnswerQuestionID = question.id
             } label: {
-                Label(String(
-                    localized: "mobile.agentFeed.question.other",
-                    defaultValue: "Other…",
-                    bundle: .module
-                ), systemImage: "pencil")
-                .font(.subheadline.weight(.medium))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 10) {
+                    Image(systemName: "pencil")
+                        .foregroundStyle(.tint)
+                    Text(String(
+                        localized: "mobile.agentFeed.question.other",
+                        defaultValue: "Other…",
+                        bundle: .module
+                    ))
+                    .font(.subheadline.weight(.medium))
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.35)))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
