@@ -111,14 +111,23 @@ extension ControlRouter {
             ])
         }
         let executor = self.executor
-        let outcome = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline) {
-            executor.performAction(request)
+        // `wait: true` answers after the daemon applied the work the handler
+        // started (its command replies), within the request deadline.
+        let wait = call.params["wait"]?.boolValue ?? false
+        let run = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline) {
+            wait ? executor.performActionTracked(request) : ControlActionRun(outcome: executor.performAction(request))
         }
-        switch outcome {
+        switch run.outcome {
         case .ran:
+            var failure: String?
+            for task in run.work {
+                if let error = await task.value { failure = failure ?? error }
+            }
+            if let failure { throw ControlError(code: "daemon_error", message: failure, data: ["action": .string(action.id)]) }
             var result: [String: JSONValue] = [
                 "action": .string(action.id),
                 "ran": true,
+                "waited": .bool(wait),
                 "args": .object(request.arguments.mapValues(\.json)),
             ]
             if let target = request.target { result["target"] = target.json }
