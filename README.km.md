@@ -367,7 +367,7 @@ cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​ន�
 
 ### ខ្ញុំ​មាន​សំណើ​មុខងារ ឬ​រក​ឃើញ​កំហុស?
 
-យើង​ចង់​ស្ដាប់​វា។ បើក [issue](https://github.com/manaflow-ai/cmux/issues) ឬ [pull request](https://github.com/manaflow-ai/cmux/pulls) នៅ​លើ GitHub ឬ [អ៊ីមែល​មក​យើង](mailto:founders@manaflow.com?subject=cmux%20feature%20request)។
+យើង​ចង់​ស្ដាប់​វា។ បើក [issue](https://github.com/manaflow-ai/cmux/issues) ឬ [pull request](https://github.com/manaflow-ai/cmux/pulls) នៅ​លើ GitHub ឬ [អ៊ីមែល​មក​យើង](mailto:founders@cmux.com?subject=cmux%20feature%20request)។
 
 ## ប្រវត្តិ Star
 
@@ -420,4 +420,4 @@ cmux គឺឥតគិតថ្លៃ បើកប្រភពកូដ និ�
 
 cmux គឺបើកប្រភពកូដក្រោម [GPL-3.0-or-later](LICENSE)។ កម្មវិធីម៉ាស៊ីនមេ cmux (`web/`, Cloudflare workers និងសេវាកម្ម relay ដែលមានក្នុង [LICENSE](LICENSE)) ប្រើ [Business Source License 1.1](web/LICENSE) ជំនួសវិញ៖ អ្នកអាចអាន កែប្រែ និងដំណើរការវាសម្រាប់ការប្រើប្រាស់មិនមែនផលិតកម្ម ហើយការប្រើប្រាស់ផលិតកម្ម ឬការបង្ហោះដោយខ្លួនឯង តម្រូវឱ្យមានអាជ្ញាបណ្ណពាណិជ្ជកម្ម។
 
-ប្រសិនបើស្ថាប័នរបស់អ្នកមិនអាចអនុលោមតាម GPL បាន អាជ្ញាបណ្ណពាណិជ្ជកម្មមានផ្តល់ជូន។ សូមទាក់ទង [founders@manaflow.com](mailto:founders@manaflow.com) សម្រាប់ព័ត៌មានលម្អិត។
+ប្រសិនបើស្ថាប័នរបស់អ្នកមិនអាចអនុលោមតាម GPL បាន អាជ្ញាបណ្ណពាណិជ្ជកម្មមានផ្តល់ជូន។ សូមទាក់ទង [founders@cmux.com](mailto:founders@cmux.com) សម្រាប់ព័ត៌មានលម្អិត។

@@ -14,26 +14,29 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### Cloud VT replay keeps the active viewport anchored
 
-- Branch: `issue-15109-preserve-replay-row-tail`
-  ([manaflow-ai/ghostty#240](https://github.com/manaflow-ai/ghostty/pull/240))
-- Commits: `3769eac63` (final-page delimiter correction), `6dae1978e`
-  (intermediate-page and styled-blank-cell corrections)
-- Summary: VT replay already emits the delimiter for the last row containing
-  cells. The trailing-row preservation path emits only the remaining blank
-  rows on the final page, while intermediate pages retain every row boundary.
-  Styled rows that contain only background cells are emitted instead of being
-  treated as text-free blank rows. This keeps Cloud Codex headers, composers,
-  status rows, and their grey background cells on the same cells after restore.
-- Coverage: cmux-tui's
+- Branch: `issue-15109-replay-fix`
+  ([manaflow-ai/ghostty#243](https://github.com/manaflow-ai/ghostty/pull/243))
+- Base: fork `main` at `1beeee2b7`, which includes #241's
+  `3429f20e9` trailing-row state fix.
+- Commits: merge `e67359329` retains the exact startup-input bytes pair from
+  #239 (`a78e21739`, `e168fd31c`); `9961d09be` preserves rows containing only
+  background styling.
+- Summary: a full-width background row is terminal content for VT and HTML
+  formatting even when none of its cells contains text. Emitting that row
+  keeps Cloud Codex's grey composer band aligned with the header, prompt, and
+  status after replay. The #241 implementation remains the sole owner of the
+  trailing-row delimiter state.
+- Coverage: Ghostty's `Page VT preserves a fully styled blank row`, cmux-tui's
   `vt_replay_preserves_blank_tail_after_history`,
-  `vt_replay_preserves_codex_composer_before_incremental_redraw`, the
-  page-boundary formatter test, and cell-level Cloud replay tests.
-- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-6dae1978effbd9812de1c93ea7a938dbde12532d-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-- SHA-256 `dc9b024dc8ad913ced9a80b1c8e5e8532536d98389cdececcdc8aee233541364`
+  `vt_replay_preserves_codex_composer_before_incremental_redraw`, and the
+  cell-level Cloud replay tests.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-9961d09be3faf962b6e50541c3b709d5cd234472-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `f3d611f151e7337b116cd15e653d734bc04dd33d8bd5af5fd065bebb6ad78be9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
-- Conflict note: keep the trailing-row count paired with the formatter's
-  existing last-cell delimiter; adding a second delimiter reintroduces the
-  one-row scroll.
+- Conflict note: do not add another `blank_rows - 1` adjustment on top of
+  #241. Its carried `TrailingState.rows = 1` is required for page boundaries;
+  duplicating the subtraction under-emits a row and shifts the composer in
+  the opposite direction. The styled-row classification is independent.
 
 ### Startup input keeps its bytes
 
@@ -122,9 +125,10 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `6dae1978e`, the Cloud VT replay
-viewport-anchor and styled-blank-cell fix on top of `3769eac633`, `e168fd31c0`
-and all prior fork changes. The
+The submodule pinned by this branch is `9961d09be`, the Cloud VT replay
+styled-blank-row fix on top of fork `main`, Ghostty #241's carried trailing
+row state, and the exact #239 startup-input commits. The previous pin was
+`e168fd31c0`, the startup-input bytes change on top of `edefce7785`. The
 previous pin was `edefce7785`, the unfocused surface
 frame pacing change on top of `0068ece733`. The previous pin was
 `0068ece733`, the CJK fallback sizing fix
