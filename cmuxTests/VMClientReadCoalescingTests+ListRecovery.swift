@@ -185,13 +185,26 @@ extension VMClientReadCoalescingTests {
         model.applyRefreshResult(.failure(VMClientError.httpStatus(status, "gated")), generation: model.refreshGeneration, scope: nil)
         #expect(model.listStatus == expected)
         model.startPolling()
-        try await listEventually { await Self.listRequests() == 1 }
-        #expect(model.listStatus == expected, "Only a transient failure reads as reconnecting")
-        await fixture.readRequests.networkChanged(isOnline: false)
-        try await listEventually { model.listStatus == .waitingForNetwork }
-        await fixture.readRequests.networkChanged(isOnline: true)
-        try await listEventually { await Self.listRequests() == 2 }
-        #expect(model.listStatus == expected)
+        if status == 401 {
+            try await listEventually { await Self.listRequests() == 0 }
+            #expect(model.listStatus == expected, "A rejected session must stop automatic reads")
+            await fixture.readRequests.networkChanged(isOnline: false)
+            await fixture.readRequests.networkChanged(isOnline: true)
+            try await listEventually { await Self.listRequests() == 0 }
+            #expect(model.listStatus == expected)
+            model.resetForAuthTransition()
+            #expect(model.listStatus == nil)
+            model.startPolling()
+            try await listEventually { await Self.listRequests() == 1 }
+        } else {
+            try await listEventually { await Self.listRequests() == 1 }
+            #expect(model.listStatus == expected, "Only a transient failure reads as reconnecting")
+            await fixture.readRequests.networkChanged(isOnline: false)
+            try await listEventually { model.listStatus == .waitingForNetwork }
+            await fixture.readRequests.networkChanged(isOnline: true)
+            try await listEventually { await Self.listRequests() == 2 }
+            #expect(model.listStatus == expected)
+        }
         await CloudRefreshURLProtocol.releaseResponses()
         try await listEventually { !model.isLoading }
         #expect(model.listStatus == nil, "A successful read clears the gate it replaced")
