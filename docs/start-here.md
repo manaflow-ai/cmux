@@ -15,13 +15,18 @@ Sorted roughly by how little setup they need:
 | If you want to | Look at |
 |---|---|
 | Fix something small with a clear starting point | [`good first issue`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) |
+| Start with the smallest scoped work | [`difficulty:1`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3A%22difficulty%3A1%22) |
+| Work on one package or feature boundary | [`difficulty:2`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3A%22difficulty%3A2%22) |
+| Join a design or cross-component effort | [`difficulty:3`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3A%22difficulty%3A3%22) |
 | Take something nobody is working on | [`help wanted`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) |
 | Work on one part of the app | [`area:` labels](https://github.com/manaflow-ai/cmux/labels?q=area) |
 | Fix something badly broken | [`S1: critical`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3A%22S1%3A+critical%22) and [`S2: major`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3A%22S2%3A+major%22) |
 | Help without building anything | [`needs-triage`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3Aneeds-triage) |
 
 [`docs/triage.md`](triage.md) explains what those labels mean and who assigns
-them. These labels are new, so some of those searches are still thin. The
+them. Difficulty is a maintainer assessment of scope and coordination, while
+`good first issue` means the starting point and verification path are explicit.
+Some searches are still thin. The
 exception is `needs-triage`, which is around 500 issues: the rules could not tell
 which part of cmux each one is about. Reading one, working out where it belongs,
 and saying so in a comment is useful and needs no Xcode.
