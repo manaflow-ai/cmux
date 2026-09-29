@@ -314,12 +314,12 @@ struct UpdateRelaunchAgentResumeTests {
             )
         }
 
-        nudges.arm(panelIds: [panelId], expiresAtUptime: ProcessInfo.processInfo.systemUptime + 60)
+        nudges.arm(panelIds: [panelId], expiresAtUptime: .infinity)
         #expect(try savedTerminal().terminal?.resumeWithContinuation == true)
 
         // An idle agent at the relaunch, and every ordinary save, leave the field out, so
         // snapshots from builds without it decode the same way.
-        nudges.arm(panelIds: [UUID()], expiresAtUptime: ProcessInfo.processInfo.systemUptime + 60)
+        nudges.arm(panelIds: [UUID()], expiresAtUptime: .infinity)
         let idle = try savedTerminal()
         #expect(idle.terminal?.resumeWithContinuation == nil)
         #expect(!idle.json.contains("resumeWithContinuation"))
