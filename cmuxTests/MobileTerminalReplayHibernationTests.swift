@@ -35,6 +35,28 @@ struct MobileTerminalReplayHibernationTests {
         }
     }
 
+    @Test func replayHydratesTheRuntimeBeforeReturningItsCurrentState() async throws {
+        try await withAppContext { workspace in
+            let (panelId, _) = try hibernateFocusedAgent(in: workspace)
+
+            let result = TerminalController.shared.v2MobileTerminalReplay(params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ])
+            guard case let .ok(payload) = result else {
+                Issue.record("Expected replay success, got \(result)")
+                return
+            }
+
+            #expect(
+                payload["render_grid"] != nil ||
+                    payload["snapshot_data_b64"] != nil ||
+                    payload["data_b64"] != nil,
+                "A successful remote replay must carry terminal state, not an empty attach"
+            )
+        }
+    }
+
     @Test func rejectedReplayLeavesHibernatedAgentAsleep() async throws {
         try await withAppContext { workspace in
             let (panelId, panel) = try hibernateFocusedAgent(in: workspace)
