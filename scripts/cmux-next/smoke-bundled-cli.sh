@@ -9,8 +9,9 @@
 #      cmux --help` prints that language's values of cli.help.topic.start and
 #      cli.usage.targets.heading (the help body), read from the compiled
 #      Localizable.strings of the same bundle; `cmux canvas` prints that
-#      language's cli.removed.error prefix; and `LANG=de_DE.UTF-8 cmux canvas`
-#      (the POSIX locale, no AppleLanguages) prints the German one.
+#      language's cli.removed.error prefix; `LC_MESSAGES=de_DE.UTF-8 cmux
+#      canvas` (no AppleLanguages) prints the German one; and `LANG=de_DE.UTF-8`
+#      alone leaves the output as it is without it (terminals set LANG).
 #   4. `cmux action list --json` against the tagged app's socket returns
 #      actions. When no app answers on /tmp/cmux-debug-<tag>.sock, the script
 #      launches the tagged app in the background (clean environment,
@@ -29,7 +30,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag) tag="${2:?--tag needs a value}"; shift 2 ;;
     --app) app="${2:?--app needs a value}"; shift 2 ;;
-    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "error: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -138,9 +139,14 @@ echo "ok: --help localized in ${#langs[@]} languages (${langs[*]})"
 
 step="POSIX locale"
 german="$(removed_prefix "$app/Contents/Resources/de.lproj")"
-removed="$(cli env LANG=de_DE.UTF-8 "$cli_path" canvas 2>&1 || true)"
-grep -Fq "$german" <<<"$removed" || fail "LANG=de_DE.UTF-8 cmux canvas printed '$removed', expected '$german'"
-echo "ok: LANG=de_DE.UTF-8 cmux canvas: $removed"
+removed="$(cli env LC_MESSAGES=de_DE.UTF-8 "$cli_path" canvas 2>&1 || true)"
+grep -Fq "$german" <<<"$removed" || fail "LC_MESSAGES=de_DE.UTF-8 cmux canvas printed '$removed', expected '$german'"
+echo "ok: LC_MESSAGES=de_DE.UTF-8 cmux canvas: $removed"
+baseline="$(cli "$cli_path" canvas 2>&1 || true)"
+lang_only="$(cli env LANG=de_DE.UTF-8 "$cli_path" canvas 2>&1 || true)"
+[[ "$lang_only" == "$baseline" ]] \
+  || fail "LANG=de_DE.UTF-8 alone changed the language: '$lang_only' (without it: '$baseline')"
+echo "ok: LANG=de_DE.UTF-8 alone keeps the macOS language: $lang_only"
 
 step="cmux action list"
 if ! cli "$cli_path" --socket "$socket" ping >/dev/null 2>&1; then
