@@ -1092,13 +1092,14 @@ public final class CloudSystemVPNController {
         _ completion: Task<T, any Error>
     ) {
         Task { @MainActor [weak self] in
-            _ = await completion.result
+            let result = await completion.result
             guard let self else { return }
             await self.operationGate.waitForIdle()
             guard self.scope != nil,
-                  !self.needsPlatformReconciliation,
                   self.operation == nil,
                   !self.operationGate.hasPendingOperation else { return }
+            guard case .success = result else { return }
+            self.needsPlatformReconciliation = false
             self.accept(self.manager.phase)
         }
     }

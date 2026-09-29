@@ -397,6 +397,28 @@ import Testing
         await rig.controller.waitForPendingOperation()
     }
 
+    @Test func aLateSuccessfulPlatformStopReconcilesTheController() async {
+        let rig = Rig(operationTimeout: .milliseconds(50))
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        rig.manager.stopDelay = .milliseconds(250)
+        rig.manager.stopIgnoresCancellation = true
+        rig.controller.disable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        await rig.manager.waitForStopCompletion()
+        for _ in 0..<50 where rig.controller.phase != .connected {
+            rig.manager.report(.connected)
+            try? await ContinuousClock().sleep(for: .milliseconds(5))
+        }
+
+        #expect(rig.manager.stops == [false])
+        #expect(rig.controller.phase == .connected)
+    }
+
     @Test func enablingReconcilesAConnectedPlatformProfileBeforeEnrollment() async {
         let rig = Rig()
         await signedIn(rig)
