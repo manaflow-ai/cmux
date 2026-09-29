@@ -72,7 +72,7 @@ public actor IrxPeerEngine {
 
     let dialOnce: DialOnce
     let clockNow: @Sendable () -> ContinuousClock.Instant
-    let dialSleep: @Sendable (Duration) async throws -> Void
+    let dialClock: any Clock<Duration>
     private let retrySleep: @Sendable (Duration) async throws -> Void
     let config: Config
     private let journal: IrxJournal
@@ -113,7 +113,7 @@ public actor IrxPeerEngine {
         applicationActive: Bool = true,
         clockNow: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
-        dialSleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        dialClock: any Clock<Duration> = ContinuousClock(),
         dialOnce: @escaping DialOnce
     ) {
         self.config = config
@@ -121,7 +121,7 @@ public actor IrxPeerEngine {
         self.label = label
         self.applicationActive = applicationActive
         self.dialOnce = dialOnce
-        self.dialSleep = dialSleep
+        self.dialClock = dialClock
         self.clockNow = clockNow
         self.retrySleep = retrySleep
         backoff = config.initialBackoff
@@ -169,9 +169,9 @@ public actor IrxPeerEngine {
         }
     }
 
-    /// Stops probe deadlines and automatic retry work while the app is suspended.
-    /// Explicit application requests may still use a granted background execution
-    /// window. Their connection intent survives until foreground recovery.
+    /// Stops pending dials, probes, and automatic retries while suspended.
+    /// Existing admitted sessions remain available; reconnect intent resumes
+    /// when the application becomes active.
     public func setApplicationActive(_ active: Bool) async {
         guard applicationActive != active else { return }
         applicationActive = active

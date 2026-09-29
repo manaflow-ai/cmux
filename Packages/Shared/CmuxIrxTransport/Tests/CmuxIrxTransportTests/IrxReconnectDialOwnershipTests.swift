@@ -47,7 +47,7 @@ import Testing
         let engine = IrxPeerEngine(
             config: .init(initialBackoff: .seconds(60), maxBackoff: .seconds(60)),
             journal: IrxLiveTestSupport.journal(),
-            dialSleep: { _ in try await deadline.sleep() },
+            dialClock: deadline,
             dialOnce: { try await sequence.dial() }
         )
         let first = Task {
@@ -56,7 +56,7 @@ import Testing
         }
         await sequence.gate.waitUntilStarted()
         await deadline.waitUntilArmed()
-        await deadline.advance()
+        deadline.advance()
         #expect(await first.value == .timedOut)
         #expect(await engine.currentState != .connecting)
         // The first operation still owns its native result, and ignores cancellation.
@@ -80,11 +80,11 @@ import Testing
         let sequence = IrxReconnectDialSequence(stalled: recovered, recovered: recovered, failFirst: true)
         let retryClock = IrxDialTestClock()
         let engine = IrxPeerEngine(journal: IrxLiveTestSupport.journal(),
-                                  retrySleep: { _ in try await retryClock.sleep() },
+                                  retrySleep: { delay in try await retryClock.sleep(for: delay) },
                                   dialOnce: { try await sequence.dial() })
         _ = try? await engine.ensureSession(trigger: "fails-once")
         await retryClock.waitUntilArmed()
-        await retryClock.advance()
+        retryClock.advance()
         await sequence.gate.waitUntilStarted()
         await sequence.gate.release()
         let states = await engine.states()

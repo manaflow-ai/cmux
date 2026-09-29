@@ -65,6 +65,10 @@ def run_case(cli, agent, override=None):
                 with connection:
                     stream = connection.makefile("rwb")
                     for raw in stream:
+                        if raw == b"auth fixture-only\n":
+                            stream.write(b"OK\n")
+                            stream.flush()
+                            continue
                         request = json.loads(raw)
                         requests.append(request)
                         result = {"enabled": True, "workspace_user_owned": False,
@@ -84,6 +88,8 @@ def run_case(cli, agent, override=None):
                 "CMUX_CLAUDE_HOOK_STATE_PATH": str(store),
                 "CMUX_SOCKET_PATH": socket_path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_SOCKET_PASSWORD": "fixture-only",
+                "CFFIXED_USER_HOME": temporary,
             }
             result = subprocess.run([
                 cli, "--socket", socket_path, "hooks", agent, "auto-name",

@@ -23,7 +23,7 @@ extension MobileShellComposite {
             recoverPendingInactiveRecoveryIfNeeded()
         } else {
             if pendingInactiveRecoveryTrigger == nil { pendingInactiveRecoveryTrigger = .foreground }
-            storedMacReconnectDeadlineTask?.cancel()
+            suspendStoredMacReconnect()
         }
     }
 

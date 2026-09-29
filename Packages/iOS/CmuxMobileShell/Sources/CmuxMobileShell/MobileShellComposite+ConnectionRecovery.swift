@@ -54,9 +54,8 @@ extension MobileShellComposite {
     /// enter the same owner. Foreground starts with a positive-liveness probe;
     /// a failed probe promotes that exact attempt to one stored-Mac redial.
     func recoverForegroundConnectionIfNeeded(resyncAfterHealthy: Bool) {
-        guard connectionState == .connected,
-              let client = remoteClient,
-              pairedMacStore != nil else { return }
+        guard !isReconnectingStoredMac, connectionState == .connected,
+              let client = remoteClient, pairedMacStore != nil else { return }
         guard connectionEstablishmentIsAllowed else {
             pendingInactiveRecoveryTrigger = .foreground
             return
@@ -98,13 +97,14 @@ extension MobileShellComposite {
         // advance the generation, and cancel the dial already in flight.
         // Automatic wake-ups are satisfied by the active restore. Manual retry
         // and connection-method changes remain explicit replacements.
-        if isReconnectingStoredMac, !connectionRecoveryOwner.isActive {
+        if storedMacReconnectAttempt != nil, !connectionRecoveryOwner.isActive {
             switch trigger {
             case .manual, .connectionMethodChanged:
                 break
             case .networkChange, .presencePush, .directoryChanged, .foreground, .liveness,
                  .eventStreamEnded, .subscriptionStartFailed,
                  .transportWriteTimedOut, .automaticBackoffExpired:
+                if storedMacReconnectAttempt?.retirement != nil { pendingInactiveRecoveryTrigger = trigger }
                 MobileDebugLog.anchormux(
                     "connection.recovery coalesced trigger=\(trigger.description) "
                         + "storedMacGeneration=\(storedMacReconnectGeneration)"
@@ -288,8 +288,12 @@ extension MobileShellComposite {
     /// they already started instead of stacking a second dial.
     func recoverPendingInactiveRecoveryIfNeeded() {
         guard isSignedIn, connectionEstablishmentIsAllowed, !isReconnectingStoredMac,
-              storedMacReconnectGenerationsInFlight.isEmpty, !connectionRecoveryOwner.isActive,
-              let trigger = pendingInactiveRecoveryTrigger else { return }
+              storedMacReconnectGenerationsInFlight.isEmpty, !connectionRecoveryOwner.isActive else { return }
+        if pendingForcedStoredMacReconnect {
+            finishStoredMacReconnectAttempt(generation: storedMacReconnectGeneration)
+            return
+        }
+        guard let trigger = pendingInactiveRecoveryTrigger else { return }
         pendingInactiveRecoveryTrigger = nil
         recoverMobileConnection(trigger: trigger)
     }

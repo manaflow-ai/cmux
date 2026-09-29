@@ -1,34 +1,63 @@
 import Foundation
+import os
 
-actor IrxDialTestClock {
-    private var sleepers: [UUID: CheckedContinuation<Void, any Error>] = [:]
-    private var observers: [CheckedContinuation<Void, Never>] = []
+/// A virtual monotonic clock that advances to the next armed deadline on demand.
+final class IrxDialTestClock: Clock, Sendable {
+    typealias Instant = ContinuousClock.Instant
 
-    func sleep() async throws {
+    private struct State {
+        var now = ContinuousClock.now
+        var sleepers: [UUID: (Instant, CheckedContinuation<Void, any Error>)] = [:]
+        var observers: [CheckedContinuation<Void, Never>] = []
+    }
+
+    // Clock requires synchronous `now`; this test-only lock also arbitrates
+    // registration/cancellation so continuations are resumed exactly once.
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    var now: Instant { state.withLock { $0.now } }
+    var minimumResolution: Duration { .nanoseconds(1) }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
-            try Task.checkCancellation()
             try await withCheckedThrowingContinuation { continuation in
-                sleepers[id] = continuation
-                let pending = observers
-                observers = []
-                pending.forEach { $0.resume() }
+                let (immediate, observers) = state.withLock { value -> (
+                    Result<Void, any Error>?, [CheckedContinuation<Void, Never>]
+                ) in
+                    if Task.isCancelled { return (.failure(CancellationError()), []) }
+                    if deadline <= value.now { return (.success(()), []) }
+                    value.sleepers[id] = (deadline, continuation)
+                    let observers = value.observers
+                    value.observers = []
+                    return (nil, observers)
+                }
+                if let immediate { continuation.resume(with: immediate) }
+                observers.forEach { $0.resume() }
             }
-        } onCancel: { Task { await self.cancel(id) } }
+        } onCancel: {
+            self.state.withLock { $0.sleepers.removeValue(forKey: id) }?.1.resume(throwing: CancellationError())
+        }
     }
 
     func waitUntilArmed() async {
-        if !sleepers.isEmpty { return }
-        await withCheckedContinuation { observers.append($0) }
+        await withCheckedContinuation { continuation in
+            let ready = state.withLock { value in
+                if !value.sleepers.isEmpty { return true }
+                value.observers.append(continuation)
+                return false
+            }
+            if ready { continuation.resume() }
+        }
     }
 
     func advance() {
-        let pending = sleepers.values
-        sleepers = [:]
-        pending.forEach { $0.resume() }
-    }
-
-    private func cancel(_ id: UUID) {
-        sleepers.removeValue(forKey: id)?.resume(throwing: CancellationError())
+        let expired = state.withLock { value -> [CheckedContinuation<Void, any Error>] in
+            guard let next = value.sleepers.values.map(\.0).min() else { return [] }
+            value.now = max(value.now, next)
+            let expired = value.sleepers.filter { $0.value.0 <= value.now }
+            for id in expired.keys { value.sleepers[id] = nil }
+            return expired.values.map(\.1)
+        }
+        expired.forEach { $0.resume() }
     }
 }

@@ -141,9 +141,7 @@ extension MobileShellComposite {
         expiry: StoredMacDialExpiry
     ) async -> StoredMacCandidateDial {
         let isCurrent: () -> Bool = { [weak self] in
-            !Task.isCancelled && !expiry.expired
-                && self?.connectionEstablishmentIsAllowed == true
-                && self?.storedMacReconnectGeneration == generation
+            !expiry.expired && self?.reconnectAttemptIsCurrent(generation: generation, scope: scope) == true
         }
         var dial = StoredMacCandidateDial()
         // Tailscale Only excludes Iroh for every pairing. Automatic may

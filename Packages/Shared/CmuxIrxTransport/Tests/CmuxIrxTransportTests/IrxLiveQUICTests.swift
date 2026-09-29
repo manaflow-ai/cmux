@@ -369,6 +369,7 @@ struct IrxLiveQUICTests {
             // error; the owner classification is the behavior under test.
         }
 
+        #expect(try await irx.waitForTestRetirement())
         #expect(await releaseProbe.count == 1)
         #expect(await releaseProbe.closeCodes == [.explicitRedial])
         #expect(await releaseProbe.retiresConnections == [true])
@@ -440,10 +441,7 @@ struct IrxLiveQUICTests {
         } catch {
             Issue.record("unexpected error: \(error)")
         }
-        let retired = try await withIrxDeadline(.seconds(2), onTimeout: {
-            await irx.close(code: .userRequested, origin: .local)
-        }) { _ = await irx.termination(); return true }
-        #expect(retired == true)
+        #expect(try await irx.waitForTestRetirement())
         #expect(await releaseProbe.count == 1)
         #expect(await releaseProbe.retiresConnections == [true])
         #expect(await irx.isClosed)

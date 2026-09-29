@@ -75,8 +75,8 @@ extension IrxPeerEngine {
             }
             await self.finishDial(result, generation: generation, trigger: trigger)
         }
-        dialDeadlineTask = Task { [weak self, dialSleep, limit = config.dialDeadline] in
-            do { try await dialSleep(limit) } catch { return }
+        dialDeadlineTask = Task { [weak self, dialClock, limit = config.dialDeadline] in
+            do { try await dialClock.sleep(for: limit) } catch { return }
             guard !Task.isCancelled else { return }
             await self?.expireDial(generation: generation, trigger: trigger)
         }

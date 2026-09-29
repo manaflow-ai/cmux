@@ -78,6 +78,10 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
+            if line == b"auth fixture-only\n":
+                self.wfile.write(b"OK\n")
+                self.wfile.flush()
+                continue
             request = json.loads(line.decode("utf-8"))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
@@ -170,6 +174,7 @@ def invoke_cli(
     ]:
         env.pop(key, None)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    env["CMUX_SOCKET_PASSWORD"] = "fixture-only"
 
     request_start = state.request_count()
     proc = subprocess.run(
