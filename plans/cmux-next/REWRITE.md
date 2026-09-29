@@ -17,6 +17,7 @@ Living document. Branch `feat-cmux-next`, worktree `worktrees/feat-cmux-next`.
 ## Visual rules
 
 - No blue accent anywhere. Subtle grays for selection, focus, hover.
+- Compact by default (user 2026-09-28), still extremely well designed: use CmuxNextDesign `Metrics` / `Typography` tokens only (2 pt grid, 12 pt chrome body, 28 pt tab strip, 26 pt sidebar rows). No hardcoded sizes in feature modules. Comfortable density is an opt-in setting.
 - Sidebar is fully custom (user 2026-09-28): no NSOutlineView/NSTableView/NSSplitViewController sidebar/SwiftUI List; own layer-backed rows, animations, selection, resize.
 - Liquid Glass (`NSGlassEffectView`, `.glassEffect`) where it reads clean: palette, sidebar, tab strip, popovers. Not on terminal content.
 
