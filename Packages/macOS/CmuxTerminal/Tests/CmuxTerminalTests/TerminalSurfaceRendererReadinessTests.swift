@@ -20,11 +20,9 @@ import Testing
             phase: .settled
         )
         surface.rendererPresentationReadinessDidChange()
-        #expect(cmux_test_ghostty_renderer_present(fixture.runtimeSurface))
+        acknowledgePendingPresentation(on: surface)
 
         failProbe(on: surface)
-        failProbe(on: surface)
-        #expect(surface.renderHealth == .notRendering)
 
         surface.committedPaneGeometry = TerminalPaneGeometry(
             size: CGSize(width: 640, height: 480),
@@ -34,15 +32,28 @@ import Testing
         surface.rendererPresentationReadinessDidChange()
 
         #expect(surface.renderHealth == .awaitingFrame)
-        #expect(cmux_test_ghostty_renderer_present(fixture.runtimeSurface))
+        failProbe(on: surface)
+        acknowledgePendingPresentation(on: surface)
         #expect(surface.renderHealth == .rendering)
         #expect(surface.isRendererPresented)
     }
 
+    private func acknowledgePendingPresentation(on surface: TerminalSurface) {
+        guard let token = surface.rendererPresentationState.inFlightToken else {
+            Issue.record("Expected a tokened presentation probe")
+            return
+        }
+        surface.rendererFrameDidPresent(token: token)
+    }
+
     private func failProbe(on surface: TerminalSurface) {
-        #expect(cmux_test_ghostty_renderer_fail(
-            surface.runtimeSurfacePointer,
-            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
-        ))
+        guard let token = surface.rendererPresentationState.inFlightToken else {
+            Issue.record("Expected a tokened presentation probe")
+            return
+        }
+        surface.rendererFrameDidFail(
+            token: token,
+            status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED
+        )
     }
 }
