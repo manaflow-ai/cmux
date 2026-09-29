@@ -70,6 +70,7 @@ final class CloudTreeNode: NSObject {
         /// hover "+" (New Machine, Cmd-Y), false while Cloud Machines is off and the
         /// header stands alone; `usage` is the plan's machine count, nil until it loads.
         case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil)
+        case createAction(CloudTreeCreateAction)
         /// My Devices guidance and independent discovery actions, also shown with peers.
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
@@ -125,7 +126,7 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         case .device: return "device"
         case .devicesSection: return "devicesSection"
-        case .cloudMachinesSection: return "cloudMachinesSection"
+        case .cloudMachinesSection: return "cloudMachinesSection"; case .createAction: return "createAction"
         case .devicesEmpty: return "devicesEmpty"
         }
     }
@@ -163,10 +164,9 @@ final class CloudTreeNode: NSObject {
         case .port(let resource, _, _): return resource.machine
         case .browser(let row): return row.resource.machine
         case .device(let row): return row.machine
-        // The section is a header over several machines; the id keeps it
-        // addressable (expansion, debug logs) without naming any one of them.
         case .devicesSection, .devicesEmpty: return .cloud("devices-section")
         case .cloudMachinesSection: return .cloud("cloud-machines-section")
+        case .createAction(let action): return action.machine
         }
     }
     var isMachineRow: Bool {
@@ -175,7 +175,6 @@ final class CloudTreeNode: NSObject {
         default: return false
         }
     }
-
     /// The text a quick-search (`/`) matches against.
     var searchableTitle: String {
         switch kind {
@@ -202,7 +201,7 @@ final class CloudTreeNode: NSObject {
         case .placeholder(_, let placeholder): return placeholder.text
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
-        case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
+        case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"); case .createAction(let action): return action.title
         case .devicesEmpty(let section):
             return section.count == 0
                 ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
@@ -260,7 +259,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection:
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection, .createAction:
             return nil
         }
     }
@@ -947,7 +946,7 @@ enum CloudTreeNodeBuilder {
                 )
             )
         }
-        let rows: [CloudTreeNode] = workspaceNodes.isEmpty
+        var rows: [CloudTreeNode] = workspaceNodes.isEmpty
             ? [CloudTreeNode(
                 id: nodeID(workspacesPlaceholder: machine),
                 kind: .placeholder(machine: machine, CloudTreePlaceholder(
@@ -956,6 +955,7 @@ enum CloudTreeNodeBuilder {
                 ))
             )]
             : workspaceNodes
+        appendWorkspaceCreateAction(to: &rows, machine: machine)
         return CloudTreeNode(
             id: nodeID(workspacesGroup: machine),
             kind: .workspacesGroup(machine: machine),

@@ -6,7 +6,7 @@ extension CloudTreeNode.Kind {
     /// Readings describe a machine without representing a selectable pane.
     var isSelectable: Bool {
         switch self {
-        case .resource, .devicesEmpty: return false
+        case .resource, .devicesEmpty, .createAction: return false
         default: return true
         }
     }

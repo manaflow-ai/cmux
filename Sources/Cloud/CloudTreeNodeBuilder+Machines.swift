@@ -106,7 +106,7 @@ extension CloudTreeNodeBuilder {
             nodes.last?.resourceSection = section
         }
         if source.groupsDevicesUnderSection {
-            let cloudChildren = nodes.isEmpty
+            var cloudChildren = nodes.isEmpty
                 ? [CloudTreeNode(
                     id: "cloud-machines-section/empty",
                     kind: .placeholder(
@@ -118,6 +118,12 @@ extension CloudTreeNodeBuilder {
                     )
                 )]
                 : nodes
+            if canCreateCloudMachine {
+                cloudChildren.append(CloudTreeNode(
+                    id: "cloud-machines-section/new-cloud-vm",
+                    kind: .createAction(.newCloudVM)
+                ))
+            }
             nodes = [CloudTreeNode(
                 id: "cloud-machines-section",
                 kind: .cloudMachinesSection(canCreateMachine: canCreateCloudMachine, usage: cloudMachinesUsage),
