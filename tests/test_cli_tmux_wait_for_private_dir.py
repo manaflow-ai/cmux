@@ -101,6 +101,26 @@ class TmuxWaitForSignalPrivateDirectory(unittest.TestCase):
         self.assertEqual(self.run_fixture("wait", "0.3").stdout.strip(), "timeout")
         self.assertEqual(target.read_text(), "kept\n")
 
+    def test_channel_names_have_distinct_signal_files(self) -> None:
+        first = f"cmux-test-{uuid.uuid4().hex}/a/b"
+        second = first.replace("/", "_")
+        first_path = Path(subprocess.run(
+            [str(self.binary), "path", first], capture_output=True, text=True, check=True
+        ).stdout.strip())
+        second_path = Path(subprocess.run(
+            [str(self.binary), "path", second], capture_output=True, text=True, check=True
+        ).stdout.strip())
+        self.assertNotEqual(first_path, second_path)
+        self.assertEqual(subprocess.run(
+            [str(self.binary), "signal", first], capture_output=True, text=True, check=True
+        ).stdout.strip(), "OK")
+        self.assertEqual(subprocess.run(
+            [str(self.binary), "wait", second, "0"], capture_output=True, text=True, check=True
+        ).stdout.strip(), "timeout")
+        self.assertEqual(subprocess.run(
+            [str(self.binary), "wait", first, "0"], capture_output=True, text=True, check=True
+        ).stdout.strip(), "OK")
+
     def test_signal_does_not_follow_a_symlink(self) -> None:
         self.prepare_directory()
         target = Path(self.temp.name) / f"{self.name}-created"

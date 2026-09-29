@@ -167,6 +167,17 @@ import Testing
         #expect(OwnedMarkerFileReader(expectedOwnerID: geteuid() &+ 1).trimmedContents(atPath: path) == nil)
     }
 
+    @Test func refusesAHardLinkedMarker() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let target = directory.path("target")
+        try Data("/Users/other/.zshrc\n".utf8).write(to: URL(fileURLWithPath: target))
+        let marker = directory.path("marker")
+        try #require(Darwin.link(target, marker) == 0)
+
+        #expect(OwnedMarkerFileReader().trimmedContents(atPath: marker) == nil)
+    }
+
     @Test func refusesAnOversizedOrEmptyMarker() throws {
         let directory = try TemporaryDirectory()
         defer { directory.remove() }

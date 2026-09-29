@@ -90,6 +90,7 @@ struct TerminalSurfaceRemoteOutputTests {
             RemoteOutputFixture(surface: makeSurface(runtimeSurfaceBits: initialBits))
         }
         let completion = await MainActor.run { ReplayCompletionBox() }
+        let applied = AsyncStream<Void>.makeStream()
         defer {
             initialRuntime.deallocate()
             replacementRuntime.deallocate()
@@ -99,6 +100,7 @@ struct TerminalSurfaceRemoteOutputTests {
             fixture.releaseSurface()
             fixture.surface.processRemoteReplay(Data("buffered replay".utf8)) {
                 completion.called = true
+                applied.continuation.yield()
             }
             #expect(!completion.called)
             let replacement = UnsafeMutableRawPointer(bitPattern: replacementBits)!
@@ -106,10 +108,8 @@ struct TerminalSurfaceRemoteOutputTests {
             fixture.surface.flushPendingRemoteOutput(to: replacement)
         }
 
-        for _ in 0 ..< 100 {
-            if await MainActor.run(body: { completion.called }) { break }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        var iterator = applied.stream.makeAsyncIterator()
+        _ = await iterator.next()
         #expect(await MainActor.run(body: { completion.called }))
         await MainActor.run { fixture.releaseSurface() }
     }

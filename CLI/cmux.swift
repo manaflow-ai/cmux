@@ -3454,7 +3454,7 @@ final class SocketClient {
         var st = stat()
         guard lstat(path, &st) == 0 else { throw inspectionFailure() }
         if (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK) {
-            guard st.st_uid == getuid() else {
+            guard st.st_uid == geteuid() else {
                 throw CLIError(
                     message: "Socket link at \(path) is not owned by the current user — refusing to connect",
                     socketFailureKind: .pathOwnershipConflict
@@ -3468,7 +3468,7 @@ final class SocketClient {
                 socketFailureKind: .pathTypeConflict
             )
         }
-        guard st.st_uid == getuid() else {
+        guard st.st_uid == geteuid() else {
             throw CLIError(
                 message: "Socket at \(path) is not owned by the current user — refusing to connect",
                 socketFailureKind: .pathOwnershipConflict

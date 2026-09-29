@@ -13,9 +13,14 @@ struct TmuxWaitForSignal {
     private let fileName: String
 
     init(name: String) {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let sanitized = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
-        fileName = String(sanitized) + ".sig"
+        // Encode the complete UTF-8 name so distinct channels remain
+        // distinct (for example, `a/b` and `a_b`). Base64 is injective; the
+        // URL-safe substitutions avoid shell and filesystem separators.
+        let encoded = Data(name.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        fileName = (encoded.isEmpty ? "empty" : encoded) + ".sig"
         directoryPath = Self.userTemporaryDirectory() + "cmux-wait-for"
         path = directoryPath + "/" + fileName
     }

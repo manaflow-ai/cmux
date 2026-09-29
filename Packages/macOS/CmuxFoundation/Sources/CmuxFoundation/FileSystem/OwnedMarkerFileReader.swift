@@ -45,6 +45,7 @@ public struct OwnedMarkerFileReader: Sendable, Equatable {
         guard fstat(fd, &status) == 0,
               (status.st_mode & S_IFMT) == S_IFREG,
               status.st_uid == expectedOwnerID,
+              status.st_nlink == 1,
               status.st_size <= off_t(maximumBytes),
               let data = try? handle.read(upToCount: maximumBytes),
               let contents = String(data: data, encoding: .utf8) else {
