@@ -10,9 +10,9 @@ import Testing
 #endif
 
 /// Team changes from every surface (the Cloud picker, Settings and the socket)
-/// go through ``HostAccountFlow``. A later coordinator mutation fails an
-/// earlier one, so the flow must refuse a change that would fail a pending
-/// create, whichever surface asks.
+/// share the runtime coordinator's exclusion policy. The flow owns only the
+/// optimistic projection and preserves it when the coordinator refuses a
+/// request from another surface.
 @MainActor
 @Suite("Host account flow team changes")
 struct HostAccountFlowTeamChangeTests {
@@ -29,6 +29,8 @@ struct HostAccountFlowTeamChangeTests {
         #expect(await client.selectCount == 0)
         #expect(flow.selectedTeamID == "team-a")
         #expect(flow.confirmedTeamID == "team-a")
+        #expect(flow.pendingTeamCreate?.displayName == "New Team")
+        #expect(flow.isCreatingTeam)
 
         await client.releaseCreate()
         let created = try await create.value
@@ -64,6 +66,8 @@ struct HostAccountFlowTeamChangeTests {
             _ = try await flow.createTeam(displayName: "Second Team")
         }
         #expect(await client.createCount == 1)
+        #expect(flow.pendingTeamCreate?.displayName == "First Team")
+        #expect(flow.isCreatingTeam)
 
         await client.releaseCreate()
         let created = try await first.value

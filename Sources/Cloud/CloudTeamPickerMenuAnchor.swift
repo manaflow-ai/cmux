@@ -1,16 +1,6 @@
 import AppKit
 import SwiftUI
 
-protocol CloudTeamPickerMenuTracking {
-    func track(menu: NSMenu, at location: NSPoint, in view: NSView)
-}
-
-struct CloudTeamPickerAppKitMenuTracking: CloudTeamPickerMenuTracking {
-    func track(menu: NSMenu, at location: NSPoint, in view: NSView) {
-        _ = menu.popUp(positioning: nil, at: location, in: view)
-    }
-}
-
 /// Pops the team menu from the trigger's bottom-leading corner.
 ///
 /// An AppKit menu rather than a SwiftUI `Menu`: the palette command and the
@@ -61,7 +51,6 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     var onDismiss: (@MainActor () -> Void)?
     var isRightToLeft = false
     var isEnabled = true
-    let menuTracking: any CloudTeamPickerMenuTracking
 
     /// How far above the requested point macOS 26 places a menu's frame
     /// (measured 5pt, the top padding of its rounded frame). Without it the
@@ -77,19 +66,11 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     private var isPresentationScheduled = false
 
     override init(frame frameRect: NSRect) {
-        menuTracking = CloudTeamPickerAppKitMenuTracking()
-        super.init(frame: frameRect)
-        setAccessibilityElement(false)
-    }
-
-    init(frame frameRect: NSRect, menuTracking: any CloudTeamPickerMenuTracking) {
-        self.menuTracking = menuTracking
         super.init(frame: frameRect)
         setAccessibilityElement(false)
     }
 
     required init?(coder: NSCoder) {
-        menuTracking = CloudTeamPickerAppKitMenuTracking()
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -176,7 +157,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
             x: isRightToLeft ? bounds.width : 0,
             y: bounds.height + 2 + Self.menuFrameLift
         )
-        menuTracking.track(menu: menu, at: origin, in: self)
+        _ = menu.popUp(positioning: nil, at: origin, in: self)
         trackingMenu = nil
         isPresentationRequested = false
         onDismiss?()

@@ -37,18 +37,19 @@ extension HostAccountFlow {
     /// create after the server made the team. A later switch still replaces
     /// a pending one.
     func selectTeam(id: String?) async throws {
-        guard !isCreatingTeam else {
-            // Re-emit so a picker already showing the requested team returns
-            // to the confirmed one.
-            teamObservationRevision &+= 1
-            throw TeamChangeInProgressError()
-        }
         let requestID = UUID()
         pendingTeamSelection = (requestID, id)
         defer {
             if pendingTeamSelection?.requestID == requestID { pendingTeamSelection = nil }
         }
-        try await coordinator.selectTeam(id: id)
+        do {
+            try await coordinator.selectTeam(id: id)
+        } catch {
+            // Re-emit even for a synchronous rejection so a Settings picker
+            // returns from its requested value to this flow's projection.
+            teamObservationRevision &+= 1
+            throw error
+        }
     }
 
     /// Creates a team through Stack Auth and makes it the active team. Refused
@@ -57,12 +58,16 @@ extension HostAccountFlow {
     /// ``pendingTeamCreate`` stands for the team until the server answers; by
     /// then the coordinator has selected the new team, or kept the previous one.
     func createTeam(displayName: String) async throws -> AccountTeamSummary {
-        guard !isSelectingTeam, !isCreatingTeam else { throw TeamChangeInProgressError() }
-        pendingTeamCreate = PendingTeamCreate(
-            displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
-            existingTeamIDs: Set(availableTeams.map(\.id))
-        )
-        defer { pendingTeamCreate = nil }
+        // Admission belongs to the coordinator. A second request must neither
+        // replace nor clear the projection owned by the create it will reject.
+        let ownsProjection = pendingTeamCreate == nil
+        if ownsProjection {
+            pendingTeamCreate = PendingTeamCreate(
+                displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
+                existingTeamIDs: Set(availableTeams.map(\.id))
+            )
+        }
+        defer { if ownsProjection { pendingTeamCreate = nil } }
         let team = try await coordinator.createTeam(displayName: displayName)
         return AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
     }

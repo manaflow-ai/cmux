@@ -63,6 +63,120 @@ struct AuthCoordinatorTeamActionsTests {
         #expect(coordinator.resolvedTeamID == "team-a")
     }
 
+    @Test func switchDuringPendingCreateIsRefusedBeforeReachingTheServer() async throws {
+        let (coordinator, client) = try await makeSignedInCoordinator()
+        let started = TestPhaseSignal()
+        let release = TestContinuationBlocker()
+        await client.holdNextTeamCreate(started: started, release: release)
+        let create = Task { try await coordinator.createTeam(displayName: "New Team") }
+        await started.waitUntilStarted()
+
+        await #expect(throws: AuthTeamChangeInProgressError()) {
+            try await coordinator.selectTeam(id: "team-b")
+        }
+        #expect(await client.teamSelectionCount == 0)
+        #expect(coordinator.resolvedTeamID == "team-a")
+
+        await release.release()
+        let team = try await create.value
+        #expect(coordinator.resolvedTeamID == team.id)
+    }
+
+    @Test func createDuringPendingSwitchIsRefusedBeforeReachingTheServer() async throws {
+        let (coordinator, client) = try await makeSignedInCoordinator()
+        let started = TestPhaseSignal()
+        let release = TestContinuationBlocker()
+        await client.holdNextTeamSelection(started: started, release: release)
+        let select = Task { try await coordinator.selectTeam(id: "team-b") }
+        await started.waitUntilStarted()
+
+        await #expect(throws: AuthTeamChangeInProgressError()) {
+            _ = try await coordinator.createTeam(displayName: "New Team")
+        }
+        #expect(await client.teamCreateCount == 0)
+
+        await release.release()
+        try await select.value
+        #expect(coordinator.resolvedTeamID == "team-b")
+    }
+
+    @Test func secondCreateIsRefusedAndTheFirstCreateCompletes() async throws {
+        let (coordinator, client) = try await makeSignedInCoordinator()
+        let started = TestPhaseSignal()
+        let release = TestContinuationBlocker()
+        await client.holdNextTeamCreate(started: started, release: release)
+        let first = Task { try await coordinator.createTeam(displayName: "First Team") }
+        await started.waitUntilStarted()
+
+        await #expect(throws: AuthTeamChangeInProgressError()) {
+            _ = try await coordinator.createTeam(displayName: "Second Team")
+        }
+        #expect(await client.teamCreateCount == 1)
+
+        await release.release()
+        let team = try await first.value
+        #expect(team.displayName == "First Team")
+        #expect(coordinator.resolvedTeamID == team.id)
+    }
+
+    @Test func createWaitsForASupersededSwitchStillInFlight() async throws {
+        let (coordinator, client) = try await makeSignedInCoordinator()
+        let started = TestPhaseSignal()
+        let release = TestContinuationBlocker()
+        await client.holdNextTeamSelection(started: started, release: release)
+        let first = Task { try await coordinator.selectTeam(id: "team-b") }
+        await started.waitUntilStarted()
+        try await coordinator.selectTeam(id: "team-a")
+
+        await #expect(throws: AuthTeamChangeInProgressError()) {
+            _ = try await coordinator.createTeam(displayName: "New Team")
+        }
+        #expect(await client.teamCreateCount == 0)
+
+        await release.release()
+        await #expect(throws: AuthError.unauthorized) { try await first.value }
+        #expect(coordinator.resolvedTeamID == "team-a")
+        let team = try await coordinator.createTeam(displayName: "New Team")
+        #expect(coordinator.resolvedTeamID == team.id)
+    }
+
+    @Test func createRemainsExclusiveWhileSelectingTheNewTeam() async throws {
+        let (coordinator, client) = try await makeSignedInCoordinator()
+        let started = TestPhaseSignal()
+        let release = TestContinuationBlocker()
+        await client.holdNextTeamSelection(started: started, release: release)
+        let create = Task { try await coordinator.createTeam(displayName: "New Team") }
+        await started.waitUntilStarted()
+
+        await #expect(throws: AuthTeamChangeInProgressError()) {
+            try await coordinator.selectTeam(id: "team-b")
+        }
+        await #expect(throws: AuthTeamChangeInProgressError()) {
+            _ = try await coordinator.createTeam(displayName: "Another Team")
+        }
+        #expect(await client.teamSelectionCount == 1)
+        #expect(await client.teamCreateCount == 1)
+        #expect(coordinator.resolvedTeamID == "team-a")
+
+        await release.release()
+        let team = try await create.value
+        #expect(coordinator.resolvedTeamID == team.id)
+        try await coordinator.selectTeam(id: "team-b")
+        #expect(coordinator.resolvedTeamID == "team-b")
+    }
+
+    private func makeSignedInCoordinator() async throws -> (AuthCoordinator, FakeAuthClient) {
+        let user = CMUXAuthUser(id: "user", primaryEmail: "user@example.com", displayName: "User")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([
+            CMUXAuthTeam(id: "team-a", displayName: "Alpha"),
+            CMUXAuthTeam(id: "team-b", displayName: "Beta")
+        ])
+        let coordinator = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "user@example.com", password: "password")
+        return (coordinator, client)
+    }
+
     #if DEBUG
     private func makeFixtureCoordinator(client: FakeAuthClient, environment: [String: String]) -> AuthCoordinator {
         makeCoordinator(

@@ -8,34 +8,6 @@ import Testing
 @testable import cmux
 #endif
 
-/// Stands in for the team menu's tracking loop: a nested run loop, like
-/// `NSMenu.popUp`, that records whether main-queue work ran while it spun.
-@MainActor
-private final class MenuTrackingProbe {
-    private var queueDrained = false
-    private(set) var drainedWhileTracking: Bool?
-
-    func track() {
-        queueDrained = false
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated { self.queueDrained = true }
-        }
-        let deadline = Date().addingTimeInterval(1)
-        while !queueDrained, Date() < deadline {
-            _ = RunLoop.current.run(mode: .default, before: deadline)
-        }
-        drainedWhileTracking = queueDrained
-    }
-}
-
-private struct ClosureMenuTracker: CloudTeamPickerMenuTracking {
-    let body: (NSMenu, NSPoint, NSView) -> Void
-
-    func track(menu: NSMenu, at location: NSPoint, in view: NSView) {
-        body(menu, location, view)
-    }
-}
-
 @MainActor
 @Suite("Cloud team picker menu")
 struct CloudTeamPickerMenuTests {
@@ -167,17 +139,16 @@ struct CloudTeamPickerMenuTests {
             defer: true
         )
         window.isReleasedWhenClosed = false
-        let probe = MenuTrackingProbe()
+        let probe = CloudTeamPickerMenuTrackingProbe()
         let anchor = CloudTeamPickerMenuAnchorView(
-            frame: NSRect(x: 0, y: 0, width: 120, height: 22),
-            menuTracking: ClosureMenuTracker { _, _, _ in probe.track() }
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
         )
         window.contentView?.addSubview(anchor)
-        anchor.makeMenu = { _ in NSMenu() }
+        anchor.makeMenu = { _ in CloudTeamPickerTestMenu { _ in probe.track() } }
 
-        anchor.syncPresentation(true)
-        for _ in 0..<300 where probe.drainedWhileTracking == nil {
-            try await Task.sleep(for: .milliseconds(10))
+        await withCheckedContinuation { continuation in
+            anchor.onDismiss = { continuation.resume() }
+            anchor.syncPresentation(true)
         }
 
         #expect(anchor.window === window)
@@ -189,14 +160,15 @@ struct CloudTeamPickerMenuTests {
     @Test func itemFollowUpRunsAfterTheMenuCloses() throws {
         var events: [String] = []
         let anchor = CloudTeamPickerMenuAnchorView(
-            frame: NSRect(x: 0, y: 0, width: 120, height: 22),
-            menuTracking: ClosureMenuTracker { _, _, view in
+            frame: NSRect(x: 0, y: 0, width: 120, height: 22)
+        )
+        anchor.makeMenu = { _ in
+            CloudTeamPickerTestMenu { view in
                 let anchor = view as? CloudTeamPickerMenuAnchorView
                 anchor?.afterDismiss { events.append("follow-up") }
                 events.append("tracking ended")
             }
-        )
-        anchor.makeMenu = { _ in NSMenu() }
+        }
         anchor.onDismiss = { events.append("dismissed") }
 
         let click = try #require(NSEvent.mouseEvent(

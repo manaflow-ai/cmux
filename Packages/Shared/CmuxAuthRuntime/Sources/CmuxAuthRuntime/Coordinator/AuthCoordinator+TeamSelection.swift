@@ -8,16 +8,19 @@ public extension AuthCoordinator {
     /// request is bounded by the coordinator's network timeout.
     /// - Parameter id: A team id from ``availableTeams``.
     func selectTeam(id: String?) async throws {
-        try await selectTeam(id: id, permitsTeamCreation: false)
-    }
-
-    func selectTeam(id: String?, permitsTeamCreation: Bool) async throws {
+        guard !isCreatingTeam else {
+            throw AuthTeamChangeInProgressError()
+        }
         if let id, !availableTeams.contains(where: { $0.id == id }) {
             throw AuthClientError.teamNotAvailable
         }
-        guard permitsTeamCreation || !isCreatingTeam else {
-            throw AuthTeamChangeInProgressError()
-        }
+        try await persistTeamSelection(id: id)
+    }
+
+    /// Persists a selection that is already owned by a higher-level team
+    /// mutation. ``createTeam(displayName:)`` uses this after it has created
+    /// and listed the new team while retaining the create's exclusion claim.
+    private func persistTeamSelection(id: String?) async throws {
         let requestID = UUID()
         activeTeamSwitches.insert(requestID)
         isSelectingTeam = true
@@ -71,7 +74,7 @@ public extension AuthCoordinator {
             refreshed.append(created)
         }
         availableTeams = refreshed
-        try await selectTeam(id: created.id, permitsTeamCreation: true)
+        try await persistTeamSelection(id: created.id)
         return created
     }
 }

@@ -6,11 +6,19 @@ import SwiftUI
 /// window can host it.
 @MainActor
 final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
+    private let resolveHostWindow: @MainActor (NSWindow?) -> NSWindow?
     private var sheetWindow: NSWindow?
     private weak var hostWindow: NSWindow?
     /// Identifies the current sheet, so a late finish from an earlier sheet
     /// cannot close this one.
     private var sessionID: UUID?
+
+    init(resolveHostWindow: @escaping @MainActor (NSWindow?) -> NSWindow? = {
+        NSApp.cmuxMainWindowForModalPresentation(preferring: $0)
+    }) {
+        self.resolveHostWindow = resolveHostWindow
+        super.init()
+    }
 
     /// A second request while the sheet is up re-raises it instead of stacking.
     /// `onCreate` gets the entered name after the sheet closes, once per sheet.
@@ -56,7 +64,7 @@ final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         sheetWindow = window
 
-        let host = NSApp.cmuxMainWindowForModalPresentation(preferring: preferredWindow ?? NSApp.keyWindow)
+        let host = resolveHostWindow(preferredWindow ?? NSApp.keyWindow)
         if let host, host.attachedSheet == nil {
             hostWindow = host
             host.beginSheet(window) { [self] _ in
@@ -64,8 +72,8 @@ final class CloudCreateTeamSheetPresenter: NSObject, NSWindowDelegate {
                 dismiss(sessionID)
             }
         } else {
-            // Cancel is the only way out, so no close button can leave the
-            // presenter holding a window nobody sees.
+            // The window delegate sends the close button and Close shortcut
+            // through the same session cleanup as Cancel.
             hostWindow = nil
             window.center()
             window.makeKeyAndOrderFront(nil)
