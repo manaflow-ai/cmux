@@ -117,7 +117,7 @@ private final class CallCounter: @unchecked Sendable {
         #expect(installs.count == 1)
     }
 
-    @Test func laterKeepsRestartToCompleteAndRestartNowIsGatedAgain() async {
+    @Test func laterKeepsRestartToCompleteAndRestartNowHonorsExplicitConfirmation() {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
@@ -136,11 +136,41 @@ private final class CallCounter: @unchecked Sendable {
         #expect(model.text == "Restart to Complete Update")
 
         installing?.retryTerminatingApplication()
-        #expect(installs.count == 0)
-        #expect(waitingBlockers?.busyAgentCount == 1)
+        #expect(installs.count == 1)
+        #expect(!driver.relaunchGate.isWaiting)
+    }
 
-        host.blockers = .empty
-        await recheck { installs.count == 1 }
+    @Test func explicitInstallContinuationBypassesTheGateOnce() {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 1)
+
+        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        installing?.retryTerminatingApplication()
+        #expect(installs.count == 1)
+
+        // Sparkle may ask again while carrying out the explicit install. The confirmation should
+        // allow that one callback through instead of reopening the same waiting prompt.
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        #expect(installs.count == 1)
+
+        // The bypass is one-shot; a new relaunch request still observes the blocker.
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+    }
+
+    @Test func retryingAnUnterminatedInstallHonorsExplicitConfirmation() {
+        let driver = makeDriver()
+        let retries = CallCounter()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 1)
+
+        driver.showInstallingUpdate(
+            withApplicationTerminated: false,
+            retryTerminatingApplication: { retries.count += 1 }
+        )
+        installing?.retryTerminatingApplication()
+
+        #expect(retries.count == 1)
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: { retries.count += 1 }))
     }
 
     @Test func repeatedRestartNowInstallsOnce() {
