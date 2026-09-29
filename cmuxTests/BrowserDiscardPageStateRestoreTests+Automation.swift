@@ -16,7 +16,7 @@ extension BrowserDiscardPageStateRestoreTests {
     /// A WebContent process that died while its pane was hidden left a web
     /// view that never committed another document, so every command on the
     /// pane timed out until the user showed it.
-    func testAutomationCommandRestoresPageTerminatedWhileHidden() throws {
+    func testAutomationCommandRestoresPageTerminatedWhileHidden() async throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let (panel, pageA, pageB) = try loadScrolledFormPage { url in
@@ -29,7 +29,10 @@ extension BrowserDiscardPageStateRestoreTests {
         terminatedWebView.removeFromSuperview()
 
         let context = try resolveAutomationContext(for: panel, in: workspace, manager: manager)
-        XCTAssertEqual(awaitAutomationDocumentReadiness(of: panel, driving: context.webView), .committed)
+        XCTAssertEqual(
+            await awaitAutomationDocumentReadiness(of: panel, driving: context.webView),
+            .committed
+        )
         XCTAssertTrue(panel.webView === context.webView, "The command must drive the restored web view")
         XCTAssertFalse(panel.isWebViewVisibleInUI, "The restore must not show the pane")
 
@@ -77,7 +80,7 @@ extension BrowserDiscardPageStateRestoreTests {
     }
 
     /// Repeated agent restores detach every app-owned attachment from the dropped web view.
-    func testAutomationRestoreCyclesDetachDroppedWebViews() throws {
+    func testAutomationRestoreCyclesDetachDroppedWebViews() async throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let page = try writePlainPage()
@@ -90,24 +93,29 @@ extension BrowserDiscardPageStateRestoreTests {
 
         let hiddenDelay = BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: .standard)
         for cycle in 1...3 {
-            let dropped = panel.webView
+            weak var dropped: WKWebView?
+            dropped = panel.webView
             XCTAssertTrue(
                 panel.discardHiddenWebViewForMemoryBudget(now: Date().addingTimeInterval(hiddenDelay + 1)),
                 "Cycle \(cycle) discard refused; blockers: " +
                     "\(panel.webViewLifecycleTopPayload()["discard_blockers"] ?? "unknown")"
             )
             XCTAssertFalse(panel.webView === dropped)
-            assertDetached(dropped)
+            if let dropped { assertDetached(dropped) }
+            await waitForRelease("web view dropped in cycle \(cycle)") { dropped }
 
             let context = try resolveAutomationContext(for: panel, in: workspace, manager: manager)
-            XCTAssertEqual(awaitAutomationDocumentReadiness(of: panel, driving: context.webView), .committed)
+            XCTAssertEqual(
+                await awaitAutomationDocumentReadiness(of: panel, driving: context.webView),
+                .committed
+            )
             waitForPage(panel, url: page, timeout: 10)
             waitUntil("cycle \(cycle) capture released") { panel.pageRestoration.discardedCapture == nil }
         }
     }
 
     /// A web view whose content process died while hidden is fully detached when restored.
-    func testAutomationRestoreDetachesWebViewTerminatedWhileHidden() throws {
+    func testAutomationRestoreDetachesWebViewTerminatedWhileHidden() async throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let page = try writePlainPage()
@@ -116,11 +124,16 @@ extension BrowserDiscardPageStateRestoreTests {
         waitForPage(panel, url: page)
         panel.noteWebViewVisibility(false, reason: "test.hidden")
 
-        let terminated = try terminateWebContent(of: panel)
+        weak var terminated: WKWebView?
+        terminated = try terminateWebContent(of: panel)
         let context = try resolveAutomationContext(for: panel, in: workspace, manager: manager)
         XCTAssertFalse(context.webView === terminated)
-        XCTAssertEqual(awaitAutomationDocumentReadiness(of: panel, driving: context.webView), .committed)
-        assertDetached(terminated)
+        XCTAssertEqual(
+            await awaitAutomationDocumentReadiness(of: panel, driving: context.webView),
+            .committed
+        )
+        if let terminated { assertDetached(terminated) }
+        await waitForRelease("web view whose content process died") { terminated }
     }
 
     private func writePlainPage() throws -> URL {
@@ -141,6 +154,23 @@ extension BrowserDiscardPageStateRestoreTests {
             XCTAssertNil(cmuxWebView.onBrowserViewportHierarchyChanged, file: file, line: line)
             XCTAssertNil(cmuxWebView.onSubframeDownloadIntent, file: file, line: line)
         }
+    }
+
+    private func waitForRelease(
+        _ description: String,
+        timeout: Duration = .seconds(10),
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ object: @escaping () -> AnyObject?
+    ) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while object() != nil, ContinuousClock.now < deadline {
+            autoreleasepool {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+            await Task.yield()
+        }
+        XCTAssertNil(object(), "\(description) was never released", file: file, line: line)
     }
 
     private func makeWorkspaceBrowser(in workspace: Workspace, url: URL) throws -> BrowserPanel {
@@ -167,20 +197,10 @@ extension BrowserDiscardPageStateRestoreTests {
     private func awaitAutomationDocumentReadiness(
         of panel: BrowserPanel,
         driving webView: WKWebView
-    ) -> BrowserAutomationDocumentReadinessResult? {
-        let readiness = AutomationReadinessBox()
-        Task {
-            readiness.result = await panel.ensureAutomationDocumentReady(
-                expectedWebViewIdentifier: ObjectIdentifier(webView),
-                reason: "test.automation"
-            )
-        }
-        waitUntil("automation document readiness", timeout: 10) { readiness.result != nil }
-        return readiness.result
+    ) async -> BrowserAutomationDocumentReadinessResult {
+        await panel.ensureAutomationDocumentReady(
+            expectedWebViewIdentifier: ObjectIdentifier(webView),
+            reason: "test.automation"
+        )
     }
-}
-
-@MainActor
-private final class AutomationReadinessBox {
-    var result: BrowserAutomationDocumentReadinessResult?
 }
