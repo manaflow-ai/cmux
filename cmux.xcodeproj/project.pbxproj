@@ -1991,6 +1991,8 @@
 		468120000000000000000003 /* GhosttyDesktopNotificationIngress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468120000000000000000004 /* GhosttyDesktopNotificationIngress.swift */; };
 		468130000000000000000001 /* GhosttyDesktopNotificationIngressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468130000000000000000002 /* GhosttyDesktopNotificationIngressTests.swift */; };
 		468120000000000000000001 /* GhosttyDesktopNotificationRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468120000000000000000002 /* GhosttyDesktopNotificationRequest.swift */; };
+		6D1A7C3E0000000000000001 /* GhosttyDialogTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D1A7C3E0000000000000002 /* GhosttyDialogTheme.swift */; };
+		1D786365381D3942FFA3EA94 /* GhosttyDialogThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08202CA6A24B08873B5CC6FD /* GhosttyDialogThemeTests.swift */; };
 		604100010000000000000001 /* GhosttyDrawableSizeRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */; };
 		F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */; };
 		E89950010000000000000001 /* GhosttyFlashOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950010000000000000002 /* GhosttyFlashOverlayView.swift */; };
@@ -6119,6 +6121,8 @@
 		468120000000000000000004 /* GhosttyDesktopNotificationIngress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDesktopNotificationIngress.swift; sourceTree = "<group>"; };
 		468130000000000000000002 /* GhosttyDesktopNotificationIngressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDesktopNotificationIngressTests.swift; sourceTree = "<group>"; };
 		468120000000000000000002 /* GhosttyDesktopNotificationRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDesktopNotificationRequest.swift; sourceTree = "<group>"; };
+		6D1A7C3E0000000000000002 /* GhosttyDialogTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDialogTheme.swift; sourceTree = "<group>"; };
+		08202CA6A24B08873B5CC6FD /* GhosttyDialogThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyDialogThemeTests.swift"; sourceTree = "<group>"; };
 		604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDrawableSizeRetryTests.swift; sourceTree = "<group>"; };
 		F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyEnsureFocusWindowActivationTests.swift; sourceTree = "<group>"; };
 		E89950010000000000000002 /* GhosttyFlashOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyFlashOverlayView.swift; sourceTree = "<group>"; };
@@ -10147,6 +10151,7 @@
 					A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */,
 					A6AC72070000000000000002 /* SpinnerSpec.swift */,
 					A6AC72090000000000000002 /* SpinnerEnergy.swift */,
+					6D1A7C3E0000000000000002 /* GhosttyDialogTheme.swift */,
 					A6AC72050000000000000002 /* SpinnerCard.swift */,
 					A6AC72040000000000000002 /* OverlayComparison.swift */,
 					A6AC72030000000000000002 /* NativeSpinner.swift */,
@@ -12560,6 +12565,7 @@
 				31BFCF49D4B667B5C2A0BE3C /* TerminalSSHSessionDetectorProcessSnapshotTests.swift */,
 				C51DB22258B5393E2AB9104C /* ClaudeHookSessionLivenessTests.swift */,
 				A43345B5B3C60929B9F661CB /* ExitingProcessCensusReader.swift */,
+				08202CA6A24B08873B5CC6FD /* GhosttyDialogThemeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14319,6 +14325,7 @@
 				D78972000000000000000001 /* GhosttyCurrentDirectoryActionDispatcher.swift in Sources */,
 				468120000000000000000003 /* GhosttyDesktopNotificationIngress.swift in Sources */,
 				468120000000000000000001 /* GhosttyDesktopNotificationRequest.swift in Sources */,
+					6D1A7C3E0000000000000001 /* GhosttyDialogTheme.swift in Sources */,
 				E89950010000000000000001 /* GhosttyFlashOverlayView.swift in Sources */,
 				B5600E7C40774F36844FBF79 /* GhosttyHostAction.swift in Sources */,
 				B3EC083AAEF1408FA686E674 /* GhosttyHostActionHandler.swift in Sources */,
@@ -16742,6 +16749,7 @@
 				D78976000000000000000001 /* GhosttyCurrentDirectoryActionDispatcherTests.swift in Sources */,
 				D5935001A1B2C3D4E5F60718 /* GhosttyDECCKMArrowKeyTests.swift in Sources */,
 				468130000000000000000001 /* GhosttyDesktopNotificationIngressTests.swift in Sources */,
+				1D786365381D3942FFA3EA94 /* GhosttyDialogThemeTests.swift in Sources */,
 				604100010000000000000001 /* GhosttyDrawableSizeRetryTests.swift in Sources */,
 				F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */,
 				002B272099440F41EC5623C4 /* GhosttyHostKeybindDefaultsTests.swift in Sources */,
