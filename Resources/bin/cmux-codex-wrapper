@@ -591,6 +591,30 @@ cmux_codex_resume_session_id() {
     return 1
 }
 
+# A direct `codex fork` creates its child rollout before the first prompt but
+# does not reliably emit SessionStart at that point. The app marks cmux-owned
+# fork launches with the parent id; keep a bounded monitor alive beside Codex
+# so the rollout's forked_from_id can become the destination pane's identity.
+cmux_codex_start_fork_session_watch() {
+    local parent_session_id="${CMUX_AGENT_FORK_PARENT_SESSION_ID:-}"
+    [[ -n "$parent_session_id" ]] || return 0
+    [[ -n "${CMUX_CODEX_HOOK_CMUX_BIN:-}" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]] || return 0
+    local launch_at="${CMUX_AGENT_FORK_LAUNCH_AT:-}"
+    local launch_id="${CMUX_AGENT_FORK_LAUNCH_ID:-}"
+    local owner_pid="${CMUX_CODEX_PID:-}"
+    local -a monitor_args=(hooks codex monitor --fork-parent "$parent_session_id")
+    [[ -n "$launch_at" ]] && monitor_args+=(--fork-launch-at "$launch_at")
+    [[ -n "$launch_id" ]] && monitor_args+=(--fork-launch-id "$launch_id")
+    [[ -n "$owner_pid" ]] && monitor_args+=(--fork-owner-pid "$owner_pid")
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        nohup "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" "${monitor_args[@]}" \
+            </dev/null >/dev/null 2>&1 &
+    else
+        nohup "$CMUX_CODEX_HOOK_CMUX_BIN" "${monitor_args[@]}" \
+            </dev/null >/dev/null 2>&1 &
+    fi
+}
+
 IN_CMUX=0
 if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
     IN_CMUX=1
@@ -704,6 +728,13 @@ fi
     )"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
+
+cmux_codex_start_fork_session_watch
+# The monitor received a private copy of these launch markers in its argv.
+# Do not let a nested Codex wrapper inherit the parent fork transaction.
+unset CMUX_AGENT_FORK_PARENT_SESSION_ID
+unset CMUX_AGENT_FORK_LAUNCH_AT
+unset CMUX_AGENT_FORK_LAUNCH_ID
 
 # Fresh launches deliberately wait for Codex's real SessionStart payload so no
 # fallback identity is created. Explicit resumes do not emit that event, so
