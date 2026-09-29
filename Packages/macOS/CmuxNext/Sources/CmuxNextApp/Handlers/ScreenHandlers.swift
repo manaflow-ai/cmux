@@ -70,13 +70,18 @@ enum ScreenHandlers {
 
     private static func selectAdjacent(forward: Bool, _ ctx: AppActionContext) {
         guard let content = ctx.content() else { return }
-        guard content.layoutModel.screens.count > 1 else { return ctx.refuse("the workspace has one screen") }
-        content.layoutModel.selectAdjacentScreen(forward: forward)
-        content.focusCurrentPane()
+        let screens = content.layoutModel.screens
+        guard screens.count > 1 else { return ctx.refuse("the workspace has one screen") }
+        let index = screens.firstIndex { $0.id == content.layoutModel.activeScreenID } ?? 0
+        select(screens[(index + (forward ? 1 : -1) + screens.count) % screens.count].id, in: content)
     }
 
+    /// Shows the screen and focuses its first pane through `LayoutModel.focus`,
+    /// so the window's remembered focus moves too (else the next store update
+    /// would restore focus, and the screen, from before the switch).
     private static func select(_ id: LayoutScreenID, in content: WorkspaceContentController) {
         content.layoutModel.selectScreen(id)
-        content.focusCurrentPane()
+        guard let pane = content.layoutModel.screens.first(where: { $0.id == id })?.layout.panes.first else { return }
+        PaneHandlers.focus(pane, in: content)
     }
 }
