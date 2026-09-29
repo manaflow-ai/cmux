@@ -683,10 +683,12 @@ extension TerminalSurface {
     public func processRemoteOutput(_ data: Data) {
         guard !data.isEmpty else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
+            let overflow = data.count > maxPendingRemoteOutputBytes - pendingRemoteOutput.count
             pendingRemoteOutput.append(data)
             if pendingRemoteOutput.count > maxPendingRemoteOutputBytes {
                 pendingRemoteOutput.removeFirst(pendingRemoteOutput.count - maxPendingRemoteOutputBytes)
             }
+            if overflow { discardPendingRemoteReplayCompletions() }
             return
         }
         flushPendingRemoteOutput(to: surface)
@@ -698,7 +700,18 @@ extension TerminalSurface {
         guard !pendingRemoteOutput.isEmpty else { return }
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
-        remoteOutputLane.enqueue(buffered, to: surface)
+        let replayCompletions = pendingRemoteReplayCompletions
+        pendingRemoteReplayCompletions.removeAll(keepingCapacity: true)
+        remoteOutputLane.enqueue(buffered, to: surface) {
+            replayCompletions.forEach { $0.applied() }
+        }
+    }
+
+    @MainActor
+    func discardPendingRemoteReplayCompletions() {
+        let replayCompletions = pendingRemoteReplayCompletions
+        pendingRemoteReplayCompletions.removeAll(keepingCapacity: true)
+        replayCompletions.forEach { $0.discarded() }
     }
 
     private func keycodeForLetter(_ letter: Character) -> UInt32? {

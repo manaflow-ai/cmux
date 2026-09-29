@@ -137,18 +137,26 @@ extension Workspace {
     }
 
     /// Local word-path fallback must never interpret a remote transcript
-    /// against this Mac's filesystem. Projected tmux panes are remote even
-    /// though their mirror-owned surface IDs are not stored in the ordinary
-    /// remote-terminal set.
+    /// against this Mac's filesystem. Only a terminal known to run on this Mac
+    /// resolves locally: SSH, cloud and unplaced surfaces don't. Projected tmux
+    /// panes are remote even though their mirror-owned surface IDs are not
+    /// stored in the ordinary remote-terminal set.
     func canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: UUID) -> Bool {
-        guard !isRemoteTerminalSurface(surfaceID),
-              machineOwningSurface(surfaceID)?.isSSH != true else { return false }
+        guard !isRemoteTerminalSurface(surfaceID) else { return false }
         switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
-        case .notRemote:
-            return true
         case .unresolvedMirror, .pane:
             return false
+        case .notRemote:
+            break
         }
+        if let machine = machineOwningSurface(surfaceID) { return machine.isLocal }
+        // A Dock terminal reports this workspace as its owner but lives in the Dock.
+        if let dock = DockSplitStore.liveStores.first(where: {
+            $0.panelID(forTerminalLinkSourceID: surfaceID) != nil
+        }) {
+            return !dock.terminalLinkIsRemoteTerminal(surfaceID)
+        }
+        return false
     }
 
     /// Agent discovery and launch policy must classify the live projected
