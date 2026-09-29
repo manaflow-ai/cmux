@@ -512,7 +512,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                     else:
                         log(f"- {item.name}: would restore {item.value or 'unset'} (dry run)")
             elif switch is None:
-                log("::error title=Cloud overflow switch::no switch token (CI_OVERFLOW_SWITCH_APP_ID); overflow "
+                log("::error title=Cloud overflow switch::no switch token (GLAEDA_ROUTE_APP_ID); overflow "
                     "stays off. Turn it back on by hand: " + "; ".join(
                         f"{r.name} -> {r.value or 'unset'}" for r in restores if not r.skipped))
                 code = 1
@@ -537,7 +537,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 for name, change in changed.items():
                     log(f"- {name}: would set {change['after']} (was {change['before'] or 'unset'}; dry run)")
             elif switch is None:
-                log("::error title=Cloud overflow switch::no switch token (CI_OVERFLOW_SWITCH_APP_ID); overflow "
+                log("::error title=Cloud overflow switch::no switch token (GLAEDA_ROUTE_APP_ID); overflow "
                     "stays on. Turn it off by hand: " + "; ".join(
                         f"{name} -> {change['after']}" for name, change in changed.items()))
                 code = 1

@@ -892,12 +892,11 @@ to leave one alone) overrides a failover, for example
 `MACOS_RUNNER_TESTS`, never a `blacksmith-*` label. While the record exists,
 `check_repo_variables.py` accepts exactly the failover values it lists.
 
-Writing variables needs a token no workflow permission grants: a GitHub App
-with the repository permission "Variables: Read and write" and nothing else,
-its ID in `CI_OVERFLOW_SWITCH_APP_ID` and its key in the
-`CI_OVERFLOW_SWITCH_APP_KEY` secret of the `ci-overflow-switch` environment
-(deployment branch `main`). Without it the watch still probes, names each
-value to set by hand, and fails. A manual dispatch is a dry run by default.
+Writing variables needs a token no workflow permission grants. The workflow
+uses the existing `manaflow-glaeda-route` App, with its ID in the repository
+variable `GLAEDA_ROUTE_APP_ID` and its key in the repository secret
+`GLAEDA_ROUTE_APP_KEY`. Without it the watch still probes, names each value to
+set by hand, and fails. A manual dispatch is a dry run by default.
 
 One Linux probe decides for macOS too: on 2026-09-29 both went at once. A
 probe can start on a pool that is only partly back; the next probe, 10
