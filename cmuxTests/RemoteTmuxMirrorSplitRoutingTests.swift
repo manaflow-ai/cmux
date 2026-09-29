@@ -239,6 +239,15 @@ import Testing
             windowId = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
+            // createMainWindow copies the size of the current main window, and
+            // earlier tests in the host can leave a narrow window behind.
+            // Give split admission a realistic geometry before exercising a
+            // local side-by-side split.
+            let window = try #require(appDelegate.mainWindow(for: windowId))
+            let contentSize = CGSize(width: 1_000, height: 700)
+            window.setContentSize(contentSize)
+            window.contentView?.layoutSubtreeIfNeeded()
+            workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: contentSize))
             sourcePanelId = try #require(workspace.focusedPanelId)
         }
 
