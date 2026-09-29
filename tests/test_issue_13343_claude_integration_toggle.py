@@ -79,6 +79,7 @@ def _run_posix_shell(
 
     with tempfile.TemporaryDirectory(prefix=f"cmux-13343-{shell}-") as td:
         root = Path(td)
+        (root / "home").mkdir()
         user_bin = root / "user-bin"
         user_bin.mkdir()
         user_claude = user_bin / "claude"
@@ -131,6 +132,7 @@ def _run_nushell(
 
     with tempfile.TemporaryDirectory(prefix="cmux-13343-nu-") as td:
         root = Path(td)
+        (root / "home").mkdir()
         user_bin = root / "user-bin"
         user_bin.mkdir()
         user_claude = user_bin / "claude"
