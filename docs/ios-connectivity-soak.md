@@ -11,12 +11,12 @@ The stress workload runs for 3,600 seconds, with a five-second target cadence.
 Each cycle runs the basic transactions and the next step of a fixed four-step
 sequence: workspace navigation and refresh; 128 lines of Unicode output;
 create, open, use and close a scratch workspace; then refresh and use the
-terminal again. The foreground workload never forces a reconnect, so every
-cycle checks that the original native connection is still present. A separate
-recovery test may opt into an explicit disconnect and reconnect, preserving the
-saved pairing; that test is never mixed into the uninterrupted foreground
-evidence. Unexpected connection replacement fails the foreground workload. A
-cycle exceeding 30 seconds fails.
+terminal again. Workload plan 2 checks continuity around every healthy step.
+The shell supports a separate explicit disconnect/reconnect test, but the
+recurring foreground workload reconnects only after a recorded terminal
+failure. An unexpected connection replacement fails the foreground workload.
+A cycle exceeding 30
+seconds fails.
 
 These are app-action and transport checks in an isolated Simulator. They do
 not establish physical iPhone reliability, touch gesture correctness, cellular
@@ -152,3 +152,13 @@ than reattaching and rehydrating up to 4,000 history rows for every marker.
 Switching surfaces and explicit reconnects replace the consumer. Unexpected
 ownership loss or stream termination still fails the run. The initial UI launch
 and workspace-open measurements continue to use real rendered app surfaces.
+
+Stress permits one bounded reconnect and terminal retry after a
+`terminalRoundTripFailed` event. The evidence records every such event under
+`recoverableFailures`, and the monitor keeps the check failed while preserving
+the rest of the hour's workload. A failed reconnect or a second terminal
+failure stops the run and reports that primary failure without cascading
+coverage noise. The retry covers the regular probe, workspace usage steps,
+and the final terminal transaction. Workspace cleanup and restoration must
+succeed before retrying a failed scratch-workspace step. Reconnection and the retry get a fresh 60-second deadline, and a recovered cycle may take up to 60 seconds (`soak_recovery_cycle_exceeded_60_seconds`). Successful recovery
+still produces `passed: false` with `soak_terminal_recovered` in the app report.
