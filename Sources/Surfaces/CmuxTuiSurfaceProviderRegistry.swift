@@ -485,8 +485,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         let preservedIDs = catalog.boundCloudMachineIDs
             .union(catalog.pendingRestoredMachineIDs)
             .union(catalog.projectedMachines.compactMap(\.cloudMachineID))
-        let unavailableIDs = staleIDs.intersection(preservedIDs)
-        let unboundIDs = staleIDs.subtracting(preservedIDs)
+        let preservedNormalized = Set(preservedIDs.map { $0.lowercased() })
+        let unavailableIDs = Set(staleIDs.filter { preservedNormalized.contains($0.lowercased()) })
+        let unboundIDs = Set(staleIDs.filter { !preservedNormalized.contains($0.lowercased()) })
         if !unavailableIDs.isEmpty { machineBecameUnavailable(unavailableIDs) }
         if !unboundIDs.isEmpty { unregisterMachines(unboundIDs) }
         await links.retainAddresses(machineIDs: seen)
