@@ -4,6 +4,18 @@ cmux provides a notification panel for AI agents like Claude Code, Codex, and Op
 
 > For inline permission / plan / question approvals directly from the sidebar (Vibe Island-style), see **[Feed](feed.md)**. `cmux hooks setup` installs the Feed bridge alongside the notification hooks covered below.
 
+## Native banner lifetime
+
+macOS owns the lifetime of a native notification banner. Apple documents
+[Banner](https://developer.apple.com/documentation/usernotifications/unalertstyle/banner)
+alerts as disappearing automatically, while
+[Alert](https://developer.apple.com/documentation/usernotifications/unalertstyle/alert)
+notifications use a modal window that must be dismissed explicitly. cmux cannot
+select that system-wide style for you. To keep native cmux notifications on screen until dismissal,
+open **System Settings → Notifications → cmux → Alert**. If macOS is set to
+Banner, use cmux's notification panel and history for the persistent record;
+the banner's disappearance does not remove cmux-owned unread state.
+
 ## Quick Start
 
 ```bash
