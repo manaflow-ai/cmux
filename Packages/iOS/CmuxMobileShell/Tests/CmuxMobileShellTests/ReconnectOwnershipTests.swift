@@ -81,6 +81,23 @@ import Testing
         #expect((shell.pendingInactiveRecoveryTrigger == .automaticBackoffExpired) == pauseRetry)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func everyBackoffEntryHonorsTheCleanupBudget() async {
+        let gate = ReconnectCleanupGate()
+        let shell = MobileShellComposite(
+            pairingHintDefaults: UserDefaults(suiteName: "backoff-budget-\(UUID())")!)
+        for _ in 0..<MobileShellComposite.maximumAbandonedReconnectDials {
+            shell.registerAbandonedReconnectDial(Task { await gate.wait() })
+        }
+        shell.recordTransientAutomaticReconnectBackoff(accountID: "user-1")
+        #expect(shell.automaticReconnectRetryTask == nil)
+        #expect(shell.automaticReconnectBackoffOwner.transientRetryAt == nil)
+        #expect(shell.abandonedReconnectRecoveryGeneration == shell.storedMacReconnectGeneration)
+        let cleanup = Array(shell.abandonedReconnectDialTasks.values)
+        await gate.release()
+        for task in cleanup { await task.value }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func scopeChangeRetiresThePendingAttempt(signOut: Bool) async throws {
         let pairedStore = DelayedTeamPairedMacStore(recordsByTeam: ["": []], blockedTeams: [""])
