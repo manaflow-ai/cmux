@@ -8,7 +8,9 @@ import PackageDescription
 // modules so later agents can work on them in parallel.
 //
 // Dependency direction (no cycles, no upward imports):
-//   CmuxNextApp -> CmuxNextActions, CmuxNextDesign, CmuxNextDaemon, CmuxNextTerminal
+//   CmuxNextApp -> every feature module
+//   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Palette -> Design, Actions
+//   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxGhosttyKit (binary)
 //   CmuxNextDesign, CmuxNextActions, CmuxNextDaemon -> system frameworks only
 
@@ -51,6 +53,11 @@ let package = Package(
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextTerminal",
+                "CmuxNextTabs",
+                "CmuxNextSidebar",
+                "CmuxNextPalette",
+                "CmuxNextLayout",
+                "CmuxNextBrowser",
             ],
             resources: [
                 .process("Resources"),
@@ -78,6 +85,56 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextTabs",
+            dependencies: ["CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTabsTests",
+            dependencies: ["CmuxNextTabs"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextSidebar",
+            dependencies: ["CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextSidebarTests",
+            dependencies: ["CmuxNextSidebar"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextPalette",
+            dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextPaletteTests",
+            dependencies: ["CmuxNextPalette"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextLayout",
+            dependencies: ["CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextLayoutTests",
+            dependencies: ["CmuxNextLayout"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextBrowser",
+            dependencies: ["CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBrowserTests",
+            dependencies: ["CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
