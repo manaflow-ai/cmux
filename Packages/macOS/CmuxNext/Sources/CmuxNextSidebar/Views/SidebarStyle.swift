@@ -20,7 +20,7 @@ enum SidebarStyle {
     static var railWidth: CGFloat { Metrics.space1 }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
-    static var autoscrollZone: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
+    static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     static var dragThreshold: CGFloat { Metrics.space2 }
     static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
 
@@ -65,21 +65,6 @@ enum SidebarStyle {
         }
     }
 
-    /// A small filled circle for color menus.
-    static func swatchImage(_ color: SidebarColor?, size: CGFloat = Metrics.smallIconSize) -> NSImage {
-        NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
-            let path = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
-            if let color {
-                self.color(color).setFill()
-                path.fill()
-            } else {
-                NSColor.secondaryLabelColor.setStroke()
-                path.lineWidth = 1
-                path.stroke()
-            }
-            return true
-        }
-    }
 }
 
 /// Spring animations that honor Reduce Motion.

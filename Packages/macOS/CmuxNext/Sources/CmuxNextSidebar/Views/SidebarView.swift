@@ -9,31 +9,26 @@ public enum SidebarAccessorySlot: CaseIterable, Sendable {
     case status
 }
 
-/// Result of hit-testing an external tab drag.
-public struct SidebarTabDropHit: Hashable, Sendable {
-    public var drop: SidebarTabDrop
-    /// Highlighted row, group header, gap, or "new" button, in screen coordinates.
-    public var highlightFrame: CGRect
-}
-
 /// The sidebar's content: titlebar button row, glass search field, the
 /// workspace list, and footer accessory slots. Place it in a glass panel, or
 /// use `SidebarContainerView`, which adds the panel, width, and resize handle.
 public final class SidebarView: NSView, NSTextFieldDelegate {
     public let model: SidebarModel
 
-    /// Height reserved at the top for the window's traffic lights. The
-    /// toolbar buttons sit in this row, trailing.
-    public var titlebarHeight: CGFloat = Metrics.titlebarHeight { didSet { needsLayout = true } }
+    /// Height reserved at the top for the window's traffic lights (the
+    /// toolbar buttons sit in this row, trailing). Nil follows
+    /// `Metrics.titlebarHeight`, read at layout time.
+    public var titlebarHeightOverride: CGFloat? { didSet { needsLayout = true } }
+    private var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
 
-    private let list: SidebarListView
+    let list: SidebarListView
     private let scrollView = NSScrollView()
     private let searchField = NSTextField()
     private let searchIcon = NSImageView()
-    private let clearButton = SidebarIconButton(symbol: "xmark.circle.fill", pointSize: Metrics.smallIconSize - Metrics.space1, weight: .regular, label: Strings.clearSearch)
+    private let clearButton = SidebarIconButton(symbol: "xmark.circle.fill", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .regular, label: Strings.clearSearch)
     private let searchGlass: NSGlassEffectView
     private let searchContent = NSView()
-    private let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
+    let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
     private let presentationButton = SidebarIconButton(symbol: "sidebar.left", weight: .regular, label: Strings.showIconsOnly)
     private let compactSearchButton = SidebarIconButton(symbol: "magnifyingglass", label: Strings.searchPlaceholder)
     private let emptyLabel = NSTextField(labelWithString: Strings.noMatches)
@@ -85,75 +80,39 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
         window?.makeFirstResponder(list)
     }
 
+    /// Right-click menu for a target. The App fills this from the action
+    /// registry (menus are ordered action-ID lists per context); nil means
+    /// no context menu.
+    public var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)? {
+        get { list.contextMenuProvider }
+        set { list.contextMenuProvider = newValue }
+    }
+
+    /// Starts inline rename of a workspace (the "rename workspace" action's
+    /// sidebar entrypoint). Commit emits `.rename`.
+    public func beginRename(workspace id: WorkspaceID) {
+        list.beginRename(.workspace(id))
+    }
+
+    /// Starts inline rename of a group. Commit emits `.renameGroup`.
+    public func beginRename(group id: GroupID) {
+        list.beginRename(.group(id))
+    }
+
     /// Starts inline rename of the active workspace.
     public func renameActiveWorkspace() {
         guard let active = model.activeWorkspaceID else { return }
         list.beginRename(.workspace(active))
     }
 
-    // MARK: External tab drag (driven by the App's TabDragSession)
-
-    /// Hover time before a tab drag over a workspace row selects it.
-    public var springLoadDelay: Duration {
-        get { list.springLoadDelay }
-        set { list.springLoadDelay = newValue }
-    }
-
-    /// Clock for the spring-load delay (inject a test clock).
-    public var springLoadClock: any Clock<Duration> {
-        get { list.springLoadClock }
-        set { list.springLoadClock = newValue }
-    }
-
-    /// Call on every pointer move of an in-app tab drag. Opens a gap, lights
-    /// a row or group, spring-loads rows, and auto-scrolls near the edges.
-    /// Returns nil when the point is outside the sidebar or cannot accept the
-    /// tab; the sidebar then clears its drop visuals.
-    /// - Parameter sourceMachine: the tab's daemon; drops stay on that machine.
-    public func tabDragUpdate(screenPoint: CGPoint, sourceMachine: MachineID?) -> SidebarTabDropHit? {
-        guard let window, model.presentation != .hidden, !isHiddenOrHasHiddenAncestor else { return nil }
-        let windowPoint = window.convertPoint(fromScreen: screenPoint)
-        let local = convert(windowPoint, from: nil)
-        guard bounds.contains(local) else {
-            list.externalDragExited()
-            return nil
-        }
-        if !newButton.isHidden, newButton.frame.insetBy(dx: -Metrics.space2, dy: -Metrics.space2).contains(local) {
-            list.externalDragExited()
-            let machine = sourceMachine ?? .local
-            let index = model.section(.machine(machine))?.nodes.count ?? 0
-            return SidebarTabDropHit(
-                drop: .newWorkspace(section: .machine(machine), group: nil, index: index),
-                highlightFrame: window.convertToScreen(convert(newButton.frame, to: nil))
-            )
-        }
-        guard let (drop, rect) = list.externalDragMoved(windowPoint: windowPoint, sourceMachine: sourceMachine) else { return nil }
-        return SidebarTabDropHit(drop: drop, highlightFrame: window.convertToScreen(list.convert(rect, to: nil)))
-    }
-
-    /// The drag left the sidebar or was cancelled (Escape).
-    public func tabDragExited() {
-        list.externalDragExited()
-    }
-
-    /// The drag was released. Returns the drop to commit, or nil. The App
-    /// sends the daemon command and updates `model` (optimistically).
-    @discardableResult
-    public func tabDragEnded() -> SidebarTabDrop? {
-        list.externalDragEnded()
-    }
-
     // MARK: Hierarchy
 
     private func buildHierarchy() {
-        searchIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-            .withSymbolConfiguration(SidebarStyle.glyphConfig)
         searchIcon.contentTintColor = Palette.textSecondary
         searchField.placeholderString = Strings.searchPlaceholder
         searchField.isBordered = false
         searchField.drawsBackground = false
         searchField.focusRingType = .none
-        searchField.font = Typography.body
         searchField.textColor = Palette.textPrimary
         searchField.delegate = self
         searchField.usesSingleLineMode = true
@@ -180,6 +139,11 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
         scrollView.documentView = list
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
+        // Sidebars keep overlay scrollers even when the system shows legacy
+        // ones, so rows never reflow when the scroller appears.
+        NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         addSubview(scrollView)
 
         list.onTypeToSearch = { [weak self] text in
@@ -189,7 +153,6 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
             self.searchField.currentEditor()?.moveToEndOfDocument(nil)
         }
 
-        emptyLabel.font = SidebarStyle.subtitleFont
         emptyLabel.textColor = Palette.textSecondary
         emptyLabel.alignment = .center
         emptyLabel.isHidden = true
@@ -201,11 +164,31 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
         list.realizeVisibleRows()
     }
 
+    @objc private func clipFrameChanged(_ note: Notification) {
+        syncListWidth()
+    }
+
+    @objc private func scrollerStyleChanged(_ note: Notification) {
+        scrollView.scrollerStyle = .overlay
+        syncListWidth()
+    }
+
+    /// The list is always exactly as wide as the visible clip.
+    private func syncListWidth() {
+        let width = scrollView.contentView.bounds.width
+        if list.frame.width != width { list.setFrameSize(NSSize(width: width, height: list.frame.height)) }
+    }
+
     override public func layout() {
         super.layout()
         let b = bounds
         let compact = model.presentation == .iconsOnly
         var y = titlebarHeight
+        // Tokens are read here, never cached, so density changes apply live.
+        searchIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
+            .withSymbolConfiguration(SidebarStyle.glyphConfig)
+        searchField.font = Typography.body
+        emptyLabel.font = SidebarStyle.subtitleFont
 
         // Titlebar row: buttons trail the traffic lights.
         newButton.isHidden = compact
@@ -240,14 +223,19 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
         }
 
         // Footer slots.
-        let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in accessories[slot].map { (slot, $0) } }
+        // Icons-only shows the icon slots; the status text needs width.
+        for (slot, view) in accessories { view.isHidden = compact && slot == .status }
+        let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
+            accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
+        }
         let slot = Metrics.sidebarRowHeight
         let footerHeight: CGFloat = visibleSlots.isEmpty ? 0 : (compact ? CGFloat(visibleSlots.count) * (slot + Metrics.space2) + Metrics.space4 : SidebarStyle.footerHeight)
         footer.frame = NSRect(x: 0, y: b.height - footerHeight, width: b.width, height: footerHeight)
         layoutFooter(visibleSlots, compact: compact)
 
         scrollView.frame = NSRect(x: 0, y: y, width: b.width, height: max(0, b.height - y - footerHeight))
-        list.setFrameSize(NSSize(width: scrollView.contentSize.width, height: list.frame.height))
+        scrollView.tile()
+        syncListWidth()
         emptyLabel.frame = NSRect(x: Metrics.space4, y: y + Metrics.space6, width: max(0, b.width - Metrics.space6), height: Metrics.sidebarRowHeight)
     }
 
@@ -284,6 +272,11 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
         var active: WorkspaceID?
         var filter: String
         var presentation: SidebarPresentation
+        /// Design tokens (density, overrides, chrome font size). Reading them
+        /// inside the tracked closure makes a settings change re-render.
+        var metrics: SidebarLayoutMetrics
+        var fontSize: CGFloat
+        var titlebarHeight: CGFloat
     }
 
     private func observe() {
@@ -295,7 +288,10 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
                     selection: model.selection,
                     active: model.activeWorkspaceID,
                     filter: model.filterText,
-                    presentation: model.presentation
+                    presentation: model.presentation,
+                    metrics: model.presentation == .iconsOnly ? .iconsOnly : .standard,
+                    fontSize: Typography.body.pointSize,
+                    titlebarHeight: Metrics.titlebarHeight
                 )
             }) {
                 self?.render(state)
@@ -305,13 +301,16 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
 
     private func render(_ state: RenderState) {
         guard state != lastState else { return }
-        let presentationChanged = lastState?.presentation != state.presentation
+        let chromeChanged = lastState?.presentation != state.presentation
+            || lastState?.metrics != state.metrics
+            || lastState?.fontSize != state.fontSize
+            || lastState?.titlebarHeight != state.titlebarHeight
         lastState = state
         if searchField.stringValue != state.filter { searchField.stringValue = state.filter }
         clearButton.isHidden = state.filter.isEmpty
         list.reload(animated: true)
         emptyLabel.isHidden = !(model.isFiltering && list.visibleWorkspaceOrder.isEmpty)
-        if presentationChanged { needsLayout = true }
+        if chromeChanged { needsLayout = true }
     }
 
     // MARK: Search field

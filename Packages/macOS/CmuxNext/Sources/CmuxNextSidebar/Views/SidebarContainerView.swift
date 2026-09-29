@@ -90,10 +90,24 @@ public final class SidebarContainerView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await (presentation, width) in Observations({ (model.presentation, model.width) }) {
+            for await (presentation, width, _, defaultWidth) in Observations({
+                // displayWidth reads Metrics.sidebarCollapsedWidth; the default
+                // width token is tracked so a settings change resizes live.
+                (model.presentation, model.width, model.displayWidth, Metrics.sidebarWidth)
+            }) {
+                self?.followDefaultWidth(defaultWidth)
                 self?.apply(presentation: presentation, width: width)
             }
         }
+    }
+
+    private var lastDefaultWidth: CGFloat?
+
+    /// When the user changes the sidebar width setting, adopt it.
+    private func followDefaultWidth(_ value: CGFloat) {
+        defer { lastDefaultWidth = value }
+        guard let last = lastDefaultWidth, last != value else { return }
+        model.width = value
     }
 
     private func apply(presentation: SidebarPresentation, width: CGFloat) {
@@ -105,10 +119,13 @@ public final class SidebarContainerView: NSView {
             return
         }
         let alpha: CGFloat = presentation == .hidden ? 0 : 1
+        // Animate only the constraint: descendants re-lay out each frame at
+        // their real size. Forcing layout inside the animation block would
+        // make every subview frame an implicit animation whose completion
+        // overwrites later layout.
         Motion.animate(Motion.width) {
             widthConstraint.animator().constant = target
             panel.animator().alphaValue = alpha
-            superview?.layoutSubtreeIfNeeded()
         }
     }
 }
