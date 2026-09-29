@@ -2167,6 +2167,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unstaged_patch_includes_untracked_files() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-untracked-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).expect("create repo");
+        let run_git = |arguments: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&repo)
+                .args(arguments)
+                .output()
+                .expect("run git");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "cmux tests"]);
+        run_git(&["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(repo.join(".gitignore"), ".gitignore\nignored.txt\n")
+            .expect("write gitignore");
+        std::fs::write(repo.join("story.txt"), "one\n").expect("write initial file");
+        run_git(&["add", "story.txt"]);
+        run_git(&["commit", "-m", "initial"]);
+        std::fs::write(repo.join("story.txt"), "one\ntwo\n").expect("write changed file");
+        std::fs::write(repo.join("untracked.txt"), "brand new content\n")
+            .expect("write untracked file");
+        std::fs::write(repo.join("ignored.txt"), "ignored content\n").expect("write ignored file");
+        let patch_path = root.join("unstaged.patch");
+        let source = DiffSource::Unstaged {
+            repo_root: repo.to_string_lossy().into_owned(),
+        };
+
+        run_git_patch_with_limit(&source, &repo, &patch_path, 1024 * 1024)
+            .await
+            .expect("write unstaged patch");
+
+        // Untracked (non-ignored) files are part of the unstaged working tree,
+        // so the session patch carries them as added files after `git diff`.
+        let patch = std::fs::read_to_string(&patch_path).expect("read patch");
+        assert!(patch.contains("+two"), "{patch}");
+        assert!(patch.contains("b/untracked.txt"), "{patch}");
+        assert!(patch.contains("new file mode"), "{patch}");
+        assert!(patch.contains("+brand new content"), "{patch}");
+        assert!(!patch.contains("ignored content"), "{patch}");
+
+        // An untracked-only working tree is not an empty diff.
+        std::fs::write(repo.join("story.txt"), "one\n").expect("restore tracked file");
+        run_git_patch_with_limit(&source, &repo, &patch_path, 1024 * 1024)
+            .await
+            .expect("write untracked-only patch");
+        let patch = std::fs::read_to_string(&patch_path).expect("read untracked-only patch");
+        assert!(!patch.contains("+two"), "{patch}");
+        assert!(patch.contains("+brand new content"), "{patch}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
     async fn git_patch_limit_removes_partial_output() {
         let root = std::env::temp_dir().join(format!(
             "cmux-diff-sidecar-size-limit-{}-{}",
