@@ -88,7 +88,16 @@ Environment:
 | `hooks` | Install, uninstall, and run agent hook integrations under one namespace. |
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
+| `iroh-diag` | Print the host's Iroh Connection Report as a plain-language timeline without changing state. |
+| `sudo run [-r <reason>] [-t <timeout>] (-c <command> \| <script.sh> \| -)` | Submit a privileged command request through cmux's secure runner. |
+| `sudo pending` | List queued privileged command request IDs. |
+| `sudo setup-touch-id` | Install or refresh the Touch ID sudo helper used by cmux privileged commands. |
 | `capabilities` | Print server capabilities as JSON. |
+
+`sudo run` accepts exactly one script source: `-c <command>`, a regular UTF-8 script file, or `-` for standard input. `-r` supplies the approval reason. `-t` must be a positive integer no larger than 86,400 seconds; omitted requests wait up to 300 seconds. Script input is bounded by the sudo broker resource policy and oversized, unreadable, non-regular, or non-UTF-8 input is rejected before queueing.
+
+After queueing, cmux launches the app and the app shows the pending request for approval before execution. Denied requests print the denial and exit 77. Approved scripts return the script's exit code on completion; broker or runner failures return a failure message and a non-zero exit. Pending approval or approved execution timeouts return exit code 124. `sudo pending` lists queued request IDs, one per line, for requests still waiting for approval or completion.
+
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `automation` | Manage config-backed event rules: `list`, `show <id>`, dry-run `test <id> --event <json>`, `enable`, `disable`, `logs`, and `reload`. Rules live in `~/.cmuxterm/automations.json`; actions are dispatched by the running app. |
 | `glaeda` | Emit one caller-neutral `glaeda-external-execution-request/v1` and validate/correlate one bounded Glaeda receipt. `request` and `observe` are local data operations and do not require a running cmux socket. They carry exact Git source plus caller correlation only; CMUX workspace/UI and provider placement stay outside the request. |
@@ -813,6 +822,10 @@ the expected text without connecting to a cmux socket.
 - `cmux help remote` -> `Remote:`
 - `cmux help diagnostics` -> `Diagnostics / Advanced:`
 - `cmux help diagnostics` -> `socket-status [--json]`
+- `cmux help diagnostics` -> `sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)`
+- `cmux help diagnostics` -> `sudo pending`
+- `cmux help diagnostics` -> `sudo setup-touch-id`
+- `cmux iroh-diag --help` -> `Usage: cmux iroh-diag`
 - `cmux help remote` -> `auth <status|login|logout|team>`
 - `cmux --help` -> `socket-status [--json]`
 - `cmux --help` -> `cmux help <start|agents|navigate|inspect|customize|automation|browser|remote|diagnostics>`
