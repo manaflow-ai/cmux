@@ -55,6 +55,8 @@ final class MainWindowFocusController {
     private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
     private weak var fileExplorerHost: FileExplorerContainerView?
     private weak var fileSearchHost: FileExplorerContainerView?
+    /// Text selected where Find was invoked, applied when the Find field focuses.
+    private var pendingFileSearchSeed: String?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
 
@@ -547,6 +549,7 @@ final class MainWindowFocusController {
 
     @discardableResult
     func focusFileSearch() -> Bool {
+        pendingFileSearchSeed = fileSearchSeed(from: window?.firstResponder)
         return focusRightSidebar(
             mode: .find,
             target: .searchField,
@@ -764,7 +767,10 @@ final class MainWindowFocusController {
         case .files:
             return fileExplorerHost?.focusOutline() == true
         case .find:
-            return fileSearchHost?.focusSearchField() == true
+            guard let fileSearchHost else { return false }
+            let seed = pendingFileSearchSeed
+            pendingFileSearchSeed = nil
+            return fileSearchHost.focusSearchField(seed: seed)
         case .sessions, .customSidebar:
             return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
         case .machines:
@@ -780,6 +786,26 @@ final class MainWindowFocusController {
             }
             return dockHost?.focusHostFromCoordinator() == true
         }
+    }
+
+    /// The selection to seed Find with, as VS Code does: a single line of
+    /// selected text in a terminal or text view. Selections inside Find
+    /// itself, multi-line selections and very long ones do not seed.
+    private func fileSearchSeed(from responder: NSResponder?) -> String? {
+        guard let responder else { return nil }
+        if fileSearchHost?.ownsKeyboardFocus(responder) == true { return nil }
+        let selected: String?
+        if let textView = responder as? NSTextView {
+            let range = textView.selectedRange()
+            selected = range.length > 0 ? (textView.string as NSString).substring(with: range) : nil
+        } else if let view = responder as? NSView {
+            selected = view.accessibilitySelectedText()
+        } else {
+            selected = nil
+        }
+        guard let selected, !selected.isEmpty, selected.count <= 500,
+              !selected.contains(where: \.isNewline) else { return nil }
+        return selected
     }
 
     private func focusFallbackRightSidebarHost() -> Bool {
