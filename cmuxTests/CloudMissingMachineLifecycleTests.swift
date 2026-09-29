@@ -84,14 +84,17 @@ struct CloudMissingMachineLifecycleTests {
             fileExplorerState: FileExplorerState()
         )
         let workspace = try #require(manager.selectedWorkspace)
-        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vm-restored-gone", isBase: false)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "VM-Restored-Gone", isBase: false)
         let catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(
             environment: CloudWorkspaceRenameEnvironment(workspaces: { manager.tabs })
         ))
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
-            listPage: { VMListPage(vms: [], limits: nil) }
+            listPage: {
+                VMListPage(vms: [VMSummary(id: "vm-restored-gone", provider: "freestyle", status: "running", image: "snapshot-test", createdAt: 0)], limits: nil)
+            },
+            refreshProvider: { _, _ in true }
         )
         defer {
             manager.finalizeAllWorkspacesForWindowClose()
@@ -102,7 +105,7 @@ struct CloudMissingMachineLifecycleTests {
         AppDelegate.shared = app
         registry.start(catalog: catalog)
         #expect(await registry.refresh(force: true))
-        #expect(workspace.cloudVMID == "vm-restored-gone")
+        #expect(workspace.cloudVMID == "VM-Restored-Gone")
         #expect(!workspace.panels.isEmpty)
         await registry.accessDidEnd()
     }

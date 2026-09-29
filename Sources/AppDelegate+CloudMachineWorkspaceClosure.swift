@@ -23,7 +23,7 @@ extension AppDelegate {
                 workspace.disconnectRemoteConnection(clearConfiguration: true)
                 workspace.cloudVMBinding = nil
                 if manager.tabs.count > 1 {
-                    manager.closeWorkspace(workspace, recordHistory: false)
+                    manager.closeWorkspace(workspace, recordHistory: false, prevalidatedOwner: true)
                 } else {
                     // TabManager intentionally keeps the final workspace as a
                     // local anchor. Clear its cloud binding and panels instead

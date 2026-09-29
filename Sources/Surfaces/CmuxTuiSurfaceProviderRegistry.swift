@@ -468,17 +468,20 @@ final class CmuxTuiSurfaceProviderRegistry {
         if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
+        let seenNormalized = Set(seen.map { $0.lowercased() })
         // This page is the authoritative positive observation for any receipt
         // it contains. Once observed, normal stale pruning may own that ID.
-        pendingMachineCreationIDs.subtract(seen)
+        pendingMachineCreationIDs = Set(pendingMachineCreationIDs.filter { !seenNormalized.contains($0.lowercased()) })
         // Reconcile both stores. A restored catalog can contain a machine for
         // which this process has not created a provider yet.
         let catalogMachineIDs = Set(catalog.machines.keys.compactMap(\.cloudMachineID)).union(catalog.boundCloudMachineIDs)
-        let staleIDs = Set(providers.keys)
+        let candidates = Set(providers.keys)
             .union(catalogMachineIDs)
             .union(catalog.pendingRestoredMachineIDs)
-            .subtracting(pendingMachineCreationIDs)
-            .subtracting(seen)
+        let pendingNormalized = Set(pendingMachineCreationIDs.map { $0.lowercased() })
+        let staleIDs = candidates.filter {
+            !pendingNormalized.contains($0.lowercased()) && !seenNormalized.contains($0.lowercased())
+        }
         let preservedIDs = catalog.boundCloudMachineIDs
             .union(catalog.pendingRestoredMachineIDs)
             .union(catalog.projectedMachines.compactMap(\.cloudMachineID))
