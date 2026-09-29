@@ -4713,8 +4713,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Title changes
         let titleObserver = webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
-            Task { @MainActor in
-                guard let self, isCurrentObservedWebView(self, webView) else { return }
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView, isCurrentObservedWebView(self, webView) else { return }
                 // Keep showing the last non-empty title while the new navigation is loading.
                 // WebKit often clears title to nil/"" during reload/navigation, which causes
                 // a distracting tab-title flash (e.g. to host/URL). Only accept non-empty titles.
@@ -4734,8 +4734,8 @@ final class BrowserPanel: Panel, ObservableObject {
         // That skips favicon/loading-state cleanup and leaves stale icons visible.
         let loadingObserver = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, change in
             let newValue = change.newValue ?? webView.isLoading
-            Task { @MainActor in
-                guard let self, isCurrentObservedWebView(self, webView) else { return }
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView, isCurrentObservedWebView(self, webView) else { return }
                 self.handleWebViewLoadingChanged(newValue)
             }
         }
@@ -4743,8 +4743,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Can go back
         let backObserver = webView.observe(\.canGoBack, options: [.new]) { [weak self] webView, _ in
-            Task { @MainActor in
-                guard let self, isCurrentObservedWebView(self, webView) else { return }
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView, isCurrentObservedWebView(self, webView) else { return }
                 self.nativeCanGoBack = webView.canGoBack
                 self.refreshNavigationAvailability()
             }
@@ -4753,8 +4753,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Can go forward
         let forwardObserver = webView.observe(\.canGoForward, options: [.new]) { [weak self] webView, _ in
-            Task { @MainActor in
-                guard let self, isCurrentObservedWebView(self, webView) else { return }
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView, isCurrentObservedWebView(self, webView) else { return }
                 self.nativeCanGoForward = webView.canGoForward
                 self.refreshNavigationAvailability()
             }
@@ -4763,8 +4763,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Progress
         let progressObserver = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
-            Task { @MainActor in
-                guard let self, isCurrentObservedWebView(self, webView) else { return }
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView, isCurrentObservedWebView(self, webView) else { return }
                 self.estimatedProgress = webView.estimatedProgress
             }
         }
@@ -4773,8 +4773,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let fullscreenObserver = webView.observe(\.fullscreenState, options: [.initial, .new]) { [weak self] webView, _ in
             let isElementFullscreenActive = webView.cmuxIsElementFullscreenActiveOrTransitioning
             let fullscreenState = webView.fullscreenState
-            Task { @MainActor in
-                guard let self, isCurrentObservedWebView(self, webView) else { return }
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView, isCurrentObservedWebView(self, webView) else { return }
                 let didChangeFullscreenBlocker = self.isElementFullscreenActive != isElementFullscreenActive
                 self.isElementFullscreenActive = isElementFullscreenActive
                 let didChangeViewportOwnership = self.reconcileAutomationViewportForElementFullscreen(
@@ -4803,8 +4803,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let cameraCaptureObserver = webView.observe(\.cameraCaptureState, options: [.new]) { [weak self] webView, _ in
             let isUsingCamera = webView.cameraCaptureState != .none
-            Task { @MainActor in
-                guard let self, isCurrentObservedWebView(self, webView) else { return }
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView, isCurrentObservedWebView(self, webView) else { return }
                 self.setMediaActivity(isUsingCamera: isUsingCamera, reason: "media_capture_changed")
             }
         }
@@ -4812,8 +4812,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let microphoneCaptureObserver = webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self] webView, _ in
             let isUsingMicrophone = webView.microphoneCaptureState != .none
-            Task { @MainActor in
-                guard let self, isCurrentObservedWebView(self, webView) else { return }
+            Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView, isCurrentObservedWebView(self, webView) else { return }
                 self.setMediaActivity(isUsingMicrophone: isUsingMicrophone, reason: "media_capture_changed")
             }
         }
