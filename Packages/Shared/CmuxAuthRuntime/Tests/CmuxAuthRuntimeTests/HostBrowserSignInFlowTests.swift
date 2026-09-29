@@ -494,17 +494,69 @@ import Testing
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
     }
 
-    @Test func fallbackExternalCallbackWithoutActiveAttemptSignsIn() async {
+    @Test func confirmedFallbackExternalCallbackWithoutActiveAttemptSignsIn() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user, confirmsUnsolicitedCallbacks: true)
+
+        let result = await harness.flow.handleCallbackURL(harness.fallbackCallbackURL())
+
+        #expect(result)
+        #expect(harness.unsolicitedConfirmation.requests == [false])
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
+    /// Any web page can link to a state-less callback that carries its own
+    /// account's tokens. Without the user's approval it must not sign in.
+    @Test func declinedFallbackExternalCallbackDoesNotSignIn() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
 
         let result = await harness.flow.handleCallbackURL(harness.fallbackCallbackURL())
 
-        #expect(result)
+        #expect(result == false)
+        #expect(harness.unsolicitedConfirmation.requests == [false])
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+    }
+
+    @Test func declinedFallbackExternalCallbackKeepsTheSignedInAccount() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(
+            harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0]))
+        )
+        #expect(await attempt.value)
+        #expect(harness.unsolicitedConfirmation.requests.isEmpty)
+
+        let attackerURL = URL(string: "cmux-dev://auth-callback?stack_refresh=attacker-refresh&stack_access=attacker-access")!
+        let result = await harness.flow.handleCallbackURL(attackerURL)
+
+        #expect(result == false)
+        #expect(harness.unsolicitedConfirmation.requests == [true])
         #expect(harness.coordinator.isAuthenticated)
-        #expect(harness.coordinator.currentUser == user)
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
         #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
+    @Test func fallbackCallbackFromTheTrustedAppPageSignsInWithoutAsking() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+
+        let result = await harness.flow.handleCallbackURL(
+            harness.fallbackCallbackURL(),
+            delivery: .trustedAppPage
+        )
+
+        #expect(result)
+        #expect(harness.unsolicitedConfirmation.requests.isEmpty)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
     }
 
     @Test func statefulExternalCallbackWithoutActiveAttemptIsRejected() async {

@@ -1540,8 +1540,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Shared native auth callback entrypoint for LaunchServices and embedded
     /// browser handoffs. The returned value reflects completed sign-in.
+    /// `delivery` is `.trustedAppPage` only for the in-app browser handoff
+    /// that already verified the app's own web origin.
     @MainActor
-    func handleAuthCallbackURLInProcess(_ url: URL) async -> Bool {
+    func handleAuthCallbackURLInProcess(
+        _ url: URL,
+        delivery: HostBrowserCallbackDelivery
+    ) async -> Bool {
         let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
         guard callbackRouter.isAuthCallbackURL(url) else {
             AuthDebugLog().log("auth.callback rejected: URL is not an accepted callback")
@@ -1552,7 +1557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let signedIn = await accountFlow.handleCallbackURL(url)
+        let signedIn = await accountFlow.handleCallbackURL(url, delivery: delivery)
         guard signedIn else {
             AuthDebugLog().log("auth.callback did not complete sign-in")
             return false
@@ -1581,7 +1586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
         for url in authCallbacks {
             Task { @MainActor in
-                _ = await handleAuthCallbackURLInProcess(url)
+                _ = await handleAuthCallbackURLInProcess(url, delivery: .external)
             }
         }
 

@@ -182,6 +182,11 @@ struct MacAuthComposition {
             makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
+            confirmUnsolicitedCallback: { replacesSignedInAccount in
+                await Self.confirmUnsolicitedBrowserSignIn(
+                    replacesSignedInAccount: replacesSignedInAccount
+                )
+            },
             beginSignOut: {
                 // Tear down local Cloud VM workspaces before the coordinator
                 // clears auth. This closes live WebSockets, removes persisted
@@ -353,6 +358,50 @@ struct MacAuthComposition {
         environment
     }
     #endif
+}
+
+extension MacAuthComposition {
+    /// Asks before a browser callback that this app did not request signs in.
+    ///
+    /// Signing in on cmux.com without starting from the app produces such a
+    /// callback, but so can any web page or local process that holds its own
+    /// account's tokens. Without this prompt, one click on a link could sign
+    /// the app into someone else's account.
+    static func confirmUnsolicitedBrowserSignIn(replacesSignedInAccount: Bool) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "auth.unsolicitedCallback.title",
+            defaultValue: "Sign in to cmux from the browser?"
+        )
+        let explanation = String(
+            localized: "auth.unsolicitedCallback.message",
+            defaultValue: "A browser page asked cmux to sign in, but cmux did not start this sign-in. Continue only if you just signed in to cmux in your browser yourself."
+        )
+        alert.informativeText = replacesSignedInAccount
+            ? explanation + "\n\n" + String(
+                localized: "auth.unsolicitedCallback.replacesAccount",
+                defaultValue: "This replaces the account that is signed in to cmux now."
+            )
+            : explanation
+        alert.addButton(withTitle: String(
+            localized: "auth.unsolicitedCallback.signIn",
+            defaultValue: "Sign In"
+        ))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        // Return and Escape must not approve a request the user did not make.
+        alert.buttons.first?.keyEquivalent = ""
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response: NSApplication.ModalResponse
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            response = await alert.beginSheetModal(for: window)
+        } else {
+            response = alert.runModal()
+        }
+        return response == .alertFirstButtonReturn
+    }
 }
 
 /// Retries a missing team scope when a retry is likely to succeed.

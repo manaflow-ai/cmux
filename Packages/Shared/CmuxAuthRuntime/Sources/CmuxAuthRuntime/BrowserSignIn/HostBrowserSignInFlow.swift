@@ -2,6 +2,17 @@ public import Foundation
 public import Observation
 import os
 
+/// How an auth callback URL reached the app.
+public enum HostBrowserCallbackDelivery: Sendable, Equatable {
+    /// Delivered by the in-app browser from a user-activated link on the
+    /// app's own web origin, after that origin check passed.
+    case trustedAppPage
+    /// Delivered by LaunchServices from any browser or process. The sender
+    /// is unknown, so a callback without app-issued state needs the user's
+    /// confirmation before its tokens replace the session.
+    case external
+}
+
 /// macOS hosted-browser sign-in flow, including external URL callbacks and
 /// attempt/sign-out race guards.
 @MainActor
@@ -25,6 +36,10 @@ public final class HostBrowserSignInFlow {
     /// Opens a URL in the user's default browser. Returns `true` when the
     /// launch was handed to a browser, `false` when it could not be opened.
     @ObservationIgnored private let openExternalURL: @MainActor (URL) -> Bool
+    /// Asks the user to approve an external callback that carries tokens but
+    /// no app-issued state. The argument is whether it would replace the
+    /// signed-in account.
+    @ObservationIgnored private let confirmUnsolicitedCallback: @MainActor (_ replacesSignedInAccount: Bool) async -> Bool
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
@@ -56,6 +71,7 @@ public final class HostBrowserSignInFlow {
         makeSignInURL: @escaping @MainActor (_ callbackState: String) -> URL,
         callbackScheme: @escaping @MainActor () -> String,
         openExternalURL: @escaping @MainActor (URL) -> Bool,
+        confirmUnsolicitedCallback: @escaping @MainActor (_ replacesSignedInAccount: Bool) async -> Bool = { _ in false },
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30,
@@ -73,6 +89,7 @@ public final class HostBrowserSignInFlow {
         self.makeSignInURL = makeSignInURL
         self.callbackScheme = callbackScheme
         self.openExternalURL = openExternalURL
+        self.confirmUnsolicitedCallback = confirmUnsolicitedCallback
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
@@ -128,8 +145,16 @@ public final class HostBrowserSignInFlow {
     /// Handle an auth callback URL delivered through the app's URL scheme
     /// (e.g. the hosted page redirected in the user's real browser instead of
     /// the popup). Returns whether the app ended signed in.
+    ///
+    /// A callback without `cmux_auth_state` is not bound to any attempt this
+    /// app started, so any web page can produce one with its own account's
+    /// tokens. Delivered ``HostBrowserCallbackDelivery/external``, it is
+    /// honored only after the user confirms it.
     @discardableResult
-    public func handleCallbackURL(_ url: URL) async -> Bool {
+    public func handleCallbackURL(
+        _ url: URL,
+        delivery: HostBrowserCallbackDelivery = .external
+    ) async -> Bool {
         log.log("auth.callback.external.received \(authCallbackSummary(url))")
         if let attemptID = activeAttemptID,
            activeSessionContinuation != nil,
@@ -151,7 +176,19 @@ public final class HostBrowserSignInFlow {
             return signedIn
         }
         if callbackRouter.isAuthCallbackURL(url), authCallbackState(from: url) == nil {
-            log.log("auth.callback.external.routeToFallback")
+            if delivery == .external {
+                guard callbackRouter.callbackPayload(from: url) != nil else {
+                    log.log("auth.callback rejected: invalid payload")
+                    lastFailure = .invalidCallback
+                    return false
+                }
+                log.log("auth.callback.external.confirmUnsolicited signedIn=\(coordinator.isAuthenticated)")
+                guard await confirmUnsolicitedCallback(coordinator.isAuthenticated) else {
+                    log.log("auth.callback.external.reject reason=unsolicitedNotConfirmed")
+                    return false
+                }
+            }
+            log.log("auth.callback.external.routeToFallback delivery=\(delivery)")
             return await completeCallback(url: url, attemptID: nil)
         }
         if callbackRouter.isAuthCallbackURL(url),

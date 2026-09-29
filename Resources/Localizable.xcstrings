@@ -578714,6 +578714,242 @@
           }
         }
       }
+    },
+    "auth.unsolicitedCallback.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد تسجيل الدخول إلى cmux من المتصفح؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Über den Browser bei cmux anmelden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from the browser?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Iniciar sesión en cmux desde el navegador?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à cmux depuis le navigateur ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザから cmux にサインインしますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 cmux에 로그인할까요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要从浏览器登录 cmux 吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要從瀏覽器登入 cmux 嗎？"
+          }
+        }
+      }
+    },
+    "auth.unsolicitedCallback.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبت صفحة في المتصفح من cmux تسجيل الدخول، لكن cmux لم يبدأ عملية تسجيل الدخول هذه. تابع فقط إذا كنت قد سجّلت الدخول إلى cmux بنفسك في متصفحك للتو."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Browserseite hat cmux zur Anmeldung aufgefordert, aber cmux hat diese Anmeldung nicht gestartet. Fahre nur fort, wenn du dich gerade selbst im Browser bei cmux angemeldet hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A browser page asked cmux to sign in, but cmux did not start this sign-in. Continue only if you just signed in to cmux in your browser yourself."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una página del navegador pidió a cmux que iniciara sesión, pero cmux no inició este inicio de sesión. Continúa solo si acabas de iniciar sesión en cmux tú mismo en tu navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une page du navigateur a demandé à cmux de se connecter, mais cmux n’a pas lancé cette connexion. Continuez uniquement si vous venez vous-même de vous connecter à cmux dans votre navigateur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのページが cmux へのサインインを要求しましたが、このサインインは cmux が開始したものではありません。ご自身でブラウザから cmux にサインインした直後の場合にのみ続行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 페이지가 cmux에 로그인을 요청했지만, 이 로그인은 cmux가 시작한 것이 아닙니다. 방금 직접 브라우저에서 cmux에 로그인한 경우에만 계속하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "某个浏览器页面请求 cmux 登录，但此次登录并非由 cmux 发起。仅当你刚刚亲自在浏览器中登录 cmux 时才继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "某個瀏覽器頁面要求 cmux 登入，但這次登入並非由 cmux 發起。只有在你剛剛親自於瀏覽器中登入 cmux 時才繼續。"
+          }
+        }
+      }
+    },
+    "auth.unsolicitedCallback.replacesAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيؤدي هذا إلى استبدال الحساب المسجّل دخوله إلى cmux حاليًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dadurch wird das Konto ersetzt, das derzeit bei cmux angemeldet ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This replaces the account that is signed in to cmux now."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esto reemplaza la cuenta con la que has iniciado sesión en cmux ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cela remplace le compte actuellement connecté à cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在 cmux にサインインしているアカウントは置き換えられます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 cmux에 로그인된 계정이 대체됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这将替换当前登录 cmux 的账户。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這將取代目前登入 cmux 的帳號。"
+          }
+        }
+      }
+    },
+    "auth.unsolicitedCallback.signIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

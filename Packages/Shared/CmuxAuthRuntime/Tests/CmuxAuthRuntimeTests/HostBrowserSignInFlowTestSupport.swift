@@ -15,6 +15,23 @@ final class OpenedURLRecorder {
     }
 }
 
+/// Records every unsolicited-callback confirmation the flow asks for.
+@MainActor
+final class UnsolicitedCallbackConfirmationRecorder {
+    /// The `replacesSignedInAccount` argument of each request, in order.
+    private(set) var requests: [Bool] = []
+    var answer: Bool
+
+    init(answer: Bool) {
+        self.answer = answer
+    }
+
+    func confirm(replacesSignedInAccount: Bool) -> Bool {
+        requests.append(replacesSignedInAccount)
+        return answer
+    }
+}
+
 @MainActor
 struct HostBrowserSignInFlowHarness {
     let flow: HostBrowserSignInFlow
@@ -22,6 +39,9 @@ struct HostBrowserSignInFlowHarness {
     let client: FlowFakeAuthClient
     let tokenStore: FlowInMemoryTokenStore
     let factory: FakeBrowserAuthSessionFactory
+    /// Answers unsolicited-callback confirmations; declines by default, like
+    /// the production flow's default.
+    let unsolicitedConfirmation: UnsolicitedCallbackConfirmationRecorder
     private let openedURLRecorder: OpenedURLRecorder
 
     var openedURLs: [URL] {
@@ -34,6 +54,7 @@ struct HostBrowserSignInFlowHarness {
         slowSignInThreshold: TimeInterval = 30,
         clock: (any Clock<Duration>)? = nil,
         openSucceeds: Bool = true,
+        confirmsUnsolicitedCallbacks: Bool = false,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
         localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
         onSignedOut: @escaping @Sendable (
@@ -58,6 +79,9 @@ struct HostBrowserSignInFlowHarness {
             launch: .plain()
         )
         let factory = FakeBrowserAuthSessionFactory()
+        let unsolicitedConfirmation = UnsolicitedCallbackConfirmationRecorder(
+            answer: confirmsUnsolicitedCallbacks
+        )
         self.flow = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
@@ -66,6 +90,7 @@ struct HostBrowserSignInFlowHarness {
             makeSignInURL: { URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-dev" },
             openExternalURL: { openedURLRecorder.append($0) },
+            confirmUnsolicitedCallback: { unsolicitedConfirmation.confirm(replacesSignedInAccount: $0) },
             clock: clock ?? ContinuousClock(),
             browserAttemptTimeout: browserAttemptTimeout,
             slowSignInThreshold: slowSignInThreshold,
@@ -77,6 +102,7 @@ struct HostBrowserSignInFlowHarness {
         self.client = client
         self.tokenStore = tokenStore
         self.factory = factory
+        self.unsolicitedConfirmation = unsolicitedConfirmation
         self.openedURLRecorder = openedURLRecorder
     }
 
