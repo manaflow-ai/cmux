@@ -1611,8 +1611,10 @@ class Sweeper(unittest.TestCase):
         # An attempt's listing names every job with its run_attempt; one a re-run of failed jobs kept started
         # before the listing created it (rescue.carried()).
         full = [dict(job("changes", status="completed", created=100), run_attempt=2, started_at=stamp(101))]
-        failed_only = [dict(job("changes", status="completed", created=100), run_attempt=2, started_at=stamp(5))]
-        api = SweepAPI([listed(1, run_attempt=2), listed(2, run_attempt=2)], picker=[1, 2],
+        failed_only = [{"name": "changes", "status": "completed", "labels": [], "run_attempt": 2,
+                        "started_at": stamp(5), "runner_name": ""}]
+        api = SweepAPI([listed(1, run_attempt=2, run_started_at=stamp(50)),
+                        listed(2, run_attempt=2, run_started_at=stamp(50))], picker=[1, 2],
                        attempt_jobs={1: full, 2: failed_only})
         self.assertEqual(self.sweep(api)[0], [(1, 2, True), (2, 2, False)])
 

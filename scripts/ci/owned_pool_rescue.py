@@ -483,9 +483,16 @@ def accepted(job: Mapping[str, Any], now: dt.datetime) -> bool:
         (now - started).total_seconds() > REFUSAL_SECONDS
 
 
-def carried(job: Mapping[str, Any]) -> bool:
-    """A job a re-run of failed jobs kept from an earlier attempt: the attempt's listing gives it a new id and
-    created_at but the run_attempt of the re-run, and the start of the attempt that ran it."""
+def carried(job: Mapping[str, Any], attempt_started: dt.datetime | None = None) -> bool:
+    """A job a re-run of failed jobs kept from an earlier attempt.
+
+    GitHub's attempt-jobs response has no documented ``created_at`` field. When
+    the workflow run supplies its API-backed attempt start, compare the job's
+    start with that boundary; retain the receipt fallback for older callers.
+    """
+    if attempt_started is not None:
+        started = parse_time(job.get("started_at"))
+        return started is not None and started < attempt_started
     created, started = parse_time(job.get("created_at")), parse_time(job.get("started_at"))
     return created is not None and started is not None and started < created
 
@@ -745,6 +752,7 @@ class Target:
     # ci.yml started this watch because late-placement may move jobs onto owned
     # root runners after compile admission (LATE_PLACEMENT=1); the picker placed none.
     late: bool = False
+    attempt_started_at: dt.datetime | None = None
 
     @property
     def picker_job(self) -> str:
@@ -768,6 +776,7 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}, {NIGHTLY_WORKFLOW_PATH}, "
                 f"a side-lane workflow or one of {', '.join(DISPATCH_WORKFLOW_PATHS)}")
     e2e = path in DISPATCH_WORKFLOW_PATHS
+    attempt_started = parse_time(run.get("run_started_at") or run.get("created_at"))
     on_main = (path == CI_WORKFLOW_PATH and run.get("event") == "workflow_dispatch"
             and run.get("head_branch") == MAIN_BRANCH)
     # test-ios.yml also runs for pull requests: watched as an E2E run, but
@@ -786,17 +795,20 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e and not ios_pull:
-        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True, path=str(path))
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
+                      path=str(path), attempt_started_at=attempt_started)
     if on_main:
-        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True)
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True,
+                      attempt_started_at=attempt_started)
     if side_trusted:
         # No pull request: no head to re-check (pull_moved), like a dispatch.
-        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path))
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path),
+                      attempt_started_at=attempt_started)
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
-                  e2e=e2e, side=side, path=str(path))
+                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started)
 
 
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
@@ -877,7 +889,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             # again, late-placement runs after it and may move the jobs after
             # admission onto one, so its marker decides; otherwise the first
             # look that lists jobs does.
-            late = next((job for job in jobs if job.get("name") == LATE_JOB and not carried(job)), None)
+            late = next((job for job in jobs if job.get("name") == LATE_JOB
+                         and not carried(job, target.attempt_started_at)), None)
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a re-run job asked for a persistent pool")
@@ -888,7 +901,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 log("late placement moved jobs onto a persistent pool")
                 on_persistent = True
             elif jobs and (run_finished(jobs) or late is None and not any(
-                    job.get("name") == ADMISSION_JOB and not carried(job) for job in jobs)):
+                    job.get("name") == ADMISSION_JOB and not carried(job, target.attempt_started_at) for job in jobs)):
                 return "stop", "no job of this attempt asked for a persistent pool"
         elif not on_persistent:
             if picker_finished(jobs, target.picker_job):
@@ -944,7 +957,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 # A re-run that runs its own admission (a full one, or a re-run
                 # of a failed admission) makes its shards only after that
                 # admission, so its watch goes on until the run finishes.
-                own_admission = any(job.get("name") == ADMISSION_JOB and not carried(job) for job in jobs)
+                own_admission = any(job.get("name") == ADMISSION_JOB
+                                    and not carried(job, target.attempt_started_at) for job in jobs)
                 if (target.attempt > 1 and not target.full_rerun and not own_admission and owned
                         and all(accepted(job, seen_at) for job in owned)):
                     # The fleet took the retry; later attempts never come back to it.
@@ -1350,7 +1364,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 log(f"[run {run_id}] could not read attempt {run['run_attempt']} ({error})")
                 return
             picker = E2E_PICKER_JOB if run.get("path") in DISPATCH_WORKFLOW_PATHS else PICKER_JOB
-            full_rerun = any(job.get("name") == picker and not carried(job) for job in jobs)
+            attempt_started = parse_time(run.get("run_started_at") or run.get("created_at"))
+            full_rerun = any(job.get("name") == picker
+                             and not carried(job, attempt_started) for job in jobs)
         target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
