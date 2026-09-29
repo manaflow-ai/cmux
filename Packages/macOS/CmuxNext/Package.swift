@@ -16,6 +16,7 @@ import PackageDescription
 //   CmuxNextDesign, CmuxNextActions, CmuxNextDaemon -> system frameworks only
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply)
 //   CmuxNextControl -> Actions, Settings (app control socket; no UI, no daemon)
+//   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -68,6 +69,7 @@ let package = Package(
                 "CmuxNextBridge",
                 "CmuxNextControl",
                 "CmuxNextSettings",
+                "CmuxNextMobile",
             ],
             resources: [
                 .process("Resources"),

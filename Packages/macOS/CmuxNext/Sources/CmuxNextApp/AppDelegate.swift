@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         control?.stop()
         settings?.stop()
+        services?.mobile.stop()
         services?.daemon.shutdownConnection()
     }
 
