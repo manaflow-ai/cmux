@@ -160,7 +160,14 @@ log="$tmp_dir/missing-pin.log"
 if run_select "$log" CMUX_CI_DEVELOPER_DIR="$tmp_dir/missing/Contents/Developer"; then
   fail "a missing pinned developer dir should fail" "$log"
 fi
-grep -Fq "Pinned Xcode developer dir does not exist" "$log" || fail "missing pin not explained" "$log"
+expect_one_error "$log" "Pinned Xcode developer dir does not exist: $tmp_dir/missing/Contents/Developer on runner "
+# The marker makes CI failure attribution call this a machine failure, and the
+# installed list tells the fleet operator what the Mac has instead.
+grep -Fq "[cmux-ci machine: xcode-pin-missing]" "$log" || fail "missing pin lacks the machine marker" "$log"
+grep -Fq "Xcode_26.2.app=26.2" "$log" || fail "missing pin should list the installed Xcodes" "$log"
+log="$tmp_dir/missing-pin-runner.log"
+run_select "$log" RUNNER_NAME=cmux99-glaeda-1 CMUX_CI_XCODE_APP="$apps_dir/Xcode_26.3.app" && fail "a missing app pin should fail" "$log"
+expect_one_error "$log" "Pinned Xcode developer dir does not exist: $apps_dir/Xcode_26.3.app/Contents/Developer on runner cmux99-glaeda-1."
 
 # 7. An explicit pin must still respect the SDK ceiling.
 log="$tmp_dir/pin-over-ceiling.log"
@@ -210,6 +217,7 @@ if run_select "$log"; then
 fi
 expect_one_error "$log" "This macOS 26 runner has no Xcode 26.2, the version scripts/ci/xcode-pins.txt pins for its pool. Installed:"
 grep -Fq "Xcode_16.4.app=16.4" "$log" || fail "the error should list the installed Xcodes" "$log"
+grep -Fq "[cmux-ci machine: xcode-pin-missing]" "$log" || fail "a missing pool pin lacks the machine marker" "$log"
 [[ ! -s "$env_file" ]] || fail "a failed pool selection must not export an Xcode" "$env_file"
 
 # 13a. A fork's own CI on a hosted image without the pool's Xcode keeps working

@@ -107,6 +107,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
 
+      - name: Validate Xcode pin audit
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_xcode_pin_audit.py
+
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ matrix.group == 'ci' }}
         run: bash tests/test_repair_v06425_workflow.sh
