@@ -11,8 +11,8 @@ struct BatchCloseTests {
         try await BranchDaemonHarness.with { h in
             #expect(await h.connection.supportsBatchClose)
             let first = try await h.workspaceWithTerminal("one")
-            let second = try await h.connection.newTab(in: first.pane)
-            let other = try await h.workspaceWithTerminal("two")
+            let second = try await h.workspaceWithTerminal("two")
+            let other = try await h.workspaceWithTerminal("three")
             let result = try await h.connection.closeTabs([first.surface, second.surface], transaction: "close-two")
             #expect(Set(result.closed) == [first.surface, second.surface])
             #expect(result.terminals.count == 2)
