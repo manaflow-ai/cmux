@@ -769,11 +769,15 @@ mod tests {
         let page = registry.resource_events_after(before).unwrap();
         assert_eq!(page.batches.len(), 1);
         let changes = page.batches[0].changes.as_array().unwrap();
-        let upserted_workspaces =
-            changes.iter().filter(|change| change["kind"] == "upsert" && change["resource"] == "workspace").count();
+        let upserted_workspaces = changes
+            .iter()
+            .filter(|change| change["kind"] == "upsert" && change["resource"] == "workspace")
+            .count();
         assert!(upserted_workspaces <= 1, "{changes:#?}");
         assert!(
-            changes.iter().any(|change| change["kind"] == "delete" && change["resource"] == "terminal"),
+            changes
+                .iter()
+                .any(|change| change["kind"] == "delete" && change["resource"] == "terminal"),
             "{changes:#?}"
         );
         drop(registry);
