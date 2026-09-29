@@ -7003,11 +7003,12 @@ impl PtySurface {
             taps.retain(|tap| !tap.lifecycle.is_canceled());
             !taps.is_empty()
         };
-        // A replacement replay cannot represent a parser that is between
-        // UTF-8 bytes or escape-sequence states. Smart mirrors resize in
-        // place, while compatibility mirrors reconnect from a fresh safe
-        // snapshot instead of consuming a corrupt replay.
-        if has_attach_taps && !term.vt_stream_is_ground() {
+        // A replacement replay ends inside the same incomplete sequence as
+        // this parser, so byte mirrors follow a resize at any byte. Only a
+        // control string larger than the replay's pending-sequence budget
+        // cannot be carried; those mirrors reconnect from a fresh snapshot
+        // instead of consuming a corrupt replay.
+        if has_attach_taps && !term.vt_replay_resumes_stream() {
             let mut taps = self.taps.lock().unwrap();
             for tap in taps.drain(..) {
                 tap.lifecycle.cancel();
@@ -8487,7 +8488,8 @@ mod tests {
             surface.resize(owner_grids[1].0, owner_grids[1].1).unwrap();
             surface.resize(owner_grids[2].0, owner_grids[2].1).unwrap();
             surface.apply_local_pty_output_for_test(&transcript[middle..]).unwrap();
-            for (name, mirror) in [("first", &mut first), ("second", &mut second), ("third", &mut third)]
+            for (name, mirror) in
+                [("first", &mut first), ("second", &mut second), ("third", &mut third)]
             {
                 if let Some(divergence) = mirror.divergence(&surface) {
                     failures.push(format!("{name} viewer, split {split}: {divergence}"));
@@ -8587,14 +8589,17 @@ mod tests {
     }
 
     #[test]
-    fn unsafe_legacy_resize_disconnects_the_byte_attachment() {
+    fn unresumable_legacy_resize_disconnects_the_byte_attachment() {
         let mux = Mux::new("legacy-resize-disconnect", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(73, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let attachment = surface.attach_stream().unwrap();
         let pty = surface.as_pty().unwrap();
-        pty.term.lock().unwrap().vt_write(b"partial \xce");
-        assert!(!pty.term.lock().unwrap().vt_stream_is_ground());
+        // Only a control string past the replay's pending-sequence budget
+        // cannot be carried into a replacement replay.
+        pty.term.lock().unwrap().vt_write(b"\x1b]52;c;");
+        pty.term.lock().unwrap().vt_write(&vec![b'A'; 2 * 1024 * 1024]);
+        assert!(!pty.term.lock().unwrap().vt_replay_resumes_stream());
 
         assert!(surface.resize(100, 30).unwrap());
         assert!(matches!(
