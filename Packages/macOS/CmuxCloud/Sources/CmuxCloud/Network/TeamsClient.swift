@@ -35,7 +35,8 @@ public actor TeamsClient {
     /// The roster, pending invitations, links and billing summary of one team.
     /// Invitations and links come back empty for non-admins.
     public func detail(teamID: String) async throws -> CloudTeamDetail {
-        let (data, http) = try await request("GET", path: "/api/teams/\(try Self.pathSegment(teamID))")
+        let team = try Self.pathSegment(teamID)
+        let (data, http) = try await request("GET", path: "/api/teams/\(team)")
         try ensureOK(http, data: data)
         return try Self.decoder.decode(CloudTeamDetail.self, from: data)
     }
@@ -50,9 +51,10 @@ public actor TeamsClient {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !cleaned.isEmpty else { throw TeamsClientError.invalidEmail }
+        let team = try Self.pathSegment(teamID)
         let (data, http) = try await request(
             "POST",
-            path: "/api/teams/\(try Self.pathSegment(teamID))/invitations",
+            path: "/api/teams/\(team)/invitations",
             jsonBody: ["emails": cleaned, "role": role.rawValue]
         )
         try ensureOK(http, data: data)
@@ -76,9 +78,10 @@ public actor TeamsClient {
             "expiresInDays": expiresInDays.map { $0 as Any } ?? NSNull(),
             "maxUses": maxUses.map { $0 as Any } ?? NSNull(),
         ]
+        let team = try Self.pathSegment(teamID)
         let (data, http) = try await request(
             "POST",
-            path: "/api/teams/\(try Self.pathSegment(teamID))/links",
+            path: "/api/teams/\(team)/links",
             jsonBody: body
         )
         try ensureOK(http, data: data)
@@ -86,34 +89,33 @@ public actor TeamsClient {
     }
 
     public func revokeInvitation(teamID: String, invitationID: String) async throws {
-        let (data, http) = try await request(
-            "DELETE",
-            path: "/api/teams/\(try Self.pathSegment(teamID))/invitations/\(try Self.pathSegment(invitationID))"
-        )
+        let team = try Self.pathSegment(teamID)
+        let invitation = try Self.pathSegment(invitationID)
+        let (data, http) = try await request("DELETE", path: "/api/teams/\(team)/invitations/\(invitation)")
         try ensureOK(http, data: data)
     }
 
     public func revokeInviteLink(teamID: String, linkID: String) async throws {
-        let (data, http) = try await request(
-            "DELETE",
-            path: "/api/teams/\(try Self.pathSegment(teamID))/links/\(try Self.pathSegment(linkID))"
-        )
+        let team = try Self.pathSegment(teamID)
+        let link = try Self.pathSegment(linkID)
+        let (data, http) = try await request("DELETE", path: "/api/teams/\(team)/links/\(link)")
         try ensureOK(http, data: data)
     }
 
     /// Remove a member (admin), or leave the team when `userID` is the caller.
     public func removeMember(teamID: String, userID: String) async throws {
-        let (data, http) = try await request(
-            "DELETE",
-            path: "/api/teams/\(try Self.pathSegment(teamID))/members/\(try Self.pathSegment(userID))"
-        )
+        let team = try Self.pathSegment(teamID)
+        let user = try Self.pathSegment(userID)
+        let (data, http) = try await request("DELETE", path: "/api/teams/\(team)/members/\(user)")
         try ensureOK(http, data: data)
     }
 
     public func changeMemberRole(teamID: String, userID: String, role: CloudTeamRole) async throws -> CloudTeamMember {
+        let team = try Self.pathSegment(teamID)
+        let user = try Self.pathSegment(userID)
         let (data, http) = try await request(
             "PATCH",
-            path: "/api/teams/\(try Self.pathSegment(teamID))/members/\(try Self.pathSegment(userID))",
+            path: "/api/teams/\(team)/members/\(user)",
             jsonBody: ["role": role.rawValue]
         )
         try ensureOK(http, data: data)

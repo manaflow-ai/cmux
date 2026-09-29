@@ -43,8 +43,7 @@ final class CloudTeamMembersWindowController: ReleasingWindowController {
     }
 
     func show(focusInvite: Bool) {
-        model.focusInviteRequest &+= 1
-        if !focusInvite { model.focusInviteRequest = 0 }
+        if focusInvite { model.focusInviteRequest &+= 1 }
         showManagedWindow(activateApplication: true, orderFrontRegardless: true)
         window?.makeKey()
         model.reload()
