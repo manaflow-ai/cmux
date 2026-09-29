@@ -21,16 +21,19 @@ request must record all of the following in its Summary or Testing section:
 - the person who approved the exception; and
 - the verification or release review that compensates for the missing review.
 
-The active default-branch rulesets require one approving review, dismiss stale
-approvals, require approval of the last push, and have no bypass actors. An
-exception note does not waive that gate or authorize an author or maintainer to
-merge without the required review. If the normal reviewer path is unavailable,
-hold the merge until an independent reviewer is available. For a historical or
-separately approved incident exception that already merged outside the gate,
-attach the exception to the pull request and release record so an auditor can
-distinguish it from an unreviewed change. A release review does not
-retroactively turn an old pull request into an independently approved pull
-request; historical exceptions remain identified as exceptions.
+The linked repositories enforce the review gate through their GitHub branch
+protection configuration; the live settings and their Vanta evidence are
+recorded in [issue #15527](https://github.com/manaflow-ai/cmux/issues/15527).
+This document describes the process and does not define or override those
+repository settings. An exception note does not waive the gate or authorize an
+author or maintainer to merge without the required review. If the normal
+reviewer path is unavailable, hold the merge until an independent reviewer is
+available. For a historical or separately approved incident exception that
+already merged outside the gate, attach the exception to the pull request and
+release record so an auditor can distinguish it from an unreviewed change. A
+release review does not retroactively turn an old pull request into an
+independently approved pull request; historical exceptions remain identified as
+exceptions.
 
 This document describes the engineering change-management process. It is
 operational evidence for the applicable compliance controls and is not a claim

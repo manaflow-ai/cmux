@@ -33,7 +33,8 @@ For UI or behavior changes, include a short demo video or screenshots (GitHub up
 ## Checklist
 
 - [ ] Behavior changes have added or updated tests, or Testing says why not
-- [ ] An independent reviewer will approve this pull request before merge, or the Summary/Testing section records the specific exception, approver, reason, and compensating verification or release-review evidence
+- [ ] An independent reviewer will approve this pull request before merge
+- [ ] If this pull request documents a historical or incident exception, the Summary/Testing section records the specific exception, approver, reason, and compensating verification or release-review evidence; that record does not replace the required approval
 - [ ] UI, settings, menu, schema, help-text or user-facing docs change: [localization audited](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-localization/SKILL.md), and the result is stated above
 - [ ] New or changed v2 socket method allowlisted for `cmux ssh`: the [relay authorization questions](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-socket-policy/references/remote-relay-authorization.md) are answered above
 - [ ] iOS connectivity, auth, lifecycle, workspace action, terminal I/O or mobile RPC contract change: [deterministic soak coverage](https://github.com/manaflow-ai/cmux/blob/main/docs/ios-connectivity-soak.md) updated, or explained why existing coverage still applies, with the affected workload result recorded
