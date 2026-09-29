@@ -13,7 +13,7 @@ struct CloudSystemVPNTaskTimeout: Sendable {
         let race = Race()
         let cancellation = Cancellation<T>()
         let stream = AsyncThrowingStream<T, any Error> { continuation in
-            cancellation.install(continuation, race: race)
+            Task { await cancellation.install(continuation, race: race) }
             let valueTask = Task {
                 do {
                     let value = try await task.value
@@ -50,7 +50,7 @@ struct CloudSystemVPNTaskTimeout: Sendable {
             }
             throw Failure.timedOut
         }, onCancel: {
-            cancellation.cancel(race: race)
+            Task { await cancellation.cancel(race: race) }
         })
     }
 
@@ -64,8 +64,7 @@ struct CloudSystemVPNTaskTimeout: Sendable {
         }
     }
 
-    private final class Cancellation<T: Sendable>: @unchecked Sendable {
-        private let lock = NSLock()
+    private actor Cancellation<T: Sendable> {
         private var continuation: AsyncThrowingStream<T, any Error>.Continuation?
         private var isCancelled = false
 
@@ -73,20 +72,14 @@ struct CloudSystemVPNTaskTimeout: Sendable {
             _ continuation: AsyncThrowingStream<T, any Error>.Continuation,
             race: Race
         ) {
-            let shouldCancel = lock.withLock {
-                self.continuation = continuation
-                return isCancelled
-            }
-            if shouldCancel {
+            self.continuation = continuation
+            if isCancelled {
                 finishCancellation(continuation, race: race)
             }
         }
 
         func cancel(race: Race) {
-            let continuation = lock.withLock {
-                isCancelled = true
-                return self.continuation
-            }
+            isCancelled = true
             guard let continuation else { return }
             finishCancellation(continuation, race: race)
         }
