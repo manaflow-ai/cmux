@@ -57,7 +57,11 @@ public struct TerminalOpenURLFileRoutingPolicy: Sendable {
         guard !firstComponent.contains(".") else { return false }
         guard !firstComponent.contains(":") else { return false }
         guard !firstComponent.contains("@") else { return false }
-        return true
+        let separatorCount = trimmed.reduce(into: 0) { count, character in
+            if character == "/" { count += 1 }
+        }
+        let hasFileExtension = URL(fileURLWithPath: trimmed).pathExtension.isEmpty == false
+        return hasFileExtension || separatorCount >= 2
     }
 
     /// Returns whether the trimmed raw callback value contains a non-empty URL

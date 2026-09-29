@@ -135,7 +135,7 @@ public struct TerminalHoverIndicatorState: Sendable, Equatable {
                 guard ownedEvent <= event else { return }
                 displayedOwner = .native(hoverEventID: event)
                 displayedURL = url
-            } else if ownedEvent == event {
+            } else if ownedEvent <= event {
                 displayedOwner = .none
                 displayedURL = nil
             }

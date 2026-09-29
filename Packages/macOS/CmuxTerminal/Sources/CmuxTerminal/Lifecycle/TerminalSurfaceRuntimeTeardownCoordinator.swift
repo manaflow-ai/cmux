@@ -477,6 +477,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                 // envelope before returning so it cannot leak userdata or
                 // leave its ticket waiting forever.
                 assert(false, "duplicate teardown request for the same runtime lifetime \(lifetimeID)")
+                if let isolatedHibernationReservation {
+                    await isolatedHibernationAdmission.release(isolatedHibernationReservation)
+                }
                 await finishFree(request)
                 return
             }

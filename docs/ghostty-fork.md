@@ -539,10 +539,11 @@ and matched SHA-256
 - Current cmux Ghostty submodule pin and artifact commit:
   - `f76c132e5` (descends from the atomic-paste patch and retains the
     `11aa609d7` VT stream-boundary API required by current cmux TUI code)
-  - On this branch the submodule is temporarily pinned past it, to
-    `4510277d8`, which merges `f76c132e5` in — see "Current pin (temporary,
-    pending PR #197)" above. `f76c132e5` remains the artifact/checksum commit
-    until PR #197 merges and a new hosted build is published.
+  - On this branch the submodule is temporarily pinned at
+    `90d78440f893be35903a71976448d7f0bddddf6e`; see "ExternalHover integration
+    with current main" above for the matching artifact and checksum. That pin
+    carries the `f76c132e5` paste fix until the fork's follow-up integration
+    work is published.
 - Files:
   - `src/input/paste.zig`
   - `src/Surface.zig`

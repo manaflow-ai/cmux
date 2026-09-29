@@ -179,17 +179,17 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
         lifetimeToken = newToken
         lifetimeLock.unlock()
         if didRetire { invalidateLifetime(oldToken) }
+        // A replacement generation must clear any projection that was
+        // displayed by the retired token, even when that token had no owner
+        // mutation of its own. Queue this after publishing the new token so
+        // the projection guard accepts it and rejects all old queued work.
+        enqueueProjection(atRevision: 0, lifetimeToken: newToken)
         return newToken
     }
 
     /// Permanently retires the current generation.
     public func retireLifetime() {
-        lifetimeLock.lock()
-        let token = lifetimeToken
-        let didRetire = token.retire()
-        releaseAllDiagnosticsDemand()
-        lifetimeLock.unlock()
-        if didRetire { invalidateLifetime(token) }
+        teardown()
     }
 
     /// Read-only snapshot for tests and diagnostics; takes the lock briefly.
@@ -360,8 +360,17 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     /// - `active == false`: always `true` (idempotent per final-spec —
     ///   the postcondition "`token` is not owner" holds either way).
     @discardableResult
-    public func receiveTransition(token: HoverActivationTokenValue, active: Bool) -> Bool {
-        let lifetime = currentLifetimeToken
+    public func receiveTransition(
+        token: HoverActivationTokenValue,
+        active: Bool,
+        lifetimeToken: ExternalHoverSurfaceLifetimeToken? = nil
+    ) -> Bool {
+        // Callers that also need to route a follow-up acknowledgement to the
+        // work service pass the token captured at callback entry. This keeps
+        // the transition and its lifetime ID paired if a replacement races
+        // the callback; ordinary callers can continue to use the current
+        // generation by omitting it.
+        let lifetime = lifetimeToken ?? currentLifetimeToken
         if active {
             let outcome = acceptPendingIfTokenMatches(token, lifetimeToken: lifetime)
             if let revision = outcome.revision {

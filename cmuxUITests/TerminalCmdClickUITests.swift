@@ -251,10 +251,6 @@ final class TerminalCmdClickUITests: XCTestCase {
             openedURLs.contains(expectedURL),
             "Expected stationary OSC 8 cmd-click to open \(expectedURL). opened=\(openedURLs)"
         )
-        XCTAssertTrue(
-            waitForOpenCountToStay(1, timeout: 1.0, path: openURLCapturePath),
-            "Expected exactly one OSC 8 open throughout the stability window. opened=\(loadCapturedOpenPaths(path: openURLCapturePath))"
-        )
     }
 
     func testStationaryCmdClickPlainURLWithMouseReportingOpensURL() throws {
@@ -653,10 +649,6 @@ final class TerminalCmdClickUITests: XCTestCase {
             1,
             "Expected the hard-wrapped path to open exactly once. opened=\(openedPaths)"
         )
-        guard waitForOpenCountToStay(1, timeout: 1.0) else {
-            XCTFail("Expected exactly one wrapped-path open throughout the stability window. opened=\(loadCapturedOpenPaths())")
-            return
-        }
         XCTAssertTrue(
             openedPaths.contains(expectedResolvedPath),
             "Expected the joined path to open. opened=\(openedPaths) expected=\(expectedResolvedPath)"
@@ -1260,7 +1252,8 @@ final class TerminalCmdClickUITests: XCTestCase {
         var result: [String: Any]?
         let matched = waitForCondition(timeout: timeout) {
             guard let payload = self.loadWrapSetupData(),
-                  payload["lastCommandId"] as? String == commandID else {
+                  payload["lastCommandId"] as? String == commandID,
+                  payload["lastCommandRoutingCompleted"] as? String == "1" else {
                 return false
             }
             result = payload
@@ -1392,7 +1385,8 @@ final class TerminalCmdClickUITests: XCTestCase {
         var result: [String: Any]?
         let matched = waitForCondition(timeout: timeout) {
             guard let payload = self.loadSetupData(),
-                  payload["lastCommandId"] as? String == commandID else {
+                  payload["lastCommandId"] as? String == commandID,
+                  payload["lastCommandRoutingCompleted"] as? String == "1" else {
                 return false
             }
             result = payload

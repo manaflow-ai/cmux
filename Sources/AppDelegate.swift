@@ -3386,6 +3386,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 payload["lastCommandError"] = "Unknown command action: \(action)"
             }
 
+            // Written only after the production release path and its
+            // callbacks return; UI tests use this as their completion fence.
+            payload["lastCommandRoutingCompleted"] = "1"
+
             writeState(
                 terminalPanel: terminalPanel,
                 window: window,
@@ -3786,6 +3790,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 payload["lastCommandError"] = "Unknown wrap command action: \(action)"
             }
 
+            payload["lastCommandRoutingCompleted"] = "1"
+
             writeState(ready: true, additionalPayload: payload)
             lastHandledCommandID = commandID
         }
@@ -3845,7 +3851,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // `TMLlaborator` / `y` split), so the fixture path lands
                 // exactly one character past the live column count.
                 let prefixLength = fixtureDirectoryURL.path.count + 1
-                let nameLength = (cols + 1) - prefixLength
+                let fileSuffix = ".txt"
+                let nameLength = (cols + 1) - prefixLength - fileSuffix.count
                 guard nameLength >= 5 else {
                     writeState(
                         ready: false,
@@ -3855,7 +3862,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     cleanup()
                     return
                 }
-                let fileName = String(repeating: "w", count: nameLength) + ".txt"
+                let fileName = String(repeating: "w", count: nameLength) + fileSuffix
                 let fileURL = fixtureDirectoryURL.appendingPathComponent(fileName)
                 do {
                     if !FileManager.default.fileExists(atPath: fileURL.path) {

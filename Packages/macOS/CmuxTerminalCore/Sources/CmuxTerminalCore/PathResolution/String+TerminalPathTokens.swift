@@ -200,13 +200,38 @@ extension String {
         }
         guard bodyStart < characters.count, column >= bodyStart else { return nil }
 
-        let body = String(characters[bodyStart...])
-        if let labelColon = body.firstIndex(of: ":") {
-            let suffixStart = body.index(after: labelColon)
-            let suffix = body[suffixStart...].trimmingCharacters(in: .whitespacesAndNewlines)
-            let suffixOffset = body.distance(from: body.startIndex, to: suffixStart)
-            if !suffix.isEmpty, column >= bodyStart + suffixOffset {
-                return String(suffix)
+        // A run of two or more spaces is the column delimiter in common
+        // `ls`-style output. Keep the candidate scoped to the path field so a
+        // click in a neighboring column cannot resolve the whole row.
+        var bodyEnd = characters.count
+        if bodyStart + 1 < characters.count {
+            for index in bodyStart..<(characters.count - 1)
+            where characters[index] == " " && characters[index + 1] == " " {
+                bodyEnd = index
+                break
+            }
+        }
+        guard column < bodyEnd else { return nil }
+
+        let bodyCharacters = Array(characters[bodyStart..<bodyEnd])
+        let body = String(bodyCharacters)
+        if let labelColon = bodyCharacters.firstIndex(of: ":") {
+            let prefix = bodyCharacters[..<labelColon]
+            let suffixStart = bodyCharacters.index(after: labelColon)
+            let suffix = String(bodyCharacters[suffixStart...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let suffixLooksLikePath = suffix.hasPrefix("/")
+                || suffix.hasPrefix("./")
+                || suffix.hasPrefix("../")
+                || suffix.hasPrefix("~/")
+            let colonFollowedByWhitespace = suffixStart < bodyCharacters.endIndex
+                && bodyCharacters[suffixStart].isWhitespace
+            if !prefix.contains(where: \.isWhitespace),
+               !suffix.isEmpty,
+               (colonFollowedByWhitespace || suffixLooksLikePath) {
+                let suffixOffset = bodyCharacters.distance(from: bodyCharacters.startIndex, to: suffixStart)
+                guard column >= bodyStart + suffixOffset else { return nil }
+                return suffix
             }
         }
         return body

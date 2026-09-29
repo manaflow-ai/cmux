@@ -3532,14 +3532,16 @@ class GhosttyApp {
                     hoverAction.token_bits.3
                 )
             )
+            let lifetimeToken = surfaceView.externalHoverOwnerCoordinator.currentLifetimeToken
             let committed = surfaceView.externalHoverOwnerCoordinator.receiveTransition(
                 token: token,
-                active: hoverAction.active
+                active: hoverAction.active,
+                lifetimeToken: lifetimeToken
             )
-            if !hoverAction.active, let terminalSurface = surfaceView.terminalSurface {
+            if !hoverAction.active {
                 let lifetimeID = RuntimeSurfaceLifetimeID(
-                    surfaceID: terminalSurface.id,
-                    runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
+                    surfaceID: lifetimeToken.surfaceID,
+                    runtimeSurfaceGeneration: lifetimeToken.runtimeSurfaceGeneration
                 )
                 Task { await GhosttyApp.externalHoverWorkService.noteExternalInactive(lifetimeID: lifetimeID, token: token) }
             }
@@ -3547,13 +3549,6 @@ class GhosttyApp {
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
-            // cmux fork: (B) ExternalHover — a scroll changes which
-            // physical rows the cached candidate's `topRow`/`rowCount`
-            // window actually names, so it must be withdrawn rather than
-            // re-presented against the new offset.
-            DispatchQueue.main.async {
-                surfaceView.clearExternalHoverCandidate(reason: "scroll")
-            }
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
@@ -4149,6 +4144,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // No runtime means the callback has no trustworthy row-space
             // identity. Drop it rather than moving AppKit to stale geometry.
             return
+        }
+        let didChangeViewport = scrollbar?.offset != authoritativeScrollbar.offset
+            || scrollbar?.len != authoritativeScrollbar.len
+        if didChangeViewport {
+            // A changed row-space viewport invalidates the cached candidate's
+            // physical-row window. Equal packets are harmless redraws and do
+            // not need to trigger a withdrawal.
+            clearExternalHoverCandidate(reason: "scroll")
         }
         publishScrollbarUpdate(authoritativeScrollbar)
     }
@@ -8845,6 +8848,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // same file.
     fileprivate func clearExternalHoverCandidate(reason: String) {
         guard let surface, let terminalSurface else { return }
+        let mailbox = externalHoverOwnerCoordinator.currentMailbox
+        let hasDisplayedExternalOwner: Bool = {
+            if case .external = hoverIndicatorState.displayedOwner { return true }
+            return false
+        }()
+        guard mailbox.pending != nil || mailbox.acceptedOwner != nil || hasDisplayedExternalOwner else {
+            return
+        }
         let lifetimeID = RuntimeSurfaceLifetimeID(
             surfaceID: terminalSurface.id,
             runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
@@ -9294,7 +9305,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // first, then let release-time word resolution route it through the
         // same cmux/editor policy. Explicit URLs and unrelated callbacks keep
         // the normal link coordinator path.
-        if !hasScheme,
+        if commandClickReleaseRoutingActive,
+           !hasScheme,
            TerminalOpenURLFileRoutingPolicy().isLikelyLocalPathReference(urlString) {
             if case .prepared(let candidate) = pendingCommandClickContext {
                 pendingCommandClickContext = .overridePending(candidate)
