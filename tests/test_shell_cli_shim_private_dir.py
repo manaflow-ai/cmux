@@ -127,7 +127,9 @@ class Case:
         self.wrapper = base / "bundle/Resources/bin/cmux-claude-wrapper"
         write_script(self.wrapper, "wrapper")
         self.markers = base / "markers"
-        self.parent = self.tmp / "cmux-cli-shims"
+        self.state = self.home / ".cmuxterm"
+        self.state.mkdir(mode=0o700)
+        self.parent = self.state / "cmux-cli-shims"
         self.root = self.parent / SURFACE_ID
         self.env = {
             key: value for key, value in os.environ.items() if not key.startswith("CMUX_")
