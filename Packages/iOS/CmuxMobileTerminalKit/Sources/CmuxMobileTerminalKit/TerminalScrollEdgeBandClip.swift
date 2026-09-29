@@ -1,40 +1,45 @@
 public import CoreGraphics
 
-/// Which part of the renderer layer shows, given its top scroll-edge band.
+/// Which part of the renderer layer shows, given its scroll-edge bands.
 ///
-/// The drawable extends above the grid by the top band, which libghostty
-/// fills with the scrollback rows just above the viewport so they dissolve
-/// under the navigation bar. That only works while the grid's top row is at
-/// or above the viewport's top edge. When the displayed grid starts lower (a
-/// shared grid scaled to fit, or a letterbox), the band would render
-/// scrollback in the unused viewport area above the grid, where the sizing
-/// chrome draws its hatch and chip. The band is hidden then.
+/// The drawable extends above the grid by the top band and below it by the
+/// bottom band, which libghostty fills with the scrollback rows just outside
+/// the viewport so they dissolve under the navigation bar and the dock. That
+/// only works while the grid's edge is at or past the matching viewport
+/// edge. When the displayed grid ends inside the viewport (a shared grid
+/// shorter than the phone, top-pinned with its slack below; or one scaled to
+/// fit), a band would render rows in the unused viewport area where the
+/// sizing chrome draws its hatch and chip. That band is hidden then.
 public enum TerminalScrollEdgeBandClip {
     /// The layer-local rect of the renderer layer to show, or `nil` to show
     /// all of it.
     /// - Parameters:
     ///   - layerSize: The renderer layer's bounds size (unscaled points).
     ///   - topInset: The top band's height in the same unscaled points.
+    ///   - bottomInset: The bottom band's height in the same unscaled points.
     ///   - gridDisplayRect: Where the grid displays, in view coordinates.
     ///   - viewportRect: The visible terminal area, in view coordinates.
-    /// - Returns: Everything from the grid's top row down, or `nil`.
+    /// - Returns: The layer without each band whose grid edge sits inside
+    ///   the viewport, or `nil` when both bands show.
     public static func visibleLayerRect(
         layerSize: CGSize,
         topInset: CGFloat,
+        bottomInset: CGFloat,
         gridDisplayRect: CGRect,
         viewportRect: CGRect
     ) -> CGRect? {
         let tolerance: CGFloat = 0.5
-        guard topInset > 0,
-              !gridDisplayRect.isEmpty,
-              gridDisplayRect.minY > viewportRect.minY + tolerance else {
-            return nil
-        }
+        guard !gridDisplayRect.isEmpty else { return nil }
+        let hidesTop = topInset > 0 && gridDisplayRect.minY > viewportRect.minY + tolerance
+        let hidesBottom = bottomInset > 0 && gridDisplayRect.maxY < viewportRect.maxY - tolerance
+        guard hidesTop || hidesBottom else { return nil }
+        let top = hidesTop ? topInset : 0
+        let bottom = hidesBottom ? bottomInset : 0
         return CGRect(
             x: 0,
-            y: topInset,
+            y: top,
             width: layerSize.width,
-            height: max(0, layerSize.height - topInset)
+            height: max(0, layerSize.height - top - bottom)
         )
     }
 }

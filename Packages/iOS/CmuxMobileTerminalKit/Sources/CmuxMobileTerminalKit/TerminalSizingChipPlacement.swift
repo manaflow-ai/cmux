@@ -4,9 +4,11 @@ public import CoreGraphics
 ///
 /// The chip must never cover grid content, and above all never the last row,
 /// where the prompt and the cursor live. It goes in the letterbox outside the
-/// displayed grid, trying in order: below the grid's trailing corner, beside
-/// its last rows, then above its trailing corner (a bottom-pinned grid leaves
-/// its slack above). When the grid fills the viewport there is no letterbox,
+/// displayed grid, trying in order: below the grid's trailing corner (a
+/// top-pinned grid leaves its slack below), beside its last rows, then above
+/// its trailing corner (a grid the keyboard slid up can leave room only
+/// there). The viewport passed in ends at the dock, so the chip is never
+/// placed under the keyboard. When the grid fills the viewport there is no letterbox,
 /// so the chip shrinks to a compact pill at the viewport's top-trailing
 /// corner, away from the last row.
 public struct TerminalSizingChipPlacement: Equatable, Sendable {

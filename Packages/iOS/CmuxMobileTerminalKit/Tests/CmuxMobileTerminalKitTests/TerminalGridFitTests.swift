@@ -159,7 +159,7 @@ import Testing
     /// within the magnified grid without leaving a gap.
     @Test func zoomKeepsTheFocusPointAndPanClamps() {
         let base = TerminalScaledGridLayout(gridSize: CGSize(width: 1260, height: 1060.8), viewport: viewport)
-        let focus = CGPoint(x: 200, y: 600)
+        let focus = CGPoint(x: 200, y: 200) // inside the top-pinned grid
         let gridX = (focus.x - base.displayRect.minX) / base.displayScale
         let gridY = (focus.y - base.displayRect.minY) / base.displayScale
 

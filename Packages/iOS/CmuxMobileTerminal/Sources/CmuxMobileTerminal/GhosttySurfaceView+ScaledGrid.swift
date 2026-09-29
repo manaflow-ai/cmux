@@ -24,11 +24,14 @@ extension GhosttySurfaceView {
 
     /// Where the grid displays for `snapshot`, updating the display scale
     /// and the clamped pinch state. Outside the scaled mode this is the
-    /// bottom-pinned letterbox rect for `renderSize`.
+    /// letterbox rect for `renderSize` (top-pinned when a row or more short).
     func resolveGridRenderRect(for snapshot: TerminalViewportSnapshot, renderSize: CGSize) -> CGRect {
         guard let layout = scaledGridLayout(in: snapshot.layoutViewportRect) else {
             gridDisplayScale = 1
-            return snapshot.renderRect(forRenderSize: renderSize)
+            return snapshot.renderRect(
+                forRenderSize: renderSize,
+                cellHeight: cellPixelSize.height / max(preferredScreenScale, 1)
+            )
         }
         scaledGridMagnification = layout.magnification
         scaledGridOffset = layout.offset

@@ -255,6 +255,23 @@ final class GhosttySurfaceSharedSizingLayers {
 }
 
 extension GhosttySurfaceView {
+    /// The part of `viewportRect` the dock leaves visible while the keyboard
+    /// is up (`TerminalKeyboardViewport`), in surface coordinates. The whole
+    /// viewport with the keyboard down, and on an alternate screen whose
+    /// grid already resized for the keyboard.
+    func sizingChromeViewportRect(for viewportRect: CGRect) -> CGRect {
+        guard !hostedAlternateScreenGridSizedForKeyboard else { return viewportRect }
+        let inset = safeAreaInsetsBottom
+        let intrusion = hostedBottomReservation(keyboardHeight: hostedKeyboardHeight, bottomSafeAreaInset: inset)
+            - hostedBottomReservation(keyboardHeight: 0, bottomSafeAreaInset: inset)
+        return TerminalKeyboardViewport(
+            viewportRect: viewportRect,
+            intrusion: intrusion,
+            blankBelowContent: hostedBlankBelowContent,
+            scrollTopReveal: hostedScrollTopReveal
+        ).visibleRect
+    }
+
     /// Redraws the shared-sizing layers from the current decoration and the
     /// last letterbox geometry. Hides them unless the mismatch is settled
     /// (`TerminalSizingChromeGate`).
@@ -276,7 +293,10 @@ extension GhosttySurfaceView {
             layers = GhosttySurfaceSharedSizingLayers(host: layer)
             sharedSizingLayers = layers
         }
-        let geometry = decoration.geometry(viewportRect: viewportRect, renderRect: lastRenderRect)
+        // The chrome lives in the part of the viewport the dock leaves
+        // visible, so no border, hatch or chip draws under the keyboard.
+        let chromeViewport = sizingChromeViewportRect(for: viewportRect)
+        let geometry = decoration.geometry(viewportRect: chromeViewport, renderRect: lastRenderRect)
         layers.apply(
             geometry: geometry,
             grey: GhosttySurfaceSharedSizingLayers.grey.resolvedColor(with: traitCollection),
@@ -287,7 +307,7 @@ extension GhosttySurfaceView {
             sharedSizingChip,
             in: self,
             gridRect: geometry.borderRect,
-            viewportRect: viewportRect,
+            viewportRect: chromeViewport,
             onTap: { [weak self] in self?.onSharedSizingChipTap?() }
         )
     }

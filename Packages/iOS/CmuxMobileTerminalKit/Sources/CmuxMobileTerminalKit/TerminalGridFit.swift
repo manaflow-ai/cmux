@@ -128,14 +128,14 @@ extension TerminalGridFit {
 /// Where a grid larger than the phone is displayed.
 ///
 /// At magnification 1 the grid is scaled so its width matches the viewport
-/// width (never enlarged past 1:1), keeping aspect. It is left-aligned and
-/// bottom-pinned like the letterbox, so the newest rows ride the dock and any
-/// vertical slack shows above the grid. A pinch magnifies around the pinch
-/// point up to 1:1, and `offset` pans the magnified grid. `offset` is the
-/// distance scrolled from the default anchor: `x` from the left edge toward
-/// the right, `y` from the bottom edge toward the top. Both are clamped so
-/// the grid never leaves an empty gap inside the viewport on an axis it
-/// overflows.
+/// width (never enlarged past 1:1), keeping aspect. It is left-aligned. A
+/// grid shorter than the viewport is top-pinned like the letterbox, with the
+/// vertical slack below it; a taller one is bottom-pinned so the newest rows
+/// ride the dock. A pinch magnifies around the pinch point up to 1:1, and
+/// `offset` pans the magnified grid. `offset` is the distance scrolled from
+/// the default anchor: `x` from the left edge toward the right, `y` from the
+/// bottom edge toward the top. Both are clamped so the grid never leaves an
+/// empty gap inside the viewport on an axis it overflows.
 public struct TerminalScaledGridLayout: Equatable, Sendable {
     /// The largest display scale: 1:1 with the rendered pixels. Zooming past
     /// it would only blur the text.
@@ -199,9 +199,13 @@ public struct TerminalScaledGridLayout: Equatable, Sendable {
             y: offset.y.isFinite ? min(max(0, offset.y), maxY) : 0
         )
         self.offset = clamped
+        // Shorter than the viewport: top-pinned (the pan offset is 0 then).
+        let originY = displayed.height < viewport.height
+            ? viewport.minY
+            : viewport.maxY - displayed.height + clamped.y
         displayRect = CGRect(
             x: viewport.minX - clamped.x,
-            y: viewport.maxY - displayed.height + clamped.y,
+            y: originY,
             width: displayed.width,
             height: displayed.height
         )

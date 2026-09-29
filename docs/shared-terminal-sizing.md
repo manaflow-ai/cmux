@@ -132,7 +132,9 @@ Every viewer whose viewport differs from the grid draws, from the size state
 (a viewer whose viewport equals the grid draws none of it, even while others
 are attached):
 
-- a 1 pt border around the grid in the separator grey (below);
+- a 1 pt border in the separator grey (below) on each side of the grid that
+  faces unused space. A side flush with the viewport edge gets no line, because
+  the tab bar, navigation bar or pane edge already draws one there;
 - a faint hatch outside the grid, so empty space never reads as blank output;
 - one small chip outside the grid's bottom-right corner,
   `118×38 · Maya's Mac` (plus `· 12 cols hidden` when the viewer is smaller),
@@ -141,6 +143,13 @@ are attached):
   the grid fills the viewport it shrinks to `118×38` at the viewport's
   top-trailing corner;
 - when the viewer is smaller, a short fade on the cut edge;
+- on the iPhone, a grid at least one row shorter than the viewport pins to the
+  top, with the unused space below it. With the keyboard up the grid stays put
+  while its content fits above the keyboard, and otherwise slides up only far
+  enough to keep the cursor row visible. The chrome draws only above the
+  keyboard. Keyboard toggles never change the phone's reported viewport in a
+  shared-sizing session, on the alternate screen too, so they never resize
+  other devices' grids;
 - on each change, the border animates to the new grid. There is no HUD.
 
 The sizing UI uses one grey, the one every other border in the app uses. On

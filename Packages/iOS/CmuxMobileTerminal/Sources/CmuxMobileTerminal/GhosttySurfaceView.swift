@@ -727,6 +727,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Re-evaluates the bounds chrome when a viewport report starts or
     /// settles; the gate reads `viewportReportPending`.
     private func viewportReportPendingChanged() {
+        refreshSizingChrome()
+    }
+
+    /// Redraws the letterbox border or the shared-sizing chrome from the last
+    /// render and viewport: after a viewport report settles, and whenever the
+    /// keyboard or the content above it moves the part of the viewport the
+    /// dock leaves visible.
+    func refreshSizingChrome() {
         guard let viewportRect = lastLetterboxViewportRect, !lastRenderRect.isEmpty else { return }
         updateLetterboxBorder(
             renderRect: lastRenderRect,
@@ -762,6 +770,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var sharedSizingDecoration: TerminalSizingBoundsDecoration? {
         didSet {
             guard sharedSizingDecoration != oldValue else { return }
+            if (sharedSizingDecoration == nil) != (oldValue == nil), hostedAltScreenActive {
+                alternateScreenSizingModeChanged()
+                bottomDockHostView?.setNeedsLayout()
+            }
             refreshSharedSizingLayers()
         }
     }
@@ -1326,15 +1338,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var useLegacyTerminalSizing = false {
         didSet {
             guard useLegacyTerminalSizing != oldValue else { return }
-            if useLegacyTerminalSizing {
-                committedKeyboardHeight = 0
-            } else if !keyboardTransitionActiveForGeometry {
-                committedKeyboardHeight = max(0, keyboardHeight)
-            }
-            clearHostedScrollTopReveal()
-            resetAlternateScreenGeometryFence()
-            layoutRenderedTerminalForCurrentViewport()
-            setNeedsGeometrySync()
+            alternateScreenSizingModeChanged()
         }
     }
     /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
@@ -1400,6 +1404,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         keyboardHeight = nextHeight
         layoutBottomDock(using: viewportSnapshot())
+        refreshSizingChrome()
         if keyboardTransitionActiveForGeometry, alternateScreenSizingEnabled {
             prepareHostedKeyboardGeometryTarget()
         } else if !keyboardTransitionActiveForGeometry {
@@ -1602,7 +1607,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @discardableResult
     private func commitHostedKeyboardGeometryIfNeeded() -> Bool {
-        let next = hostedAltScreenActive && !useLegacyTerminalSizing
+        let next = alternateScreenSizingEnabled
             ? max(0, keyboardHeight)
             : 0
         guard abs(next - committedKeyboardHeight) > 0.25 else { return false }
@@ -1814,21 +1819,39 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var hostedAltScreenActive = false {
         didSet {
             guard hostedAltScreenActive != oldValue else { return }
-            if !hostedAltScreenActive || useLegacyTerminalSizing {
-                committedKeyboardHeight = 0
-            } else if !keyboardTransitionActiveForGeometry {
-                committedKeyboardHeight = max(0, keyboardHeight)
-            }
-            clearHostedScrollTopReveal()
-            resetAlternateScreenGeometryFence()
-            layoutRenderedTerminalForCurrentViewport()
-            setNeedsGeometrySync()
+            alternateScreenSizingModeChanged()
             bottomDockHostView?.setNeedsLayout()
         }
     }
 
+    /// Whether a keyboard toggle resizes the alternate-screen grid. Not in
+    /// a shared-sizing session: this phone's viewport counts toward the
+    /// shared grid there ("Fit everyone" takes the minimum), so a
+    /// keyboard-sized report would shrink and regrow every other device's
+    /// grid on each toggle. The keyboard slide keeps the cursor row visible
+    /// instead, as on the primary screen.
     private var alternateScreenSizingEnabled: Bool {
-        hostedAltScreenActive && !useLegacyTerminalSizing
+        hostedAltScreenActive && !useLegacyTerminalSizing && sharedSizingDecoration == nil
+    }
+
+    /// Whether the alternate-screen grid itself resized for the keyboard, so
+    /// the viewport already ends at the dock.
+    var hostedAlternateScreenGridSizedForKeyboard: Bool {
+        alternateScreenSizingEnabled
+    }
+
+    /// Re-seats the keyboard geometry after `alternateScreenSizingEnabled`
+    /// flips, exactly as a screen or sizing-mode switch does.
+    private func alternateScreenSizingModeChanged() {
+        if !alternateScreenSizingEnabled {
+            committedKeyboardHeight = 0
+        } else if !keyboardTransitionActiveForGeometry {
+            committedKeyboardHeight = max(0, keyboardHeight)
+        }
+        clearHostedScrollTopReveal()
+        resetAlternateScreenGeometryFence()
+        layoutRenderedTerminalForCurrentViewport()
+        setNeedsGeometrySync()
     }
 
     /// Rows of the visible viewport that contain content, measured from the
@@ -1838,8 +1861,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// covering them with the keyboard hid real content.
     var hostedContentBottomRowCount: Int?
 
-    /// Points of blank render below the content bottom, or nil when it
-    /// cannot be trusted (alternate screen, nothing measured yet, no render).
+    /// Points of blank space below the content bottom down to the viewport
+    /// bottom, or nil when it cannot be trusted (alternate screen, nothing
+    /// measured yet, no render).
     /// Content bottom is the LOWER of the last non-blank screen row and the
     /// cursor row (the cursor can sit on a blank line below the last text).
     /// The host lets this blank band absorb the keyboard intrusion before
@@ -1860,7 +1884,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         case (nil, nil): contentBottom = nil
         }
         guard let contentBottom else { return nil }
-        return max(0, lastRenderRect.height - contentBottom * gridDisplayScale)
+        // Includes the letterbox slack under a top-pinned grid, so a short
+        // shared grid stays put while its content fits above the keyboard.
+        return TerminalLetterboxGeometry.blankBelowContent(
+            renderRect: lastRenderRect,
+            viewportRect: lastLetterboxViewportRect ?? terminalViewportRect,
+            contentBottom: contentBottom,
+            displayScale: gridDisplayScale
+        )
     }
 
     /// Schedules an immediate off-main content-bottom measurement, bypassing
@@ -2280,7 +2311,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// always-visible toolbar must clear this much to avoid the home indicator.
     /// The window or captured outer inset owns the reservation: this surface
     /// slides for the keyboard, so its local inset changes with presentation.
-    private var safeAreaInsetsBottom: CGFloat {
+    var safeAreaInsetsBottom: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
             windowInset: window?.safeAreaInsets.bottom,
@@ -4514,7 +4545,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private var preferredScreenScale: CGFloat {
+    var preferredScreenScale: CGFloat {
         if let screen = window?.windowScene?.screen {
             return screen.scale
         }
@@ -6117,7 +6148,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // Like the shared-sizing border: stroke only sides facing letterbox
         // space, never one flush with the viewport edge.
         let path = GhosttySurfaceSharedSizingLayers.borderPath(
-            edges: TerminalSizingBorderEdges(rect: alignedRect, in: viewportRect),
+            edges: TerminalSizingBorderEdges(rect: alignedRect, in: sizingChromeViewportRect(for: viewportRect)),
             around: outline
         )
         border.isHidden = path == nil
@@ -6126,9 +6157,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Hides the top scroll-edge band while the displayed grid starts below
-    /// the viewport's top edge (`TerminalScrollEdgeBandClip`), so scrollback
-    /// never renders in the unused area the sizing chrome hatches.
+    /// Hides each scroll-edge band whose grid edge sits inside the viewport
+    /// (`TerminalScrollEdgeBandClip`), so scrollback never renders in the
+    /// unused area the sizing chrome hatches.
     private func applyScrollEdgeBandClip(
         to renderer: CALayer,
         boundsSize: CGSize,
@@ -6138,6 +6169,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let visible = TerminalScrollEdgeBandClip.visibleLayerRect(
             layerSize: boundsSize,
             topInset: appliedRenderTopInsetPts,
+            bottomInset: appliedRenderBottomInsetPts,
             gridDisplayRect: gridRenderRect,
             viewportRect: viewportRect
         ) else {
