@@ -28,12 +28,39 @@ import Testing
         #expect(resized != nil)
     }
 
-    @Test func disconnectedByForTheMirrorDoesNotTouchPhones() {
+    @Test func disconnectedByForTheMirrorDetachesEveryPhoneBehindIt() throws {
+        var relay = CloudTerminalSizingRelay()
+        relay.attached(selfParticipantID: "c7")
+        _ = relay.phoneReported(clientID: "p1", participant: phone())
+        _ = relay.phoneReported(clientID: "p2", participant: phone())
+        relay.noteHostParticipant("c7/mobile:p1", forView: "mobile:p1")
+        let actor = TerminalDetachActor(userID: "u_kai", displayName: "Kai", deviceName: "MacBook")
+        let routed = relay.routeDetached(reason: .disconnectedBy(actor), view: nil)
+        let route = try #require(routed)
+        guard case let .mirror(reason, phoneClientIDs) = route else {
+            Issue.record("expected the mirror route, got \(route)")
+            return
+        }
+        #expect(reason == .disconnectedBy(actor))
+        #expect(!reason.reconnectsAutomatically)
+        // The phones lost their path to the terminal with this Mac.
+        #expect(phoneClientIDs.sorted() == ["p1", "p2"])
+        #expect(relay.views.isEmpty)
+        #expect(relay.hostParticipantID(clientID: "p1") == nil)
+        #expect(!relay.awaitsHost(clientID: "p1", now: Date()))
+
+        // After the Mac reattaches, a phone that reattaches is relayed anew.
+        relay.attached(selfParticipantID: "c8")
+        let rejoined = relay.phoneReported(clientID: "p1", participant: phone())
+        #expect(rejoined?.view == "mobile:p1")
+        #expect(rejoined?.participant.via == "c8")
+    }
+
+    @Test func aNetworkDropOfTheMirrorKeepsItsPhones() {
         var relay = CloudTerminalSizingRelay()
         _ = relay.phoneReported(clientID: "p1", participant: phone())
-        let route = relay.routeDetached(reason: .disconnectedBy(nil), view: nil)
-        #expect(route == .mirror(.disconnectedBy(nil)))
-        #expect(route.map { if case let .mirror(reason) = $0 { return reason.reconnectsAutomatically } else { return true } } == false)
+        let route = relay.routeDetached(reason: .network, view: nil)
+        #expect(route == .mirror(.network, phoneClientIDs: []))
         #expect(relay.views.count == 1)
     }
 
