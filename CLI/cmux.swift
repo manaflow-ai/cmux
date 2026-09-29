@@ -35619,6 +35619,13 @@ export default CMUXSessionRestore;
                 }
                 return (liveSurfaceTarget.workspaceId, liveSurfaceTarget.surfaceId)
             }
+            // A transcript monitor replay carries the monitor's original
+            // owner only as a lookup hint. Always consult the live owner map
+            // first so a pane move between monitor exit and Stop projection
+            // cannot fall through to the stale persisted workspace.
+            if monitorReplay != nil, let liveSurfaceTarget = tryLiveSurfaceBinding() {
+                return (liveSurfaceTarget.workspaceId, liveSurfaceTarget.surfaceId)
+            }
             if hookWsFlag == nil, explicitSurfaceFlag == nil,
                processBindingResolution().rejectsAmbientClaim {
                 if let liveSurfaceTarget = tryLiveSurfaceBinding() {
