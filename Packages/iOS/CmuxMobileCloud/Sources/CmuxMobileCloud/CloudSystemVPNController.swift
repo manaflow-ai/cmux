@@ -42,6 +42,7 @@ public final class CloudSystemVPNController {
         deviceFingerprint: String,
         credentials: CloudAPITokenSource.TokenContext?
     )?
+    private var browserTunnelGeneration: UInt64?
     private var pendingBrowserTunnelRevocations: [(
         scope: String,
         deviceFingerprint: String,
@@ -344,6 +345,7 @@ public final class CloudSystemVPNController {
                         deviceFingerprint: enrollment.deviceFingerprint,
                         credentials: credentials
                     )
+                    self.browserTunnelGeneration = generation
                 }
                 guard self.isCurrent(generation) else { return }
                 publish(manager.phase == .off ? .connecting : manager.phase)
@@ -414,6 +416,7 @@ public final class CloudSystemVPNController {
         let creationScope = scope
         let creationTeamID = scopeTeamID
         let creationTunnels = browserTunnelsForTeardown()
+        let creationBrowserTunnelGeneration = browserTunnelGeneration
         return { accessToken, refreshToken in
             await controller.waitForPendingOperationAndGate()
             var enrolled = creationTunnels.filter { tunnel in
@@ -435,17 +438,17 @@ public final class CloudSystemVPNController {
                 }
                 return
             }
-            for tunnel in enrolled {
-                await controller.revokeForServerTeardown(
-                    tunnel,
-                    fallbackCredentials: CloudAPITokenSource.TokenContext(
-                        accessToken: accessToken,
-                        refreshToken: refreshToken,
-                        teamID: creationTeamID
-                    ),
-                    attempts: attempts
-                )
-            }
+            await controller.revokeServerTunnelsSerially(
+                enrolled,
+                expectedScope: creationScope,
+                expectedBrowserTunnelGeneration: creationBrowserTunnelGeneration,
+                fallbackCredentials: CloudAPITokenSource.TokenContext(
+                    accessToken: accessToken,
+                    refreshToken: refreshToken,
+                    teamID: creationTeamID
+                ),
+                attempts: attempts
+            )
         }
     }
 
@@ -768,6 +771,34 @@ public final class CloudSystemVPNController {
         await persistPendingBrowserTunnelRevocation(tunnel)
     }
 
+    private func revokeServerTunnelsSerially(
+        _ tunnels: [(
+            scope: String,
+            deviceFingerprint: String,
+            credentials: CloudAPITokenSource.TokenContext?
+        )],
+        expectedScope: String?,
+        expectedBrowserTunnelGeneration: UInt64?,
+        fallbackCredentials: CloudAPITokenSource.TokenContext,
+        attempts: Int
+    ) async {
+        let operation = operationGate.start { [self] in
+            if let expectedBrowserTunnelGeneration,
+               browserTunnelGeneration != expectedBrowserTunnelGeneration,
+               browserTunnel?.scope == expectedScope {
+                return
+            }
+            for tunnel in tunnels {
+                await revokeForServerTeardown(
+                    tunnel,
+                    fallbackCredentials: fallbackCredentials,
+                    attempts: attempts
+                )
+            }
+        }
+        _ = try? await operation.result.value
+    }
+
     private func revokeEnrollmentIfOwned(
         _ enrollment: CloudTunnelEnrollment,
         scope: String,
@@ -781,16 +812,18 @@ public final class CloudSystemVPNController {
         )
         rememberPendingBrowserTunnelRevocation(tunnel)
         await persistPendingBrowserTunnelRevocation(tunnel)
-        let revoked: Bool
-        do {
-            try await revocationWorker.revoke(
-                deviceFingerprint: enrollment.deviceFingerprint,
-                credentials: credentials
-            )
-            revoked = true
-        } catch {
-            revoked = false
-        }
+        let worker = revocationWorker
+        let revoked = await Task.detached(priority: .utility) {
+            do {
+                try await worker.revoke(
+                    deviceFingerprint: enrollment.deviceFingerprint,
+                    credentials: credentials
+                )
+                return true
+            } catch {
+                return false
+            }
+        }.value
         if !revoked {
             clearPendingBrowserTunnelRevocationCredentials(tunnel)
         }

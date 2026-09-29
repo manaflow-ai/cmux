@@ -202,11 +202,13 @@ import Testing
         rig.manager.report(.off)
         rig.controller.enable()
         await rig.controller.waitForPendingOperation()
-        #expect(rig.service.calls.enroll.count == 2)
+        #expect(rig.service.calls.enroll.count == 1)
 
         await rig.service.releaseHeldRevocation()
         await olderTeardown.value
+        await rig.controller.waitForPendingOperation()
 
+        #expect(rig.service.calls.enroll.count == 2)
         let newerTeardown = rig.controller.serverTeardown()
         await newerTeardown("captured-access", "captured-refresh")
 
@@ -230,8 +232,7 @@ import Testing
 
         await teardown("captured-access", "captured-refresh")
 
-        #expect(rig.service.calls.revoke.count == 1)
-        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(rig.service.calls.revoke.isEmpty)
     }
 
     @Test func signOutWithoutCapturedCredentialsPersistsBrowserRevocation() async {

@@ -100,16 +100,30 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
                     // The first save is what asks the user for VPN consent.
                     try await manager.saveToPreferences()
                     preferencesSaved = true
-                    if let previousReference, previousReference != newReference {
-                        try? keychain.remove(reference: previousReference)
-                    }
                     try Task.checkCancellation()
                     try await manager.loadFromPreferences()
                     try Task.checkCancellation()
                     try manager.connection.startVPNTunnel()
+                    if let previousReference, previousReference != newReference {
+                        try? keychain.remove(reference: previousReference)
+                    }
                     publishStatus()
                 } catch {
-                    if !preferencesSaved {
+                    if preferencesSaved {
+                        // A saved profile with a revoked peer is worse than
+                        // losing the old profile. Remove the persisted item
+                        // and both candidate secrets before surfacing the
+                        // startup failure.
+                        manager.connection.stopVPNTunnel()
+                        manager.isEnabled = false
+                        manager.isOnDemandEnabled = false
+                        try? await manager.removeFromPreferences()
+                        self.manager = nil
+                        try? keychain.remove(reference: newReference)
+                        if let previousReference, previousReference != newReference {
+                            try? keychain.remove(reference: previousReference)
+                        }
+                    } else {
                         manager.protocolConfiguration = previousProtocol
                         try? await manager.saveToPreferences()
                         try? keychain.remove(reference: newReference)
