@@ -83,6 +83,13 @@ import { useFindKeyboard } from "./find/useFindKeyboard";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 
+const statusIconName: Record<DiffFileStatus, IconName> = {
+  added: "diffAdded",
+  modified: "diffModified",
+  deleted: "diffRemoved",
+  renamed: "diffRenamed",
+};
+
 type ConfigProps = {
   config: DiffViewerConfig;
   initialStatus: DiffViewerStatus;
@@ -1911,7 +1918,7 @@ function FilesSidebar({
               aria-pressed={filter.statuses.includes(status)}
               onClick={() => dispatch({ type: "set-file-filter", filter: { statuses: toggleStatusFilter(filter.statuses, status) } })}
             >
-              {statusLabel(status).slice(0, 1)}
+              <Icon name={statusIconName[status]} />
             </button>
           ))}
           <button
@@ -1923,7 +1930,7 @@ function FilesSidebar({
             aria-pressed={filter.hideViewed}
             onClick={() => dispatch({ type: "set-file-filter", filter: { hideViewed: !filter.hideViewed } })}
           >
-            <Icon name="eye" />
+            <Icon name={filter.hideViewed ? "eyeClosed" : "eye"} />
           </button>
         </div>
       </div>
