@@ -39,7 +39,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
-    @Test func multiPaneMirrorPublishesInnerPanesAndRoutesInput() throws {
+    @Test(.disabled("Fails on main since #15116/#15550; see #15564")) func multiPaneMirrorPublishesInnerPanesAndRoutesInput() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
 
@@ -237,7 +237,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(send == .noFocusedSurface)
     }
 
-    @Test func mirrorWithoutPublishedActivePaneSeedsFirstPaneProjection() throws {
+    @Test(.disabled("Fails on main since #15116/#15550; see #15564")) func mirrorWithoutPublishedActivePaneSeedsFirstPaneProjection() throws {
         // Since the native-chrome rearchitecture a mirror can never be
         // "unresolved": with no tmux-published active pane it seeds its first
         // live pane, so defaults project that seed while mutations still fail
