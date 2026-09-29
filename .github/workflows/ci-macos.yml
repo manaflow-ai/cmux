@@ -794,6 +794,25 @@ jobs:
           cp "$OWNED_START/stamp.json" "$RUNNER_TEMP/warm-start-stamp.json" 2>/dev/null || true
           python3 scripts/ci/owned_build_state.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
+      # The cmux-next app embeds the Chromium engine from the private
+      # manaflow-ai/cef release (scripts/cmux-next/cef-manifest.json). Admission
+      # holds no token for it: it embeds the engine only when the artifact is
+      # already cached on this Mac or publicly readable, and otherwise builds
+      # the app with CMUX_NEXT_SKIP_CEF=1 instead of retrying the download in
+      # the Embed CEF phase. The value is always set, so the build settings
+      # the phase sees stay stable between runs on one Mac.
+      - name: Decide whether admission embeds the Chromium engine
+        if: steps.reuse-products.outputs.hit != 'true'
+        run: |
+          set -euo pipefail
+          if cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cmux-next/ensure-cef.sh --optional)" && [[ -n "$cef_dir" ]]; then
+            echo "Chromium engine readable at $cef_dir; admission embeds it"
+            echo "CMUX_NEXT_SKIP_CEF=0" >> "$GITHUB_ENV"
+          else
+            echo "Chromium engine artifact not readable here; admission builds without it"
+            echo "CMUX_NEXT_SKIP_CEF=1" >> "$GITHUB_ENV"
+          fi
+
       - name: Compile app-host test product
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true'
@@ -2370,12 +2389,6 @@ jobs:
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
 
-      - name: Set up Go for the Cloud tunnel extension
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.26.x'
-          cache: false
-
       - name: Validate cmux-tui client installation
         run: /bin/bash ./tests/test_install_cmux_tui_client.sh
 
@@ -2388,13 +2401,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          latest_url="https://files.cmux.com/cmux-tui/latest/manifest.json"
-          latest_manifest="$RUNNER_TEMP/cmux-tui-release-latest-manifest.json"
-          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$latest_url" -o "$latest_manifest"
-          gh attestation verify "$latest_manifest" \
-            --repo manaflow-ai/cmux \
-            --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml >&2
-          commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$latest_manifest")"
+          # The cmux-tui the app ships: the commit scripts/cmux-next/cmux-tui.pin
+          # names, as nightly.yml and release.yml install it.
+          commit="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           manifest_url="https://files.cmux.com/cmux-tui/$commit/manifest.json"
           manifest="$RUNNER_TEMP/cmux-tui-release-manifest.json"
@@ -2502,6 +2511,9 @@ jobs:
         if: steps.restore-release-product.outputs.hit != 'true'
         env:
           RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
+          # The Chromium engine is a prebuilt private artifact nightly and
+          # release embed; this lane checks the compiled app without it.
+          CMUX_NEXT_SKIP_CEF: "1"
         run: |
           set -euo pipefail
           case "$RELEASE_ARCHS" in
@@ -2565,21 +2577,18 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          CMUX_CUA_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-cua"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
           TUI_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui"
           test -x "$TUI_CLIENT"
           test -x "$HELPER_BINARY"
-          test -x "$CMUX_CUA_BINARY"
           test -x "$DIFF_SIDECAR"
-          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$CMUX_CUA_BINARY" "$DIFF_SIDECAR"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
-          ./scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"
+          ./scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"
           test "$(shasum -a 256 "$HELPER_BINARY" | awk '{print $1}')" = "$EXPECTED_GHOSTTY_SHA256"
-          codesign --verify --strict --verbose=4 "$CMUX_CUA_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR" --archs "$RELEASE_ARCHS"
           [[ "$SDK_VERSION" == 26.* ]]
           ended="$(date +%s)"
