@@ -224,6 +224,10 @@ extension MobileHostService {
             "terminal.replay.v1",
             Self.terminalInputOrderedCapability,
             MobileTerminalInputFrame.capability,
+            // Terminal input units carry a per-terminal stream id and
+            // sequence; the host writes each once, in order, only to the
+            // terminal it names, and acknowledges it on the lane or the RPC.
+            MobileTerminalInputDelivery.capability,
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
