@@ -34769,7 +34769,8 @@ export default CMUXSessionRestore;
             telemetry: telemetry,
             socketPassword: socketPassword,
             rawInputOverride: replay.payload,
-            hookDeadline: hookDeadline
+            hookDeadline: hookDeadline,
+            monitorReplay: replay
         )
     }
 
@@ -34783,7 +34784,8 @@ export default CMUXSessionRestore;
         telemetry: CLISocketSentryTelemetry,
         socketPassword: String?,
         rawInputOverride: String?,
-        hookDeadline: Date?
+        hookDeadline: Date?,
+        monitorReplay: CodexTranscriptMonitorStopReplay? = nil
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let skipCodexLegacyPromptStop = env["CMUX_CODEX_SETTLED_CHILD_STOP"] == "1"
@@ -34884,14 +34886,16 @@ export default CMUXSessionRestore;
         let processBindingPolicy: AgentProcessBindingResolution = def.name == "omp" ? .controllingTTY : .corroborated
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag
-            ?? snapshottedRoute?.workspaceId
-            ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
+            ?? (monitorReplay == nil
+                ? snapshottedRoute?.workspaceId
+                    ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
+                : nil)
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let strictPiTarget = def.name == "pi"
             ? try resolveStrictPiHookTarget(commandArgs: hookArgs, client: client)
             : nil
         let directSurfaceArg = explicitSurfaceFlag
-            ?? (hookWsFlag == nil
+            ?? (monitorReplay == nil && hookWsFlag == nil
                 ? snapshottedRoute?.surfaceId
                     ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
                 : nil)
