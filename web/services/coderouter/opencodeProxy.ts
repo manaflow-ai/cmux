@@ -5,6 +5,7 @@ import { isIP } from "node:net";
 import { authenticateRouteToken, selectAccountForRequest } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
+import { createPinnedProviderFetch, type ProviderFetch } from "./pinnedProviderFetch";
 import { captureCoderouterEvent } from "./analytics";
 import {
   addCoderouterBreadcrumb,
@@ -44,7 +45,7 @@ type OpenCodeDependencies = {
   readonly select: typeof selectAccountForRequest;
   readonly credential: typeof freshCredential;
   readonly remoteConfig: (accessToken: string, signal?: AbortSignal) => Promise<Record<string, unknown>>;
-  readonly fetch?: typeof fetch;
+  readonly fetch?: ProviderFetch;
   readonly resolveProviderURL?: typeof resolveProviderURL;
 };
 
@@ -66,7 +67,9 @@ const defaultDependencies: OpenCodeDependencies = {
   select: selectAccountForRequest,
   credential: freshCredential,
   remoteConfig,
-  fetch,
+  // Provider URLs come from a remote catalog. Every connection re-checks its
+  // resolved address and no redirect is followed (see pinnedProviderFetch).
+  fetch: createPinnedProviderFetch({ isUnsafeAddress: unsafeProviderAddress }),
 };
 
 const AUTH_FAILURE_MESSAGES: Record<RouteTokenAuthFailure, string> = {
@@ -391,11 +394,12 @@ export async function proxyOpenCodeRequest(
     );
   }
   try {
-    upstream = await fetchWithHeadersTimeout(dependencies.fetch ?? fetch, target, {
+    upstream = await fetchWithHeadersTimeout(dependencies.fetch ?? defaultDependencies.fetch!, target, {
       method: request.method,
+      redirect: "manual",
       headers,
       body:
-        request.method === "GET" || request.method === "HEAD"
+        bodylessMethod(request.method)
           ? undefined
           : request.body,
       signal: request.signal,
@@ -435,6 +439,13 @@ export async function proxyOpenCodeRequest(
       true,
     );
   }
+  const redirected = await rejectProviderRedirect(upstream, {
+    requestId,
+    identity: auth,
+    startedAt,
+    attempts: resolved.attempts,
+  });
+  if (redirected) return redirected;
   addCoderouterBreadcrumb("request", "Model request completed", {
     provider: "opencode-go",
     status: upstream.status,
@@ -723,9 +734,9 @@ async function resolveProviderURL(
   value: string,
   lookup: ProviderLookup = defaultProviderLookup,
 ): Promise<URL | null> {
-  // Resolve every hostname before proxying it so private answers cannot pass
-  // through the URL parser. The provider catalog is trusted, but this remains
-  // defense-in-depth; the fetch implementation may perform a later lookup.
+  // Early, readable rejection of private answers. This is not the security
+  // boundary: DNS can change before the connection, so the proxy's fetch
+  // re-checks the address it actually connects to (pinnedProviderFetch).
   if (!safeProviderURL(value)) return null;
   const url = new URL(value);
   const hostname = normalizeProviderHostname(url.hostname);
@@ -808,6 +819,40 @@ function mappedIPv4Address(value: string): string | null {
   ].join(".");
 }
 
+function bodylessMethod(method: string): boolean {
+  return method === "GET" || method === "HEAD";
+}
+
+/**
+ * The upstream request carries the team's OpenCode bearer and the caller's
+ * body, so a redirect target would sidestep the provider address policy.
+ * Redirects are never followed; a 3xx ends the request with a 502.
+ */
+async function rejectProviderRedirect(
+  upstream: Response,
+  context: {
+    readonly requestId: string;
+    readonly identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">;
+    readonly startedAt: number;
+    readonly attempts: number;
+  },
+): Promise<Response | null> {
+  if (upstream.status < 300 || upstream.status >= 400) return null;
+  await upstream.body?.cancel().catch(() => undefined);
+  captureOpenCodeHealth({
+    ...context,
+    status: 502,
+    outcome: "invalid_provider",
+    failureStage: "upstream_response",
+  });
+  return apiError(
+    "invalid_provider",
+    "The OpenCode provider answered with a redirect, which coderouter does not follow.",
+    502,
+    false,
+  );
+}
+
 function filteredResponseHeaders(input: Headers): Headers {
   const headers = new Headers({ "cache-control": "no-store" });
   for (const name of ["content-type", "x-request-id"]) {
@@ -840,5 +885,6 @@ export const __test = {
   rewriteProviders,
   safeProviderURL,
   resolveProviderURL,
+  unsafeProviderAddress,
   openCodeAccount,
 };
