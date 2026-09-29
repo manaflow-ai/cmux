@@ -98,7 +98,20 @@ phase launch "$APP"
 write_ci_credentials
 defaults write "com.cmuxterm.app.debug.${TAG_SLUG}" mobile.iOSPairingHost.enabled -bool true
 write_remote_helpers
-open -g "$APP"
+APP_EXECUTABLE="$APP/Contents/MacOS/cmux DEV"
+[[ -x "$APP_EXECUTABLE" ]] || { phase launch "app executable missing: $APP_EXECUTABLE"; exit 1; }
+LAUNCH_LOG="${RUNNER_TEMP:-/tmp}/cmux-e2e-mac-${TAG_SLUG}.log"
+CMUX_TAG="$TAG_SLUG" \
+CMUX_BUNDLE_ID="com.cmuxterm.app.debug.${TAG_SLUG}" \
+CMUX_SOCKET_ENABLE=1 \
+CMUX_SOCKET_MODE=allowAll \
+CMUX_SOCKET_PATH="$SOCKET" \
+CMUXD_UNIX_PATH="$SOCKET" \
+CMUX_API_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
+CMUX_VM_API_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
+CMUX_IROH_BROKER_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
+"$APP_EXECUTABLE" >"$LAUNCH_LOG" 2>&1 &
+APP_PID="$!"
 
 # Bounded readiness wait on the tagged debug socket, then capture the pid the
 # socket belongs to so cleanup never kills another tag's instance.
