@@ -58,24 +58,49 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     // MARK: Workspace
 
     private func observeWorkspace() {
-        let store = services.daemon.store
+        let machines = services.machines
+        let cloud = services.cloud!
         let state = state
         workspaceObservation = Task { [weak self] in
-            for await ids in Observations({ (state.workspaceID, store.workspaces.map(\.id)) }) {
-                self?.showWorkspace(requested: ids.0, available: ids.1)
+            for await _ in Observations({ () -> [String] in
+                // Re-run when the request or any machine's workspace list changes.
+                [state.workspaceID ?? "", state.machineID, String(cloud.hasLoadedMachines)]
+                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
+            }) {
+                self?.showWorkspace(requested: state.workspaceID)
             }
         }
     }
 
-    /// Shows the requested workspace, or the first one when it is gone.
-    private func showWorkspace(requested: String?, available: [String]) {
-        let store = services.daemon.store
-        let id = requested.flatMap { available.contains($0) ? $0 : nil } ?? (store.isLoaded ? available.first : nil)
-        guard let id, let workspace = store.workspaces.first(where: { $0.id == id }) else { return }
-        if state.workspaceID != id { state.workspaceID = id }
+    /// Shows the requested workspace on whichever machine holds it. While
+    /// its Cloud machine is still connecting (relaunch), the window waits
+    /// instead of replacing the request; once that machine is loaded or
+    /// gone, a missing workspace falls back to the first local one.
+    private func showWorkspace(requested: String?) {
+        let machines = services.machines
+        if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
+            show(workspace, on: daemon)
+            return
+        }
+        if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
+        let local = machines.local.store
+        guard local.isLoaded, let workspace = local.workspaces.first else { return }
+        show(workspace, on: machines.local)
+    }
+
+    private func isWaiting(for machineID: String) -> Bool {
+        guard services.cloud.isSignedIn || services.cloud.auth.isRestoring else { return false }
+        guard services.cloud.hasLoadedMachines else { return true }
+        guard let session = services.machines.session(machineID) else { return false }
+        return session.machine.status.isLive && !session.daemon.store.isLoaded
+    }
+
+    private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
+        if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
+        if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return }
         content?.teardown()
-        let controller = WorkspaceContentController(workspace: workspace, services: services, state: state)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         content = controller
         root.show(controller.layoutView)
         titleObservation?.cancel()
@@ -84,6 +109,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         controller.focusCurrentPane()
         services.windows.stateDidChange(state)
+        services.cloudContextDidChange()
     }
 
     var focusedPane: PaneController? { content?.focusedPane }

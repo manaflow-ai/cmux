@@ -26,7 +26,7 @@ struct TerminalHostActionTests {
 
     @Test func ghosttyNewSplitRunsTheRegistrySplitOnItsTab() throws {
         let (services, tab, recorder) = try Self.services(recording: ["splitRight"])
-        let session = services.cache.terminal(for: tab).session
+        let session = services.cache.terminal(for: tab, daemon: services.daemon).session
         let handled = session.delegate?.terminalSession(session, perform: .newSplit(.right))
         #expect(handled == true)
         #expect(recorder.runs.map(\.0) == ["splitRight"])
@@ -45,7 +45,7 @@ struct TerminalHostActionTests {
             (.equalizeSplits, "equalizeSplits"), (.toggleSplitZoom, "toggleSplitZoom"),
         ]
         let (services, tab, recorder) = try Self.services(recording: table.map(\.1))
-        let session = services.cache.terminal(for: tab).session
+        let session = services.cache.terminal(for: tab, daemon: services.daemon).session
         for (action, _) in table {
             #expect(session.delegate?.terminalSession(session, perform: action) == true, "\(action)")
         }
@@ -54,7 +54,7 @@ struct TerminalHostActionTests {
 
     @Test func terminalRightClickSplitsTheClickedTerminal() throws {
         let (services, tab, recorder) = try Self.services(recording: ["splitDown"])
-        let session = services.cache.terminal(for: tab).session
+        let session = services.cache.terminal(for: tab, daemon: services.daemon).session
         let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
         let menu = try #require(session.delegate?.terminalSession(session, contextMenuFor: event))

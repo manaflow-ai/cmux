@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var services: AppServices!
     private var settings: SettingsController?
     private let control = AppControl()
+    private var cloudContext: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -23,7 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         if !environment.noActivate { NSApp.activate() }
         services.daemon.start(launch: environment.launch)
+        cloudContext = services.startCloud()
         services.windows.restoreWhenLoaded()
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
+                                                     forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
 
     /// cmux.json settings (density, shortcut overrides) and the tagged
@@ -38,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await settings.waitForLoad(atLeast: 1)
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+                control.registerCloudMethods(services)
                 if let router = control.service?.router { installCompat(on: router) }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
@@ -65,7 +70,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    /// `<scheme>://auth-callback` from the browser fallback of sign-in.
+    @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URL(string: text) else { return }
+        let cloud = services?.cloud
+        Task { _ = await cloud?.auth.handleCallback(url) }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        cloudContext?.cancel()
+        services?.cloud.stop()
+        for session in services?.machines.cloud ?? [] { session.disconnect() }
         control.stop()
         services?.tabBarButtons.stop()
         settings?.stop()

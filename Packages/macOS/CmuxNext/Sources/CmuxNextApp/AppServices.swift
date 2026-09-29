@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSettings
@@ -10,7 +11,11 @@ import CmuxNextTerminal
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment
+    /// The local daemon. Cloud machines are in `machines`; code acting on a
+    /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
+    let machines: MachineRegistry
+    private(set) var cloud: CloudService!
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
@@ -31,6 +36,8 @@ final class AppServices {
 
     init(environment: AppEnvironment) {
         self.environment = environment
+        machines = MachineRegistry(local: daemon)
+        cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
         cache = TabContentCache(daemon: daemon)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
@@ -54,7 +61,7 @@ final class AppServices {
 
     /// The tab with durable id `id` and the pane that holds it.
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
-        for workspace in daemon.store.workspaces {
+        for (workspace, _) in machines.allWorkspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
                     if let tab = pane.tabs.first(where: { $0.id == id }) { return (tab, pane) }
@@ -65,7 +72,12 @@ final class AppServices {
     }
 
     func workspace(id: String) -> WorkspaceModel? {
-        daemon.store.workspaces.first { $0.id == id }
+        machines.workspace(id: id)?.0
+    }
+
+    /// The daemon that owns `pane`.
+    func daemon(for pane: PaneModel) -> DaemonService {
+        machines.daemon(forPane: pane)
     }
 
     /// Ends a detached tab drag whose move failed: the tab reappears.

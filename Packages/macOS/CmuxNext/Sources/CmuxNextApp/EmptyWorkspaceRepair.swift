@@ -25,8 +25,9 @@ final class EmptyWorkspaceRepair {
 
     init(daemon: DaemonService) {
         create = { [weak daemon] key in
-            guard let connection = daemon?.connection else { throw DaemonError.notConnected }
-            return try await connection.createTerminal(in: key, cwd: NSHomeDirectory()).surface
+            guard let daemon, let connection = daemon.connection else { throw DaemonError.notConnected }
+            let cwd = daemon.defaultCwd
+            return try await connection.createTerminal(in: key, cwd: cwd).surface
         }
         canCreate = { [weak daemon] in
             guard let daemon, daemon.store.isLoaded else { return false }

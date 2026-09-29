@@ -13,12 +13,15 @@ enum TabMoves {
     /// optimistic store patch settled by the transaction echo.
     static func move(_ tab: TabModel, to pane: PaneModel, index: Int, services: AppServices,
                      transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
+        let daemon = services.machines.daemon(forTab: tab)
+        // Workspaces never mix machines: a drop onto another machine's pane is refused.
+        guard services.daemon(for: pane) === daemon else { return completion(false) }
         let surface = tab.surface, target = pane.handle
         let current = pane.tabs.firstIndex { $0.surface == surface }
         let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
-        let echoes = services.daemon.supports(DaemonCapabilities.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
         services.registry.track(Task {
-            let ok = await services.daemon.commit("move-tab", patch: .moveTab(surface: surface, toPane: target, index: index),
+            let ok = await daemon.commit("move-tab", patch: .moveTab(surface: surface, toPane: target, index: index),
                                                    transaction: transaction, expectEcho: echoes) { connection -> Void in
                 _ = try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil)
             } != nil
@@ -30,10 +33,13 @@ enum TabMoves {
     /// New pane on `edge` of `pane` holding the tab.
     static func toNewSplit(_ tab: TabModel, pane: PaneModel, edge: PaneEdge, services: AppServices,
                            transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
+        let daemon = services.machines.daemon(forTab: tab)
+        // Workspaces never mix machines: a drop onto another machine's pane is refused.
+        guard services.daemon(for: pane) === daemon else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = services.daemon.supports(DaemonCapabilities.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
         services.registry.track(Task {
-            let ok = await services.daemon.commit("move-tab-to-split", patch: .custom { _ in }, transaction: transaction,
+            let ok = await daemon.commit("move-tab-to-split", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in
                 do {
                     _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, transaction: echoes ? transaction : nil)
@@ -49,10 +55,13 @@ enum TabMoves {
     /// New niri column after `afterColumn` (nil = right of `anchor`'s column).
     static func toNewColumn(_ tab: TabModel, anchor pane: PaneModel, afterColumn: DaemonColumnID? = nil, services: AppServices,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
+        let daemon = services.machines.daemon(forTab: tab)
+        // Workspaces never mix machines: a drop onto another machine's pane is refused.
+        guard services.daemon(for: pane) === daemon else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = services.daemon.supports(DaemonCapabilities.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
         services.registry.track(Task {
-            let ok = await services.daemon.commit("move-tab-to-column", patch: .custom { _ in }, transaction: transaction,
+            let ok = await daemon.commit("move-tab-to-column", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in
                 do {
                     _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), afterColumn: afterColumn,
@@ -72,10 +81,11 @@ enum TabMoves {
     /// without `tab-drag-v1` create it unplaced; it is then moved into place.
     static func toNewWorkspace(_ tab: TabModel, group: WorkspaceGroupID? = nil, index: Int? = nil, services: AppServices,
                                transaction: ClientTransactionID = .generate()) async -> WorkspaceKey? {
+        let daemon = services.machines.daemon(forTab: tab)
         let surface = tab.surface
-        let echoes = services.daemon.supports(DaemonCapabilities.tabDrag)
-        let before = Set(services.daemon.store.workspaces.compactMap(\.key))
-        let key = await services.daemon.commit("move-tab-to-new-workspace", patch: .custom { _ in }, transaction: transaction,
+        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
+        let before = Set(daemon.store.workspaces.compactMap(\.key))
+        let key = await daemon.commit("move-tab-to-new-workspace", patch: .custom { _ in }, transaction: transaction,
                                                expectEcho: echoes) { connection -> WorkspaceKey? in
             let result = try await connection.moveTabToNewWorkspace(surface, group: group, index: index, transaction: echoes ? transaction : nil)
             let created: WorkspaceKey?
@@ -92,10 +102,12 @@ enum TabMoves {
 
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
+        let daemon = services.machines.daemon(forTab: tab)
+        guard services.machines.daemon(forWorkspace: workspace.id) === daemon else { return completion(false) }
         let surface = tab.surface, handle = workspace.handle
-        let echoes = services.daemon.supports(DaemonCapabilities.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
         services.registry.track(Task {
-            let ok = await services.daemon.commit("move-tab-to-workspace", patch: .custom { _ in }, transaction: transaction,
+            let ok = await daemon.commit("move-tab-to-workspace", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
             } != nil

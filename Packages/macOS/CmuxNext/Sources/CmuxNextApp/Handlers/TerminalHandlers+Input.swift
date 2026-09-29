@@ -82,10 +82,11 @@ extension TerminalHandlers {
     }
 
     private static func send(_ text: String, paste: Bool, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
-        guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+        guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
         let surface = tab.surface
-        ctx.send("send") { try await $0.send(surface, text: text, paste: paste) }
+        // The tab's own machine: a Cloud terminal's input goes over its link.
+        ctx.services.daemon(for: pane).send("send") { try await $0.send(surface, text: text, paste: paste) }
     }
 
     /// Newest file in the macOS screenshot folder (`com.apple.screencapture location`, else Desktop).

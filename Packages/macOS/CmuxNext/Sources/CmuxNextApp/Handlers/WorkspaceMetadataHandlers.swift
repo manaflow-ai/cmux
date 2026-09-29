@@ -11,20 +11,20 @@ import CmuxNextDesign
 /// pin) report the missing daemon capability.
 enum WorkspaceMetadataHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.daemon, run: { invocation in
+        registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.workspaceMetadata)
             let key = try context.workspace(invocation).key
-            context.services.daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, title: .clear) }
+            context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, title: .clear) }
         })
-        registry.bind("palette.workspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.daemon, run: { invocation in
+        registry.bind("palette.workspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
             guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf(GroupColor.allCases.map(\.rawValue).joined(separator: ", ")))
             }
             try setColor(color, invocation, context)
         })
-        registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.daemon, run: { invocation in try setColor(nil, invocation, context) })
+        registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
         for id: ActionID in ["palette.markWorkspaceRead", "clearWorkspaceNotifications"] {
-            registry.bind(id, requires: DaemonCapabilities.notificationAck, daemon: context.services.daemon, run: { invocation in
+            registry.bind(id, requires: DaemonCapabilities.notificationAck, daemon: context.services.activeDaemon, run: { invocation in
                 try acknowledge([try context.workspace(invocation).model], context)
             })
         }
@@ -65,7 +65,7 @@ enum WorkspaceMetadataHandlers {
             sidebar.handle(.setColor([SidebarWorkspaceID(workspace.id)], color))
         } else {
             let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
-            context.services.daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, color: update) }
+            context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, color: update) }
         }
     }
 
@@ -78,7 +78,7 @@ enum WorkspaceMetadataHandlers {
             let unread = tabs.filter(\.hasUnread)
             let surfaces = (unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread).map(\.surface)
             for surface in surfaces {
-                context.services.daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
+                context.services.activeDaemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
             }
         }
     }

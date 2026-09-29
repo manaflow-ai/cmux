@@ -23,11 +23,22 @@ struct MiscActionBindingCoverageTests {
         #expect(unbound.isEmpty, "unbound: \(unbound.map(\.rawValue).sorted())")
     }
 
-    @Test func everyCloudActionIsUnavailableWithTheCloudReason() {
+    /// Signed out (and, in the test host, without a bundled cmux-tui), every
+    /// Cloud action except diagnostics reports a typed Cloud reason; none
+    /// falls back to the generic "no Cloud client" placeholder.
+    @Test func cloudActionsReportTypedReasonsWhenCloudCannotRun() {
         let registry = ActionBindingCoverageTests.boundServices().registry
         let cloud = registry.descriptors.filter { $0.category == .cloud }.map(\.id)
         #expect(!cloud.isEmpty)
-        #expect(cloud.allSatisfy { registry.unavailableReason(for: $0) == MiscHandlerStrings.cloud })
+        let reasons = Dictionary(uniqueKeysWithValues: cloud.map { ($0, registry.unavailableReason(for: $0)) })
+        #expect(reasons["cloudDiagnostics"]! == nil)
+        #expect(reasons.allSatisfy { $0.value != MiscHandlerStrings.cloud })
+        let unported: [ActionID: String] = ["palette.cloud.promoteTemplate": CloudStrings.promoteTemplate, "palette.cloud.tools": CloudStrings.tools,
+                                            "palette.cloud.handoff": CloudStrings.handoff, "palette.mobileConnect": CloudStrings.mobilePairing]
+        for (id, reason) in unported { #expect(reasons[id]! == reason) }
+        for id: ActionID in ["newCloudMachine", "cloudKillMachine", "palette.cloud.status"] {
+            #expect([CloudStrings.noClient, CloudStrings.signInFirst, CloudStrings.localBackend].contains(reasons[id]!))
+        }
     }
 
     @Test func unportedViewerReportsItsReasonOutOfContext() {

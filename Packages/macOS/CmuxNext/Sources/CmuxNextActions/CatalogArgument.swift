@@ -79,6 +79,10 @@ enum CatalogArgument {
         ActionArgument(name: "snapshot", title: String(localized: "argument.snapshot", defaultValue: "Snapshot", bundle: .module), kind: .string)
     }
 
+    static var portInt: ActionArgument {
+        ActionArgument(name: "port", title: String(localized: "argument.port", defaultValue: "Port", bundle: .module), kind: .int(1...65535))
+    }
+
     static var sizeChoice: ActionArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
     }

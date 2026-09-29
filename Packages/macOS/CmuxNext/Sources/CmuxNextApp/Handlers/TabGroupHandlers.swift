@@ -41,7 +41,7 @@ enum TabGroupHandlers {
     }
 
     static func pane(holding group: GroupID, _ ctx: AppActionContext) -> PaneModel? {
-        ctx.services.daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.tabGroups.contains { $0.id == group } }
+        ctx.services.activeDaemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.tabGroups.contains { $0.id == group } }
     }
 
     /// Runs a group command with a transaction and an optimistic patch;
@@ -50,7 +50,7 @@ enum TabGroupHandlers {
                     _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         guard ctx.connection() != nil else { return }
         Task {
-            let ok = await ctx.services.daemon.perform(label, patch: patch, expectEcho: false, body)
+            let ok = await ctx.services.activeDaemon.perform(label, patch: patch, expectEcho: false, body)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
         }
     }
@@ -164,7 +164,7 @@ enum TabGroupHandlers {
         }
         bind("tabGroup.unsave") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }
-            guard ctx.services.daemon.store.savedTabGroups.contains(where: { $0.openGroup == group }) else {
+            guard ctx.services.activeDaemon.store.savedTabGroups.contains(where: { $0.openGroup == group }) else {
                 return ctx.refuse(RefusalStrings.groupNotSaved)
             }
             run("unsave-tab-group", pane: pane, ctx) { c, _ in _ = try await c.unsaveTabGroup(group: group) }
@@ -185,7 +185,7 @@ enum TabGroupHandlers {
     /// A saved group by saved id or by the id of its open group.
     private static func savedGroup(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> SavedTabGroupModel? {
         guard let ref = invocation["group"]?.targetValue ?? ctx.refuse(RefusalStrings.groupArgumentRequired) else { return nil }
-        let saved = ctx.services.daemon.store.savedTabGroups
+        let saved = ctx.services.activeDaemon.store.savedTabGroups
         return saved.first { $0.id.rawValue == ref.id || $0.openGroup?.rawValue == ref.id } ?? ctx.refuse(RefusalStrings.noSavedTabGroup(ref.id))
     }
 }

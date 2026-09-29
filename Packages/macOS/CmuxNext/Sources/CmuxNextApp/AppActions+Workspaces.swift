@@ -16,7 +16,7 @@ extension AppActions {
             let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
                 tab.kind == .pty ? tab.terminalID.map { ($0, tab.terminalIncarnation) } : nil
             }
-            services.daemon.send("close-workspace") { connection in
+            services.activeDaemon.send("close-workspace") { connection in
                 for (terminal, incarnation) in terminals { try? await connection.closeTerminal(terminal, incarnation: incarnation) }
                 _ = try await connection.closeWorkspace(key)
             }
@@ -24,7 +24,7 @@ extension AppActions {
         registry.bind("renameWorkspace", invoke: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
-                services.daemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
+                services.activeDaemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
             } else {
                 services.windows.active?.sidebar.container.sidebarView.beginRename(workspace: SidebarWorkspaceID(workspace.id))
             }
@@ -33,10 +33,11 @@ extension AppActions {
         registry.bind("prevSidebarTab") { selectWorkspace(services, offset: -1) }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
-            let all = services.daemon.store.workspaces
+            // Sidebar order across every machine section.
+            let all = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
             guard !all.isEmpty else { return }
             let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
-            services.windows.show(workspaceID: pick.id, in: state)
+            services.windows.show(workspaceID: pick, in: state)
         })
         registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
@@ -70,13 +71,13 @@ extension AppActions {
     }
 
     private static func moveWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {
-        let store = services.daemon.store
+        let store = services.activeDaemon.store
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               let index = store.workspaces.firstIndex(where: { $0 === workspace }) else { return }
         let target = min(max(index + offset, 0), store.workspaces.count - 1)
         guard target != index else { return }
         Task {
-            await services.daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: target)) { connection, _ in
+            await services.activeDaemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: target)) { connection, _ in
                 _ = try await connection.moveWorkspace(key, to: target)
             }
         }

@@ -31,7 +31,7 @@ struct EmptyWorkspaceTests {
         let (services, recorder) = Self.services(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "empty")])
         let workspace = try #require(services.daemon.store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
-        let controller = WorkspaceContentController(workspace: workspace, services: services, state: state)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
         await Self.settle { controller.pendingFocusSurface != nil }
         // Re-applying the still-empty tree (the delta has not landed) must not ask again.
         controller.applyCurrent()
@@ -52,7 +52,7 @@ struct EmptyWorkspaceTests {
         services.emptyWorkspaces.create = { recorder.keys.append($0); return nil }
         let workspace = try #require(services.daemon.store.workspaces.first { !$0.screens.isEmpty })
         let state = WindowState(workspaceID: workspace.id)
-        let controller = WorkspaceContentController(workspace: workspace, services: services, state: state)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
         await Self.settle { false }
         #expect(recorder.keys.isEmpty)
         controller.teardown()
@@ -64,7 +64,7 @@ struct EmptyWorkspaceTests {
         services.emptyWorkspaces.canCreate = { false }
         let workspace = try #require(services.daemon.store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
-        let controller = WorkspaceContentController(workspace: workspace, services: services, state: state)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
         await Self.settle { false }
         #expect(recorder.keys.isEmpty)
         controller.teardown()
@@ -77,7 +77,7 @@ struct EmptyWorkspaceTests {
         services.emptyWorkspaces.create = { key in recorder.keys.append(key); throw Boom() }
         let workspace = try #require(services.daemon.store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
-        let controller = WorkspaceContentController(workspace: workspace, services: services, state: state)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
         await Self.settle { recorder.keys.count == 1 }
         await Self.settle { false }
         controller.applyCurrent()

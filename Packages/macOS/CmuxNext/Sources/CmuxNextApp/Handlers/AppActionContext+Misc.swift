@@ -8,7 +8,7 @@ import CmuxNextDaemon
 /// handlers. Each throws an `ActionFailure` (reported through `refuse`)
 /// instead of silently doing nothing; reasons are localized `HandlerStrings`.
 extension AppActionContext {
-    var daemon: DaemonService { services.daemon }
+    var daemon: DaemonService { services.activeDaemon }
 
     /// The daemon connection.
     func requireConnection() throws -> DaemonConnection {

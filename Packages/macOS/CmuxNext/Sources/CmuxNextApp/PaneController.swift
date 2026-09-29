@@ -13,6 +13,8 @@ final class PaneController {
     let paneKey: String
     let layoutPaneID: LayoutPaneID
     let pane: PaneModel
+    /// The machine daemon that owns `pane`.
+    let daemon: DaemonService
     let stripModel = TabStripModel()
     let view: PaneContentView
     unowned let services: AppServices
@@ -40,8 +42,9 @@ final class PaneController {
         var surfaces: [UInt64]
     }
 
-    init(pane: PaneModel, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState) {
+    init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState) {
         self.pane = pane
+        self.daemon = daemon
         paneKey = pane.id
         self.layoutPaneID = layoutPaneID
         self.services = services
@@ -88,7 +91,7 @@ final class PaneController {
     }
 
     func snapshot() -> Snapshot {
-        let store = services.daemon.store
+        let store = daemon.store
         let fallback = Strings.untitledTerminal
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
             var item = TabItemMapping.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
@@ -172,7 +175,7 @@ final class PaneController {
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }
         switch tab.kind {
         case .pty:
-            return .terminal(services.cache.terminal(for: tab))
+            return .terminal(services.cache.terminal(for: tab, daemon: daemon))
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
         default:

@@ -67,7 +67,7 @@ extension PaneController {
         case .save:
             groupCommand("save-tab-group") { c, _ in _ = try await c.saveTabGroup(group) }
         case .unsave:
-            let saved = services.daemon.store.savedTabGroups.first { $0.openGroup == group }?.id
+            let saved = daemon.store.savedTabGroups.first { $0.openGroup == group }?.id
             guard let saved else { return }
             groupCommand("unsave-tab-group") { c, _ in try await c.unsaveTabGroup(saved) }
         }
@@ -76,7 +76,7 @@ extension PaneController {
     /// After a drag moved `tab` into this pane: joins `group` (or leaves its
     /// group when nil) if membership differs. Needs tab-groups-v1.
     func syncGroupMembership(of tab: TabModel, to group: String?) {
-        guard tab.tabGroup?.rawValue != group, services.daemon.supports(DaemonCapabilities.tabGroups) else { return }
+        guard tab.tabGroup?.rawValue != group, daemon.supports(DaemonCapabilities.tabGroups) else { return }
         let surface = tab.surface
         if let group {
             let id = CmuxNextDaemon.TabGroupID(rawValue: group)
@@ -89,7 +89,7 @@ extension PaneController {
     private func groupCommand(_ label: String, patch: OptimisticPatch = .custom { _ in },
                               _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         Task {
-            let ok = await services.daemon.perform(label, patch: patch, body)
+            let ok = await daemon.perform(label, patch: patch, body)
             if !ok { resyncStrip() }
         }
     }

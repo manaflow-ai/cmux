@@ -36,9 +36,10 @@ final class TabContentCache {
 
     // MARK: Terminals
 
-    /// The surface for a daemon terminal tab, created (attached) on demand.
-    func terminal(for tab: TabModel) -> TerminalEntry {
-        let validity = "\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
+    /// The surface for a daemon terminal tab, created (attached) on demand
+    /// over `daemon`'s socket (the local daemon, or a Cloud machine's link).
+    func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
+        let validity = "\(daemon.machineID)#\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
         if let entry = terminals[tab.id], entry.validity == validity { return entry }
         terminals.removeValue(forKey: tab.id)?.close()
         let target = DaemonTerminalIO.Target(
@@ -46,7 +47,6 @@ final class TabContentCache {
                                                   generation: daemon.store.generation),
             initialSize: tab.size ?? CellSize(cols: 80, rows: 24)
         )
-        let daemon = daemon
         let io = DaemonTerminalIO(target: target, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate

@@ -69,7 +69,7 @@ extension PaneController {
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil) {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
-        guard let connection = services.daemon.connection else { return }
+        guard let connection = daemon.connection else { return }
         services.registry.track(Task {
             do {
                 let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
@@ -78,7 +78,7 @@ extension PaneController {
                 apply(snapshot())
                 return nil
             } catch {
-                services.daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
+                daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return "new-tab: \(error)"
             }
         })
@@ -101,7 +101,7 @@ extension PaneController {
                     apply(snapshot())
                     return nil
                 } catch {
-                    services.daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
+                    daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
                     return "new-frontend-browser-tab: \(error)"
                 }
             })
@@ -140,7 +140,7 @@ extension PaneController {
             var failed = false
             var unknown = false
             for command in commands {
-                switch await services.daemon.runReportingTimeout(command.label, command.run) {
+                switch await daemon.runReportingTimeout(command.label, command.run) {
                 case .succeeded: break
                 case .failed: failed = true
                 case .unknown: unknown = true
@@ -149,7 +149,7 @@ extension PaneController {
             // A close that missed its deadline under daemon load usually still
             // lands: keep the tabs hidden until a snapshot ordered after the
             // closes says which ones remain, instead of flashing them back.
-            if unknown { await services.daemon.reconcile() }
+            if unknown { await daemon.reconcile() }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
@@ -172,7 +172,7 @@ extension PaneController {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
         services.registry.track(Task {
-            let ok = await services.daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
+            let ok = await daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
@@ -183,9 +183,9 @@ extension PaneController {
     func rename(_ id: StripTabID) {
         guard let tab = tab(id), let window = view.window else { return }
         let surface = tab.surface
-        RenamePrompt.run(title: Strings.renameTabTitle, initial: tab.displayTitle, in: window) { [services] name in
+        RenamePrompt.run(title: Strings.renameTabTitle, initial: tab.displayTitle, in: window) { [daemon] name in
             Task {
-                await services.daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+                await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
                     try await connection.renameTab(surface, to: name)
                 }
             }

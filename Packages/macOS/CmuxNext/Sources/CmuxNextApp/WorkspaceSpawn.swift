@@ -35,21 +35,32 @@ extension WindowManager {
     /// terminal gets this app's launch identity plus `CMUX_WORKSPACE_ID` and
     /// `CMUX_SURFACE_ID` (its reserved terminal id), so `cmux` and agent
     /// hooks inside it know where they run.
-    func createWorkspace(_ spawn: WorkspaceSpawn) async throws -> String {
-        guard let connection = services.daemon.connection else { throw DaemonError.notConnected }
+    /// On a Cloud machine (`daemon`), the terminal gets no Mac environment
+    /// and starts in the machine's own default directory.
+    func createWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil) async throws -> String {
+        let daemon = daemon ?? services.daemon
+        guard let connection = daemon.connection else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
         let terminal = TerminalID.generate()
-        var env = await TerminalEnvironment.shared(overrides: services.environment.launch.terminalEnvironment)()
-        env.merge(spawn.env) { _, caller in caller }
-        env["CMUX_WORKSPACE_ID"] = Self.uuidForm(key.rawValue)
-        env["CMUX_SURFACE_ID"] = Self.uuidForm(terminal.rawValue)
-        env["CMUX_PANEL_ID"] = env["CMUX_SURFACE_ID"]
-        let environment = env
-        return try await services.emptyWorkspaces.populating(key) {
+        var environment: [String: String]?
+        if daemon.isLocal {
+            var env = await TerminalEnvironment.shared(overrides: services.environment.launch.terminalEnvironment)()
+            env.merge(spawn.env) { _, caller in caller }
+            env["CMUX_WORKSPACE_ID"] = Self.uuidForm(key.rawValue)
+            env["CMUX_SURFACE_ID"] = Self.uuidForm(terminal.rawValue)
+            env["CMUX_PANEL_ID"] = env["CMUX_SURFACE_ID"]
+            environment = env
+        } else if !spawn.env.isEmpty {
+            environment = spawn.env
+        }
+        let repair: EmptyWorkspaceRepair = services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
+        let cwd = spawn.cwd ?? daemon.defaultCwd
+        let env = environment
+        return try await repair.populating(key) {
             let result = try await connection.request(CreateWorkspaceRequest(name: spawn.name, key: key, mutation: connection.mutation()))
             _ = try await connection.request(CreateTerminalRequest(
-                workspace: .key(result.key), command: spawn.command, cwd: spawn.cwd ?? NSHomeDirectory(),
-                terminalID: terminal, env: environment, mutation: connection.mutation()))
+                workspace: .key(result.key), command: spawn.command, cwd: cwd,
+                terminalID: terminal, env: env, mutation: connection.mutation()))
             return result.key.rawValue
         }
     }

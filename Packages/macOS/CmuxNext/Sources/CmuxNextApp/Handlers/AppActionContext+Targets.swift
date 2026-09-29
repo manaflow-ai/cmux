@@ -38,18 +38,18 @@ extension AppActionContext {
     /// Reason closure for `bind(_:unavailable:invoke:)` while the daemon
     /// lacks `capability`.
     func needs(_ capability: String) -> @MainActor () -> String? {
-        let daemon = services.daemon
+        let daemon = services.activeDaemon
         return { daemon.supports(capability) ? nil : RefusalStrings.needsDaemonCapability(capability) }
     }
 
     func connection() -> DaemonConnection? {
-        services.daemon.connection ?? refuse(MiscHandlerStrings.daemonOffline)
+        services.activeDaemon.connection ?? refuse(MiscHandlerStrings.daemonOffline)
     }
 
     /// Runs a daemon command off the main actor; failures are logged.
     func send(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         guard connection() != nil else { return }
-        services.daemon.send(label, body)
+        services.activeDaemon.send(label, body)
     }
 
     // MARK: Explicit targets
@@ -101,7 +101,7 @@ extension AppActionContext {
     /// The targeted daemon pane, found in any workspace.
     func daemonPane(_ invocation: ActionInvocation) -> PaneModel? {
         if let target = explicitTarget(invocation, kinds: [.pane]) {
-            let panes = services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
+            let panes = services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
             return panes.first { $0.id == target.id } ?? refuse(RefusalStrings.noPaneID(target.id))
         }
         if explicitTarget(invocation, kinds: [.tab]) != nil { return daemonTab(invocation)?.pane }
