@@ -14,7 +14,7 @@
 //! for a kept one), exactly as a plain close leaves it.
 
 use super::*;
-use crate::workspace_registry::{TabGroupState, TopologyCloseCommit};
+use crate::workspace_registry::TopologyCloseCommit;
 
 /// What one batch close removes.
 pub(crate) enum BatchCloseTarget {
@@ -148,7 +148,7 @@ impl Mux {
             BatchCloseTarget::Tabs(surfaces) => self.tabs_close_plan_locked(surfaces, &state)?,
             BatchCloseTarget::TabGroup(group) => {
                 let mut groups = self.presentation_snapshot().tab_groups.clone();
-                let members = super::super::tab_groups::take_tab_group(&state, &mut groups, group)?;
+                let members = tab_groups::take_tab_group(&state, &mut groups, group)?;
                 tab_groups = Some(groups);
                 self.tabs_close_plan_locked(&members, &state)?
             }

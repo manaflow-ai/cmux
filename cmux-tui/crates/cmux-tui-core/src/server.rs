@@ -22042,9 +22042,9 @@ mod tests {
             mux.set_terminal_close_failure_for_test(true).unwrap();
 
             let command = if close_screen {
-                Command::CloseScreen { screen }
+                Command::CloseScreen { screen, end_terminals: false }
             } else {
-                Command::ClosePane { pane }
+                Command::ClosePane { pane, end_terminals: false }
             };
             handle_command(&mux, 0, command, &test_writer()).unwrap();
 
@@ -24280,6 +24280,7 @@ mod tests {
             Command::CloseWorkspace {
                 workspace: None,
                 key: Some(key.into()),
+                end_terminals: false,
                 mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
             Command::RenameWorkspace {
@@ -24506,6 +24507,7 @@ mod tests {
                 Command::CloseWorkspace {
                     workspace: Some(workspace.workspace),
                     key: Some(workspace.key.clone()),
+                    end_terminals: false,
                     mutation: MutationRequest::default(),
                 },
                 "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls",
