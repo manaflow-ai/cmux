@@ -4387,7 +4387,10 @@
     "emailUnavailable": "adres e-mail niedostępny",
     "organization": "Organizacja",
     "personalAccount": "konto osobiste",
-    "switchAccountButton": "Użyj innego konta"
+    "switchAccountButton": "Użyj innego konta",
+    "signedOutTitle": "Zaloguj się, aby autoryzować coderouter",
+    "signedOutBody": "Aplikacja wiersza poleceń czeka, aż się zalogujesz. Zaloguj się kontem cmux, aby dokończyć łączenie tego terminala. Jeśli to nie Ty rozpocząłeś to żądanie, zamknij tę stronę.",
+    "signInButton": "Zaloguj się"
   },
   "MobileRelease106": {
     "title": "Co nowego w 1.0.6",
