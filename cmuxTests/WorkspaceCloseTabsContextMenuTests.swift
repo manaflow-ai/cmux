@@ -93,7 +93,7 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     @Test
-    func activeProcessStillWarnsWhenShortcutWarningIsDisabled() throws {
+    func activeProcessStillWarnsWhenShortcutWarningIsDisabled() async throws {
         try withCleanClosedHistory {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()
             fixture.manager.closeTabWarningDefaults.set(false, forKey: "warnBeforeClosingTabShortcut")
@@ -112,8 +112,9 @@ struct WorkspaceCloseTabsContextMenuTests {
                 shouldCloseTab: tab,
                 inPane: fixture.paneId
             ))
-            drainMainQueue()
-            drainMainQueue()
+            await waitForMainActorWork(timeout: 4) {
+                promptCount == 1 || fixture.workspace.panelIdFromSurfaceId(tabId) == nil
+            }
 
             #expect(promptCount == 1)
             #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
