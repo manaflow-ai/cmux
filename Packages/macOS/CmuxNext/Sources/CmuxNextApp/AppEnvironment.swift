@@ -10,13 +10,18 @@ struct AppEnvironment: Sendable {
     /// app (agent preflights and background launches). Windows open ordered
     /// back and the app never activates itself.
     let noActivate: Bool
+    /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
+    /// no-activate: where windows open for agent screenshots.
+    let testWindow: TestWindowPlacement?
 
     var tag: String? { launch.tag }
 
     static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> AppEnvironment {
-        AppEnvironment(
+        let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+        return AppEnvironment(
             launch: LaunchIdentity.current(),
-            noActivate: environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+            noActivate: noActivate,
+            testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate)
         )
     }
 }
