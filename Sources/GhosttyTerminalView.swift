@@ -10244,13 +10244,14 @@ final class GhosttySurfaceScrollView: NSView {
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
-    private var activeDropZone: DropZone?
-    private var pendingDropZone: DropZone?
+    var activeDropZone: DropZone?
+    var pendingDropZone: DropZone?
     /// Tab drags report their zone through `paneDropTargetView`, while portal reconciliation
     /// forwards SwiftUI's zone, which is nil for those drags. The drag's zone wins, so a
     /// reconciliation during a hover can't fade the highlight out.
-    private var forwardedDropZone: DropZone?
-    private var paneDragDropZone: DropZone?
+    var forwardedDropZone: DropZone?
+    var paneDragDropZone: DropZone?
+    var paneDragPreviewIsActive = false
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
     weak var paneGeometryPortal: WindowTerminalPortal?
     private var pendingAutomaticFirstResponderApply = false
@@ -11811,23 +11812,7 @@ final class GhosttySurfaceScrollView: NSView {
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
-    /// Sets the zone SwiftUI forwards, or with `fromPaneDrag` the zone `paneDropTargetView` resolved.
-    func setDropZoneOverlay(zone: DropZone?, fromPaneDrag: Bool = false) {
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.setDropZoneOverlay(zone: zone, fromPaneDrag: fromPaneDrag)
-            }
-            return
-        }
-        if fromPaneDrag {
-            paneDragDropZone = zone
-        } else {
-            forwardedDropZone = zone
-        }
-        applyDropZoneOverlay(zone: paneDragDropZone ?? forwardedDropZone)
-    }
-
-    private func applyDropZoneOverlay(zone: DropZone?) {
+    func applyDropZoneOverlay(zone: DropZone?) {
         if let zone, (bounds.width <= 2 || bounds.height <= 2) {
             pendingDropZone = zone
 #if DEBUG
