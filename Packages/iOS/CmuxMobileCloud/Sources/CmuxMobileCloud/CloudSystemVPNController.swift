@@ -155,6 +155,10 @@ public final class CloudSystemVPNController {
             return
         }
         guard let scope else {
+            if cleanupPending {
+                retryPendingCleanup()
+                return
+            }
             phase = .failed(.enrollment)
             return
         }
@@ -170,44 +174,50 @@ public final class CloudSystemVPNController {
         phase = .preparing
         enqueue { [self] generation in
             do {
-                let identity: CloudDeviceIdentity
-                let enrollment: CloudTunnelEnrollment
                 let keyPair = WireGuardKeyPair()
-                do {
-                    identity = try await performBounded {
-                        try await self.identityResolver.resolve()
+                try await performBounded(reconcilePlatformOnTimeout: true) {
+                    let identity: CloudDeviceIdentity
+                    do {
+                        identity = try await self.identityResolver.resolve()
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        throw CloudSystemVPNError.enrollment
                     }
-                    enrollment = try await performBounded {
-                        try await self.service.enrollTunnel(
+                    let enrollment: CloudTunnelEnrollment
+                    do {
+                        enrollment = try await self.service.enrollTunnel(
                             clientPublicKey: keyPair.publicKey,
                             deviceFingerprint: identity.fingerprint,
                             tunnelPurpose: .browser,
                             deviceName: self.deviceName
                         )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        throw CloudSystemVPNError.enrollment
                     }
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    throw CloudSystemVPNError.enrollment
-                }
-                guard self.isCurrent(generation), self.scope == scope else { return }
-                guard permitsOnlyPrivateRoutes(enrollment) else { throw CloudSystemVPNError.configuration }
-                let configuration: WireGuardQuickConfig
-                do {
-                    configuration = try WireGuardQuickConfig.make(
-                        enrollment: enrollment,
-                        privateKey: keyPair.privateKey
-                    )
-                } catch {
-                    throw CloudSystemVPNError.configuration
-                }
-                // The text is what gets installed, and the server may have
-                // supplied it whole; the enrollment-field check above cannot
-                // vouch for it.
-                guard routePolicy.permitsOnlyPrivateRoutes(inQuickConfig: configuration.text) else {
-                    throw CloudSystemVPNError.configuration
-                }
-                try await performBounded(reconcilePlatformOnTimeout: true) {
+                    guard self.isCurrent(generation), self.scope == scope else {
+                        throw CancellationError()
+                    }
+                    guard self.permitsOnlyPrivateRoutes(enrollment) else {
+                        throw CloudSystemVPNError.configuration
+                    }
+                    let configuration: WireGuardQuickConfig
+                    do {
+                        configuration = try WireGuardQuickConfig.make(
+                            enrollment: enrollment,
+                            privateKey: keyPair.privateKey
+                        )
+                    } catch {
+                        throw CloudSystemVPNError.configuration
+                    }
+                    // The text is what gets installed, and the server may
+                    // have supplied it whole; the enrollment-field check
+                    // above cannot vouch for it.
+                    guard self.routePolicy.permitsOnlyPrivateRoutes(inQuickConfig: configuration.text) else {
+                        throw CloudSystemVPNError.configuration
+                    }
                     try await self.manager.installAndStart(configuration: configuration.text, scope: scope)
                 }
                 guard self.isCurrent(generation) else { return }
@@ -222,6 +232,10 @@ public final class CloudSystemVPNController {
     /// The user turned the VPN off. The configuration stays saved so iOS
     /// Settings can still show it; signing out removes it.
     public func disable() {
+        if scope == nil && cleanupPending {
+            retryPendingCleanup()
+            return
+        }
         phase = .disconnecting
         enqueue { [self] generation in
             do {
@@ -234,6 +248,17 @@ public final class CloudSystemVPNController {
                 guard self.isCurrent(generation) else { return }
                 phase = .failed(.configuration)
             }
+        }
+    }
+
+    /// Retries the action represented by the current failure row. A failed
+    /// sign-out retries removal instead of trying to enroll without an
+    /// account.
+    public func retry() {
+        if scope == nil && cleanupPending {
+            retryPendingCleanup()
+        } else {
+            enable()
         }
     }
 
@@ -273,6 +298,22 @@ public final class CloudSystemVPNController {
             }
         }
         throw lastError ?? CloudSystemVPNError.configuration
+    }
+
+    private func retryPendingCleanup() {
+        guard manager.isAvailable, scope == nil, cleanupPending else { return }
+        phase = .disconnecting
+        enqueue { [self] generation in
+            do {
+                try await removeConfigurationWithRetry()
+                guard self.isCurrent(generation) else { return }
+                cleanupPending = false
+                phase = manager.phase
+            } catch {
+                guard self.isCurrent(generation) else { return }
+                phase = .failed(.configuration)
+            }
+        }
     }
 
     private func performBounded<T: Sendable>(

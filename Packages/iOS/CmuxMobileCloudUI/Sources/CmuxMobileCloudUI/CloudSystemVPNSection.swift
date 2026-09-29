@@ -16,6 +16,7 @@ struct CloudSystemVPNSection: View {
     let isAvailable: Bool
     let enable: () -> Void
     let disable: () -> Void
+    let retry: () -> Void
 
     var body: some View {
         Section {
@@ -39,7 +40,7 @@ struct CloudSystemVPNSection: View {
                     .font(.footnote)
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("CloudVPNFailure")
-                Button(L10n.string("mobile.cloud.vpn.retry", defaultValue: "Try Again"), action: enable)
+                Button(L10n.string("mobile.cloud.vpn.retry", defaultValue: "Try Again"), action: retry)
                     .accessibilityIdentifier("CloudVPNRetry")
             }
         } footer: {

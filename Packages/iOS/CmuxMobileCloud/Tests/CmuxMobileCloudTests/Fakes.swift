@@ -21,6 +21,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     var machines: Result<[CloudMachine], any Error> = .success([])
     var creation: Result<CloudMachine, any Error> = .success(CloudMachine(id: "vm-created", provider: "freestyle", status: "starting"))
     var enrollment: Result<CloudTunnelEnrollment, any Error> = .success(Fixtures.enrollment)
+    var enrollmentDelay: Duration?
     var attach: Result<CloudAttachEndpoint, any Error> = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
     var approvals: [Bool] = [true]
     /// Thrown by pause, resume and delete when set.
@@ -38,6 +39,9 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
 
     func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose, deviceName: String?) async throws -> CloudTunnelEnrollment {
         lock.withLock { $0.enroll.append((clientPublicKey, deviceFingerprint, tunnelPurpose, deviceName)) }
+        if let enrollmentDelay {
+            try? await ContinuousClock().sleep(for: enrollmentDelay)
+        }
         return try enrollment.get()
     }
 

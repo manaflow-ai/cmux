@@ -214,6 +214,23 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.controller.phase == .connecting)
     }
 
+    @Test func aLateEnrollmentContinuesIntoInstallAndDoesNotEnrollAgain() async {
+        let rig = Rig(operationTimeout: .milliseconds(100))
+        rig.service.enrollmentDelay = .milliseconds(250)
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        rig.controller.enable()
+        #expect(rig.service.calls.enroll.count == 1)
+
+        try? await Task.sleep(for: .milliseconds(300))
+        #expect(rig.manager.installed.count == 1)
+        #expect(rig.controller.phase == .connecting)
+    }
+
     @Test func aStartRequestStaysTransitioningUntilStatusArrives() async {
         let rig = Rig()
         rig.manager.phaseAfterStart = .off
@@ -313,6 +330,23 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         await signedIn(rig)
         rig.manager.stopFailuresRemaining = 1
         rig.controller.setScope(nil)
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.stopAttempts == [true, true])
+        #expect(rig.manager.stops == [true])
+        #expect(rig.controller.phase == .off)
+    }
+
+    @Test func failedSignOutCleanupCanBeRetriedFromTheRecoveryAction() async {
+        let rig = Rig(cleanupRetryCount: 1)
+        await signedIn(rig)
+        rig.manager.stopFailuresRemaining = 1
+
+        rig.controller.setScope(nil)
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        rig.controller.retry()
         await rig.controller.waitForPendingOperation()
 
         #expect(rig.manager.stopAttempts == [true, true])

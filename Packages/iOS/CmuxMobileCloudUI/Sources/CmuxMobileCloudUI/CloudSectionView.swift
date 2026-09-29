@@ -77,7 +77,8 @@ public struct CloudSectionView: View {
                 phase: systemVPN.phase,
                 isAvailable: systemVPN.isAvailable,
                 enable: { systemVPN.enable() },
-                disable: { systemVPN.disable() }
+                disable: { systemVPN.disable() },
+                retry: { systemVPN.retry() }
             )
         }
     }
