@@ -3275,4 +3275,42 @@ mod tests {
             None
         );
     }
+
+    /// Against a `shared-sizing-v1` daemon, focusing a terminal is activity
+    /// only: it must not send the legacy `set-client-sizing`, which clears a
+    /// "not counted" choice another participant (the Mac) made for this TUI.
+    #[test]
+    fn shared_sizing_focus_keeps_a_counts_choice_made_elsewhere() {
+        use cmux_tui_core::sizing_policy::TerminalDeviceKind;
+
+        let mux = Mux::new("shared-sizing-focus-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let dir = std::path::PathBuf::from(format!("/tmp/cmux-szf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("mux.sock");
+        cmux_tui_core::server::serve(mux.clone(), Some(socket.clone())).unwrap();
+        let session = Session::Remote(super::RemoteSession::connect(&socket).unwrap());
+        session.refresh_tree().unwrap();
+        assert!(matches!(
+            session.try_surface_sized(surface.id, Some((100, 40))).unwrap(),
+            super::SurfaceAttach::Attached(_)
+        ));
+        let tui = || {
+            mux.terminal_size_state(surface.id)
+                .unwrap()
+                .participants
+                .iter()
+                .find(|row| row.participant.device_kind == TerminalDeviceKind::Tui && row.participant.id != "c0")
+                .map(|row| row.participant.clone())
+                .expect("the remote TUI joined shared sizing")
+        };
+        let id = tui().id;
+        mux.set_terminal_size_counts(surface.id, &id, Some(false)).unwrap();
+
+        session.claim_terminal_geometry(surface.id).unwrap();
+
+        assert_eq!(tui().counts_override, Some(false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
