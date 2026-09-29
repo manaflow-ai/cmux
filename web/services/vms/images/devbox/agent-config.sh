@@ -80,6 +80,17 @@ cmux_write_agent_configs() {
   # config.toml during the merge could see another shell's result (a second
   # model_provider) or, with a shared temp name, the merge's own output, which
   # made cat append the file to itself until the disk was full.
+  cmux_codex_config_lock_fd=""
+  if [ -n "${OPENAI_BASE_URL-}" ] && command -v flock >/dev/null 2>&1; then
+    mkdir -p "$HOME/.codex" 2>/dev/null || true
+    exec {cmux_codex_config_lock_fd}>"$HOME/.codex/config.toml.cmux-lock" 2>/dev/null || cmux_codex_config_lock_fd=""
+    if [ -n "$cmux_codex_config_lock_fd" ]; then
+      flock -x "$cmux_codex_config_lock_fd" 2>/dev/null || {
+        eval "exec ${cmux_codex_config_lock_fd}>&-"
+        cmux_codex_config_lock_fd=""
+      }
+    fi
+  fi
   if [ -n "${OPENAI_BASE_URL-}" ] && cmux_codex_config_existing="$(python3 - "$HOME/.codex/config.toml" 2>/dev/null <<'CMUX_TOML_CHECK'
 import pathlib, sys, tomllib
 config = pathlib.Path(sys.argv[1])
@@ -121,6 +132,11 @@ CMUX_TOML_CHECK
     } > "$cmux_codex_config_tmp" 2>/dev/null && mv -f "$cmux_codex_config_tmp" "$HOME/.codex/config.toml" 2>/dev/null
     rm -f "$cmux_codex_config_tmp" 2>/dev/null
     unset cmux_codex_config_tmp
+  fi
+  if [ -n "$cmux_codex_config_lock_fd" ]; then
+    flock -u "$cmux_codex_config_lock_fd" 2>/dev/null || true
+    eval "exec ${cmux_codex_config_lock_fd}>&-"
+    unset cmux_codex_config_lock_fd
   fi
   unset cmux_codex_config_existing
 
