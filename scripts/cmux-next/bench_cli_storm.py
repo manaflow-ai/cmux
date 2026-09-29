@@ -315,7 +315,7 @@ class LegacyProfile:
         return "read", method, lambda: client.call(method, {}), method == "surface.list"
 
     def candidates(self, response):
-        return [s for s in response["result"]["surfaces"] if s.get("pane_id") == self.left and s["id"] not in self.keep]
+        return [s for s in (response.get("result") or {}).get("surfaces", []) if s.get("pane_id") == self.left and s["id"] not in self.keep]
 
     def create(self, client):
         return "create", "surface.create", lambda: client.call("surface.create", {"pane_id": self.left, "type": "terminal"})
