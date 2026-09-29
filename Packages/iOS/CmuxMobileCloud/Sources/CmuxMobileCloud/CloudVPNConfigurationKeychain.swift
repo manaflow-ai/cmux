@@ -10,6 +10,12 @@ import Security
 /// extension compiles this file directly, so it depends on nothing else in
 /// the package.
 public struct CloudVPNConfigurationKeychain: Sendable {
+    /// Keychain failures. Deliberately carries no item contents.
+    public enum Failure: Error, Sendable, Equatable {
+        /// The Keychain operation returned this status.
+        case storage(OSStatus)
+    }
+
     private let service: String
     private let accessGroup: String?
 
