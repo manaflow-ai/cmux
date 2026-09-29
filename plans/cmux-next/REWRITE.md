@@ -58,3 +58,25 @@ Design:
 - Commit is ONE daemon command per outcome (atomic, undoable): move-tab(to pane, index), tab-to-new-split(pane, edge), tab-to-new-column(screen, after column), tab-to-new-workspace(group?, index), move-tab-to-workspace. Windows are frontend-local: which workspace each window shows persists in a `personal` frontend projection so windows restore after relaunch. Tear-off = tab-to-new-workspace + open that workspace in a new window.
 - Optimistic UI: apply locally at drop, reconcile via transaction-id echo. Escape cancels with a spring back to origin. Spring-loaded sidebar hover 500 ms. Auto-scroll strips, sidebar and niri columns near edges during drag. Multi-tab drag (cmd-click select) later.
 - Tabs (PR 15509, merged): App must end every drag (model removal or restoreDetachedTab) or the tab stays hidden. Optimistic reorder is kept until model order changes: on daemon rejection the App must push the authoritative order (transaction-id echo) to reset it. Rename the App's placeholder TabStripView.
+
+## Action contract (user requirement 2026-09-28): every feature, every entrypoint
+
+Every user-visible capability is ONE `ActionDescriptor` in CmuxNextActions plus ONE handler. Entrypoints are generated from the registry, never hand-wired per surface:
+
+| Entrypoint | Generated how |
+| --- | --- |
+| Command palette | lists every available action; args collected inline from the action's argument schema |
+| Keyboard | every action is bindable; default shortcut optional; user bindings in cmux.json `shortcuts.<actionID>`; Settings shortcut editor lists the registry |
+| Right-click | menus are declared as ordered lists of action IDs per context (tab, tab group, pane, column, workspace row, workspace group, sidebar background, terminal selection, browser page, link); the menu builder renders title/shortcut/enabled state from the registry |
+| CLI | `cmux action list [--json]`, `cmux action run <id> [--arg k=v ...] [--target ref]`; plus a friendly generated verb per action (`cliName`, e.g. `cmux tab-group create --name X`), all over the app control socket (`action.list`, `action.run`, `action.describe`) |
+| Menu bar | main menu built from action IDs too |
+
+Descriptor fields: id (stable, = cmux.json shortcut key), title (localized), keywords, category, symbol, argument schema (typed: string, int, enum, target refs like tab/pane/workspace/group), target context kinds, availability predicate, default shortcut, cliName, menu placements.
+
+Enforcement: a registry conformance test fails if an action lacks a cliName or a palette entry, if a context menu references an unknown ID, or if a handler is missing in the App. Adding a feature without all entrypoints does not compile/test. Layout/state mutations still go to the cmux-tui daemon, so the plain `cmux-tui` CLI can drive them even with the app closed; the app's action handlers are thin calls into daemon commands.
+
+## Groups
+
+- Workspace groups: sidebar sections (daemon state, feat-cmux-next-daemon).
+- Tab groups: Chrome-style groups inside a pane's tab strip: name, color (gray-friendly palette), collapse/expand with animation, drag a whole group, drag tabs in/out, close group, ungroup, move group to new split/column/workspace/window. Daemon state (tab placement belongs to a group id in the pane), journaled, CLI-controllable.
+- Both fully covered by the action contract (create, rename, recolor, collapse, move, ungroup, close, add/remove member) via right-click, shortcuts, CLI, palette.
