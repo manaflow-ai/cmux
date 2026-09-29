@@ -378,6 +378,19 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(resolution.rawToken == fullPath)
     }
 
+    @Test func listLabelPreservesConsecutiveSpacesInsideFilename() throws {
+        let fullPath = "/tmp/My  File.md"
+        let suffixPath = "/tmp/File.md"
+        let resolver = TerminalPathResolver(fileExists: existsIn([fullPath, suffixPath]))
+
+        let resolution = try #require(
+            resolver.resolveVisibleLinePath("- My  File.md", column: 3, cwd: "/tmp")
+        )
+
+        #expect(resolution.path == fullPath)
+        #expect(resolution.rawToken == "My  File.md")
+    }
+
     @Test func doesNotTreatOverlongRowLocalHitAsPhysicalRightEdge() {
         let existingFile = "/tmp/row-local-longer-than-grid.md"
         let resolver = TerminalPathResolver(fileExists: existsIn([existingFile]))
