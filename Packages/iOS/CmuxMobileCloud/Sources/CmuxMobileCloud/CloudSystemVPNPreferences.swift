@@ -240,7 +240,6 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
         func cancel() {
             guard !finished else { return }
             task.cancel()
-            finish(.failure(CancellationError()))
         }
 
         private func finish(_ result: Result<T, any Error>) {

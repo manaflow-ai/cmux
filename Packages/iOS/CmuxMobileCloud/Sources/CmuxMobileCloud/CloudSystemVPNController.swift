@@ -252,7 +252,7 @@ public final class CloudSystemVPNController {
             case .off, .failed: break
             }
         }
-        let shouldReconcile = needsPlatformReconciliation
+        let shouldReconcile = needsPlatformReconciliation || !phase.isRequestedOn
         publish(.preparing)
         enqueue { [self] generation in
             do {
