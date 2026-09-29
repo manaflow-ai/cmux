@@ -76,7 +76,13 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         let panelId = try #require(workspace.focusedPanelId)
         let binding = Self.agentHookBinding(launchFlavor: .local)
 
-        #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == true)
+        // Supply the completed empty scan explicitly so this test does not
+        // depend on another host test's shared live-index cache.
+        #expect(workspace.isStaleAgentHookBinding(
+            binding,
+            panelId: panelId,
+            restorableAgentIndex: .empty
+        ) == true)
     }
 
     @Test
