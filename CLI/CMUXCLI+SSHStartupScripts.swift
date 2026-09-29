@@ -345,7 +345,6 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
         ]
-
         scriptLines += [
             "while :; do",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
@@ -460,7 +459,6 @@ extension CMUXCLI {
         ].joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(wrapper))"
     }
-
     private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
         [
             "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",
