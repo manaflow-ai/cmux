@@ -1,3 +1,6 @@
+// Same structural lint allowance as the library crate root (src/lib.rs).
+#![allow(clippy::too_many_arguments)]
+
 use acpmux::daemon::{DaemonOptions, connect};
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};

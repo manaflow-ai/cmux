@@ -332,7 +332,7 @@ async fn tags_rules_and_unread() {
 
 #[tokio::test]
 async fn restart_marks_unknown_outcome() {
-    use acpmux::store::{EventRecord, Store};
+    use acpmux::store::EventRecord;
     let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
