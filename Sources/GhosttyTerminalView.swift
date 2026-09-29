@@ -7739,6 +7739,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        updateCodexActionCommandHover(at: eventPoint, surface: surface)
     }
 
     private func shouldSuppressCommandPathHover(for flags: NSEvent.ModifierFlags) -> Bool {
@@ -8341,8 +8342,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let releaseFlags = completion.map {
             NSEvent.ModifierFlags(rawValue: $0.modifierFlagsRawValue)
         } ?? []
+        let codexActionHandled = event.clickCount == 1
+            ? handleCodexActionCommand(at: point, surface: surface)
+            : false
         let linkActivationAuthorized = completion?.permitsLinkActivation == true
             && event.modifierFlags.contains(.command) && bounds.contains(point) && desiredFocus
+            && !codexActionHandled
         _ = dispatchCommandClickRelease(
             surface: surface,
             at: point,
