@@ -2905,6 +2905,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         set { splitLayout.isProgrammaticSplit = newValue }
     }
     var activeMovingTabSplitFocusIntent: MovingTabSplitFocusIntent?
+    var activeSplitSpaceDividerPosition: CGFloat?
+    var splitSpaceAdmissionBypassDepth = 0
+#if DEBUG
+    var debugTerminalSplitPanelConstructionProbe: ((String?, String?) -> Void)?
+    var debugBrowserSplitPanelConstructionProbe: ((URL?) -> Void)?
+#endif
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -3128,6 +3134,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
+    var sshTuiConnectionAttemptID: UUID?
     var remoteSessionController: RemoteSessionCoordinator?
     // Retains each detached controller until cleanup finishes or ownership transfers.
     var remoteSessionCleanupControllers: [UUID: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)] = [:]
