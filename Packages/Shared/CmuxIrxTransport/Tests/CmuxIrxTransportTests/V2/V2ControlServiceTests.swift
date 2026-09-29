@@ -5,9 +5,18 @@ import Testing
 private final class SleepRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var recordedDurations: [TimeInterval] = []
+    let requests: AsyncStream<TimeInterval>
+    private let continuation: AsyncStream<TimeInterval>.Continuation
+
+    init() {
+        let pair = AsyncStream<TimeInterval>.makeStream()
+        requests = pair.stream
+        continuation = pair.continuation
+    }
 
     func sleep(_ duration: TimeInterval) async throws {
         record(duration)
+        continuation.yield(duration)
         try await Task.sleep(for: .seconds(3600))
     }
 
@@ -21,13 +30,6 @@ private final class SleepRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recordedDurations
-    }
-
-    func waitFor(_ duration: TimeInterval, count: Int) async {
-        for _ in 0..<200 {
-            if durations().filter({ $0 == duration }).count >= count { return }
-            await Task.yield()
-        }
     }
 }
 
@@ -90,25 +92,25 @@ private final class SleepRecorder: @unchecked Sendable {
             sleep: { seconds in try await sleeps.sleep(seconds) }
         )
         let observer = await service.events()
+        var sleepIterator = sleeps.requests.makeAsyncIterator()
         await service.start()
-        await sleeps.waitFor(300, count: 1)
+        let firstSleep = try #require(await sleepIterator.next())
+        #expect(firstSleep == 300)
 
-        var reachedReady = false
-        for _ in 0..<200 {
-            if await service.snapshot().status == .ready {
-                reachedReady = true
+        var readySnapshot: V2ControlSnapshot?
+        for await snapshot in observer {
+            if snapshot.status == .ready {
+                readySnapshot = snapshot
                 break
             }
-            try await Task.sleep(for: .milliseconds(5))
+            if snapshot.status == .stopped, let failure = snapshot.failure { throw failure }
         }
-        #expect(reachedReady)
-        #expect(await service.snapshot().sequence > 1)
+        let observedReady = try #require(readySnapshot)
+        #expect(observedReady.sequence > 1)
 
-        try await Task.sleep(for: .milliseconds(25))
         let watchdogSleeps = sleeps.durations().filter { $0 == 300 }
         #expect(watchdogSleeps.count == 1)
 
-        _ = observer
         await service.stop()
     }
 
