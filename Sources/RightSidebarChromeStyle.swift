@@ -149,11 +149,11 @@ struct RightSidebarChromePillModifier: ViewModifier {
                 isVisible: true
             )
             .background(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                     .fill(backgroundColor)
             )
             .contentShape(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
             )
     }
 
@@ -293,6 +293,12 @@ extension View {
 
     func rightSidebarChromeBottomBorder(backgroundColor: NSColor) -> some View {
         modifier(RightSidebarChromeBottomBorderModifier(backgroundColor: backgroundColor))
+    }
+
+    /// Gives system bordered buttons below this view the shared
+    /// right-sidebar button radius instead of the platform default shape.
+    func rightSidebarButtonBorderShape() -> some View {
+        buttonBorderShape(.roundedRectangle(radius: RightSidebarChromeMetrics.buttonCornerRadius))
     }
 
     func rightSidebarHeaderControlAlignment() -> some View {
