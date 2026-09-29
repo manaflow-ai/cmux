@@ -6,6 +6,7 @@ public struct ComputerAccessMenuItems: View {
     private let incomingAccessEnabled: Bool
     private let discoveryManaged: Bool
     private let incomingAccessManaged: Bool
+    private let unavailable: Bool
     private let identifierPrefix: String
     private let setDiscovery: (Bool) -> Void
     private let setIncomingAccess: (Bool) -> Void
@@ -25,6 +26,7 @@ public struct ComputerAccessMenuItems: View {
         incomingAccessEnabled: Bool,
         discoveryManaged: Bool,
         incomingAccessManaged: Bool,
+        unavailable: Bool = false,
         identifierPrefix: String,
         setDiscovery: @escaping (Bool) -> Void,
         setIncomingAccess: @escaping (Bool) -> Void
@@ -33,6 +35,7 @@ public struct ComputerAccessMenuItems: View {
         self.incomingAccessEnabled = incomingAccessEnabled
         self.discoveryManaged = discoveryManaged
         self.incomingAccessManaged = incomingAccessManaged
+        self.unavailable = unavailable
         self.identifierPrefix = identifierPrefix
         self.setDiscovery = setDiscovery
         self.setIncomingAccess = setIncomingAccess
@@ -40,8 +43,8 @@ public struct ComputerAccessMenuItems: View {
 
     /// The two checkmarked preferences, with details available as help text.
     public var body: some View {
-        let incoming = DeviceAccessControl(.incomingAccess, enabled: incomingAccessEnabled, managed: incomingAccessManaged)
-        let discovery = DeviceAccessControl(.discovery, enabled: discoveryEnabled, managed: discoveryManaged)
+        let incoming = DeviceAccessControl(.incomingAccess, enabled: incomingAccessEnabled, managed: incomingAccessManaged, unavailable: unavailable)
+        let discovery = DeviceAccessControl(.discovery, enabled: discoveryEnabled, managed: discoveryManaged, unavailable: unavailable)
         Toggle(incoming.title, isOn: Binding(
             get: { incoming.isOn },
             set: setIncomingAccess
