@@ -327,6 +327,13 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(passed, name)
         self.assertIn("force-cancel", self.text)
 
+    def test_watch_uses_existing_route_app_credentials(self) -> None:
+        self.assertIn("vars.GLAEDA_ROUTE_APP_ID", self.text)
+        self.assertIn("secrets.GLAEDA_ROUTE_APP_KEY", self.text)
+        self.assertNotIn("CI_OVERFLOW_SWITCH_APP_ID", self.text)
+        self.assertNotIn("CI_OVERFLOW_SWITCH_APP_KEY", self.text)
+        self.assertNotIn("environment: ci-overflow-switch", self.text)
+
     def test_never_reads_a_lane_switch(self) -> None:
         code = "\n".join(line for line in self.text.splitlines() if not line.lstrip().startswith("#"))
         for name in LANE_SWITCHES:
