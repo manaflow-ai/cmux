@@ -15,6 +15,15 @@ public protocol CloudVMServing: Sendable {
     /// Enroll this device's WireGuard peer. Idempotent per fingerprint.
     func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose, deviceName: String?) async throws
         -> CloudTunnelEnrollment
+    /// Enroll this device's peer using the auth session captured for the
+    /// operation. Production services must not replace it with live tokens.
+    func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment
     /// Remove one device role's WireGuard peer without touching its other roles.
     func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws
     /// Remove one device role using tokens captured before local sign-out.
@@ -49,6 +58,21 @@ public protocol CloudVMServing: Sendable {
 public extension CloudVMServing {
     func listMachineCatalog() async throws -> CloudMachineCatalog {
         CloudMachineCatalog(machines: try await listMachines(), availableKinds: nil)
+    }
+
+    func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment {
+        try await enrollTunnel(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName
+        )
     }
 }
 

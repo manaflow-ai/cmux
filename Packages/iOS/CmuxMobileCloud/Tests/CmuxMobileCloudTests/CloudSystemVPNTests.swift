@@ -44,6 +44,25 @@ import Testing
         #expect(rig.controller.phase == .connecting)
     }
 
+    @Test func teamContextIsCapturedForEnrollmentAndPlatformProfile() async {
+        let rig = Rig()
+        rig.controller.setScope("user-1/team-1", teamID: "team-1")
+        await rig.controller.waitForPendingOperation()
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        guard let credentials = rig.service.calls.enrollCredentials.first ?? nil else {
+            Issue.record("enrollment did not capture credentials")
+            return
+        }
+        #expect(credentials.accessToken == "captured-access")
+        #expect(credentials.refreshToken == "captured-refresh")
+        #expect(credentials.teamID == "team-1")
+        #expect(rig.manager.refreshedTeamIDs == ["team-1", "team-1"])
+        #expect(rig.manager.installedTeamIDs == ["team-1"])
+    }
+
     @Test func eachEnableMintsAFreshKey() async throws {
         let rig = Rig()
         await signedIn(rig)

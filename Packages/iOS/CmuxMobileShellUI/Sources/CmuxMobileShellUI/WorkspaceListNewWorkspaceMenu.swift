@@ -48,24 +48,11 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
         } label: {
             Image(systemName: "plus")
         } primaryAction: {
-            Self.performPrimaryAction(value: value, actions: actions)
+            actions.performPrimaryAction(for: value)
         }
         .disabled(!value.isEnabled)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
-    }
-
-    static func performPrimaryAction(
-        value: WorkspaceListNewWorkspaceMenuValue,
-        actions: WorkspaceListNewWorkspaceMenuActions
-    ) {
-        guard value.isEnabled else { return }
-        if let target = value.singleConnectedTarget,
-           let createWorkspaceOnComputer = actions.createWorkspaceOnComputer {
-            createWorkspaceOnComputer(target)
-        } else {
-            actions.createWorkspace()
-        }
     }
 
     /// Several computers under All Computers: the tap asks where the new

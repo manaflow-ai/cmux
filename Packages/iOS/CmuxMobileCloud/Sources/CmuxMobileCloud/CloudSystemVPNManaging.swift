@@ -12,12 +12,27 @@ public protocol CloudSystemVPNManaging: AnyObject {
     var onPhaseChange: (@MainActor (CloudSystemVPNPhase) -> Void)? { get set }
     /// Loads the saved VPN, removing it when it belongs to another account.
     func refresh(scope: String) async throws
+    /// Loads the saved VPN, removing it when it belongs to another account
+    /// or team.
+    func refresh(scope: String, teamID: String?) async throws
     /// Saves the configuration (iOS asks for consent the first time) and
     /// starts it.
     func installAndStart(configuration: String, scope: String) async throws
+    /// Saves and starts a profile owned by `scope` and `teamID`.
+    func installAndStart(configuration: String, scope: String, teamID: String?) async throws
     /// Makes a best-effort synchronous request to stop an operation that has
     /// exceeded its deadline.
     func cancelPendingOperation()
     /// Stops the VPN, and optionally removes it and its secret.
     func stop(removeConfiguration: Bool) async throws
+}
+
+public extension CloudSystemVPNManaging {
+    func refresh(scope: String, teamID: String?) async throws {
+        try await refresh(scope: scope)
+    }
+
+    func installAndStart(configuration: String, scope: String, teamID: String?) async throws {
+        try await installAndStart(configuration: configuration, scope: scope)
+    }
 }

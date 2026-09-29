@@ -178,7 +178,7 @@ public final class CloudSystemVPNController {
                 }
                 if let newScope {
                     try await performBounded(reconcilePlatformOnTimeout: true) {
-                        try await self.manager.refresh(scope: newScope)
+                        try await self.manager.refresh(scope: newScope, teamID: newScopeTeamID)
                     }
                     guard self.isCurrent(generation) else { return }
                     needsPlatformReconciliation = false
@@ -220,6 +220,7 @@ public final class CloudSystemVPNController {
             return
         }
         enqueue { [self] generation in
+            let requestedTeamID = scopeTeamID
             do {
                 if !pendingBrowserTunnelRevocations.isEmpty {
                     try await revokePendingBrowserTunnel()
@@ -232,7 +233,7 @@ public final class CloudSystemVPNController {
                     cleanupPending = false
                 }
                 try await performBounded(reconcilePlatformOnTimeout: true) {
-                    try await self.manager.refresh(scope: scope)
+                    try await self.manager.refresh(scope: scope, teamID: requestedTeamID)
                 }
                 guard self.isCurrent(generation) else { return }
                 needsPlatformReconciliation = false
@@ -285,7 +286,7 @@ public final class CloudSystemVPNController {
             do {
                 if shouldReconcile {
                     try await performBounded(reconcilePlatformOnTimeout: true) {
-                        try await self.manager.refresh(scope: scope)
+                        try await self.manager.refresh(scope: scope, teamID: ownerTeamID)
                     }
                     guard self.isCurrent(generation),
                           self.scope == scope,
@@ -327,7 +328,8 @@ public final class CloudSystemVPNController {
                             clientPublicKey: keyPair.publicKey,
                             deviceFingerprint: identity.fingerprint,
                             tunnelPurpose: .browser,
-                            deviceName: self.deviceName
+                            deviceName: self.deviceName,
+                            credentials: credentials
                         )
                     } catch is CancellationError {
                         throw CancellationError()
@@ -411,7 +413,11 @@ public final class CloudSystemVPNController {
             guard routePolicy.permitsOnlyPrivateRoutes(inQuickConfig: configuration.text) else {
                 throw CloudSystemVPNError.configuration
             }
-            try await manager.installAndStart(configuration: configuration.text, scope: scope)
+            try await manager.installAndStart(
+                configuration: configuration.text,
+                scope: scope,
+                teamID: teamID
+            )
         } catch {
             guard enrollment.created || enrollment.rotated else { throw error }
             await revokeEnrollmentIfOwned(
@@ -886,7 +892,16 @@ public final class CloudSystemVPNController {
                 )
             }
         }
-        _ = try? await operation.result.value
+        do {
+            try await CloudSystemVPNTaskTimeout(
+                timeout: max(operationTimeout, .seconds(1))
+            ).value(operation.result)
+        } catch {
+            operation.cancelIfPending()
+            for tunnel in tunnels {
+                await rememberAndPersistPendingBrowserTunnelRevocation(tunnel)
+            }
+        }
     }
 
     private func revokeEnrollmentIfOwned(
@@ -949,6 +964,7 @@ public final class CloudSystemVPNController {
             scheduleCleanupRetry()
             return
         }
+        let requestedTeamID = scopeTeamID
         enqueue { [self] generation in
             do {
                 if !pendingBrowserTunnelRevocations.isEmpty {
@@ -963,7 +979,7 @@ public final class CloudSystemVPNController {
                 }
                 if let scope {
                     try await performBounded(reconcilePlatformOnTimeout: true) {
-                        try await self.manager.refresh(scope: scope)
+                        try await self.manager.refresh(scope: scope, teamID: requestedTeamID)
                     }
                     guard self.isCurrent(generation) else { return }
                     needsPlatformReconciliation = false

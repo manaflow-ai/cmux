@@ -50,12 +50,19 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
 
     /// Loads the saved profile for `scope` and mirrors its live status.
     public func refresh(scope: String) async throws {
+        try await refresh(scope: scope, teamID: nil)
+    }
+
+    /// Loads the saved profile for `scope` and `teamID`, removing a profile
+    /// that belongs to another account or team.
+    public func refresh(scope: String, teamID: String?) async throws {
         try await runCancellable { [self] in
             let existing = try await load()
             try Task.checkCancellation()
             manager = existing
             if let stored = existing?.protocolConfiguration as? NETunnelProviderProtocol,
-               stored.providerConfiguration?["scope"] as? String != scope {
+               (stored.providerConfiguration?["scope"] as? String != scope
+                || stored.providerConfiguration?["teamID"] as? String != normalizedTeamID(teamID)) {
                 try await stopUnwrapped(removeConfiguration: true)
             }
             publishStatus()
@@ -64,6 +71,12 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
 
     /// Saves and starts a private Cloud VPN configuration.
     public func installAndStart(configuration: String, scope: String) async throws {
+        try await installAndStart(configuration: configuration, scope: scope, teamID: nil)
+    }
+
+    /// Saves and starts a private Cloud VPN configuration owned by `scope`
+    /// and `teamID`.
+    public func installAndStart(configuration: String, scope: String, teamID: String?) async throws {
         guard isAvailable else { throw CloudSystemVPNError.unavailable }
         do {
             try await runCancellable { [self] in
@@ -89,7 +102,14 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
                 var preferencesSaved = false
                 do {
                     proto.passwordReference = newReference
-                    proto.providerConfiguration = ["schemaVersion": Self.schemaVersion, "scope": scope]
+                    var providerConfiguration: [String: Any] = [
+                        "schemaVersion": Self.schemaVersion,
+                        "scope": scope
+                    ]
+                    if let teamID = normalizedTeamID(teamID) {
+                        providerConfiguration["teamID"] = teamID
+                    }
+                    proto.providerConfiguration = providerConfiguration
                     proto.disconnectOnSleep = false
                     proto.includeAllNetworks = false
                     manager.protocolConfiguration = proto
@@ -141,6 +161,12 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
             }
             throw CloudSystemVPNError.configuration
         }
+    }
+
+    private func normalizedTeamID(_ teamID: String?) -> String? {
+        guard let teamID = teamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teamID.isEmpty else { return nil }
+        return teamID
     }
 
     /// Requests cancellation of a platform operation that exceeded its

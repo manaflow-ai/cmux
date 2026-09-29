@@ -58,6 +58,49 @@ public actor CloudVMService: CloudVMServing {
         deviceName: String?
     ) async throws -> CloudTunnelEnrollment {
         let (access, refresh) = try await credentials()
+        return try await enrollTunnel(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            accessToken: access,
+            refreshToken: refresh,
+            teamID: await tokens.teamID()
+        )
+    }
+
+    /// Enrolls a browser peer using the token context captured when the
+    /// operation started.
+    public func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment {
+        guard let credentials else {
+            throw CloudAPIError.notSignedIn
+        }
+        return try await enrollTunnel(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            accessToken: credentials.accessToken,
+            refreshToken: credentials.refreshToken,
+            teamID: credentials.teamID
+        )
+    }
+
+    private func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws -> CloudTunnelEnrollment {
         guard let deviceID = await deviceID()?.trimmingCharacters(in: .whitespacesAndNewlines),
               !deviceID.isEmpty else {
             throw CloudDeviceIdentityResolver.Failure.storeUnavailable
@@ -69,9 +112,9 @@ public actor CloudVMService: CloudVMServing {
             deviceFingerprint: deviceFingerprint,
             tunnelPurpose: tunnelPurpose,
             deviceName: deviceName,
-            accessToken: access,
-            refreshToken: refresh
-        ))
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        ), teamRouting: .explicit(teamID))
         let enrollment = try decoding.tunnelEnrollment(from: data)
         log.info("Cloud enrollment succeeded purpose=\(tunnelPurpose.rawValue, privacy: .public)")
         return enrollment

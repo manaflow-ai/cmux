@@ -8,8 +8,10 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     var phase: CloudSystemVPNPhase = .off
     var onPhaseChange: (@MainActor (CloudSystemVPNPhase) -> Void)?
     var installed: [(configuration: String, scope: String)] = []
+    var installedTeamIDs: [String?] = []
     var stops: [Bool] = []
     var refreshedScopes: [String] = []
+    var refreshedTeamIDs: [String?] = []
     var installFailure: CloudSystemVPNError?
     var installDelay: Duration?
     var installIgnoresCancellation = false
@@ -31,12 +33,25 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     var phaseAfterStop: CloudSystemVPNPhase = .off
 
     func refresh(scope: String) async throws {
+        try await refresh(scope: scope, teamID: nil)
+    }
+
+    func refresh(scope: String, teamID: String?) async throws {
         beginOperation()
         defer { endOperation() }
         refreshedScopes.append(scope)
+        refreshedTeamIDs.append(teamID)
     }
 
     func installAndStart(configuration: String, scope: String) async throws {
+        try await installAndStart(configuration: configuration, scope: scope, teamID: nil)
+    }
+
+    func installAndStart(
+        configuration: String,
+        scope: String,
+        teamID: String?
+    ) async throws {
         beginOperation()
         defer { endOperation() }
         installWasCancelled = false
@@ -57,6 +72,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
             }
         }
         installed.append((configuration, scope))
+        installedTeamIDs.append(teamID)
         await installCompletion.signal()
         phase = phaseAfterStart
         onPhaseChange?(phase)

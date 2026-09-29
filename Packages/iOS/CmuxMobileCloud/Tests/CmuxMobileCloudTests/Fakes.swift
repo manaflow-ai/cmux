@@ -8,6 +8,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         var list = 0
         var create: [(options: CloudMachineCreateOptions, idempotencyKey: String)] = []
         var enroll: [(publicKey: String, fingerprint: String, purpose: CloudTunnelPurpose, deviceName: String?)] = []
+        var enrollCredentials: [CloudAPITokenSource.TokenContext?] = []
         var revoke: [(fingerprint: String, purpose: CloudTunnelPurpose)] = []
         var revokeCredentials: [(accessToken: String, refreshToken: String, teamID: String?)] = []
         var attach: [(machineID: String, fingerprint: String)] = []
@@ -51,8 +52,41 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     }
 
     func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose, deviceName: String?) async throws -> CloudTunnelEnrollment {
+        try await performEnrollment(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            credentials: nil
+        )
+    }
+
+    func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment {
+        try await performEnrollment(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            credentials: credentials
+        )
+    }
+
+    private func performEnrollment(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment {
         let callIndex = lock.withLock { calls -> Int in
             calls.enroll.append((clientPublicKey, deviceFingerprint, tunnelPurpose, deviceName))
+            calls.enrollCredentials.append(credentials)
             return calls.enroll.count - 1
         }
         if let enrollmentDelay {

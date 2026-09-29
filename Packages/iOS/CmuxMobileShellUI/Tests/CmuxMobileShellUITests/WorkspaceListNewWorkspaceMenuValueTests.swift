@@ -76,10 +76,7 @@ import Testing
             createWorkspaceOnComputer: { selectedTarget = $0 }
         )
 
-        WorkspaceListNewWorkspaceMenu.performPrimaryAction(
-            value: value,
-            actions: actions
-        )
+        actions.performPrimaryAction(for: value)
 
         #expect(!genericActionCalled)
         #expect(selectedTarget == target)
