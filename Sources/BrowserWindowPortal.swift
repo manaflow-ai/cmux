@@ -1806,6 +1806,9 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
+        let presentationFrame = needsFrameUpdate
+            ? PaneDropRouting.currentAnimatedOverlayFrame(for: dropZoneOverlayView)
+            : nil
         dropZoneOverlayAnimationGeneration &+= 1
         dropZoneOverlayView.layer?.removeAllAnimations()
 
@@ -1823,6 +1826,9 @@ final class WindowBrowserSlotView: NSView {
         }
 
         bringInteractionLayersToFrontIfNeeded()
+        if let presentationFrame {
+            applyDropZoneOverlayFrame(presentationFrame)
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)

@@ -215,6 +215,19 @@ enum PaneDropRouting {
             return CGRect(x: bounds.minX + padding, y: bounds.minY + padding, width: max(0, bounds.width - padding * 2), height: max(0, midY - bounds.minY - padding))
         }
     }
+
+    static func currentAnimatedOverlayFrame(for overlayView: NSView) -> CGRect? {
+        guard let presentationFrame = overlayView.layer?.presentation()?.frame else {
+            return nil
+        }
+        guard presentationFrame.origin.x.isFinite,
+              presentationFrame.origin.y.isFinite,
+              presentationFrame.size.width.isFinite,
+              presentationFrame.size.height.isFinite else {
+            return nil
+        }
+        return presentationFrame
+    }
 }
 
 typealias TerminalPaneDropRouting = PaneDropRouting
@@ -292,6 +305,9 @@ final class PaneDropZoneOverlayAnimator {
             return
         }
 
+        let presentationFrame = needsFrameUpdate
+            ? PaneDropRouting.currentAnimatedOverlayFrame(for: overlayView)
+            : nil
         animationGeneration &+= 1
         overlayView.layer?.removeAllAnimations()
 
@@ -310,6 +326,9 @@ final class PaneDropZoneOverlayAnimator {
         }
 
         bringToFront()
+        if let presentationFrame {
+            applyFrame(presentationFrame)
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)

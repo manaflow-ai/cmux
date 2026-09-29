@@ -11944,7 +11944,7 @@ class TerminalController {
           overlay_drop_gate [external|local] - Return true/false if file-drop overlay would capture drag destination routing (test-only)
           portal_hit_gate <event|none> - Return true/false if terminal portal should pass hit-testing to SwiftUI drag targets (test-only)
           sidebar_overlay_gate [active|inactive] - Return true/false if sidebar outside-drop overlay would capture (test-only)
-          terminal_drop_overlay_probe [deferred|direct|retarget] - Trigger focused terminal drop-overlay show or retarget path and report animation (test-only)
+          terminal_drop_overlay_probe [deferred|direct] - Trigger focused terminal drop-overlay show path and report animation counts (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           send_workspace <workspace_id> <text> - Send text to a workspace's selected terminal (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
@@ -12264,33 +12264,6 @@ class TerminalController {
         return shouldCapture ? "true" : "false"
     }
 
-    private func terminalDropOverlayRetargetProbe(tabManager: TabManager) -> String {
-        var result = "ERROR: No selected workspace"
-        v2MainSync {
-            guard let selectedId = tabManager.selectedTabId,
-                  let workspace = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-                return
-            }
-
-            let terminalPanel = workspace.focusedTerminalInputTarget()?.panel
-                ?? orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }.first
-            guard let terminalPanel else {
-                result = "ERROR: No terminal panel available"
-                return
-            }
-
-            let probe = terminalPanel.hostedView.debugProbeDropOverlayRetarget()
-            result = String(
-                format: "OK mode=retarget animated=%d keys=%@ bounds=%.1fx%.1f",
-                probe.geometryAnimationKeys.isEmpty ? 0 : 1,
-                probe.geometryAnimationKeys.joined(separator: ","),
-                probe.bounds.width,
-                probe.bounds.height
-            )
-        }
-        return result
-    }
-
     private func terminalDropOverlayProbe(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -12301,10 +12274,8 @@ class TerminalController {
             useDeferredPath = true
         case "direct":
             useDeferredPath = false
-        case "retarget":
-            return terminalDropOverlayRetargetProbe(tabManager: tabManager)
         default:
-            return "ERROR: Usage: terminal_drop_overlay_probe [deferred|direct|retarget]"
+            return "ERROR: Usage: terminal_drop_overlay_probe [deferred|direct]"
         }
 
         var result = "ERROR: No selected workspace"
