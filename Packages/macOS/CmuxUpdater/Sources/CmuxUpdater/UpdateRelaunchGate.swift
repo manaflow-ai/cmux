@@ -281,6 +281,13 @@ final class UpdateRelaunchGate {
         return true
     }
 
+    /// Preserve Sparkle's downloaded installation but require an explicit restart
+    /// after automatic installs are disabled. User-requested holds keep their intent.
+    func deferAutomaticInstall() {
+        guard let request = pending, request.mode == .quietMoment else { return }
+        finish(request, relaunching: false)
+    }
+
     /// Ends a held relaunch without running either action, because the update session that
     /// owned it ended (an error, a finished cycle, or a completed install).
     func cancel() {

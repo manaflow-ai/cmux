@@ -180,6 +180,9 @@ public final class UpdateController {
     /// download is what leads to ``UpdateDriver/handleWillInstallUpdateOnQuit(immediateInstallHandler:)``.
     private func applyInstallAutomatically() {
         let enabled = installsAutomatically
+        if !enabled {
+            driver.relaunchGate.deferAutomaticInstall()
+        }
         guard updater.automaticallyDownloadsUpdates != enabled else { return }
         updater.automaticallyDownloadsUpdates = enabled
         log.append("automatic update installs \(enabled ? "on" : "off")")
