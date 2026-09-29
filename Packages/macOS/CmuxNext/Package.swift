@@ -9,6 +9,7 @@ import PackageDescription
 //
 // Dependency direction (no cycles, no upward imports):
 //   CmuxNextApp -> every feature module
+//   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxGhosttyKit (binary)
@@ -60,11 +61,27 @@ let package = Package(
                 "CmuxNextPalette",
                 "CmuxNextLayout",
                 "CmuxNextBrowser",
+                "CmuxNextBridge",
                 "CmuxNextControl",
                 "CmuxNextSettings",
             ],
             resources: [
                 .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // App-layer mapping between daemon records and feature view models,
+        // kept out of CmuxNextApp so it links in `swift test` (no GhosttyKit).
+        .target(
+            name: "CmuxNextBridge",
+            dependencies: ["CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBridgeTests",
+            dependencies: ["CmuxNextBridge", "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs"],
+            resources: [
+                .copy("Fixtures"),
             ],
             swiftSettings: uiSwiftSettings
         ),

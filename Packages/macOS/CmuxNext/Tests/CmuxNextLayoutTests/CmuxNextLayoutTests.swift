@@ -298,15 +298,41 @@ private func style(gap: CGFloat = 8) -> LayoutStyle {
         #expect(model.screens[0].layout.ratio(of: "x") == 0.7)
     }
 
-    @Test func rejectedGestureValueExpires() {
+    @Test func unsettledGestureValueSurvivesStaleSnapshots() {
+        let (model, _) = makeModel()
+        let stale = model.screens
+        model.setSplitRatio("x", ratio: 0.3, transaction: "t", phase: .ended)
+        for _ in 0..<5 { model.apply(screens: stale) }
+        #expect(model.screens[0].layout.ratio(of: "x") == 0.3)
+    }
+
+    @Test func rejectedTransactionRestoresDaemonValue() {
         let (model, _) = makeModel()
         let stale = model.screens
         model.setSplitRatio("x", ratio: 0.3, transaction: "t", phase: .ended)
         model.apply(screens: stale)
+        model.rejectTransaction("t")
+        #expect(model.screens[0].layout.ratio(of: "x") == 0.5)
+    }
+
+    @Test func settledTransactionYieldsToNextSnapshot() {
+        let (model, _) = makeModel()
+        let stale = model.screens
+        model.setSplitRatio("x", ratio: 0.3, transaction: "t", phase: .ended)
+        model.settleTransaction("t")
+        #expect(model.screens[0].layout.ratio(of: "x") == 0.3)
+        // The daemon clamped the value; the post-commit snapshot wins.
+        model.apply(screens: [LayoutScreen(id: "s", name: "", layout: stale[0].layout.settingRatio(0.25, for: "x"))])
+        #expect(model.screens[0].layout.ratio(of: "x") == 0.25)
+    }
+
+    @Test func settlingLiveGestureKeepsTracking() {
+        let (model, _) = makeModel()
+        let stale = model.screens
+        model.setSplitRatio("x", ratio: 0.3, transaction: "t", phase: .changed)
+        model.settleTransaction("t")
         model.apply(screens: stale)
         #expect(model.screens[0].layout.ratio(of: "x") == 0.3)
-        model.apply(screens: stale)
-        #expect(model.screens[0].layout.ratio(of: "x") == 0.5)
     }
 
     @Test func columnWidthIntentCarriesAPane() {

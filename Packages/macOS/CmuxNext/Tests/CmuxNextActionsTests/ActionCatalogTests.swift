@@ -63,7 +63,7 @@ import Testing
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 22,
         .workspace: 79,
-        .pane: 45,
+        .pane: 46,
         .tab: 63,
         .terminal: 22,
         .browser: 51,

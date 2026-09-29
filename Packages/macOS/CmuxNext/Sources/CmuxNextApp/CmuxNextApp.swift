@@ -3,7 +3,8 @@ import AppKit
 /// Entry point called from the Xcode target's `App/main.swift`.
 public enum CmuxNextApp {
     public static func main() {
-        let app = NSApplication.shared
+        // Instantiate the CEF-ready subclass before anything touches NSApp.
+        let app = CmuxApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.regular)

@@ -149,11 +149,13 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// Makes this view the geometry owner: only the owner resizes the PTY.
     public func claimGeometry() {
-        fireAndForget(SetClientSizingRequest(surface: surface, enabled: true, exclusive: true))
-        ownsGeometry = true
+        // The daemon accepts a sizing claim only from a view that already
+        // reported a size on this attachment, so report first.
         if let lastReported, let lease {
             fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: lastReported.cols, rows: lastReported.rows))
         }
+        fireAndForget(SetClientSizingRequest(surface: surface, enabled: true, exclusive: true))
+        ownsGeometry = true
     }
 
     /// Keeps the stream for cached rendering but stops contributing a size

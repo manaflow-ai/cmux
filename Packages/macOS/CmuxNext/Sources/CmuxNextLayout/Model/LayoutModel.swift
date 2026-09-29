@@ -5,9 +5,11 @@ public import Observation
 ///
 /// The App mirrors daemon state into it with `apply(screens:)` and handles
 /// `LayoutIntent`s from `intentHandler`. Local gestures update the tree
-/// optimistically so drags track the pointer before the daemon echoes them;
-/// while a gesture is live (and until the daemon confirms its final value),
-/// incoming snapshots keep the local value for that divider or column.
+/// optimistically so drags track the pointer before the daemon echoes them.
+/// Each gesture carries a `LayoutTransactionID`; its local value overrides
+/// incoming snapshots until the App settles the transaction (the daemon
+/// accepted the command, so the next snapshot wins) or rejects it (the last
+/// daemon value is restored at once). No snapshot-counting heuristics.
 @Observable
 @MainActor
 public final class LayoutModel {
@@ -59,17 +61,21 @@ public final class LayoutModel {
 
     private struct Override {
         var value: Double
+        var transaction: LayoutTransactionID
         var ended = false
-        /// Snapshots applied since the gesture ended that did not confirm it.
-        var unconfirmedSnapshots = 0
+        /// The daemon accepted the gesture's final command: the next snapshot
+        /// is authoritative (it was requested after the command committed on
+        /// the same serial connection), so the override yields to it.
+        var settled = false
     }
 
-    /// The Nth snapshot after a gesture ends that still disagrees with the
-    /// local value wins (the daemon rejected or clamped the change).
-    private static let overrideSnapshotLimit = 3
+    /// The last daemon snapshot, without local overrides. Restored when a
+    /// transaction is rejected.
+    @ObservationIgnored private var daemonScreens: [LayoutScreen] = []
 
     public init(screens: [LayoutScreen] = [], activeScreenID: ScreenID? = nil, focusedPane: PaneID? = nil) {
         self.screens = screens
+        daemonScreens = screens
         self.activeScreenID = activeScreenID ?? screens.first?.id
         self.focusedPane = focusedPane ?? screens.first?.layout.panes.first
     }
@@ -79,8 +85,46 @@ public final class LayoutModel {
     /// Replaces the tree with a daemon snapshot. Keeps client-local focus and
     /// active screen when they still exist, else falls back to the first.
     public func apply(screens newScreens: [LayoutScreen]) {
-        agePostGestureOverrides(present: newScreens)
-        var result = newScreens
+        daemonScreens = newScreens
+        splitOverrides = splitOverrides.filter { !$0.value.settled }
+        widthOverrides = widthOverrides.filter { !$0.value.settled }
+        screens = overlaid(newScreens)
+        if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
+            activeScreenID = screens.first?.id
+        }
+        if let focusedPane, screens.contains(where: { $0.layout.contains(focusedPane) }) {
+            return
+        }
+        focusedPane = activeScreen?.layout.panes.first
+    }
+
+    /// The daemon accepted the command carrying `transaction`. An ended
+    /// gesture's override is dropped at the next snapshot; a live gesture
+    /// keeps tracking the pointer.
+    public func settleTransaction(_ transaction: LayoutTransactionID) {
+        for (key, value) in splitOverrides where value.transaction == transaction && value.ended {
+            splitOverrides[key]?.settled = true
+        }
+        for (key, value) in widthOverrides where value.transaction == transaction && value.ended {
+            widthOverrides[key]?.settled = true
+        }
+    }
+
+    /// The daemon rejected the command carrying `transaction`: drop its
+    /// overrides and show the last daemon value at once.
+    public func rejectTransaction(_ transaction: LayoutTransactionID) {
+        let splits = splitOverrides.count, widths = widthOverrides.count
+        splitOverrides = splitOverrides.filter { $0.value.transaction != transaction }
+        widthOverrides = widthOverrides.filter { $0.value.transaction != transaction }
+        guard splits != splitOverrides.count || widths != widthOverrides.count else { return }
+        let restored = overlaid(daemonScreens)
+        if restored != screens { screens = restored }
+    }
+
+    /// Applies live and unconfirmed overrides onto daemon screens. An ended
+    /// override whose value the daemon already reports is confirmed and dropped.
+    private func overlaid(_ source: [LayoutScreen]) -> [LayoutScreen] {
+        var result = source
         for index in result.indices {
             var layout = result[index].layout
             for (split, override) in splitOverrides {
@@ -101,33 +145,7 @@ public final class LayoutModel {
             }
             result[index].layout = layout
         }
-        screens = result
-        if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
-            activeScreenID = screens.first?.id
-        }
-        if let focusedPane, screens.contains(where: { $0.layout.contains(focusedPane) }) {
-            return
-        }
-        focusedPane = activeScreen?.layout.panes.first
-    }
-
-    private func agePostGestureOverrides(present: [LayoutScreen]) {
-        for (split, override) in splitOverrides where override.ended {
-            let exists = present.contains { $0.layout.ratio(of: split) != nil }
-            if !exists || override.unconfirmedSnapshots + 1 >= Self.overrideSnapshotLimit {
-                splitOverrides[split] = nil
-            } else {
-                splitOverrides[split]?.unconfirmedSnapshots += 1
-            }
-        }
-        for (column, override) in widthOverrides where override.ended {
-            let exists = present.contains { $0.layout.columns.contains { $0.id == column } }
-            if !exists || override.unconfirmedSnapshots + 1 >= Self.overrideSnapshotLimit {
-                widthOverrides[column] = nil
-            } else {
-                widthOverrides[column]?.unconfirmedSnapshots += 1
-            }
-        }
+        return result
     }
 
     // MARK: Queries
@@ -185,7 +203,7 @@ public final class LayoutModel {
     public func setSplitRatio(_ split: SplitID, ratio: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let ratio = min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
         updateScreens { $0.settingRatio(ratio, for: split) }
-        splitOverrides[split] = Override(value: ratio, ended: phase == .ended)
+        splitOverrides[split] = Override(value: ratio, transaction: transaction, ended: phase == .ended)
         let intent = LayoutIntent.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)
         record(intent, key: .split(split), phase: phase)
     }
@@ -202,7 +220,7 @@ public final class LayoutModel {
         let width = min(max(width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
         guard let anyPane = screens.lazy.compactMap({ $0.layout.columns.first { $0.id == column }?.root.panes.first }).first else { return }
         updateScreens { $0.settingWidth(width, for: column) }
-        widthOverrides[column] = Override(value: width, ended: phase == .ended)
+        widthOverrides[column] = Override(value: width, transaction: transaction, ended: phase == .ended)
         let intent = LayoutIntent.setColumnWidth(column, anyPane: anyPane, width: width, transaction: transaction, phase: phase)
         record(intent, key: .column(column), phase: phase)
     }

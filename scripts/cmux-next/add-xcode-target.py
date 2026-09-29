@@ -52,6 +52,7 @@ PRODUCT_DEP = oid(20)
 BF_ASSETS = oid(21)
 PHASE_BUNDLE_TUI = oid(22)
 PHASE_EMBED_CEF = oid(23)
+PHASE_BUNDLE_GHOSTTY = oid(24)
 
 # Existing objects reused by reference.
 LEGACY_DEBUG = "A5001082"
@@ -174,17 +175,46 @@ def add_embed_cef_phase(text: str) -> str:
     )
 
 
+def add_bundle_ghostty_phase(text: str) -> str:
+    """Add the "Bundle Ghostty resources" phase (scripts/cmux-next/bundle-ghostty-resources.sh):
+    themes, terminfo, and shell integration. Idempotent."""
+    if PHASE_BUNDLE_GHOSTTY in text:
+        return text
+    text = insert_before(text, "/* End PBXShellScriptBuildPhase section */", (
+        f"\t\t{PHASE_BUNDLE_GHOSTTY} /* Bundle Ghostty resources */ = {{\n"
+        "\t\t\tisa = PBXShellScriptBuildPhase;\n"
+        "\t\t\talwaysOutOfDate = 1;\n"
+        "\t\t\tbuildActionMask = 2147483647;\n"
+        "\t\t\tfiles = (\n\t\t\t);\n"
+        "\t\t\tinputFileListPaths = (\n\t\t\t);\n"
+        "\t\t\tinputPaths = (\n\t\t\t);\n"
+        "\t\t\tname = \"Bundle Ghostty resources\";\n"
+        "\t\t\toutputFileListPaths = (\n\t\t\t);\n"
+        "\t\t\toutputPaths = (\n\t\t\t);\n"
+        "\t\t\trunOnlyForDeploymentPostprocessing = 0;\n"
+        "\t\t\tshellPath = /bin/sh;\n"
+        "\t\t\tshellScript = \"exec \\\"${SRCROOT}/scripts/cmux-next/bundle-ghostty-resources.sh\\\"\\n\";\n"
+        "\t\t};\n"
+    ))
+    return append_to_list(
+        text,
+        f"\t\t{TARGET} /* cmux-next */ = {{\n",
+        "buildPhases",
+        f"\t\t\t\t{PHASE_BUNDLE_GHOSTTY} /* Bundle Ghostty resources */,\n",
+    )
+
+
 def main() -> int:
     text = PBXPROJ.read_text()
     if TARGET in text:
-        upgraded = add_embed_cef_phase(add_bundle_tui_phase(text))
+        upgraded = add_bundle_ghostty_phase(add_embed_cef_phase(add_bundle_tui_phase(text)))
         if upgraded == text:
             print("cmux-next target already present; nothing to do")
         else:
             PBXPROJ.write_text(upgraded)
-            print("upgraded cmux-next target phases (Bundle cmux-tui, Embed CEF)")
+            print("upgraded cmux-next target phases (Bundle cmux-tui, Embed CEF, Bundle Ghostty resources)")
         return 0
-    for n in range(1, 24):
+    for n in range(1, 25):
         assert oid(n) not in text, f"ID collision: {oid(n)}"
 
     text = insert_before(text, "/* End PBXBuildFile section */", "".join([
@@ -351,7 +381,7 @@ def main() -> int:
         "\t\t};\n"
     ))
 
-    text = add_embed_cef_phase(add_bundle_tui_phase(text))
+    text = add_bundle_ghostty_phase(add_embed_cef_phase(add_bundle_tui_phase(text)))
     PBXPROJ.write_text(text)
     print(f"added cmux-next target {TARGET}")
     return 0

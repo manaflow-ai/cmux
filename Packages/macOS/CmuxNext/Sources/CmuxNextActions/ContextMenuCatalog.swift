@@ -62,13 +62,13 @@ public enum ContextMenuCatalog {
         + [.separator] + actions("tabGroup.ungroup", "tabGroup.close")
 
     static let pane: [ContextMenuEntry] =
-        actions("splitRight", "splitDown", "splitBrowserRight", "splitBrowserDown") + [.separator]
+        actions("splitRight", "splitDown", "newColumn", "splitBrowserRight", "splitBrowserDown") + [.separator]
         + actions("toggleSplitZoom", "equalizeSplits", "triggerFlash") + [.separator]
         + actions("palette.swapWithSession", "reconnectPane") + [.separator]
         + actions("palette.copyPaneID", "palette.copyPaneLink")
 
     static let column: [ContextMenuEntry] =
-        actions("newPaneAutoLayout", "splitDown") + [.separator] + actions("equalizeSplits", "toggleSplitZoom")
+        actions("newColumn", "newPaneAutoLayout", "splitDown") + [.separator] + actions("equalizeSplits", "toggleSplitZoom")
 
     static let workspaceRow: [ContextMenuEntry] =
         actions("renameWorkspace", "editWorkspaceDescription", "palette.workspaceStatus", "markWorkspaceDone",
