@@ -63,7 +63,7 @@ extension CloudTreeOutlineView.Coordinator {
         guard row >= 0 else { return }
         let rowRect = outlineView.rect(ofRow: row)
         if !outlineView.visibleRect.contains(rowRect) {
-            outlineView.scrollRectToVisible(rowRect.insetBy(dx: 0, dy: -1))
+            outlineView.scrollToVisible(rowRect.insetBy(dx: 0, dy: -1))
         }
     }
 }
