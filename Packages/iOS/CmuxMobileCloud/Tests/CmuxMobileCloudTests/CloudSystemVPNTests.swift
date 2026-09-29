@@ -265,6 +265,36 @@ import Testing
         #expect(rig.manager.maxConcurrentOperations == 1)
     }
 
+    @Test func aTimedOutPlatformCallKeepsTheGateUntilItReturns() async {
+        let rig = Rig(operationTimeout: .milliseconds(50))
+        rig.manager.installDelay = .milliseconds(250)
+        rig.manager.installIgnoresCancellation = true
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        rig.controller.enable()
+        try? await ContinuousClock().sleep(for: .milliseconds(100))
+
+        #expect(rig.service.calls.enroll.count == 1)
+        #expect(rig.manager.maxConcurrentOperations == 1)
+
+        await rig.manager.waitForInstallCompletion()
+        await rig.controller.waitForPendingOperation()
+    }
+
+    @Test func enablingReconcilesAConnectedPlatformProfileBeforeEnrollment() async {
+        let rig = Rig()
+        await signedIn(rig)
+        rig.manager.phase = .connected
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.service.calls.enroll.isEmpty)
+        #expect(rig.controller.phase == .connected)
+    }
+
     @Test func anAbandonedGateWaitsForTheUnderlyingCallBeforeReplacement() async throws {
         let gate = CloudSystemVPNOperationGate()
         let firstStarted = TestSignal()

@@ -12,6 +12,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     var refreshedScopes: [String] = []
     var installFailure: CloudSystemVPNError?
     var installDelay: Duration?
+    var installIgnoresCancellation = false
     var stopDelay: Duration?
     var stopFailuresRemaining = 0
     var stopAttempts: [Bool] = []
@@ -50,8 +51,10 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
             installDelayTask = delayTask
             defer { installDelayTask = nil }
             await delayTask.value
-            guard !installWasCancelled else { throw CancellationError() }
-            try Task.checkCancellation()
+            if !installIgnoresCancellation {
+                guard !installWasCancelled else { throw CancellationError() }
+                try Task.checkCancellation()
+            }
         }
         installed.append((configuration, scope))
         await installCompletion.signal()
@@ -62,7 +65,9 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     func cancelPendingOperation() {
         cancelPendingOperationCount += 1
         installWasCancelled = true
-        installDelayTask?.cancel()
+        if !installIgnoresCancellation {
+            installDelayTask?.cancel()
+        }
         installDelay = nil
         stopDelayTask?.cancel()
         stopDelay = nil
