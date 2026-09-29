@@ -492,8 +492,8 @@ extension CMUXCLI {
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
         if let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: Array(keys)) {
             for case let url as URL in enumerator {
+                guard fileCount < 10_000 else { break }
                 guard url.path != marker.path,
-                      fileCount < 10_000,
                       let values = try? url.resourceValues(forKeys: keys),
                       values.isRegularFile == true else { continue }
                 fileCount += 1
