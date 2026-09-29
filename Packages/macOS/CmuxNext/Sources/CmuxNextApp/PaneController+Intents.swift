@@ -36,6 +36,8 @@ extension PaneController {
         case .moveToNewColumn(let id):
             guard let tab = tab(id) else { return }
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
+        case .trailingButton(let id):
+            services.tabBarButtons.perform(id, paneKey: paneKey)
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
@@ -62,13 +64,16 @@ extension PaneController {
         select(ids[(current + offset % ids.count + ids.count) % ids.count])
     }
 
-    func newTerminalTab(cwd: String? = nil) {
+    /// New terminal tab in this pane. `typing` is sent to the new shell
+    /// once the tab exists (config command actions).
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil) {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
         guard let connection = services.daemon.connection else { return }
         Task {
             do {
                 let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
+                if let text { try await connection.send(created.surface, text: text) }
                 pendingSelectSurface = created.surface
                 apply(snapshot())
             } catch {

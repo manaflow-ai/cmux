@@ -29,6 +29,7 @@ final class PaneController {
     /// focus once its page exists (CEF pages arrive asynchronously).
     var pendingAddressBarFocus: SurfaceID?
     private var observation: Task<Void, Never>?
+    private var buttonsObservation: Task<Void, Never>?
 
     struct Snapshot: Equatable {
         var items: [StripTabItem]
@@ -59,6 +60,7 @@ final class PaneController {
 
     func teardown() {
         observation?.cancel()
+        buttonsObservation?.cancel()
         services.presentation.cancel(self)
         if let currentTabKey { services.cache.setVisible(currentTabKey, false) }
         currentTabKey = nil
@@ -76,6 +78,13 @@ final class PaneController {
             }
         }
         apply(snapshot())
+        let buttons = services.tabBarButtons!
+        buttonsObservation = Task { [weak self] in
+            for await list in Observations({ buttons.buttons }) {
+                guard let self else { return }
+                if self.stripModel.trailingButtons != list { self.stripModel.trailingButtons = list }
+            }
+        }
     }
 
     func snapshot() -> Snapshot {

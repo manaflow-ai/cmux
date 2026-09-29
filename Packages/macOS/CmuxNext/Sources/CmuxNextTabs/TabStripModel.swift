@@ -22,6 +22,9 @@ public final class TabStripModel {
     public var selectedID: TabID?
     public var style: TabStripStyle
     public var showsNewTabButton: Bool
+    /// Buttons pinned to the strip's trailing edge, in order. Empty hides
+    /// the group.
+    public var trailingButtons: [TabStripButton]
 
     /// Receives every intent. Set by the App (or the demo).
     @ObservationIgnored public var intentHandler: ((TabStripIntent) -> Void)?
@@ -32,7 +35,8 @@ public final class TabStripModel {
         groups: [TabGroupItem] = [],
         selectedID: TabID? = nil,
         style: TabStripStyle = .chrome,
-        showsNewTabButton: Bool = true
+        showsNewTabButton: Bool = true,
+        trailingButtons: [TabStripButton] = []
     ) {
         self.stripID = stripID
         self.tabs = tabs
@@ -40,6 +44,7 @@ public final class TabStripModel {
         self.selectedID = selectedID
         self.style = style
         self.showsNewTabButton = showsNewTabButton
+        self.trailingButtons = trailingButtons
     }
 
     /// Display order: pinned tabs first, then unpinned tabs in `tabs` order
