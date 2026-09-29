@@ -85,6 +85,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertTrue(pluginSource.contains("id: \"cmux.session\""))
         XCTAssertTrue(pluginSource.contains("ctx.event.subscribe({ signal"))
         XCTAssertTrue(pluginSource.contains("event.properties || event.data"))
+        XCTAssertTrue(pluginSource.contains("const planDecisionAnswer = (value) => form ? answerForForm(form, [value])"))
+        XCTAssertTrue(pluginSource.contains("handleExitPlanDecision(form.sessionId, requestId, result.decision, form)"))
         XCTAssertTrue(pluginSource.contains("\"hooks\", \"enqueue\", \"opencode\""))
         XCTAssertTrue(pluginSource.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: \"1\""))
 

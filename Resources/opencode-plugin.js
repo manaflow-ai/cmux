@@ -409,12 +409,13 @@ const createCMUXFeed = async (ctx) => {
     await replyForm(sid, requestId, answer, legacyAnswers);
   };
 
-  const handleExitPlanDecision = async (sid, requestId, decision) => {
+  const handleExitPlanDecision = async (sid, requestId, decision, form = null) => {
     const mode = decision?.mode || "manual";
+    const planDecisionAnswer = (value) => form ? answerForForm(form, [value]) : { answer: value };
     const feedback = normalizeText(decision?.feedback, 1800);
 
     if (feedback) {
-      await replyInteractive(sid, requestId, { answer: "No" }, [["No"]]);
+      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
       await sendPlanFeedback(
         sid,
         `User rejected the plan via cmux Feed and wants this change: ${feedback}\n\nUpdate the plan file, then call plan_exit again.`
@@ -423,12 +424,12 @@ const createCMUXFeed = async (ctx) => {
     }
 
     if (mode === "deny") {
-      await replyInteractive(sid, requestId, { answer: "No" }, [["No"]]);
+      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
       return;
     }
 
     if (mode === "ultraplan") {
-      await replyInteractive(sid, requestId, { answer: "No" }, [["No"]]);
+      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
       await sendPlanFeedback(
         sid,
         "User chose Ultraplan via cmux Feed. Refine the plan more deeply, update the plan file, then call plan_exit again."
@@ -444,14 +445,14 @@ const createCMUXFeed = async (ctx) => {
       permissionsApplied = false;
     }
     if (!permissionsApplied) {
-      await replyInteractive(sid, requestId, { answer: "No" }, [["No"]]);
+      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
       await sendPlanFeedback(
         sid,
         "cmux could not apply the selected permission mode. Ask the user to approve the plan again before switching to build mode."
       );
       return;
     }
-    await replyInteractive(sid, requestId, { answer: "Yes" }, [["Yes"]]);
+    await replyInteractive(sid, requestId, planDecisionAnswer("Yes"), [["Yes"]]);
   };
 
   const resolvePending = (requestId, value) => {
@@ -745,7 +746,7 @@ const createCMUXFeed = async (ctx) => {
           if (result?.status !== "resolved") break;
           try {
             if (planExit && result.decision?.kind === "exit_plan") {
-              await handleExitPlanDecision(form.sessionId, requestId, result.decision);
+              await handleExitPlanDecision(form.sessionId, requestId, result.decision, form);
             } else if (!planExit && result.decision?.kind === "question") {
               await replyForm(form.sessionId, requestId, answerForForm(form, result.decision.selections));
             }
