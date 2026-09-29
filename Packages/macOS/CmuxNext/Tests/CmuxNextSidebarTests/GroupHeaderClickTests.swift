@@ -57,4 +57,26 @@ import Testing
         #expect(h.list.rename?.key == .group(g1))
         h.list.endRename(commit: false)
     }
+
+    @Test func singleClickOnGroupNameTogglesOnceAfterTheDoubleClickInterval() async {
+        let h = Harness()
+        h.list.groupToggleDelay = .zero
+        h.click(h.namePoint(g1), count: 1)
+        #expect(h.toggles == 0)
+        let pending = h.list.pendingGroupToggle?.task
+        #expect(pending != nil)
+        await pending?.value
+        #expect(h.toggles == 1)
+        #expect(h.list.model.group(g1)?.isCollapsed == true)
+    }
+
+    @Test func clickOnChevronTogglesImmediately() {
+        let h = Harness()
+        let view = h.list.rowViews[.group(g1)] as! GroupHeaderRowView
+        let local = NSPoint(x: view.disclosureFrame.midX, y: view.bounds.midY)
+        let point = h.list.convert(h.list.convert(local, from: view), to: nil)
+        h.click(point, count: 1)
+        #expect(h.toggles == 1)
+        #expect(h.list.pendingGroupToggle == nil)
+    }
 }
