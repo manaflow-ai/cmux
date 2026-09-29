@@ -3015,7 +3015,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var restoredUnreadPanelIds: Set<UUID> { panelUnread.restoredPanelIds }
 
     var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
-    /// Not `@Published`. The geometry callback posts `.workspacePaneGeometryDidChange`
+    /// Not `@Published`; the geometry callback posts `.workspacePaneGeometryDidChange`
     /// right after assigning it, and the window pane overlay reads it from that
     /// handler. Publishing it re-evaluated every view observing the workspace on each
     /// geometry change, which divider drags must not do (see `paneLayoutVersion`, #13930).
@@ -3024,7 +3024,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var tmuxWorkspaceFlashPanelId: UUID? { tmuxWorkspaceFlash.panelId }
     var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason? { tmuxWorkspaceFlash.reason }
     var tmuxWorkspaceFlashToken: UInt64 { tmuxWorkspaceFlash.token }
-    /// Monotonic selection/focus revision for overlay input admission.
     var tmuxOverlaySelectionRevision: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
     /// The sidebar-metadata sub-model (CmuxSidebar): owns the
@@ -13410,7 +13409,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         return nil
     }
-
 
 }
 
