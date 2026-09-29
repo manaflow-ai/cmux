@@ -91,6 +91,18 @@ enum CatalogArgument {
         ActionArgument(name: "setting", title: String(localized: "argument.setting", defaultValue: "Setting", bundle: .module), kind: .string)
     }
 
+    static var cwdString: ActionArgument {
+        ActionArgument(name: "cwd", title: String(localized: "argument.cwd", defaultValue: "Working Directory", bundle: .module), kind: .string)
+    }
+
+    static var envString: ActionArgument {
+        ActionArgument(name: "env", title: String(localized: "argument.env", defaultValue: "Environment (JSON)", bundle: .module), kind: .string)
+    }
+
+    static var focusBool: ActionArgument {
+        ActionArgument(name: "focus", title: String(localized: "argument.focus", defaultValue: "Focus", bundle: .module), kind: .bool)
+    }
+
     static var onBool: ActionArgument {
         ActionArgument(name: "on", title: String(localized: "argument.on", defaultValue: "On", bundle: .module), kind: .bool)
     }

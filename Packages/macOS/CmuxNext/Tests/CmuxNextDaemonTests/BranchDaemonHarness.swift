@@ -39,9 +39,22 @@ struct BranchDaemonHarness {
 
     func stop() async {
         storeTask.cancel()
+        await Self.shutDown(connection)
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    /// Ends the daemon and every terminal it owns. Terminal hosts outlive
+    /// `shutdown-daemon` by design (session-owned terminals), and each holds
+    /// a PTY (the Mac allows 511): close every terminal first.
+    static func shutDown(_ connection: DaemonConnection) async {
+        if let tree = try? await connection.listWorkspaces() {
+            for tab in tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
+                guard let terminal = tab.terminalID else { continue }
+                _ = try? await connection.closeTerminal(terminal, incarnation: tab.terminalIncarnation)
+            }
+        }
         try? await connection.shutdownDaemon()
         await connection.close()
-        try? FileManager.default.removeItem(at: root)
     }
 
     /// Runs `body`, then stops the daemon whether or not it threw.

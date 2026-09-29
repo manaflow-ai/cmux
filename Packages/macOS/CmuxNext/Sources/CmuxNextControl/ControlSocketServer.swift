@@ -7,9 +7,11 @@ import Synchronization
 /// line protocol (one v2 JSON request per line, one JSON response line per
 /// request, plus the v1 `ping` and `auth <password>` lines the CLI sends).
 ///
-/// All socket IO runs on private dispatch queues; each connection handles
-/// its requests in order on one task, and only `action.run` reaches the
-/// main actor (through the router's executor).
+/// All socket IO runs on private dispatch queues and never on the main
+/// thread. Each connection handles its requests in order on one task;
+/// reads answer from the published snapshot and mutations go through the
+/// router's bounded main-actor work queue. Per-connection inbound and
+/// outbound buffers are capped, so a slow client only stalls itself.
 ///
 /// Authorization follows the old `SocketControlMode` model: `cmuxOnly`
 /// admits processes descended from this app, `automation` admits the same
@@ -25,19 +27,27 @@ public final class ControlSocketServer: Sendable {
         public var trustedAncestor: pid_t
         /// Longest accepted request line.
         public var maxLineBytes: Int
+        /// Parsed request lines that may wait per connection before reading pauses.
+        public var maxQueuedLinesPerConnection: Int
+        /// Unsent response bytes per connection before the client is dropped.
+        public var maxOutboxBytesPerConnection: Int
 
         public init(
             path: String,
             accessMode: ControlAccessMode,
             passwordVerifier: (@Sendable (String) -> Bool)? = nil,
             trustedAncestor: pid_t = getpid(),
-            maxLineBytes: Int = 4 << 20
+            maxLineBytes: Int = 4 << 20,
+            maxQueuedLinesPerConnection: Int = 64,
+            maxOutboxBytesPerConnection: Int = 8 << 20
         ) {
             self.path = path
             self.accessMode = accessMode
             self.passwordVerifier = passwordVerifier
             self.trustedAncestor = trustedAncestor
             self.maxLineBytes = maxLineBytes
+            self.maxQueuedLinesPerConnection = maxQueuedLinesPerConnection
+            self.maxOutboxBytesPerConnection = maxOutboxBytesPerConnection
         }
     }
 
@@ -69,7 +79,8 @@ public final class ControlSocketServer: Sendable {
     struct ServerState {
         var listener: (any DispatchSourceRead)?
         var socketIdentity: (dev: dev_t, ino: ino_t)?
-        var connections: [ObjectIdentifier: ControlConnection] = [:]
+        var connections: [ControlConnectionID: ControlConnection] = [:]
+        var nextConnection: UInt64 = 1
     }
 
     public init(configuration: Configuration, router: ControlRouter) {
@@ -82,6 +93,9 @@ public final class ControlSocketServer: Sendable {
     }
 
     public var isRunning: Bool { state.withLock { $0.listener != nil } }
+
+    /// Open client connections.
+    public var connectionCount: Int { state.withLock { $0.connections.count } }
 
     /// Binds and starts accepting. Throws instead of replacing a live socket.
     public func start() throws {
@@ -180,6 +194,9 @@ public final class ControlSocketServer: Sendable {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { return .inconclusive(errno) }
         defer { close(descriptor) }
+        // Never block the caller (the App starts the server on the main
+        // actor): a listener with a full backlog answers EAGAIN, not a wait.
+        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return .inconclusive(ENAMETOOLONG) }
@@ -194,6 +211,7 @@ public final class ControlSocketServer: Sendable {
         }
         if result == 0 { return .accepted }
         let code = errno
+        // EAGAIN (full backlog) is inconclusive: a live listener is busy.
         return code == ECONNREFUSED ? .refused : .inconclusive(code)
     }
 
@@ -212,19 +230,30 @@ public final class ControlSocketServer: Sendable {
             _ = fcntl(client, F_SETFL, fcntl(client, F_GETFL) | O_NONBLOCK)
             let peer = Self.peer(of: client)
             let authorizer = ControlAuthorizer(configuration: configuration, peer: peer)
-            let connection = ControlConnection(descriptor: client, maxLineBytes: configuration.maxLineBytes)
-            let key = ObjectIdentifier(connection)
-            state.withLock { $0.connections[key] = connection }
+            let limits = ControlConnection.Limits(
+                maxLineBytes: configuration.maxLineBytes,
+                maxQueuedLines: configuration.maxQueuedLinesPerConnection,
+                maxOutboxBytes: configuration.maxOutboxBytesPerConnection
+            )
+            let id = state.withLock { state -> ControlConnectionID in
+                defer { state.nextConnection += 1 }
+                return ControlConnectionID(rawValue: state.nextConnection)
+            }
+            let connection = ControlConnection(id: id, descriptor: client, limits: limits)
+            state.withLock { $0.connections[id] = connection }
+            connection.onClosed = { [weak self] in
+                _ = self?.state.withLock { $0.connections.removeValue(forKey: id) }
+            }
             let router = self.router
-            connection.start { [weak self] lines in
+            connection.start { lines in
                 var authorizer = authorizer
                 for await line in lines {
-                    let (response, keepOpen) = await authorizer.respond(to: line, router: router)
+                    let (response, keepOpen) = await authorizer.respond(to: line, router: router, connection: id)
                     if let response { connection.send(response) }
+                    connection.lineConsumed()
                     if !keepOpen { break }
                 }
                 connection.close()
-                _ = self?.state.withLock { $0.connections.removeValue(forKey: key) }
             }
         }
     }

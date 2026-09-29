@@ -23,6 +23,8 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     private let readSource: any DispatchSourceRead
     private let exitSource: any DispatchSourceProcess
     private let writeQueue = DispatchQueue(label: "com.cmuxterm.next.localpty.write")
+    private let writeSource: any DispatchSourceWrite
+    private let input = PendingInput()
     private let closed = Atomic<Bool>(false)
 
     /// Spawns `shell` as a login shell in `workingDirectory`.
@@ -72,6 +74,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
 
         let readQueue = DispatchQueue(label: "com.cmuxterm.next.localpty.read", qos: .userInteractive)
         readSource = DispatchSource.makeReadSource(fileDescriptor: master, queue: readQueue)
+        writeSource = DispatchSource.makeWriteSource(fileDescriptor: master, queue: writeQueue)
         exitSource = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: readQueue)
 
         readSource.setEventHandler { [continuation, master] in
@@ -82,6 +85,8 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         }
         readSource.resume()
         exitSource.resume()
+        writeSource.setEventHandler { [input, writeSource, master] in input.flush(to: master, source: writeSource) }
+        writeSource.setCancelHandler { [master] in close(master) }
     }
 
     deinit {
@@ -89,27 +94,14 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         finish()
     }
 
+    /// Queues `data` for the PTY. Writes are nonblocking: when the PTY is
+    /// full a write source resumes them, so a shell that stops reading never
+    /// parks a thread. Input beyond `PendingInput.limit` is dropped.
     public func write(_ data: Data) async {
         guard !closed.load(ordering: .acquiring) else { return }
-        let fd = masterFD
-        writeQueue.async {
-            data.withUnsafeBytes { buffer in
-                guard var base = buffer.baseAddress else { return }
-                var remaining = buffer.count
-                while remaining > 0 {
-                    let written = Darwin.write(fd, base, remaining)
-                    if written > 0 {
-                        remaining -= written
-                        base = base.advanced(by: written)
-                    } else if written < 0, errno == EAGAIN || errno == EINTR {
-                        // The PTY buffer is full; wait until it drains.
-                        var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-                        _ = poll(&descriptor, 1, -1)
-                    } else {
-                        return
-                    }
-                }
-            }
+        writeQueue.async { [input, writeSource, masterFD] in
+            input.append(data)
+            input.flush(to: masterFD, source: writeSource)
         }
     }
 
@@ -134,11 +126,14 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         guard closed.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         exitSource.cancel()
         readSource.cancel()
+
         // Output written just before exit may still be buffered.
         Self.drain(masterFD, into: continuation)
         var status: Int32 = 0
         _ = waitpid(processID, &status, WNOHANG)
-        close(masterFD)
+        // The write source's cancel handler closes the descriptor once GCD
+        // is done with it.
+        writeQueue.async { [input, writeSource] in input.cancel(writeSource) }
         continuation.yield(.exited)
         continuation.finish()
     }
@@ -146,6 +141,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     private static func drain(_ fd: Int32, into continuation: AsyncStream<TerminalIOEvent>.Continuation) {
         var buffer = [UInt8](repeating: 0, count: 65_536)
         while true {
+            // concurrency-allow: the PTY descriptor is O_NONBLOCK; read returns EAGAIN instead of waiting.
             let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
             // EAGAIN: drained. EIO or 0: the slave side closed.
             guard count > 0 else { return }
@@ -174,6 +170,57 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
             }
         }
         return result
+    }
+}
+
+/// Input waiting for a PTY that is not reading. Confined to the write queue.
+private nonisolated final class PendingInput: @unchecked Sendable {
+    static let limit = 1 << 20
+    private var data = Data()
+    private var offset = 0
+    private var armed = false
+    private var cancelled = false
+
+    func append(_ bytes: Data) {
+        guard !cancelled, data.count - offset + bytes.count <= Self.limit else { return }
+        data.append(bytes)
+    }
+
+    func flush(to fd: Int32, source: any DispatchSourceWrite) {
+        while !cancelled, offset < data.count {
+            let written = data.withUnsafeBytes { raw in
+                // concurrency-allow: nonblocking PTY descriptor, on the private write queue.
+                Darwin.write(fd, raw.baseAddress! + offset, raw.count - offset)
+            }
+            if written > 0 {
+                offset += written
+            } else if written < 0, errno == EINTR {
+                continue
+            } else if written < 0, errno == EAGAIN {
+                if !armed {
+                    armed = true
+                    source.resume()
+                }
+                return
+            } else {
+                break
+            }
+        }
+        data.removeAll(keepingCapacity: data.count <= 64 * 1024)
+        offset = 0
+        if armed, !cancelled {
+            armed = false
+            source.suspend()
+        }
+    }
+
+    func cancel(_ source: any DispatchSourceWrite) {
+        guard !cancelled else { return }
+        cancelled = true
+        // A suspended source must be resumed before it can be cancelled.
+        if !armed { source.resume() }
+        armed = true
+        source.cancel()
     }
 }
 

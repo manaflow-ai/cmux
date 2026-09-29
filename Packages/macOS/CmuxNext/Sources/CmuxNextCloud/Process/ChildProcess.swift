@@ -40,6 +40,7 @@ final class ChildProcess: Sendable {
         let splitter = LineSplitter()
         let continuation = continuation
         stdout.fileHandleForReading.readabilityHandler = { handle in
+            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
@@ -49,6 +50,7 @@ final class ChildProcess: Sendable {
             for line in splitter.append(data) { continuation.yield(line) }
         }
         stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             let data = handle.availableData
             if data.isEmpty { handle.readabilityHandler = nil; return }
             self?.state.withLock { state in

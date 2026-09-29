@@ -15,7 +15,7 @@ import PackageDescription
 //   CmuxNextTerminal -> CmuxGhosttyKit (binary)
 //   CmuxNextDesign, CmuxNextActions, CmuxNextDaemon -> system frameworks only
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply)
-//   CmuxNextControl -> Actions, Settings (app control socket; no UI, no daemon)
+//   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 
@@ -207,12 +207,12 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextControl",
-            dependencies: ["CmuxNextActions", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextControlTests",
-            dependencies: ["CmuxNextControl", "CmuxNextActions", "CmuxNextSettings"],
+            dependencies: ["CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

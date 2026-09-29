@@ -108,15 +108,8 @@ final class WindowManager {
     /// daemon). Returns its id.
     func createWorkspace(cwd: String? = nil, on daemon: DaemonService? = nil) async -> String? {
         let daemon = daemon ?? services.daemon
-        guard let connection = daemon.connection else { return nil }
-        let repair: EmptyWorkspaceRepair = services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
         do {
-            let key = WorkspaceKey.generate()
-            return try await repair.populating(key) {
-                let result = try await connection.createWorkspace(key: key)
-                _ = try await connection.createTerminal(in: result.key, cwd: cwd ?? daemon.defaultCwd)
-                return result.key.rawValue
-            }
+            return try await createWorkspace(WorkspaceSpawn(cwd: cwd), on: daemon)
         } catch {
             daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -178,6 +171,8 @@ final class WindowManager {
         saveTask?.cancel()
         await saveNow()
         isTerminating = true
+        // Close Chromium before exit without spinning the run loop (5a).
+        await services.cache.cef.shutdown()
     }
 
     private func currentRecords() -> [WindowRecord] {

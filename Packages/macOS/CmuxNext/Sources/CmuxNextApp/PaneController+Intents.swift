@@ -36,6 +36,8 @@ extension PaneController {
         case .moveToNewColumn(let id):
             guard let tab = tab(id) else { return }
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
+        case .trailingButton(let id):
+            services.tabBarButtons.perform(id, paneKey: paneKey)
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
@@ -62,19 +64,24 @@ extension PaneController {
         select(ids[(current + offset % ids.count + ids.count) % ids.count])
     }
 
-    func newTerminalTab(cwd: String? = nil) {
+    /// New terminal tab in this pane. `typing` is sent to the new shell
+    /// once the tab exists (config command actions).
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil) {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
         guard let connection = daemon.connection else { return }
-        Task {
+        services.registry.track(Task {
             do {
                 let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
+                if let text { try await connection.send(created.surface, text: text) }
                 pendingSelectSurface = created.surface
                 apply(snapshot())
+                return nil
             } catch {
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
+                return "new-tab: \(error)"
             }
-        }
+        })
     }
 
     /// New browser tab: daemon-owned when supported (engine `requested`,
@@ -86,16 +93,18 @@ extension PaneController {
         if browserTabs.isAvailable() {
             let engine = browserTabs.engine(requested: requested)
             let handle = pane.handle
-            Task {
+            services.registry.track(Task {
                 do {
                     let surface = try await browserTabs.create(handle, url?.absoluteString ?? "about:blank", engine)
                     pendingSelectSurface = surface
                     if url == nil { pendingAddressBarFocus = surface }
                     apply(snapshot())
+                    return nil
                 } catch {
                     daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
+                    return "new-frontend-browser-tab: \(error)"
                 }
-            }
+            })
             return
         }
         let local = LocalBrowserTab.make(url: url)
@@ -127,13 +136,25 @@ extension PaneController {
         apply(snapshot())
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
-        Task {
+        services.registry.track(Task {
             var failed = false
-            for command in commands where !(await daemon.run(command.label, command.run)) { failed = true }
+            var unknown = false
+            for command in commands {
+                switch await daemon.runReportingTimeout(command.label, command.run) {
+                case .succeeded: break
+                case .failed: failed = true
+                case .unknown: unknown = true
+                }
+            }
+            // A close that missed its deadline under daemon load usually still
+            // lands: keep the tabs hidden until a snapshot ordered after the
+            // closes says which ones remain, instead of flashing them back.
+            if unknown { await daemon.reconcile() }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
-            if failed { resyncStrip() }
-        }
+            if failed || unknown { resyncStrip() }
+            return failed ? "close failed (see the app log)" : nil
+        })
     }
 
     /// Moves a tab into `target` at `index` (display order), optimistic.
@@ -150,12 +171,13 @@ extension PaneController {
     func setPinned(_ id: StripTabID, pinned: Bool) {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
-        Task {
+        services.registry.track(Task {
             let ok = await daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
-        }
+            return ok ? nil : "set-tab-pinned failed (see the app log)"
+        })
     }
 
     func rename(_ id: StripTabID) {
