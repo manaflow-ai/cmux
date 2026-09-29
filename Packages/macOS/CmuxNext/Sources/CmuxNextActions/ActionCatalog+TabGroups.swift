@@ -63,7 +63,8 @@ extension ActionCatalog {
                 id: "tabGroup.close",
                 title: String(localized: "action.tabGroup.close", defaultValue: "Close Tab Group", bundle: .module),
                 keywords: ["group", "remove"], category: .tab, symbol: "xmark.rectangle.portrait", surfaces: [.palette],
-                targets: [.tabGroup], cliName: "tab-group close"
+                targets: [.tabGroup], cliName: "tab-group close",
+                destructive: true
             ),
             ActionDescriptor(
                 id: "tabGroup.moveToNewSplit",

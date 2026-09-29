@@ -92,6 +92,7 @@ extension DaemonConnection {
 
     @discardableResult
     public func newTab(in pane: PaneID?, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
+        if let pane, let placed = try await spawnPlaced(options, into: .tab(pane)) { return placed }
         var options = options
         options.env = await terminalEnvironment(options.env)
         return try await request(NewTabRequest(pane: pane, options: options))
@@ -107,6 +108,7 @@ extension DaemonConnection {
             let moved = try await moveTabToSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom)
             return SurfaceCreated(surface: moved.surface ?? tab)
         }
+        if let placed = try await spawnPlaced(options, into: .split(pane, direction)) { return placed }
         var options = options
         options.env = await terminalEnvironment(options.env)
         return try await request(SplitRequest(pane: pane, direction: direction, options: options))

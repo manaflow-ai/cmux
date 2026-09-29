@@ -131,6 +131,12 @@ enum CatalogArgument {
                        kind: .enumeration([choice("webkit"), choice("cef")]), isRequired: false)
     }
 
+    /// Optional `confirm` flag every destructive action takes.
+    static var confirmBool: ActionArgument {
+        ActionArgument(name: ActionArgument.confirmName, title: String(localized: "argument.confirm", defaultValue: "Confirm", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
     private static func choice(_ value: String) -> ActionEnumCase {
         ActionEnumCase(value: value, title: choiceTitle(value))
     }

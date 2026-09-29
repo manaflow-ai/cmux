@@ -19,7 +19,7 @@ pub(super) enum ServerAction {
     Status,
     Stats,
     Ensure,
-    Stop { force: bool },
+    Stop { force: bool, end_terminals: bool },
     ReloadConfig,
 }
 
@@ -259,7 +259,22 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 global.output,
             )
         }
-        ServerAction::Stop { force } => {
+        ServerAction::Stop { force, end_terminals } => {
+            if end_terminals
+                && !identity["capabilities"]
+                    .as_array()
+                    .is_some_and(|values| values.iter().any(|value| value == "terminal-reap-v1"))
+            {
+                return local_error(
+                    "server.end_terminals_unsupported",
+                    crate::localization::catalog().local_server.end_terminals_unsupported,
+                    global.output,
+                    1,
+                );
+            }
+            // Ending hosts waits for each one to exit, so allow more time.
+            let deadline =
+                if end_terminals { Instant::now() + Duration::from_secs(120) } else { deadline };
             if force
                 && !identity["capabilities"].as_array().is_some_and(|values| {
                     values.iter().any(|value| value == "daemon-handoff-force-v1")
@@ -280,6 +295,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "pid":pid,
                     "generation":generation,
                     "force":force,
+                    "end_terminals":end_terminals,
                 }),
                 deadline,
             ) {
@@ -319,7 +335,12 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "session":actual_session,
                     "pid":pid,
                     "generation":generation,
-                    "message":crate::localization::catalog().local_server.stopped,
+                    "ended_terminals":result["ended_terminals"].as_u64(),
+                    "message":if end_terminals {
+                        crate::localization::catalog().local_server.stopped_terminals_ended
+                    } else {
+                        crate::localization::catalog().local_server.stopped
+                    },
                 }),
                 global.output,
             )

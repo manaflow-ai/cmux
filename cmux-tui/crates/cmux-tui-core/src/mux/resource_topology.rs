@@ -2849,6 +2849,7 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_terminal_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        guard: TerminalCloseGuard,
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
@@ -2873,6 +2874,20 @@ impl Mux {
             return Ok(None);
         };
         let mut state = self.state.lock().unwrap();
+        if guard == TerminalCloseGuard::UnplacedAndNotKept {
+            // The registry lock serializes placement commits and the creation
+            // fence excludes a creation between runtime and placement, so
+            // this check cannot race a new view of the terminal.
+            let placed = !state
+                .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+                .is_empty()
+                || state.terminal_catalog.get(&public_id).is_some_and(|runtime| {
+                    state.surfaces.values().any(|view| view.shares_terminal_runtime(runtime))
+                });
+            if placed || registry.terminal_keep(terminal_id)? {
+                return Err(TerminalCloseGuardFailed.into());
+            }
+        }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
             terminal_close_state_error(format!("terminal {public_id} has no durable host"))
         })?;
@@ -4039,7 +4054,19 @@ impl Mux {
             "fields":fields,
         });
         if topology_effect_creates_terminal(operation) {
-            let terminal_id = TerminalId::random()?.to_hex();
+            let terminal_id = match fields.get(RESERVED_TERMINAL_ID_FIELD) {
+                Some(requested) => {
+                    let requested =
+                        requested.as_str().context("bad request: terminal_id must be a string")?;
+                    validate_requested_terminal_id(requested)?;
+                    anyhow::ensure!(
+                        registry.terminal_record(requested)?.is_none(),
+                        "terminal_id_exists: {requested}"
+                    );
+                    requested.to_string()
+                }
+                None => TerminalId::random()?.to_hex(),
+            };
             let mutation = WorkspaceMutation::local(context.mutation_origin);
             intent["terminal_reservation"] = json!({
                 "terminal_id":terminal_id,
@@ -5218,6 +5245,20 @@ fn effect_target(operation: ResourceOperation, selectors: &ResourceSelectors) ->
         }
         _ => ResourceTarget::Session,
     }
+}
+
+/// A caller-chosen terminal id is a lowercase UUIDv4 in 32 hex digits, the
+/// same shape as a daemon-generated one.
+fn validate_requested_terminal_id(value: &str) -> anyhow::Result<()> {
+    let bytes = value.as_bytes();
+    anyhow::ensure!(
+        bytes.len() == 32
+            && bytes.iter().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+            && bytes[12] == b'4'
+            && matches!(bytes[16], b'8'..=b'b'),
+        "bad request: terminal_id must be a 32-character lowercase UUIDv4 hex value"
+    );
+    Ok(())
 }
 
 fn validate_effect_fields(

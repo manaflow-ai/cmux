@@ -19,6 +19,7 @@ import PackageDescription
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
+//   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -54,6 +55,9 @@ let package = Package(
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
+        .package(path: "../CmuxUpdater"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
         // Test-only: the shipped iOS app's own RPC decoders verify the compat adapter.
         .package(path: "../../iOS/CmuxMobileRPC"),
         // Test-only: the iOS app's cmux-tui client drives the daemon lane end to end.
@@ -77,9 +81,33 @@ let package = Package(
                 "CmuxNextSettings",
                 "CmuxNextCloud",
                 "CmuxNextMobile",
+                "CmuxNextUpdater",
             ],
             resources: [
                 .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Sparkle updates: channel/feed resolution, a read-only appcast probe
+        // (dev builds and `updates.check`), and the update sheet.
+        .target(
+            name: "CmuxNextUpdater",
+            dependencies: [
+                "CmuxNextDesign",
+                .product(name: "CmuxUpdater", package: "CmuxUpdater"),
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextUpdaterTests",
+            dependencies: [
+                "CmuxNextUpdater",
+                .product(name: "CmuxUpdater", package: "CmuxUpdater"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             swiftSettings: uiSwiftSettings
         ),

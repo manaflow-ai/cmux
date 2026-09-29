@@ -15,7 +15,8 @@ enum TabLifecycle {
         if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd) }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
-        ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start)) }
+        let workspace = ctx.services.workspaceKey(of: pane)
+        ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace)) }
     }
 
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {

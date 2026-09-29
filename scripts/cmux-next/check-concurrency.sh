@@ -27,7 +27,7 @@ sources = os.path.join(root, "Sources")
 # Targets built with `.defaultIsolation(MainActor.self)` (Package.swift uiSwiftSettings).
 MAIN_ACTOR_MODULES = {
     "CmuxNextApp", "CmuxNextBridge", "CmuxNextDesign", "CmuxNextActions", "CmuxNextTerminal",
-    "CmuxNextTabs", "CmuxNextSidebar", "CmuxNextPalette", "CmuxNextLayout", "CmuxNextBrowser",
+    "CmuxNextTabs", "CmuxNextSidebar", "CmuxNextPalette", "CmuxNextLayout", "CmuxNextBrowser", "CmuxNextUpdater",
 }
 
 EVERYWHERE = [
@@ -46,6 +46,9 @@ EVERYWHERE = [
     ("synchronous XPC", r"synchronousRemoteObjectProxy"),
     ("blocking FileHandle read", r"readDataToEndOfFile\(|readData\(ofLength:|\.availableData\b|\breadToEnd\(\)"),
     ("infinite poll", r"\bpoll\([^)]*,\s*-1\s*\)"),
+    # Both resolve every local name through DNS/mDNS and have blocked the
+    # main thread for ~35 s. Use gethostname or SCDynamicStoreCopyComputerName.
+    ("blocking host-name lookup (Host.current / ProcessInfo.hostName)", r"\bHost\.current\(\)|\bprocessInfo\.hostName\b"),
 ]
 
 MAIN_ACTOR = [

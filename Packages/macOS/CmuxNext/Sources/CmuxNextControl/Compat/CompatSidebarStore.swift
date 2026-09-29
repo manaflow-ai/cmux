@@ -5,9 +5,9 @@ import Synchronization
 /// (`set_status`, `set_progress`, `log`, `set_agent_pid`), per workspace.
 ///
 /// In memory for the app process only; bounded (64 status keys and 200 log
-/// lines per workspace, oldest dropped). The sidebar does not render it yet
-/// (cli-compat.md follow-up); `list_status`, `list_log`, and `sidebar_state`
-/// read it back, so hooks and scripts see what they wrote.
+/// lines per workspace, oldest dropped). `list_status`, `list_log`, and
+/// `sidebar_state` read it back; the sidebar row shows the statuses
+/// (`CompatService.observeSidebarStatus`).
 final class CompatSidebarStore: Sendable {
     struct Status: Sendable, Hashable {
         var value: String
@@ -35,6 +35,16 @@ final class CompatSidebarStore: Sendable {
     static let logLimit = 200
 
     private let state = Mutex([String: Workspace]())
+    private let observer = Mutex<(@Sendable (String) -> Void)?>(nil)
+
+    /// Called with the workspace UUID after its statuses or progress change.
+    func observe(_ handler: @escaping @Sendable (String) -> Void) {
+        observer.withLock { $0 = handler }
+    }
+
+    private func changed(_ uuid: String) {
+        observer.withLock { $0 }?(uuid)
+    }
 
     func workspace(_ uuid: String) -> Workspace { state.withLock { $0[uuid] ?? Workspace() } }
 
@@ -49,6 +59,7 @@ final class CompatSidebarStore: Sendable {
             }
             all[uuid] = entry
         }
+        changed(uuid)
     }
 
     func clearStatus(_ key: String?, workspace uuid: String) {
@@ -57,6 +68,7 @@ final class CompatSidebarStore: Sendable {
             if let key { entry.statuses.removeAll { $0.key == key } } else { entry.statuses.removeAll() }
             all[uuid] = entry
         }
+        changed(uuid)
     }
 
     func setProgress(_ progress: (value: Double, label: String?)?, workspace uuid: String) {
@@ -65,6 +77,7 @@ final class CompatSidebarStore: Sendable {
             entry.progress = progress
             all[uuid] = entry
         }
+        changed(uuid)
     }
 
     func appendLog(_ line: LogLine, workspace uuid: String) {

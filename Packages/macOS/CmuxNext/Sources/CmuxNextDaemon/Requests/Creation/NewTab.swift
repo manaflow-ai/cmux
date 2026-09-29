@@ -15,9 +15,14 @@ public struct SpawnOptions: Sendable, Hashable {
     /// stores it with the creation receipt on disk, so never pass secrets;
     /// nil lets `DaemonConnection` send `TerminalEnvironment`'s allowlist.
     public var env: [String: String]?
+    /// The workspace of the pane the terminal opens in. Not sent: with it,
+    /// `newTab` and `split` reserve the terminal id first so the shell gets
+    /// `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` (DaemonConnection+Placement).
+    public var workspace: WorkspaceKey?
 
     public init(cwd: String? = nil, size: CellSize? = nil, argv: [String]? = nil, command: String? = nil, name: String? = nil,
-                env: [String: String]? = nil) {
+                env: [String: String]? = nil, workspace: WorkspaceKey? = nil) {
+        self.workspace = workspace
         self.cwd = cwd
         self.size = size
         self.argv = argv

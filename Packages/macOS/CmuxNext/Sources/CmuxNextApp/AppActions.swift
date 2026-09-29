@@ -33,6 +33,8 @@ enum AppActions {
         AgentHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
         context.observeRefusals()
+        DestructiveConfirmation.install(services)
+        ActionRouting.install(services)
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
@@ -44,7 +46,12 @@ enum AppActions {
         // Terminate from a run-loop callout, not from inside the caller's
         // main-queue job (control socket, palette): terminateLater spins a
         // nested run loop, and the save Task could never get the main queue.
-        registry.bind("quit") { RunLoop.main.perform(inModes: [.common]) { NSApp.terminate(nil) } }
+        registry.bind("quit") {
+            RunLoop.main.perform(inModes: [.common]) {
+                SheetDismissal.endAll()
+                NSApp.terminate(nil)
+            }
+        }
         registry.bind("newWindow") { services.windows.newWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
             services.windows.active?.window?.performClose(nil)

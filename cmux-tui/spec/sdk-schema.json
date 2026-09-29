@@ -3771,6 +3771,16 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "ended_terminals": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "terminal-reap-v1"
     }
    },
    "additional_properties": false
@@ -4017,6 +4027,28 @@
      },
      "presence": "required",
      "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
+  "SetTerminalKeepResult": {
+   "kind": "object",
+   "fields": {
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "keep": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
     }
    },
    "additional_properties": false
@@ -6912,6 +6944,61 @@
     "The owner closes the terminal, as close-terminal does, once it has had no attached view for idle_close_seconds; unattached time restarts at every attach and after an owner restart."
    ]
   },
+  "set-terminal-keep": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-reap-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
+       }
+      ]
+     },
+     "keep": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of surface or terminal_id is present."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetTerminalKeepResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The keep flag is stored durably with the terminal and survives owner restarts.",
+    "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+   ]
+  },
   "new-tab": {
    "authority": "control",
    "since": 5,
@@ -6968,6 +7055,34 @@
       "default": null,
       "since": 12,
       "capability": "terminal-env-v1"
+     },
+     "keep": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "terminal-reap-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -6980,7 +7095,10 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+   ]
   },
   "new-browser-tab": {
    "authority": "control",
@@ -7330,6 +7448,17 @@
       "default": null,
       "since": 12,
       "capability": "terminal-env-v1"
+     },
+     "keep": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "terminal-reap-v1"
      }
     },
     "additional_properties": false,
@@ -7346,7 +7475,9 @@
     "name": "TerminalPlacement"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+   ]
   },
   "new-screen": {
    "authority": "control",
@@ -7427,6 +7558,59 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1"
+     },
+     "env": {
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1"
+     },
+     "keep": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "terminal-reap-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -7439,7 +7623,9 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+   ]
   },
   "new-pane-right": {
    "authority": "control",
@@ -7488,6 +7674,59 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1"
+     },
+     "env": {
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1"
+     },
+     "keep": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "terminal-reap-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -7501,7 +7740,9 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+   ]
   },
   "split": {
    "authority": "control",
@@ -7568,6 +7809,34 @@
       "default": null,
       "since": 12,
       "capability": "terminal-env-v1"
+     },
+     "keep": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "terminal-reap-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -7580,7 +7849,10 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+   ]
   },
   "set-ratio": {
    "authority": "control",
@@ -10369,6 +10641,17 @@
       "default": false,
       "since": 10,
       "capability": "daemon-handoff-force-v1"
+     },
+     "end_terminals": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "terminal-reap-v1"
      }
     },
     "additional_properties": false
@@ -10382,6 +10665,7 @@
     "pid and generation must match the latest identify result.",
     "force bypasses native-browser ownership only; the identity fence and trusted-local authority still apply.",
     "Clients must require daemon-handoff-force-v1 before sending force:true.",
+    "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
     "The daemon exits only after the success response is queued."
    ]
   },
@@ -14537,6 +14821,52 @@
       "type": {
        "kind": "literal",
        "value": "terminal-events-or-list-terminals"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "terminal-reaped": {
+   "since": 12,
+   "capability": "terminal-reap-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "terminal-reaped"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "grace_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
       },
       "presence": "required",
       "nullable": false

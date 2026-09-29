@@ -14,7 +14,7 @@ public struct ActionSurfaces: OptionSet, Sendable, Hashable {
 /// `requires` must be a subset of the current context for the action to be
 /// available, which is also how conflicting default shortcuts (for example
 /// Cmd-[ for focus history and browser back) resolve.
-public struct ActionContext: OptionSet, Sendable, Hashable {
+public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     public let rawValue: UInt32
     public init(rawValue: UInt32) { self.rawValue = rawValue }
 
@@ -32,4 +32,17 @@ public struct ActionContext: OptionSet, Sendable, Hashable {
     public static let signedIn = ActionContext(rawValue: 1 << 11)
     public static let signedOut = ActionContext(rawValue: 1 << 12)
     public static let cloudWorkspace = ActionContext(rawValue: 1 << 13)
+}
+
+extension ActionContext {
+    /// Context facts an invocation's explicit target stands in for: a
+    /// `machine:` target is the Cloud workspace a focus-scoped machine
+    /// action would otherwise need focused.
+    public static func implied(by invocation: ActionInvocation) -> ActionContext {
+        implied(byTargetKind: invocation.target?.kind)
+    }
+
+    public nonisolated static func implied(byTargetKind kind: ActionTargetKind?) -> ActionContext {
+        kind == .machine ? .cloudWorkspace : []
+    }
 }

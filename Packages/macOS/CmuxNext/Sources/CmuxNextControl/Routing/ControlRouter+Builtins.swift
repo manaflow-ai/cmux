@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import CmuxNextActions
 import Foundation
 
 /// The router's own methods. Reads use the snapshot lane; `action.run`
@@ -105,10 +106,13 @@ extension ControlRouter {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
         let request = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds)
-        guard catalog.isAvailable(action) || action.unavailableReason != nil else {
+        guard catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
             throw ControlError(code: "unavailable", message: "\(action.id) is not available in the current context", data: [
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
             ])
+        }
+        if action.isDestructive, request.arguments["confirm"] != .bool(true) {
+            throw Self.confirmationRequired(action.id)
         }
         let executor = self.executor
         // `wait: true` answers after the daemon applied the work the handler
@@ -142,7 +146,15 @@ extension ControlRouter {
             throw ControlError(code: "disabled", message: "\(action.id) is disabled right now", data: ["action": .string(action.id)])
         case .refused(let reason):
             throw ControlError(code: "unavailable", message: "\(action.id) unavailable: \(reason)", data: ["action": .string(action.id), "reason": .string(reason)])
+        case .confirmationRequired:
+            throw Self.confirmationRequired(action.id)
         }
+    }
+
+    /// Typed refusal for a destructive action run without `confirm: true`.
+    static func confirmationRequired(_ id: String) -> ControlError {
+        ControlError(code: "confirmation_required", message: ActionRegistry.confirmationRequiredReason(forRawID: id),
+                     data: ["action": .string(id), "argument": .string(ActionArgument.confirmName)])
     }
 
     // MARK: - settings

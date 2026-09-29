@@ -32,8 +32,9 @@ enum WorkspaceGroupHandlers {
         registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.workspaceGroups, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.workspaceGroups)
             let key = try context.workspace(invocation).key
+            let daemon = context.services.activeDaemon
             Task {
-                await context.services.activeDaemon.perform("move-workspace-to-group", patch: .setWorkspaceGroup(key: key, group: nil)) { connection, _ in
+                await daemon.perform("move-workspace-to-group", patch: .setWorkspaceGroup(key: key, group: nil)) { connection, _ in
                     _ = try await connection.moveWorkspace(key, toGroup: nil)
                 }
             }

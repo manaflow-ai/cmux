@@ -184,6 +184,15 @@ launchd environment:
 {"id":19,"cmd":"new-tab","pane":2,"cwd":"/Users/me/src","env":{"PATH":"/opt/homebrew/bin:/usr/bin:/bin"}}
 ```
 
+`terminal-placement-env-v1` adds a caller-chosen `terminal_id` to `new-tab`,
+`split`, `new-pane`, and `new-pane-right` (and `cwd`/`env` to the last two),
+so the child starts with its own id in its environment:
+
+```json
+{"id":20,"cmd":"new-pane-right","pane":2,"width":0.5,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","env":{"CMUX_SURFACE_ID":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f"}}
+{"id":20,"ok":true,"data":{"surface":9,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","terminal_incarnation":"..."}}
+```
+
 ## Events
 
 `subscribe` starts event streaming:
@@ -242,6 +251,16 @@ closed for idleness). The owner closes the terminal, through the same path as
 `close-terminal`, once it has had no attach stream on any of its views for
 that long. The idle clock restarts at every attach and when the owner restarts,
 so a restart can delay a close but never make it early.
+
+When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
+that has had no tab placement for the reap grace period (default 30 seconds,
+set with `--terminal-reap-grace-seconds`) and emits `terminal-reaped`. Mark a
+terminal that must outlive its tabs with
+`{"cmd":"set-terminal-keep","terminal_id":"term_...","keep":true}` or pass
+`"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and
+updates the tree before its host exits; hosts of closed terminals end in
+parallel. For test teardown, `shutdown-daemon` with `"end_terminals":true`
+ends every terminal before the handoff.
 
 Then it sends ordered stream frames:
 

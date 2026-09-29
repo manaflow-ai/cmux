@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !environment.noActivate { NSApp.activate() }
         services.daemon.start(launch: environment.launch)
         cloudContext = services.startCloud()
+        services.updater.start()
         services.windows.restoreWhenLoaded()
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
@@ -43,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
+                control.registerMobileMethods(services)
+                control.registerUpdateMethods(services.updater)
                 if let router = control.service?.router { installCompat(on: router) }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
@@ -59,10 +62,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             frontend.currentConnection()
         }
         compat.install(on: router)
+        // Hook statuses (`set_status`, `set_progress`) show in sidebar rows.
+        let board = services.statusBoard
+        compat.observeSidebarStatus { [weak compat] uuid in
+            let line = compat?.sidebarStatusLine(workspace: uuid)
+            Task { @MainActor in board.set(line, workspace: uuid) }
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let services else { return .terminateNow }
+        // Quit (menu, Cmd-Q, socket) never waits on an open sheet.
+        SheetDismissal.endAll()
         Task {
             await services.windows.prepareForTermination()
             sender.reply(toApplicationShouldTerminate: true)

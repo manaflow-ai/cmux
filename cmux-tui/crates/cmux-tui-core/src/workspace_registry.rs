@@ -38,6 +38,7 @@ mod public_projection_store;
 mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
+mod terminal_keep_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
@@ -2697,6 +2698,7 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_dangling_terminal_resources(&tx)?;
+            terminal_keep_store::classify_legacy_terminals(&tx)?;
             tx.commit()?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
@@ -4097,6 +4099,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
            ON terminal_events(terminal_id, revision);",
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
+    terminal_keep_store::create_terminal_keep_schema(transaction)?;
     Ok(())
 }
 

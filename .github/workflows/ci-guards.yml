@@ -866,6 +866,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_sparkle_generate_appcast_no_deltas.sh
 
+      - name: Validate Sparkle appcast macOS floor
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_appcast_minimum_system_version.py
+
       - name: Validate markdown viewer asset compression
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_compress_markdown_viewer_assets.sh

@@ -58,6 +58,78 @@
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 다른 앱의 콘텐츠에 접근하려고 합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi pristupiti sadržaju drugih aplikacija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til indholdet af andre apps."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe accedere al contenuto di altre app."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើមាតិការបស់កម្មវិធីផ្សេងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil ha tilgang til innholdet i andre apper."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce uzyskać dostęp do zawartości innych aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de acessar o conteúdo de outros apps."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к содержимому других приложений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงเนื้อหาของแอปอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program diğer uygulamaların içeriğine erişmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до вмісту інших програм."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập nội dung của các ứng dụng khác."
+          }
         }
       }
     },
@@ -116,6 +188,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 다른 앱의 데이터에 접근하려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi pristupiti podacima drugih aplikacija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til data fra andre apps."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe accedere ai dati di altre app."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើទិន្នន័យពីកម្មវិធីផ្សេងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil ha tilgang til data fra andre apper."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce uzyskać dostęp do danych innych aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de acessar dados de outros apps."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к данным других приложений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงข้อมูลจากแอปอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program diğer uygulamalardaki verilere erişmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до даних інших програм."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập dữ liệu từ các ứng dụng khác."
           }
         }
       }
@@ -176,6 +320,78 @@
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 AppleScript를 사용하려고 합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi koristiti AppleScript."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne bruge AppleScript."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe usare AppleScript."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ប្រើ AppleScript។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil bruke AppleScript."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce używać AppleScript."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de usar o AppleScript."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает разрешение на использование AppleScript."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการใช้ AppleScript"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program AppleScript kullanmak istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче використовувати AppleScript."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn sử dụng AppleScript."
+          }
         }
       }
     },
@@ -234,6 +450,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 패스키 및 보안 키를 탐색하기 위해 Bluetooth를 사용하려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi koristiti Bluetooth za otkrivanje pristupnih ključeva i sigurnosnih ključeva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne bruge Bluetooth til at finde adgangsnøgler og sikkerhedsnøgler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe usare il Bluetooth per rilevare passkey e chiavi di sicurezza."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ប្រើ Bluetooth ដើម្បីរកមើល passkey និងកូនសោសុវត្ថិភាព។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil bruke Bluetooth til å finne tilgangsnøkler og sikkerhetsnøkler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce używać Bluetooth do wykrywania kluczy dostępu i kluczy bezpieczeństwa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de usar o Bluetooth para descobrir chaves-senha e chaves de segurança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к Bluetooth для поиска ключей входа и ключей безопасности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการใช้บลูทูธเพื่อค้นหาพาสคีย์และกุญแจความปลอดภัย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program geçiş anahtarlarını ve güvenlik anahtarlarını bulmak için Bluetooth kullanmak istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче використовувати Bluetooth для пошуку ключів доступу та ключів безпеки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn sử dụng Bluetooth để tìm mã khóa và khóa bảo mật."
           }
         }
       }
@@ -294,6 +582,78 @@
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 캘린더를 읽고 쓰려고 합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi čitati i pisati vaše kalendare."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne læse og skrive i dine kalendere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe leggere e scrivere nei tuoi calendari."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់អាន និងសរសេរប្រតិទិនរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil lese og skrive kalenderne dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce odczytywać i zapisywać Twoje kalendarze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de ler e gravar seus calendários."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ на чтение и запись к вашим календарям."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการอ่านและเขียนปฏิทินของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program takvimlerinizi okumak ve bunlara yazmak istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче читати й змінювати ваші календарі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn đọc và ghi lịch của bạn."
+          }
         }
       }
     },
@@ -352,6 +712,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 캘린더에 일정을 추가하려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi dodavati događaje u vaše kalendare."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne tilføje begivenheder til dine kalendere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe aggiungere eventi ai tuoi calendari."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់បន្ថែមព្រឹត្តិការណ៍ទៅប្រតិទិនរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil legge til hendelser i kalenderne dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce dodawać wydarzenia do Twoich kalendarzy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de adicionar eventos aos seus calendários."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает разрешение на добавление событий в ваши календари."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเพิ่มกิจกรรมในปฏิทินของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program takvimlerinize etkinlik eklemek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче додавати події до ваших календарів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn thêm sự kiện vào lịch của bạn."
           }
         }
       }
@@ -412,6 +844,78 @@
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 카메라를 사용하려고 합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi koristiti vašu kameru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne bruge dit kamera."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe usare la videocamera."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ប្រើកាមេរ៉ារបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil bruke kameraet ditt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce używać Twojej kamery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de usar sua câmera."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к камере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการใช้กล้องของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program kameranızı kullanmak istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче використовувати вашу камеру."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn sử dụng camera của bạn."
+          }
         }
       }
     },
@@ -470,6 +974,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 데스크탑 폴더의 파일에 접근하려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi pristupiti datotekama u folderu Radna površina."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til filer i din mappe Skrivebord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe accedere ai file nella cartella Scrivania."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើឯកសារក្នុងថត Desktop របស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil ha tilgang til filer i Skrivebord-mappen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce uzyskać dostęp do plików w folderze Biurko."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de acessar arquivos da sua pasta Mesa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к файлам в папке «Рабочий стол»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงไฟล์ในโฟลเดอร์เดสก์ท็อปของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program Masaüstü klasörünüzdeki dosyalara erişmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до файлів у папці «Робочий стіл»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập các tệp trong thư mục Màn hình nền của bạn."
           }
         }
       }
@@ -530,6 +1106,78 @@
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 문서 폴더의 파일에 접근하려고 합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi pristupiti datotekama u folderu Dokumenti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til filer i din mappe Dokumenter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe accedere ai file nella cartella Documenti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើឯកសារក្នុងថត Documents របស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil ha tilgang til filer i Dokumenter-mappen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce uzyskać dostęp do plików w folderze Dokumenty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de acessar arquivos da sua pasta Documentos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к файлам в папке «Документы»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงไฟล์ในโฟลเดอร์เอกสารของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program Belgeler klasörünüzdeki dosyalara erişmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до файлів у папці «Документи»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập các tệp trong thư mục Tài liệu của bạn."
+          }
         }
       }
     },
@@ -589,6 +1237,78 @@
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 다운로드 폴더의 파일에 접근하려고 합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi pristupiti datotekama u folderu Preuzimanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til filer i din mappe Overførsler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe accedere ai file nella cartella Download."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើឯកសារក្នុងថត Downloads របស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil ha tilgang til filer i Nedlastinger-mappen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce uzyskać dostęp do plików w folderze Pobrane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de acessar arquivos da sua pasta Downloads."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к файлам в папке «Загрузки»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงไฟล์ในโฟลเดอร์ดาวน์โหลดของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program İndirilenler klasörünüzdeki dosyalara erişmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до файлів у папці «Завантаження»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập các tệp trong thư mục Tải về của bạn."
+          }
         }
       }
     },
@@ -647,6 +1367,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 파일 제공업체에서 관리하는 파일에 접근하려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi pristupiti datotekama kojima upravlja pružalac datoteka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til filer, der administreres af en filudbyder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe accedere ai file gestiti da un fornitore di file."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើឯកសារដែលគ្រប់គ្រងដោយអ្នកផ្ដល់ឯកសារ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil ha tilgang til filer som administreres av en filleverandør."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce uzyskać dostęp do plików zarządzanych przez dostawcę plików."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de acessar arquivos gerenciados por um provedor de arquivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к файлам поставщика файлов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงไฟล์ที่จัดการโดยผู้ให้บริการไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program bir dosya sağlayıcı tarafından yönetilen dosyalara erişmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до файлів, якими керує постачальник файлів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập các tệp do nhà cung cấp tệp quản lý."
           }
         }
       }
@@ -761,6 +1553,24 @@
             "state": "translated",
             "value": "cmux içinde çalışan bir program yerel ağa erişmek istiyor."
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់រកមើលឧបករណ៍នៅលើបណ្ដាញមូលដ្ឋានរបស់អ្នក។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче виявляти пристрої у вашій локальній мережі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn tìm thiết bị trên mạng cục bộ của bạn."
+          }
         }
       }
     },
@@ -819,6 +1629,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 위치 정보에 접근하려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi pristupiti vašoj lokaciji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til din lokalitet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe accedere alla tua posizione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើទីតាំងរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil ha tilgang til posisjonen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce uzyskać dostęp do Twojej lokalizacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de acessar sua localização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к вашей геопозиции."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงตำแหน่งของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program konumunuza erişmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до вашого місцезнаходження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập vị trí của bạn."
           }
         }
       }
@@ -933,6 +1815,24 @@
             "state": "translated",
             "value": "cmux içinde çalışan bir program mikrofonunuzu kullanmak istiyor."
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ប្រើមីក្រូហ្វូនរបស់អ្នក។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче використовувати ваш мікрофон."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn sử dụng micrô của bạn."
+          }
         }
       }
     },
@@ -1046,6 +1946,24 @@
             "state": "translated",
             "value": "cmux içinde çalışan bir program hareket verilerine erişmek istiyor."
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើទិន្នន័យចលនា។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до даних руху."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập dữ liệu chuyển động."
+          }
         }
       }
     },
@@ -1104,6 +2022,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 네트워크 볼륨의 파일에 접근하려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi pristupiti datotekama na mrežnom volumenu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til filer på en netværksenhed."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe accedere ai file su un volume di rete."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើឯកសារនៅលើវ៉ុលបណ្ដាញ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil ha tilgang til filer på et nettverksvolum."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce uzyskać dostęp do plików na woluminie sieciowym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de acessar arquivos em um volume de rede."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к файлам на сетевом томе."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงไฟล์บนโวลุ่มเครือข่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program bir ağ birimindeki dosyalara erişmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до файлів на мережевому томі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập các tệp trên ổ đĩa mạng."
           }
         }
       }
@@ -1164,6 +2154,78 @@
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 미리 알림을 읽고 쓰려고 합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi čitati i pisati vaše podsjetnike."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne læse og skrive i dine påmindelser."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe leggere e scrivere nei tuoi promemoria."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់អាន និងសរសេរការរំលឹករបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil lese og skrive påminnelsene dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce odczytywać i zapisywać Twoje przypomnienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de ler e gravar seus lembretes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ на чтение и запись к вашим напоминаниям."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการอ่านและเขียนการเตือนความจำของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program anımsatıcılarınızı okumak ve bunlara yazmak istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче читати й змінювати ваші нагадування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn đọc và ghi lời nhắc của bạn."
+          }
         }
       }
     },
@@ -1222,6 +2284,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 내에서 실행 중인 프로그램이 외장 볼륨의 파일에 접근하려고 합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program pokrenut u cmux-u želi pristupiti datotekama na prenosivom volumenu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til filer på en flytbar enhed."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un programma in esecuzione in cmux vorrebbe accedere ai file su un volume rimovibile."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើឯកសារនៅលើវ៉ុលចល័ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et program som kjører i cmux, vil ha tilgang til filer på et flyttbart volum."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program działający w cmux chce uzyskać dostęp do plików na woluminie wymiennym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um programa em execução no cmux gostaria de acessar arquivos em um volume removível."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Программа, запущенная в cmux, запрашивает доступ к файлам на съемном томе."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงไฟล์บนโวลุ่มแบบถอดได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde çalışan bir program çıkarılabilir bir birimdeki dosyalara erişmek istiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до файлів на знімному томі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập các tệp trên ổ đĩa di động."
           }
         }
       }
@@ -1336,6 +2470,24 @@
             "state": "translated",
             "value": "cmux içinde çalışan bir program konuşma tanımayı kullanmak istiyor."
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ប្រើការសម្គាល់សំឡេងនិយាយ។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче використовувати розпізнавання мовлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn sử dụng nhận dạng giọng nói."
+          }
         }
       }
     },
@@ -1448,6 +2600,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux içinde çalışan bir program yükseltilmiş ayrıcalıklar gerektiriyor."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់អនុវត្តកិច្ចការគ្រប់គ្រងប្រព័ន្ធ។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче виконувати завдання системного адміністрування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn thực hiện các tác vụ quản trị hệ thống."
           }
         }
       }
@@ -1562,6 +2732,24 @@
             "state": "translated",
             "value": "Buraya Yeni $(PRODUCT_NAME) Çalışma Alanı"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការ $(PRODUCT_NAME) ថ្មីនៅទីនេះ"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нова робоча область $(PRODUCT_NAME) тут"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc $(PRODUCT_NAME) mới tại đây"
+          }
         }
       }
     },
@@ -1674,6 +2862,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Buraya Yeni $(PRODUCT_NAME) Penceresi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួច $(PRODUCT_NAME) ថ្មីនៅទីនេះ"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нове вікно $(PRODUCT_NAME) тут"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ $(PRODUCT_NAME) mới tại đây"
           }
         }
       }
@@ -1788,6 +2994,24 @@
             "state": "translated",
             "value": "cmux içinde çalışan bir program takvimlerinize erişmek istiyor."
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើប្រតិទិនរបស់អ្នក។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до ваших календарів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập lịch của bạn."
+          }
         }
       }
     },
@@ -1900,6 +3124,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux içinde çalışan bir program hatırlatıcılarınıza erişmek istiyor."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើការរំលឹករបស់អ្នក។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до ваших нагадувань."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập lời nhắc của bạn."
           }
         }
       }
@@ -2014,6 +3256,24 @@
             "state": "translated",
             "value": "cmux içinde çalışan bir program kişilerinize erişmek istiyor."
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើទំនាក់ទំនងរបស់អ្នក។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до ваших контактів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập danh bạ của bạn."
+          }
         }
       }
     },
@@ -2126,6 +3386,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux içinde çalışan bir program konumunuza erişmek istiyor."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើទីតាំងរបស់អ្នក។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до вашого місцезнаходження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập vị trí của bạn."
           }
         }
       }
@@ -2240,6 +3518,24 @@
             "state": "translated",
             "value": "cmux içinde çalışan bir program fotoğraf kitaplığınıza erişmek istiyor."
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើបណ្ណាល័យរូបថតរបស់អ្នក។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до вашої фототеки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập thư viện ảnh của bạn."
+          }
         }
       }
     },
@@ -2353,6 +3649,24 @@
             "state": "translated",
             "value": "cmux içinde çalışan bir program sistem sesine erişmek istiyor."
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់ចូលប្រើសំឡេងប្រព័ន្ធរបស់អ្នក។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, запущена в cmux, хоче отримати доступ до системного аудіо."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một chương trình đang chạy trong cmux muốn truy cập âm thanh hệ thống của bạn."
+          }
         }
       }
     },
@@ -2411,6 +3725,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux는 이 Mac이 사설 네트워크의 Cloud 머신에 연결할 수 있도록 네트워크 확장을 설치합니다. 이 확장은 cmux Cloud를 사용하는 동안에만 실행됩니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux instalira mrežnu ekstenziju kako bi ovaj Mac mogao dosegnuti vaše Cloud mašine na njihovoj privatnoj mreži. Radi samo dok koristite cmux Cloud."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux installerer en netværksudvidelse, så denne Mac kan nå dine Cloud-maskiner på deres private netværk. Den kører kun, mens du bruger cmux Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux installa un’estensione di rete per permettere a questo Mac di raggiungere le tue macchine Cloud sulla loro rete privata. È attiva solo mentre usi cmux Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ដំឡើងផ្នែកបន្ថែមបណ្ដាញ ដើម្បីឲ្យ Mac នេះអាចភ្ជាប់ទៅម៉ាស៊ីន Cloud របស់អ្នកនៅលើបណ្ដាញឯកជនរបស់វា។ វាដំណើរការតែពេលអ្នកប្រើ cmux Cloud ប៉ុណ្ណោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux installerer en nettverksutvidelse slik at denne Macen kan nå Cloud-maskinene dine på deres private nettverk. Den kjører bare mens du bruker cmux Cloud."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux instaluje rozszerzenie sieciowe, aby ten Mac mógł łączyć się z Twoimi maszynami Cloud w ich sieci prywatnej. Działa tylko podczas korzystania z cmux Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux instala uma extensão de rede para que este Mac alcance suas máquinas Cloud na rede privada delas. Ela só é executada enquanto você usa o cmux Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux устанавливает сетевое расширение, чтобы этот Mac мог подключаться к вашим машинам Cloud в их частной сети. Оно работает, только пока вы используете cmux Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ติดตั้งส่วนขยายเครือข่ายเพื่อให้ Mac เครื่องนี้เข้าถึงเครื่อง Cloud ของคุณบนเครือข่ายส่วนตัวได้ ส่วนขยายนี้ทำงานเฉพาะขณะที่คุณใช้ cmux Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, bu Mac’in Cloud makinelerinize özel ağları üzerinden ulaşabilmesi için bir ağ uzantısı yükler. Yalnızca cmux Cloud’u kullanırken çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux встановлює мережеве розширення, щоб цей Mac міг звертатися до ваших машин Cloud у їхній приватній мережі. Воно працює лише під час використання cmux Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux cài đặt một tiện ích mở rộng mạng để máy Mac này có thể truy cập các máy Cloud trên mạng riêng của chúng. Tiện ích chỉ chạy khi bạn dùng cmux Cloud."
           }
         }
       }

@@ -87,7 +87,10 @@ enum CompatWorkspaceMethods {
         guard let raw = call.string("workspace_id") else { throw CompatErrors.invalid("Missing or invalid workspace_id") }
         let workspace = try world.resolveWorkspace(raw, refs: call.service.refs)
         let window = world.window(workspace.windowUUIDs.first) ?? world.activeWindow
-        try await call.service.runAction("closeWorkspace", target: CompatTargets.workspace(workspace), call: call)
+        // The old CLI's `close-workspace` is its own confirmation (it never
+        // prompted), so compat passes the destructive action's `confirm`.
+        try await call.service.runAction("closeWorkspace", target: CompatTargets.workspace(workspace),
+                                         arguments: ["confirm": .bool(true)], call: call)
         return .object(CompatJSON.ids(window: window, workspace: workspace))
     }
 

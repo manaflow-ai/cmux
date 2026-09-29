@@ -33,17 +33,6 @@ enum CloudPresenter {
         present(alert, in: window) { done($0 == .alertFirstButtonReturn ? field.stringValue : nil) }
     }
 
-    /// Asks to confirm a destructive action.
-    static func confirm(_ title: String, _ body: String, button: String, in window: NSWindow?, done: @escaping (Bool) -> Void) {
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = title
-        alert.informativeText = body
-        alert.addButton(withTitle: button)
-        alert.addButton(withTitle: CloudStrings.cancel)
-        present(alert, in: window) { done($0 == .alertFirstButtonReturn) }
-    }
-
     /// Asks to pick one of `choices` (title, value).
     static func choose(_ title: String, _ choices: [(String, String)], selected: String?, in window: NSWindow?, done: @escaping (String?) -> Void) {
         let alert = NSAlert()

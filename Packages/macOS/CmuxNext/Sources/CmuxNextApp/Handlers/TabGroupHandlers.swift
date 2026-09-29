@@ -49,8 +49,9 @@ enum TabGroupHandlers {
     static func run(_ label: String, pane: PaneModel?, patch: OptimisticPatch = .custom { _ in }, _ ctx: AppActionContext,
                     _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         guard ctx.connection() != nil else { return }
+        let daemon = ctx.services.activeDaemon
         Task {
-            let ok = await ctx.services.activeDaemon.perform(label, patch: patch, expectEcho: false, body)
+            let ok = await daemon.perform(label, patch: patch, expectEcho: false, body)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
         }
     }
@@ -87,10 +88,11 @@ enum TabGroupHandlers {
             let handle = pane.handle
             let cwd = pane.tabs.last { $0.tabGroup == group }?.cwd
             let controller = ctx.services.paneController(for: pane)
+            let workspace = ctx.services.workspaceKey(of: pane)
             guard let connection = ctx.connection() else { return }
             Task {
                 do {
-                    let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
+                    let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
                     _ = try await connection.addTabs([created.surface], toGroup: group)
                     if let controller {
                         controller.pendingSelectSurface = created.surface

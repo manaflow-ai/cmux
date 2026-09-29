@@ -24,11 +24,16 @@ public actor MobileCompatSession {
     var surfaceSeq: [String: UInt64] = [:]
     /// Last located tab per uppercased surface id (input fast path).
     var locations: [String: MobileWorkspaceRows.TerminalLocation] = [:]
+    /// Reported once the phone can use this connection (`mobile.rpc.ready`).
+    let onUsable: (@Sendable (MobileUsableSession) -> Void)?
+    var readiness = MobileReadiness()
 
-    public init(backend: any MobileCompatBackend, host: MobileCompatHostInfo, emit: @escaping Emit) {
+    public init(backend: any MobileCompatBackend, host: MobileCompatHostInfo, emit: @escaping Emit,
+                onUsable: (@Sendable (MobileUsableSession) -> Void)? = nil) {
         self.backend = backend
         self.host = host
         self.emit = emit
+        self.onUsable = onUsable
     }
 
     /// Answers one request frame with one response frame payload.
@@ -70,7 +75,10 @@ public actor MobileCompatSession {
             return .object(["stream_id": .string(request.string("stream_id") ?? "events"),
                             "subscribed": .bool(subscribed), "event_transport": .string("control")])
         case "mobile.workspace.list", "workspace.list":
-            return try await workspaceList()
+            let result = try await workspaceList()
+            readiness.workspaceCount = result["workspaces"]?.arrayValue?.count ?? 0
+            reportIfUsable()
+            return result
         case "workspace.create":
             return try await createWorkspace(request)
         case "workspace.close":
@@ -96,12 +104,23 @@ public actor MobileCompatSession {
                 for await _ in changes { await self?.treeChanged() }
             }
         }
+        let streamID = request.string("stream_id") ?? "events"
+        let topics = request.params["topics"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        if let usable = MobileReadiness.subscription(topics: topics, clientID: request.string("client_id"),
+                                                     streamID: streamID, transport: "control") {
+            readiness.subscription = usable
+            reportIfUsable()
+        }
         // All events ride the control stream: no server event lanes.
         return .object([
             "stream_id": .string(request.string("stream_id") ?? "events"),
             "already_subscribed": .bool(already),
             "event_transport": .string("control"),
         ])
+    }
+
+    private func reportIfUsable() {
+        if let session = readiness.ready() { onUsable?(session) }
     }
 
     private func unsubscribe() {

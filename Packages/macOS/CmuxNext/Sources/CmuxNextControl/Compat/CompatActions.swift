@@ -36,6 +36,8 @@ extension CompatService {
             throw CompatErrors.unsupported("the \(id) action has no handler in this build", method: method)
         case .unavailable, .disabled:
             throw ControlError(code: "unavailable", message: "\(id) is not available right now", data: ["action": .string(id)])
+        case .confirmationRequired:
+            throw ControlRouter.confirmationRequired(id)
         }
         var failure: String?
         for task in run.work {

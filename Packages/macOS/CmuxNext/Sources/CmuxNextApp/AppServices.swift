@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdater
 
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
@@ -15,10 +16,16 @@ final class AppServices {
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
     let machines: MachineRegistry
+    /// The machine of the action being run, while its handler runs
+    /// (`ActionRouting`); `activeDaemon` prefers it.
+    var routedDaemon: DaemonService?
     private(set) var cloud: CloudService!
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
+    /// Sparkle updates (release builds) or read-only feed probes (DEV).
+    let updater = UpdaterService()
+    private(set) var updateSheet: UpdateSheetController!
     /// cmux.json controller; set by `AppDelegate` once it starts.
     var settings: SettingsController?
     private(set) var cache: TabContentCache!
@@ -29,6 +36,8 @@ final class AppServices {
     /// App side of the cmux CLI compat layer (window/focus state, intents).
     private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
+    /// Hook statuses shown in sidebar rows (`set_status`).
+    let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
@@ -50,6 +59,9 @@ final class AppServices {
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
         tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))
+        let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
+        self.updateSheet = updateSheet
+        updater.presentUpdateUI = { [weak self] in updateSheet.present(in: self?.windows.active?.window) }
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
@@ -78,6 +90,12 @@ final class AppServices {
     /// The daemon that owns `pane`.
     func daemon(for pane: PaneModel) -> DaemonService {
         machines.daemon(forPane: pane)
+    }
+
+    /// The workspace key of `pane`, for `SpawnOptions.workspace`: a new
+    /// terminal there gets `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
+    func workspaceKey(of pane: PaneModel) -> WorkspaceKey? {
+        daemon(for: pane).store.workspace(containing: pane.handle)?.key
     }
 
     /// Ends a detached tab drag whose move failed: the tab reappears.

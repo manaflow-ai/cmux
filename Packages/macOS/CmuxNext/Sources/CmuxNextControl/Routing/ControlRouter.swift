@@ -29,6 +29,8 @@ public final class ControlRouter: Sendable {
     public let identity: ControlIdentity
     public let configuration: Configuration
     public let snapshots = ControlSnapshotStore()
+    /// Events for `events.stream` (ControlRouter+EventStream).
+    public let events = ControlEventBus()
     public let workQueue: MainActorWorkQueue
     let executor: any ControlActionExecutor
     let settings: (any ControlSettingsStore)?
