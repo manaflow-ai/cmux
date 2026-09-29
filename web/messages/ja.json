@@ -629,7 +629,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 の月払いで、最大 50 台の Cloud VM が 64 GB RAM と 16 vCPU を共有します。"
+        "upsell": "Max は月額 $200 の月払いで、最大 50 台の Cloud VM が 48 GB RAM、24 vCPU、1.2 TB ディスクを共有します。"
       }
     },
     "testflight": {
@@ -992,7 +992,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有",
+        "最大 50 台の Cloud VM で、12 GB RAM、6 vCPU、300 GB ディスクを共有",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -1009,7 +1009,7 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "最大 50 台の Cloud VM で 64 GB RAM と 16 vCPU を共有",
+        "最大 50 台の Cloud VM で 48 GB RAM、24 vCPU、1.2 TB ディスクを共有",
         "無制限のワークスペースと iOS アプリ"
       ]
     },
@@ -1018,6 +1018,7 @@
       "cta": "Teams を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
+        "ユーザーごとに最大 50 台の Cloud VM。ユーザーあたり 16 GB RAM、8 vCPU、400 GB ディスクをチーム全体でプール",
         "チーム全体の一元請求",
         "優先サポート"
       ]
@@ -1117,9 +1118,9 @@
         {
           "label": "すべての Cloud VM で共有するリソース",
           "free": "false",
-          "pro": "24 GB RAM と 6 vCPUをすべての VM で共有",
-          "max": "すべての VM で 64 GB RAM と 16 vCPU を共有",
-          "team": "ユーザーあたり 24 GB RAM と 6 vCPUを、そのユーザーの VM で共有",
+          "pro": "12 GB RAM、6 vCPU、300 GB ディスクをすべての VM で共有",
+          "max": "すべての VM で 48 GB RAM、24 vCPU、1.2 TB ディスクを共有",
+          "team": "ユーザーあたり 16 GB RAM、8 vCPU、400 GB ディスクをチーム全体でプール",
           "enterprise": "カスタム",
           "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
         },
@@ -1226,11 +1227,11 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有します。Team ではユーザーごとに同じプールが適用されます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、12 GB RAM、6 vCPU、300 GB ディスクを共有します。Team ではユーザーあたり 16 GB RAM、8 vCPU、400 GB ディスクをチーム全体でプールします。"
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。最大 50 台の Cloud VM で合計 64 GB RAM と 16 vCPU を共有します。Pro のすべてを含み、この共有リソースの範囲内で 32 GB と 64 GB のマシンを利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
+          "a": "Max は月払いで $200/月です。最大 50 台の Cloud VM で合計 48 GB RAM、24 vCPU、1.2 TB ディスクを共有します。Pro のすべてを含み、32 GB と 64 GB のマシンを利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
         },
         {
           "q": "cmux Vault とは何ですか?",

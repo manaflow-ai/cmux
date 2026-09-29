@@ -130,7 +130,7 @@ describe("localized pricing page", () => {
     try {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
-      expect(first.includes("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs")).toBe(true);
+      expect(first.includes("Up to 50 Cloud VMs sharing 48 GB RAM, 24 vCPUs, and 1.2 TB disk")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("Current plan")).toBe(false);
     } finally {
@@ -172,10 +172,12 @@ describe("localized pricing page", () => {
 
   test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {
     expect(enMessages.pricing.team.features).toEqual([
+      "Up to 50 Cloud VMs per user, with 16 GB RAM, 8 vCPUs, and 400 GB disk per user, pooled across the team",
       "Centralized billing for your whole team",
       "Priority support",
     ]);
     expect(jaMessages.pricing.team.features).toEqual([
+      "ユーザーごとに最大 50 台の Cloud VM。ユーザーあたり 16 GB RAM、8 vCPU、400 GB ディスクをチーム全体でプール",
       "チーム全体の一元請求",
       "優先サポート",
     ]);
@@ -302,7 +304,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).toContain("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
+    expect(html).toContain("Up to 50 Cloud VMs sharing 48 GB RAM, 24 vCPUs, and 1.2 TB disk");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");
@@ -417,7 +419,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+      "Up to 50 Cloud VMs, with 12 GB RAM, 6 vCPUs, and 300 GB disk shared across all VMs",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");

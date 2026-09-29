@@ -111,11 +111,11 @@ describe("app pricing page", () => {
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("Get Max");
-    expect(html).toContain("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
+    expect(html).toContain("Up to 50 Cloud VMs sharing 48 GB RAM, 24 vCPUs, and 1.2 TB disk");
     expect(html).toContain("Largest Cloud VM");
     expect(html).toContain("$60/user/mo");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+      "Up to 50 Cloud VMs, with 12 GB RAM, 6 vCPUs, and 300 GB disk shared across all VMs",
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');

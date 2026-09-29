@@ -629,7 +629,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs for $200 per month, billed monthly."
+        "upsell": "Max includes up to 50 Cloud VMs sharing 48 GB RAM, 24 vCPUs, and 1.2 TB disk for $200 per month, billed monthly."
       }
     },
     "testflight": {
@@ -992,7 +992,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+        "Up to 50 Cloud VMs, with 12 GB RAM, 6 vCPUs, and 300 GB disk shared across all VMs",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -1009,7 +1009,7 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs",
+        "Up to 50 Cloud VMs sharing 48 GB RAM, 24 vCPUs, and 1.2 TB disk",
         "Unlimited workspaces and the iOS app"
       ]
     },
@@ -1018,6 +1018,7 @@
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
+        "Up to 50 Cloud VMs per user, with 16 GB RAM, 8 vCPUs, and 400 GB disk per user, pooled across the team",
         "Centralized billing for your whole team",
         "Priority support"
       ]
@@ -1117,9 +1118,9 @@
         {
           "label": "Resources shared across all Cloud VMs",
           "free": "false",
-          "pro": "24 GB RAM and 6 vCPUs shared across all VMs",
-          "max": "64 GB RAM and 16 vCPUs shared across all VMs",
-          "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
+          "pro": "12 GB RAM, 6 vCPUs, and 300 GB disk shared across all VMs",
+          "max": "48 GB RAM, 24 vCPUs, and 1.2 TB disk shared across all VMs",
+          "team": "16 GB RAM, 8 vCPUs, and 400 GB disk per user, pooled across the team",
           "enterprise": "Custom",
           "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
         },
@@ -1226,11 +1227,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same pool per user."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs with 12 GB RAM, 6 vCPUs, and 300 GB disk shared across all VMs. Team includes 16 GB RAM, 8 vCPUs, and 400 GB disk per user, pooled across the team."
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly. Up to 50 Cloud VMs share a total of 64 GB RAM and 16 vCPUs. It includes everything in Pro and supports 32 GB and 64 GB machines within that shared total. Pro, Team, and Free machines top out at 24 GB RAM."
+          "a": "Max is $200/mo, billed monthly. Up to 50 Cloud VMs share a total of 48 GB RAM, 24 vCPUs, and 1.2 TB disk. It includes everything in Pro and supports 32 GB and 64 GB machines. Pro, Team, and Free machines top out at 24 GB RAM."
         },
         {
           "q": "What is cmux Vault?",
