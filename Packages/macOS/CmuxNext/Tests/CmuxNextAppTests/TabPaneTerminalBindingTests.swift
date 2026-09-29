@@ -28,8 +28,6 @@ struct TabPaneTerminalBindingTests {
     @Test func unportedFeaturesSayWhatTheyNeed() {
         let services = Coverage.boundServices()
         #expect(Coverage.run(services, "toggleCanvasLayout") == .refused("needs canvas layout, which cmux-next does not have yet"))
-        #expect(Coverage.run(services, "column.center") ==
-            .refused("needs a column centering API in CmuxNextLayout (reveal runs only on focus changes)"))
         #expect(Coverage.run(services, "palette.copyPaneLink") == .refused("needs cmux-next deep link navigation (cmux:// handler)"))
     }
 
@@ -37,6 +35,8 @@ struct TabPaneTerminalBindingTests {
         let services = Coverage.boundServices()
         #expect(Coverage.run(services, "closeTab") == .refused("no pane is focused"))
         #expect(Coverage.run(services, "splitRight") == .refused("no pane is focused"))
+        #expect(Coverage.run(services, "column.center") == .refused("no pane is focused"))
+        #expect(Coverage.run(services, "column.center", target: ActionTargetRef(kind: .column, id: "c9")) == .refused("no column c9 is shown"))
         let missing = ActionTargetRef(kind: .tab, id: "missing")
         #expect(Coverage.run(services, "tab.moveToNewColumn", target: missing) == .refused("no tab missing"))
         #expect(Coverage.run(services, "reopenClosedBrowserPanel") == .refused("no recently closed tab"))

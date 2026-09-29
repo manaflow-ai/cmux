@@ -3,8 +3,8 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
 
-/// niri-style column actions: new column, focus and move left/right, width
-/// presets. Widths go through the layout model (one gesture transaction per
+/// niri-style column actions: new column, focus and move left/right, center,
+/// width presets. Widths go through the layout model (one gesture transaction per
 /// change, settled by the daemon); moves are `swap-pane`, which the daemon
 /// offers only per pane, so a multi-pane column cannot move yet.
 enum ColumnHandlers {
@@ -17,7 +17,11 @@ enum ColumnHandlers {
         registry.bind("column.focusRight", invoke: { focusAdjacent($0, forward: true, ctx) })
         registry.bind("column.moveLeft", invoke: { move($0, direction: .left, ctx) })
         registry.bind("column.moveRight", invoke: { move($0, direction: .right, ctx) })
-        registry.bindUnavailable("column.center", reason: "needs a column centering API in CmuxNextLayout (reveal runs only on focus changes)")
+        registry.bind("column.center", invoke: { invocation in
+            guard let (content, column) = column(invocation, ctx), let pane = column.root.panes.first else { return }
+            let focused = content.layoutModel.focusedPane.flatMap { column.root.contains($0) ? $0 : nil }
+            content.layoutModel.centerColumn(containing: focused ?? pane)
+        })
         let presets: [(ActionID, ColumnWidthPreset)] = [
             ("column.widthOneThird", .oneThird), ("column.widthHalf", .half),
             ("column.widthTwoThirds", .twoThirds), ("column.widthFull", .full),

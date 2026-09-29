@@ -47,6 +47,11 @@ public final class LayoutModel {
     /// True while a divider or column drag is in progress.
     public private(set) var isGestureActive = false
 
+    /// The latest one-shot "center this column" request (niri
+    /// `center-column`). The view scrolls the column to the viewport center
+    /// once per request; `sequence` distinguishes repeats of the same pane.
+    public private(set) var centerRequest: ColumnCenterRequest?
+
     /// Receives every intent. Set by the App (or `MockLayoutSource`).
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
@@ -193,6 +198,18 @@ public final class LayoutModel {
         guard let index = screens.firstIndex(where: { $0.id == activeScreenID }), screens.count > 1 else { return }
         let next = (index + (forward ? 1 : -1) + screens.count) % screens.count
         selectScreen(screens[next].id)
+    }
+
+    /// Scrolls the column holding `pane` (default: the focused pane) to the
+    /// center of the viewport and focuses that pane, like niri's
+    /// `center-column`. Client-local: scroll offsets are never sent to the
+    /// daemon. Returns false when the pane is not in a columns screen.
+    @discardableResult
+    public func centerColumn(containing pane: PaneID? = nil) -> Bool {
+        guard let pane = pane ?? focusedPane, screen(containing: pane)?.layout.column(containing: pane) != nil else { return false }
+        focus(pane)
+        centerRequest = ColumnCenterRequest(pane: pane, sequence: (centerRequest?.sequence ?? 0) &+ 1)
+        return true
     }
 
     // MARK: Divider and column gestures

@@ -34,6 +34,7 @@ public final class LayoutRootView: NSView {
         var dimsInactive: Bool
         var style: LayoutStyle
         var gestureActive: Bool
+        var centerRequest: ColumnCenterRequest?
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
@@ -100,7 +101,8 @@ public final class LayoutRootView: NSView {
             showsSwitcher: model.showsScreenSwitcher,
             dimsInactive: model.dimsInactivePanes,
             style: model.style,
-            gestureActive: model.isGestureActive
+            gestureActive: model.isGestureActive,
+            centerRequest: model.centerRequest
         )
     }
 
@@ -115,7 +117,8 @@ public final class LayoutRootView: NSView {
                     showsSwitcher: model.showsScreenSwitcher,
                     dimsInactive: model.dimsInactivePanes,
                     style: model.style,
-                    gestureActive: model.isGestureActive
+                    gestureActive: model.isGestureActive,
+                    centerRequest: model.centerRequest
                 )
             }) {
                 guard let self else { return }
@@ -162,6 +165,10 @@ public final class LayoutRootView: NSView {
                structureChanged || previous?.focused != focused
             {
                 if view.reveal(focused, mode: model.columnRevealMode, animated: animated) { needsFrames = true }
+            }
+            if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
+               view.reveal(request.pane, mode: .center, animated: animated) {
+                needsFrames = true
             }
         }
 
