@@ -11,6 +11,7 @@ import Testing
         NSApplication.shared.setActivationPolicy(.accessory)
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.orderBack(nil)
         let alert = NSAlert()
         alert.messageText = "status"
