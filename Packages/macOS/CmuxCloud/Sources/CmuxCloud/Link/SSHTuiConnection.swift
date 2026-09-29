@@ -66,7 +66,8 @@ public struct SSHTuiConnection: Sendable {
     private var sshOptions: [String] {
         SSHConnectionSharingOptions().mergingDefaults(
             into: configuration.sshOptions,
-            routeSensitiveOptions: configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+            routeSensitiveOptions: configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? [],
+            routeIdentifier: identityDigest
         )
     }
 

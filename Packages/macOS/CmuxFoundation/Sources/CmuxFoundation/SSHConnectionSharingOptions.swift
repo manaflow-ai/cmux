@@ -1,4 +1,5 @@
 internal import Darwin
+internal import CryptoKit
 internal import Foundation
 
 /// Merges cmux's native-SSH connection-sharing defaults without replacing
@@ -117,6 +118,11 @@ public struct SSHConnectionSharingOptions: Sendable {
     ///   - options: Explicit OpenSSH `-o` values.
     ///   - userConfiguredControlOptions: Effective custom values parsed by
     ///     ``userConfiguredControlOptions(fromSSHConfigOutput:explicitOptions:)``.
+    ///   - routeSensitiveOptions: Values that make the route-specific socket
+    ///     necessary when a route identifier is available.
+    ///   - routeIdentifier: Stable opaque identity for the complete route.
+    ///     Route-sensitive options use a private socket derived from this
+    ///     value; without it they remain unshared.
     /// - Returns: Effective explicit options for native SSH commands.
     public func mergingDefaults(
         into options: [String],
@@ -124,7 +130,6 @@ public struct SSHConnectionSharingOptions: Sendable {
         routeSensitiveOptions: [String] = [],
         routeIdentifier: String? = nil
     ) -> [String] {
-        _ = routeIdentifier
         let resolver = SSHAgentSocketResolver()
         let routeSensitive = !routeSensitiveOptions.isEmpty
             || options.contains { option in
@@ -149,8 +154,9 @@ public struct SSHConnectionSharingOptions: Sendable {
         }
         // Another local user can plant a socket in /tmp, and OpenSSH connects
         // to one at ControlPath even with ControlMaster=no.
-        if let controlPath = resolver.optionValue(named: "ControlPath", in: merged),
-           isSharedTemporaryControlPath(controlPath) {
+        let suppliedControlPath = resolver.optionValue(named: "ControlPath", in: merged)
+        let migratedSharedTemporaryControlPath = suppliedControlPath.map(isSharedTemporaryControlPath) == true
+        if migratedSharedTemporaryControlPath {
             let replacement = defaultControlPath ?? "none"
             merged = merged.map { option in
                 guard resolver.optionKey(option) == "controlpath" else { return option }
@@ -163,17 +169,44 @@ public struct SSHConnectionSharingOptions: Sendable {
         // share cmux's default master with another route to the same endpoint.
         let hasCustomControlPath = resolver.hasOptionKey(merged, key: "ControlPath")
             || userConfiguredControlOptions?.contains(where: { resolver.optionKey($0) == "controlpath" }) == true
-        if routeSensitive && !hasCustomControlPath {
+        let hasUserManagedControlPath = hasCustomControlPath && !migratedSharedTemporaryControlPath
+        if routeSensitive && !hasUserManagedControlPath {
             // Persist the route decision in the options that later SSH
             // helpers carry forward. A private marker is intentionally not
             // enough: callers serialize and re-merge these options after
             // this function returns, so a marker-only result would be lost
             // and the next merge would install the shared `%C` socket.
-            if !resolver.hasOptionKey(merged, key: "ControlMaster") {
-                merged.append("ControlMaster=no")
+            let controlMaster = resolver.optionValue(named: "ControlMaster", in: merged)
+            if isDisabled(controlMaster) {
+                if !resolver.hasOptionKey(merged, key: "ControlPath") {
+                    merged.append("ControlPath=none")
+                }
+                return merged
             }
-            if !resolver.hasOptionKey(merged, key: "ControlPath") {
-                merged.append("ControlPath=none")
+            if let routeIdentifier,
+               let routeControlPath = routeSpecificControlPath(for: routeIdentifier) {
+                if controlMaster == nil {
+                    merged.append("ControlMaster=auto")
+                }
+                if !resolver.hasOptionKey(merged, key: "ControlPersist") {
+                    merged.append("ControlPersist=600")
+                }
+                if migratedSharedTemporaryControlPath {
+                    merged = merged.map { option in
+                        resolver.optionKey(option) == "controlpath"
+                            ? "ControlPath=\(routeControlPath)"
+                            : option
+                    }
+                } else {
+                    merged.append("ControlPath=\(routeControlPath)")
+                }
+            } else {
+                if controlMaster == nil {
+                    merged.append("ControlMaster=no")
+                }
+                if !resolver.hasOptionKey(merged, key: "ControlPath") {
+                    merged.append("ControlPath=none")
+                }
             }
             return merged
         }
@@ -194,6 +227,19 @@ public struct SSHConnectionSharingOptions: Sendable {
             }
         }
         return merged
+    }
+
+    /// Returns a private, deterministic socket path for one route identity.
+    private func routeSpecificControlPath(for routeIdentifier: String) -> String? {
+        guard let controlSocketDirectoryPath,
+              !routeIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let digest = SHA256.hash(data: Data(routeIdentifier.utf8))
+            .prefix(20)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "\(controlSocketDirectoryPath)/\(digest)"
     }
 
     /// Parses custom effective control settings from `ssh -G` output.

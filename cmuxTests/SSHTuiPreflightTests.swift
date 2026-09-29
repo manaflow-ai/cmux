@@ -28,6 +28,20 @@ struct SSHTuiPreflightTests {
                                    "-o", "ConnectTimeout=15", "--", "alice@example.invalid", "true"])
     }
 
+    @Test("Interactive authentication and batch preflight reuse a route-specific control master")
+    func authenticationAndPreflightShareRouteSpecificControlMaster() throws {
+        let connection = SSHTuiConnection(configuration: configuration(options: ["ProxyJump=bastion"]))
+        let authenticationPath = connection.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+        let preflightPath = connection.preflightArguments.first { $0.hasPrefix("ControlPath=") }
+        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+
+        #expect(authenticationPath == preflightPath)
+        #expect(authenticationPath?.hasPrefix("ControlPath=\(socketDirectory)/") == true)
+        #expect(authenticationPath?.dropFirst("ControlPath=\(socketDirectory)/".count).count == 40)
+        #expect(connection.authenticationArguments.contains("ControlMaster=auto"))
+        #expect(connection.preflightArguments.contains("ControlMaster=auto"))
+    }
+
     @Test("Passes the configured agent socket like the carrier")
     func passesTheAgentSocket() async throws {
         let commands = ScriptedPreflightCommands(exitStatus: 0)

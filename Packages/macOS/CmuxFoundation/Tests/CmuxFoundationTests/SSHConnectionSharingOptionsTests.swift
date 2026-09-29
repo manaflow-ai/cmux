@@ -172,6 +172,20 @@ struct SSHConnectionSharingOptionsTests {
         })
     }
 
+    @Test("Legacy cmux control paths are isolated before route-specific reuse")
+    func legacyControlPathGetsRouteSpecificReplacement() {
+        let merged = options.mergingDefaults(
+            into: ["ProxyJump=bastion", "ControlPath=/tmp/cmux-ssh-501-%C"],
+            routeSensitiveOptions: ["IdentityFile=/Users/alice/.ssh/route-key"],
+            routeIdentifier: "route-a"
+        )
+        let controlPath = merged.first { $0.hasPrefix("ControlPath=") }
+
+        #expect(merged.contains("ControlMaster=auto"))
+        #expect(controlPath?.hasPrefix("ControlPath=\(socketDirectory)/") == true)
+        #expect(!merged.contains("ControlPath=\(socketDirectory)/%C"))
+    }
+
     @Test("Host-key policy options disable default sharing")
     func hostKeyPolicyOptionsDoNotShareAHostStableSocket() {
         for option in [
