@@ -48,7 +48,8 @@ enum CloudHandlers {
         throw ActionFailure(message: CloudStrings.noMachine)
     }
 
-    static var window: NSWindow? { NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible } }
+    /// The active cmux window (sheets attach there, never to a helper panel).
+    static func window(_ context: AppActionContext) -> NSWindow? { context.services.windows.active?.window }
 
     /// Runs Cloud work off the action; a thrown error becomes a sheet.
     static func run(_ label: String, _ context: AppActionContext, _ work: @escaping @MainActor () async throws -> Void) {
@@ -56,7 +57,7 @@ enum CloudHandlers {
         Task {
             do { try await work() } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                CloudPresenter.failure(error, in: window)
+                CloudPresenter.failure(error, in: window(context))
             }
         }
     }

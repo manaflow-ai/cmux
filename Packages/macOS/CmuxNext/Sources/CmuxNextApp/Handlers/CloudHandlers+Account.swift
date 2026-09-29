@@ -42,7 +42,7 @@ extension CloudHandlers {
             let teams = cloud.auth.teams
             guard !teams.isEmpty else { throw ActionFailure(message: CloudStrings.noTeams) }
             CloudPresenter.choose(CloudStrings.teamPickerTitle, teams.map { ($0.displayName, $0.id) }, selected: cloud.auth.teamID,
-                                  in: window) { id in
+                                  in: window(context)) { id in
                 guard let id, id != cloud.auth.teamID else { return }
                 cloud.auth.selectTeam(id)
                 run("switch team", context) { await cloud.refresh() }
@@ -50,7 +50,7 @@ extension CloudHandlers {
         }
         bind("cloudDiagnostics", registry, reason: { nil }) { _ in
             run("cloud diagnostics", context) {
-                CloudPresenter.show(CloudStrings.diagnosticsTitle, await diagnostics(context), copyable: true, in: window)
+                CloudPresenter.show(CloudStrings.diagnosticsTitle, await diagnostics(context), copyable: true, in: window(context))
             }
         }
     }

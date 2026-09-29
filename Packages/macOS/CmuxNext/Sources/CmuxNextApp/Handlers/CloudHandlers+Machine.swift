@@ -27,7 +27,7 @@ extension CloudHandlers {
             let rename = { (name: String) in run("rename machine", context) { try await cloud.renameMachine(session.machineID, to: name) } }
             if let name = invocation["name"]?.stringValue { return rename(name) }
             CloudPresenter.askText(CloudStrings.renameMachineTitle, initial: session.machine.displayName ?? "", button: CloudStrings.rename,
-                                   in: window) { name in if let name { rename(name) } }
+                                   in: window(context)) { name in if let name { rename(name) } }
         }
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -36,7 +36,7 @@ extension CloudHandlers {
             // explicit command is the confirmation.
             if registry.isCapturingRefusal { return kill() }
             CloudPresenter.confirm(CloudStrings.killMachineTitle, CloudStrings.killMachineBody, button: CloudStrings.kill,
-                                   in: window) { confirmed in if confirmed { kill() } }
+                                   in: window(context)) { confirmed in if confirmed { kill() } }
         }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
         bind("cloudCopyPort", registry, reason: reason) { invocation in
@@ -59,7 +59,7 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             run("machine status", context) {
                 let stats = try await cloud.api.stats(session.machineID)
-                CloudPresenter.show(CloudStrings.statusTitle, describe(session, stats), copyable: true, in: window)
+                CloudPresenter.show(CloudStrings.statusTitle, describe(session, stats), copyable: true, in: window(context))
             }
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
@@ -69,14 +69,14 @@ extension CloudHandlers {
                 let table = try await connection.request(MachineListeningTCPRequest()).stdout
                 let ports = MachineListeningTCPRequest.ports(in: table)
                 let body = ports.isEmpty ? CloudStrings.noPorts : ports.map(String.init).joined(separator: "\n")
-                CloudPresenter.show(CloudStrings.portsTitle, body, copyable: !ports.isEmpty, in: window)
+                CloudPresenter.show(CloudStrings.portsTitle, body, copyable: !ports.isEmpty, in: window(context))
             }
         }
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             run("snapshot machine", context) {
                 let snapshot = try await cloud.api.snapshot(session.machineID, name: nil)
-                CloudPresenter.show(CloudStrings.snapshotTitle, CloudStrings.snapshotBody(snapshot.id), copyable: true, in: window)
+                CloudPresenter.show(CloudStrings.snapshotTitle, CloudStrings.snapshotBody(snapshot.id), copyable: true, in: window(context))
             }
         }
         bind("palette.cloud.restore", registry, reason: reason) { invocation in
