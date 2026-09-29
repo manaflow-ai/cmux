@@ -13,12 +13,17 @@ export type DiffViewerOptions = {
   wordWrap: boolean;
 };
 
+// Rendered [data-diffs-header] height in codeViewUnsafeCSS. The virtualizer
+// bookkeeps this statically via itemMetrics, so the two must stay in sync.
+const DIFF_HEADER_HEIGHT_PX = 30;
+
 export function codeViewOptions(
   options: DiffViewerOptions,
   appearance: DiffViewerAppearance,
 ): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
+    itemMetrics: { diffHeaderHeight: DIFF_HEADER_HEIGHT_PX },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
@@ -80,7 +85,7 @@ export function codeViewUnsafeCSS(): string {
     [data-diffs-header] {
       container-type: scroll-state;
       container-name: sticky-header;
-      min-height: 30px;
+      min-height: ${DIFF_HEADER_HEIGHT_PX}px;
       background-color: var(--cmux-diff-header-bg) !important;
       -webkit-backdrop-filter: blur(8px) saturate(1.08);
       backdrop-filter: blur(8px) saturate(1.08);
