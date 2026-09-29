@@ -28512,8 +28512,11 @@ struct CMUXCLI {
                 // the ~60s-later idle_prompt Notification can consult it, and forwarded
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
-                let hasUnsettledWork = stopFailure == nil && (hasPendingBackgroundWork
-                    || parsedInput.rawObject?["stop_hook_active"] as? Bool == true)
+                // Claude sets stop_hook_active on a re-entry after a Stop hook
+                // blocked once. That flag describes hook recursion, not work
+                // still running; only authoritative background-work signals
+                // should keep the sidebar in Running.
+                let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
                 let completion = stopFailure.map(claudeStopFailureSummary) ?? summarizeClaudeHookStop(
