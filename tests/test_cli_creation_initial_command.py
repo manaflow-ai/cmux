@@ -11,7 +11,11 @@ import tempfile
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import (
+    FIXTURE_SOCKET_PASSWORD,
+    accept_fixture_socket_authentication,
+    resolve_cmux_cli,
+)
 
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
@@ -78,6 +82,8 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
+            if accept_fixture_socket_authentication(line, self.wfile):
+                continue
             request = json.loads(line.decode("utf-8"))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
@@ -173,7 +179,7 @@ def invoke_cli(
 
     request_start = state.request_count()
     proc = subprocess.run(
-        [cli_path, "--socket", socket_path, *args],
+        [cli_path, "--socket", socket_path, "--password", FIXTURE_SOCKET_PASSWORD, *args],
         capture_output=True,
         text=True,
         check=False,
