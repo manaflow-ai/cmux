@@ -234,7 +234,7 @@ public struct BetaFeaturesSection: View {
             searchAnchorID: "setting:betaFeatures:remoteTmuxOriginColors",
             String(localized: "settings.betaFeatures.remoteTmuxOriginColors", defaultValue: "Remote host colors"),
             subtitle: remoteTmuxOriginColors.current
-                ? String(localized: "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn", defaultValue: "Tints each remote workspace's sidebar row and tab with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins.")
+                ? String(localized: "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn", defaultValue: "Tints each remote workspace's sidebar row with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins.")
                 : String(localized: "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff", defaultValue: "Leaves remote workspaces without an origin color until you enable it here.")
         ) {
             Toggle("", isOn: Binding(get: { remoteTmuxOriginColors.current }, set: { remoteTmuxOriginColors.set($0) }))
