@@ -2,13 +2,11 @@ import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// **Beta Features** section — a warning note followed by the
-/// experimental toggles. Each toggle gates an unstable feature that is
-/// off by default.
+/// **Beta Features** section — a warning note followed by the experimental
+/// toggles. Each toggle gates an unstable feature that is off by default.
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
-    @State private var dock: DefaultsValueModel<Bool>
     @State private var cloudMachines: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
@@ -26,7 +24,6 @@ public struct BetaFeaturesSection: View {
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
-        _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _cloudMachines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.cloudMachines))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
@@ -45,8 +42,6 @@ public struct BetaFeaturesSection: View {
                 )
                 SettingsCardDivider()
                 feedRow
-                SettingsCardDivider()
-                dockRow
                 SettingsCardDivider()
                 cloudMachinesRow
                 SettingsCardDivider()
@@ -76,7 +71,6 @@ public struct BetaFeaturesSection: View {
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             feed,
-            dock,
             cloudMachines,
             extensions,
             customSidebars,
@@ -137,21 +131,6 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaFeedToggle")
-        }
-    }
-
-    @ViewBuilder
-    private var dockRow: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:betaFeatures:dock",
-            String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
-            subtitle: String(localized: "settings.betaFeatures.dock.subtitle", defaultValue: "Adds Dock to the right sidebar for custom terminal controls.")
-        ) {
-            Toggle("", isOn: Binding(get: { dock.current }, set: { dock.set($0) }))
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsBetaDockToggle")
         }
     }
 

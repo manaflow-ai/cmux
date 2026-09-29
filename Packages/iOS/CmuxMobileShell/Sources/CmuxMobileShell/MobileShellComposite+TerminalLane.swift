@@ -60,6 +60,9 @@ extension MobileShellComposite {
                 return self.consumeTerminalLaneFrame(frame, surfaceID: surfaceID)
             },
             readinessChanged: { @MainActor [weak self] ready in
+                // Units on a lane that closed are resent whatever replaced it,
+                // so this runs before the lifecycle guard.
+                self?.exactlyOnceInputLaneReadinessChanged(surfaceID: surfaceID, ready: ready)
                 guard let self,
                       self.connectionGeneration == connectionGeneration,
                       self.terminalLaneLifecycleID == lifecycleID else { return }
@@ -71,6 +74,11 @@ extension MobileShellComposite {
                 } else {
                     self.terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
                 }
+            },
+            acknowledged: { @MainActor [weak self] acknowledgement in
+                // A verdict stays valid after the lane or connection that
+                // carried it is gone; the sender matches it by stream.
+                self?.exactlyOnceSender.receive(acknowledgement)
             }
         )
         Task { await terminalLaneCoordinator.ensure(configuration) }
