@@ -6,24 +6,26 @@ public import AppKit
 /// sits on a 2 pt grid with consistent optical rhythm so it still reads as
 /// designed. `Density.comfortable` exists for users who opt in; modules read
 /// metrics through `Metrics` so a density switch changes every surface.
-public enum Density: Sendable {
+public enum Density: String, Sendable, CaseIterable, Codable {
     case compact
     case comfortable
 }
 
 public enum Metrics {
-    /// Active density. Settings may change it at launch; views must not cache
-    /// derived sizes across a density change.
-    public static var density: Density { .compact }
+    /// Active density, read from `DesignSettings.shared`. Reading any metric
+    /// inside an Observation-tracked scope (view layout, `withObservationTracking`)
+    /// registers a dependency, so a density or override change re-lays out live.
+    public static var density: Density { DesignSettings.shared.density }
 
-    private static func pick(_ compact: CGFloat, _ comfortable: CGFloat) -> CGFloat {
-        density == .compact ? compact : comfortable
+    private static func pick(_ compact: CGFloat, _ comfortable: CGFloat, _ key: MetricKey? = nil) -> CGFloat {
+        if let key, let value = DesignSettings.shared.overrides[key] { return value }
+        return density == .compact ? compact : comfortable
     }
 
     // MARK: Window chrome
 
     /// Default sidebar width when visible.
-    public static var sidebarWidth: CGFloat { pick(208, 240) }
+    public static var sidebarWidth: CGFloat { pick(208, 240, .sidebarWidth) }
     public static var sidebarMinWidth: CGFloat { 160 }
     public static var sidebarMaxWidth: CGFloat { 360 }
     /// Width of the icons-only collapsed sidebar.
@@ -34,7 +36,7 @@ public enum Metrics {
     public static var titlebarHeight: CGFloat { pick(32, 40) }
 
     /// Height of a pane's tab strip.
-    public static var tabStripHeight: CGFloat { pick(28, 36) }
+    public static var tabStripHeight: CGFloat { pick(28, 36, .tabStripHeight) }
 
     /// Space reserved at the leading edge of the titlebar for traffic lights.
     public static let trafficLightInset: CGFloat = 76
@@ -42,18 +44,18 @@ public enum Metrics {
     // MARK: Rows and tabs
 
     /// Sidebar workspace row with one line of text.
-    public static var sidebarRowHeight: CGFloat { pick(26, 32) }
+    public static var sidebarRowHeight: CGFloat { pick(26, 32, .sidebarRowHeight) }
     /// Sidebar workspace row with a subtitle line (cwd, branch, agent status).
     public static var sidebarRowHeightWithSubtitle: CGFloat { pick(38, 46) }
     /// Sidebar group / machine section header.
     public static var sidebarHeaderHeight: CGFloat { pick(22, 26) }
 
     public static var tabHeight: CGFloat { pick(24, 30) }
-    public static var tabMaxWidth: CGFloat { pick(200, 240) }
+    public static var tabMaxWidth: CGFloat { pick(200, 240, .tabMaxWidth) }
     /// Icon-only width (pinned tabs and fully shrunk tabs).
     public static var tabMinWidth: CGFloat { pick(32, 40) }
 
-    public static var paletteRowHeight: CGFloat { pick(32, 40) }
+    public static var paletteRowHeight: CGFloat { pick(32, 40, .paletteRowHeight) }
     public static var paletteSearchHeight: CGFloat { pick(44, 52) }
     public static var paletteWidth: CGFloat { pick(640, 720) }
 
@@ -69,7 +71,7 @@ public enum Metrics {
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { pick(6, 8) }
     /// Gap between niri columns.
-    public static var columnGap: CGFloat { pick(6, 8) }
+    public static var columnGap: CGFloat { pick(6, 8, .columnGap) }
     /// Divider thickness between split panes (hit area is wider).
     public static let dividerThickness: CGFloat = 1
     public static let dividerHitWidth: CGFloat = 7
@@ -77,7 +79,7 @@ public enum Metrics {
     // MARK: Shape
 
     /// Corner radius for floating glass panels (sidebar, palette).
-    public static var panelCornerRadius: CGFloat { pick(10, 12) }
+    public static var panelCornerRadius: CGFloat { pick(10, 12, .panelCornerRadius) }
     /// Corner radius for tabs and rows.
     public static var itemCornerRadius: CGFloat { pick(6, 7) }
 
@@ -91,17 +93,25 @@ public enum Metrics {
 /// the Ghostty config and are not affected).
 public enum Typography {
     private static var compact: Bool { Metrics.density == .compact }
+    /// User override for chrome body size; other styles scale from it.
+    private static var scale: CGFloat {
+        guard let body = DesignSettings.shared.overrides[.chromeFontSize] else { return 1 }
+        return body / (compact ? 12 : 13)
+    }
+    private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
+        (compact ? compactSize : comfortableSize) * scale
+    }
 
     /// Tab titles, sidebar rows, palette results.
-    public static var body: NSFont { .systemFont(ofSize: compact ? 12 : 13, weight: .regular) }
+    public static var body: NSFont { .systemFont(ofSize: size(12, 13), weight: .regular) }
     /// Selected or emphasized row titles.
-    public static var bodyEmphasized: NSFont { .systemFont(ofSize: compact ? 12 : 13, weight: .medium) }
+    public static var bodyEmphasized: NSFont { .systemFont(ofSize: size(12, 13), weight: .medium) }
     /// Subtitles, shortcut hints, counts.
-    public static var caption: NSFont { .systemFont(ofSize: compact ? 10.5 : 11, weight: .regular) }
+    public static var caption: NSFont { .systemFont(ofSize: size(10.5, 11), weight: .regular) }
     /// Section headers (uppercase is not used; weight and color carry hierarchy).
-    public static var header: NSFont { .systemFont(ofSize: compact ? 11 : 12, weight: .semibold) }
+    public static var header: NSFont { .systemFont(ofSize: size(11, 12), weight: .semibold) }
     /// Palette search field.
-    public static var search: NSFont { .systemFont(ofSize: compact ? 16 : 18, weight: .regular) }
+    public static var search: NSFont { .systemFont(ofSize: size(16, 18), weight: .regular) }
     /// Shortcut glyphs.
-    public static var shortcut: NSFont { .monospacedSystemFont(ofSize: compact ? 10.5 : 11, weight: .medium) }
+    public static var shortcut: NSFont { .monospacedSystemFont(ofSize: size(10.5, 11), weight: .medium) }
 }
