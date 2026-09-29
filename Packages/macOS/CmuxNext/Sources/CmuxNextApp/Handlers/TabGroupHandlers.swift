@@ -88,10 +88,11 @@ enum TabGroupHandlers {
             let handle = pane.handle
             let cwd = pane.tabs.last { $0.tabGroup == group }?.cwd
             let controller = ctx.services.paneController(for: pane)
+            let workspace = ctx.services.workspaceKey(of: pane)
             guard let connection = ctx.connection() else { return }
             Task {
                 do {
-                    let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
+                    let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
                     _ = try await connection.addTabs([created.surface], toGroup: group)
                     if let controller {
                         controller.pendingSelectSurface = created.surface

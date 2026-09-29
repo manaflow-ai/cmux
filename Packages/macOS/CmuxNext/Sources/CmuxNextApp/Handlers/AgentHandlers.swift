@@ -48,7 +48,7 @@ enum AgentHandlers {
         }
         let connection = try context.requireConnection()
         let handle = pane.pane.handle
-        let options = SpawnOptions(cwd: tab.cwd)
+        let options = SpawnOptions(cwd: tab.cwd, workspace: context.services.workspaceKey(of: pane.pane))
         let line = command + "\n"
         let logger = context.daemon.logger
         let repair = context.services.emptyWorkspaces!

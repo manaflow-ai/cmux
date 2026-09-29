@@ -66,6 +66,11 @@ public final class DaemonStore {
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
 
     /// The pane currently holding `surface`.
+    /// The workspace whose screens hold pane `handle`.
+    public func workspace(containing handle: PaneID) -> WorkspaceModel? {
+        workspaces.first { $0.screens.contains { $0.panes.contains { $0.handle == handle } } }
+    }
+
     public func pane(containing surface: SurfaceID) -> PaneModel? {
         panesByHandle.values.first { pane in pane.tabs.contains { $0.surface == surface } }
     }

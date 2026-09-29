@@ -83,6 +83,12 @@ final class AppServices {
         machines.daemon(forPane: pane)
     }
 
+    /// The workspace key of `pane`, for `SpawnOptions.workspace`: a new
+    /// terminal there gets `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
+    func workspaceKey(of pane: PaneModel) -> WorkspaceKey? {
+        daemon(for: pane).store.workspace(containing: pane.handle)?.key
+    }
+
     /// Ends a detached tab drag whose move failed: the tab reappears.
     func restoreDetachedTab(_ id: String) {
         for controller in windows.controllers {

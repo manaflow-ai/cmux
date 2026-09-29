@@ -36,26 +36,21 @@ extension WindowManager {
     /// `CMUX_SURFACE_ID` (its reserved terminal id), so `cmux` and agent
     /// hooks inside it know where they run.
     /// On a Cloud machine (`daemon`), the terminal gets no Mac environment
-    /// and starts in the machine's own default directory.
+    /// (only the placement keys) and starts in the machine's own default
+    /// directory.
     func createWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil) async throws -> String {
         let daemon = daemon ?? services.daemon
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
         let terminal = TerminalID.generate()
-        var environment: [String: String]?
-        if daemon.isLocal {
-            var env = await TerminalEnvironment.shared(overrides: services.environment.launch.terminalEnvironment)()
-            env.merge(spawn.env) { _, caller in caller }
-            env["CMUX_WORKSPACE_ID"] = Self.uuidForm(key.rawValue)
-            env["CMUX_SURFACE_ID"] = Self.uuidForm(terminal.rawValue)
-            env["CMUX_PANEL_ID"] = env["CMUX_SURFACE_ID"]
-            environment = env
-        } else if !spawn.env.isEmpty {
-            environment = spawn.env
-        }
+        // Local terminals get the app's environment; a Cloud terminal only
+        // the caller's keys. Both get the placement keys hooks read.
+        var vars = daemon.isLocal ? await TerminalEnvironment.shared(overrides: services.environment.launch.terminalEnvironment)() : [:]
+        vars.merge(spawn.env) { _, caller in caller }
+        vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
+        let env: [String: String]? = daemon.supports(DaemonCapabilities.terminalEnv) ? vars : nil
         let repair: EmptyWorkspaceRepair = services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
         let cwd = spawn.cwd ?? daemon.defaultCwd
-        let env = environment
         return try await repair.populating(key) {
             let result = try await connection.request(CreateWorkspaceRequest(name: spawn.name, key: key, mutation: connection.mutation()))
             _ = try await connection.request(CreateTerminalRequest(
@@ -63,13 +58,5 @@ extension WindowManager {
                 terminalID: terminal, env: env, mutation: connection.mutation()))
             return result.key.rawValue
         }
-    }
-
-    /// Uppercase 8-4-4-4-12 form of a UUID or 32-hex id (the old app's ids).
-    static func uuidForm(_ raw: String) -> String {
-        let hex = raw.replacingOccurrences(of: "-", with: "").uppercased()
-        guard hex.count == 32 else { return raw }
-        let h = Array(hex)
-        return [h[0..<8], h[8..<12], h[12..<16], h[16..<20], h[20..<32]].map { String($0) }.joined(separator: "-")
     }
 }

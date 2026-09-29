@@ -58,6 +58,7 @@ enum PaneHandlers {
         let content = controller?.workspace
         let handle = pane.handle
         let cwd = invocation["cwd"]?.stringValue ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
+        let workspace = ctx.services.workspaceKey(of: pane)
         let daemonDirection: SplitDirection = direction == .left || direction == .right ? .right : .down
         let swapTowards: PaneDirection? = switch direction {
         case .left: .right
@@ -67,7 +68,7 @@ enum PaneHandlers {
         let logger = ctx.services.daemon.logger
         ctx.registry.track(Task {
             do {
-                let created = try await connection.split(handle, direction: daemonDirection, options: SpawnOptions(cwd: cwd))
+                let created = try await connection.split(handle, direction: daemonDirection, options: SpawnOptions(cwd: cwd, workspace: workspace))
                 if let swapTowards { try await connection.swapPane(handle, with: .direction(swapTowards)) }
                 content?.pendingFocusSurface = created.surface
                 content?.applyCurrent()
