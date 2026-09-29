@@ -39,4 +39,18 @@ import CmuxCloudTui
     @Test func legacyParserReadsNothingFromMalformedData() {
         #expect(CloudTuiLegacySnapshotParser().protocolVersion(from: Data("not json".utf8)) == nil)
     }
+
+    @Test func decoderCarriesAnIncompleteReplaySequenceSeparately() throws {
+        let line = Data(#"{"event":"vt-state","surface":7,"cols":80,"rows":24,"data":"","pending":"G1s8MzU7"}"#.utf8)
+
+        guard case let .snapshot(surfaceID, columns, rows, bytes, _, pending) = CloudTuiManualIOFrameDecoder().decode(line) else {
+            Issue.record("expected a vt-state snapshot")
+            return
+        }
+        #expect(surfaceID == 7)
+        #expect(columns == 80)
+        #expect(rows == 24)
+        #expect(bytes.isEmpty)
+        #expect(pending == Data([0x1B, 0x5B, 0x3C, 0x33, 0x35, 0x3B]))
+    }
 }
