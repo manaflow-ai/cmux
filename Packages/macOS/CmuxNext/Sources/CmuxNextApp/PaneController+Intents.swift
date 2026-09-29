@@ -77,23 +77,32 @@ extension PaneController {
         }
     }
 
-    /// New browser tab: daemon-owned when supported, else session-local.
-    /// The omnibox takes focus so the user can type a URL or search.
-    func newBrowserTab(url: URL? = nil) {
-        let key: String
-        if services.daemon.supports(DaemonCapabilities.frontendBrowserTabs) {
+    /// New browser tab: daemon-owned when supported (engine `requested`,
+    /// WebKit by default, CEF when asked for and bundled), else
+    /// session-local. The new tab is selected and focused when it lands; a
+    /// blank tab focuses its address bar so the user can type a URL.
+    func newBrowserTab(url: URL? = nil, engine requested: String? = nil) {
+        let browserTabs = services.cache.browserTabs!
+        if browserTabs.isAvailable() {
+            let engine = browserTabs.engine(requested: requested)
             let handle = pane.handle
-            services.daemon.send("new-frontend-browser-tab") { connection in
-                _ = try await connection.newFrontendBrowserTab(url: url?.absoluteString ?? "about:blank", engine: .webkit, in: handle)
+            Task {
+                do {
+                    let surface = try await browserTabs.create(handle, url?.absoluteString ?? "about:blank", engine)
+                    _ = surface
+                    if url == nil { pendingAddressBarFocus = surface }
+                    apply(snapshot())
+                } catch {
+                    services.daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
+                }
             }
             return
         }
         let local = LocalBrowserTab.make(url: url)
-        key = local.id
         state.localBrowserTabs[paneKey, default: []].append(local)
         apply(snapshot())
-        select(StripTabID(key))
-        if url == nil { services.cache.existingBrowser(key)?.chrome.perform(.focusAddressBar) }
+        select(StripTabID(local.id))
+        if url == nil { services.cache.existingBrowser(local.id)?.chrome.perform(.focusAddressBar) }
     }
 
     func close(_ ids: [StripTabID]) {

@@ -15,7 +15,7 @@ extension ActionCatalog {
                 title: String(localized: "action.openBrowser", defaultValue: "New Browser Tab", bundle: .module),
                 keywords: ["tab", "web", "create"], defaultShortcut: Shortcut("l", modifiers: [.command, .shift]),
                 category: .tab, symbol: "globe.badge.chevron.backward", surfaces: [.palette, .keyboard, .contextMenu],
-                targets: [.tab], cliName: "tab new-browser"
+                arguments: [CatalogArgument.urlString, CatalogArgument.engineChoice], targets: [.tab], cliName: "tab new-browser"
             ),
             ActionDescriptor(
                 id: "closeTab", title: String(localized: "action.closeTab", defaultValue: "Close Tab", bundle: .module),

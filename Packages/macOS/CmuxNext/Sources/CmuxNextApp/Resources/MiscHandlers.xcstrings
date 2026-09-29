@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.misc.failed.invalidURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not a URL cmux can open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は cmux で開ける URL ではありません。"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.appNotFound": {
       "extractionState": "manual",
       "localizations": {

@@ -103,6 +103,18 @@ enum CatalogArgument {
         ActionArgument(name: "topic", title: String(localized: "argument.topic", defaultValue: "Topic", bundle: .module), kind: .string)
     }
 
+    /// Optional page to open (`openBrowser`).
+    static var urlString: ActionArgument {
+        ActionArgument(name: "url", title: String(localized: "argument.url", defaultValue: "URL", bundle: .module), kind: .string, isRequired: false)
+    }
+
+    /// Optional browser engine (`openBrowser`): WebKit by default, Chromium
+    /// (CEF) when requested and its runtime is bundled.
+    static var engineChoice: ActionArgument {
+        ActionArgument(name: "engine", title: String(localized: "argument.engine", defaultValue: "Engine", bundle: .module),
+                       kind: .enumeration([choice("webkit"), choice("cef")]), isRequired: false)
+    }
+
     private static func choice(_ value: String) -> ActionEnumCase {
         ActionEnumCase(value: value, title: choiceTitle(value))
     }
@@ -118,6 +130,8 @@ enum CatalogArgument {
         case "purple": String(localized: "argument.value.purple", defaultValue: "Purple", bundle: .module)
         case "cyan": String(localized: "argument.value.cyan", defaultValue: "Cyan", bundle: .module)
         case "orange": String(localized: "argument.value.orange", defaultValue: "Orange", bundle: .module)
+        case "webkit": String(localized: "argument.value.webkit", defaultValue: "WebKit", bundle: .module)
+        case "cef": String(localized: "argument.value.cef", defaultValue: "Chromium", bundle: .module)
         case "auto": String(localized: "argument.value.auto", defaultValue: "Automatic", bundle: .module)
         case "todo": String(localized: "argument.value.todo", defaultValue: "To Do", bundle: .module)
         case "inProgress": String(localized: "argument.value.inProgress", defaultValue: "In Progress", bundle: .module)

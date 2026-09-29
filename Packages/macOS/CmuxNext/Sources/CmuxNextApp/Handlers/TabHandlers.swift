@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextLayout
 
@@ -19,7 +20,14 @@ enum TabHandlers {
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("newSurface", invoke: { ctx.paneController($0)?.newTerminalTab() })
-        registry.bind("openBrowser", invoke: { ctx.paneController($0)?.newBrowserTab() })
+        registry.bind("openBrowser", invoke: { invocation in
+            var url: URL?
+            if let text = invocation["url"]?.stringValue {
+                guard let resolved = BrowserURLResolver().url(for: text) else { return ctx.refuse(MiscHandlerStrings.invalidURL(text)) }
+                url = resolved
+            }
+            ctx.paneController(invocation)?.newBrowserTab(url: url, engine: invocation["engine"]?.stringValue)
+        })
         registry.bind("closeTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
             pane.close([id])

@@ -22,6 +22,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// The first tab of a pane this window just created (split, column);
     /// its pane takes focus once the daemon reports it.
     var pendingFocusSurface: SurfaceID?
+    /// A blank browser tab created into a new pane; that pane focuses its
+    /// address bar once it exists.
+    var pendingAddressBarFocus: SurfaceID?
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
 
     init(workspace: WorkspaceModel, services: AppServices, state: WindowState) {
@@ -98,15 +101,21 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// First responder moved into `pane`.
     func paneDidFocus(_ pane: PaneController) {
         state.focusedPane[workspace.id] = pane.layoutPaneID
-        var context = services.registry.context
-        context.subtract([.terminalFocused, .browserFocused])
-        switch pane.currentContent {
-        case .terminal: context.insert(.terminalFocused)
-        case .browser: context.insert(.browserFocused)
-        case nil: break
-        }
-        if services.registry.context != context { services.registry.context = context }
         layoutModel.focus(pane.layoutPaneID)
+        publishContext()
+    }
+
+    /// Publishes the focused pane's content kind (`terminalFocused`,
+    /// `browserFocused`) to the action registry. Runs on every change that
+    /// can alter it (pane focus, tab selection, content becoming ready), not
+    /// only on first-responder moves, so CLI and palette runs see a browser
+    /// tab created or selected without a click. Only the active window's
+    /// content publishes.
+    func publishContext() {
+        if let active = services.windows.active, active.content !== self { return }
+        let registry = services.registry
+        let context = ContentContext.merged(registry.context, content: focusedPane?.currentContent)
+        if registry.context != context { registry.context = context }
     }
 
     func focusCurrentPane() {
@@ -123,6 +132,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard let handle = handles.panes[pane], let model = services.daemon.store.pane(handle) else { return NSView() }
         let controller = PaneController(pane: model, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
+        if let surface = pendingAddressBarFocus, model.tabs.contains(where: { $0.surface == surface }) {
+            pendingAddressBarFocus = nil
+            controller.pendingAddressBarFocus = surface
+        }
         panes[pane] = controller
         if layoutModel.focusedPane == pane, controller.view.window != nil { controller.focusContent() }
         return controller.view
