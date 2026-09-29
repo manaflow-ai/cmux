@@ -42,7 +42,7 @@ enum VaultHistoryMode: String, CaseIterable, Identifiable, Sendable {
         events.filter { event in
             switch self {
             case .timeline:
-                return event.subject.workspaceId != nil
+                return event.subject.workspaceId != nil || event.subject.windowId != nil
             case .folder:
                 let directory = event.subject.directory?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

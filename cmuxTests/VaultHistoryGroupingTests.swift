@@ -226,9 +226,49 @@ import Testing
         #expect(VaultHistoryMode.timeline.groupKey == .workspace)
         #expect(VaultHistoryMode.folder.groupKey == .directory)
         #expect(VaultHistoryMode.agent.groupKey == .agent)
-        #expect(VaultHistoryMode.timeline.includedEvents(from: events).map(\.id) == ["workspace"])
+        #expect(VaultHistoryMode.timeline.includedEvents(from: events).map(\.id) == ["workspace", "window"])
         #expect(VaultHistoryMode.folder.includedEvents(from: events).map(\.id) == ["workspace", "session"])
         #expect(VaultHistoryMode.agent.includedEvents(from: events).map(\.id) == ["session"])
+    }
+
+    @Test func timelineShowsWindowLifecycleEventsOnTheirWorkspace() throws {
+        let workspaceId = UUID()
+        let windowId = UUID()
+        let topology = VaultHistoryWorkspaceTopology(workspaces: [
+            VaultHistoryWorkspaceTopology.Workspace(
+                id: "workspace:\(workspaceId.uuidString)",
+                workspaceId: workspaceId,
+                stableId: nil,
+                windowId: windowId,
+                windowLabel: "Main",
+                title: "History",
+                directory: "/tmp/repo",
+                timestamp: Self.now,
+                state: .active,
+                isSelected: true,
+                closedItemId: nil,
+                terminals: []
+            ),
+        ])
+        let windowClosed = event(
+            id: "window-closed",
+            secondsAgo: 10,
+            kind: .windowClosed,
+            title: "Main",
+            windowId: windowId
+        )
+
+        let section = try #require(
+            VaultHistoryWorkspaceTimelineProjection().sections(
+                topology: topology,
+                events: [windowClosed],
+                query: VaultHistoryQuery(),
+                now: Self.now
+            ).first
+        )
+
+        #expect(section.workspaceId == workspaceId)
+        #expect(section.activityEvents.map(\.id) == ["window-closed"])
     }
 
     // MARK: - Filtering, search, and sorting
