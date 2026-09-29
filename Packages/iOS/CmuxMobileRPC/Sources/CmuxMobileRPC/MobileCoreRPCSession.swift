@@ -355,6 +355,13 @@ actor MobileCoreRPCSession {
         ))
     }
 
+    /// Starts transport admission without writing an RPC frame. The first
+    /// authenticated request can run its token preparation in parallel with
+    /// this dial, then reuse the same connection task in ``beginSend``.
+    func preconnect(timeoutNanoseconds: UInt64) async throws {
+        _ = try await ensureConnected(timeoutNanoseconds: timeoutNanoseconds)
+    }
+
     func awaitResponse(requestID: String) async throws -> Data {
         let settlement: PendingRequestSettlement = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
