@@ -363,6 +363,20 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(resolution.rawToken == "Standard - Consultant Agreement - Form of Consulting Agreement.docx")
     }
 
+    @Test func resolvesRawLsStyleSpacedFilenameBeforeSuffixColumn() throws {
+        let fullPath = "/tmp/Standard - Consultant Agreement - Form of Consulting Agreement.docx"
+        let suffixPath = "/tmp/Agreement.docx"
+        let line = "Standard - Consultant Agreement - Form of Consulting Agreement.docx    Agreement.docx"
+        let resolver = TerminalPathResolver(fileExists: existsIn([fullPath, suffixPath]))
+
+        let resolution = try #require(
+            resolver.resolveVisibleLinePath(line, column: 12, cwd: "/tmp")
+        )
+
+        #expect(resolution.path == fullPath)
+        #expect(resolution.rawToken == "Standard - Consultant Agreement - Form of Consulting Agreement.docx")
+    }
+
     @Test func listLabelWithColumnDelimiterStaysWithinClickedField() throws {
         let fullPath = "/tmp/cmux-list-column.md"
         let line = "- \(fullPath)  owner"
