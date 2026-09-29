@@ -459,7 +459,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             sign: { data in
                 guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { throw V2ControlFailure.scopeMismatch }
                 return try key.sign(data)
-            })
+            },
+            journal: Self.journal)
         let service = V2ControlService(configuration: try .init(baseURL: configuration.baseURL, device: device),
             dependencies: dependencies, store: store)
         listenerState.preferredPort = preferredPort
@@ -504,7 +505,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         controlTask = Task { @MainActor [weak self] in
             for await snapshot in await service.events() {
                 guard !Task.isCancelled else { return }
-                await self?.apply(snapshot, token: token)
+                guard let self else { return }
+                await self.apply(snapshot, token: token)
+                await service.acknowledgeApplied(sequence: snapshot.sequence)
             }
         }
         await service.start()
@@ -606,9 +609,17 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard isCurrent(token) else { return }
         schedulePermissionExpiry(token: token)
         // Installing credentials does not replace the endpoint or its admitted sessions.
-        if previousCredentials != snapshot.cache.relayCredentials, let supervisor = endpointSupervisor {
-            await supervisor.rotateCredentials(Self.credentials(snapshot.cache))
-            guard isCurrent(token) else { return }
+        if previousCredentials != snapshot.cache.relayCredentials {
+            let now = Int(Date().timeIntervalSince1970)
+            Self.journal.record("v2-host", "credentials-received", [
+                "count": String(snapshot.cache.relayCredentials.count),
+                "expires_in_s": String((snapshot.cache.relayCredentials.map(\.expiresAt).max() ?? now) - now),
+                "supervisor": String(endpointSupervisor != nil),
+            ])
+            if let supervisor = endpointSupervisor {
+                await supervisor.rotateCredentials(Self.credentials(snapshot.cache))
+                guard isCurrent(token) else { return }
+            }
         }
         requestEndpointReady(token: token)
         if activeDeviceCapabilities != deviceCapabilities { updateDeviceHostingMetadata() }
@@ -685,7 +696,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard endpointTask == nil else { endpointRefreshPending = true; return }
         guard let supervisor = endpointSupervisor,
               let cache = cachedState, !cache.authorityRevoked,
-              Self.pathMode == .directOnly || Self.credentials(cache).contains(where: { $0.isUsable(at: Date()) }) else { return }
+              Self.pathMode == .directOnly || Self.credentials(cache).contains(where: { $0.isUsable(at: Date()) }) else {
+            // Without this event, a host with only expired credentials skips
+            // endpoint readiness forever and logs nothing.
+            let reason = endpointSupervisor == nil ? "no-supervisor"
+                : cachedState == nil ? "no-cache"
+                : cachedState?.authorityRevoked == true ? "revoked"
+                : "no-usable-credential"
+            Self.journal.record("v2-host", "endpoint-ready-skipped", ["reason": reason])
+            return
+        }
         endpointTask = Task { @MainActor [weak self] in
             defer {
                 if let self, self.generationToken == token {
