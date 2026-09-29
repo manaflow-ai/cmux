@@ -1935,6 +1935,7 @@
 		F12748000000000000000007 /* FilePreviewWordWrapMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12748000000000000000008 /* FilePreviewWordWrapMenu.swift */; };
 		F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */; };
 		A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */; };
+		536709C72094B211CF91B8BB /* FileSearchAccent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59919FEDFF84353D871E911B /* FileSearchAccent.swift */; };
 		AA5A057E54DC862E292E727F /* FileSearchBackends.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4718F7134F2A60A5E4C2E64E /* FileSearchBackends.swift */; };
 		3DC94C2EA97909FCCAB58301 /* FileSearchPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08B3C48BC68B9327ADCC527 /* FileSearchPanelTests.swift */; };
 		2B540C3ABD827F7A5B1933E2 /* FileSearchPanelView+Actions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD756272D40EB5AA60C82B3 /* FileSearchPanelView+Actions.swift */; };
@@ -6061,6 +6062,7 @@
 		F12748000000000000000008 /* FilePreviewWordWrapMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FilePreviewWordWrapMenu.swift"; sourceTree = "<group>"; };
 		F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWordWrapSettings.swift; sourceTree = "<group>"; };
 		A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWorkspaceOpenSupport.swift; sourceTree = "<group>"; };
+		59919FEDFF84353D871E911B /* FileSearchAccent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchAccent.swift; sourceTree = "<group>"; };
 		4718F7134F2A60A5E4C2E64E /* FileSearchBackends.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchBackends.swift; sourceTree = "<group>"; };
 		E08B3C48BC68B9327ADCC527 /* FileSearchPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearchPanelTests.swift"; sourceTree = "<group>"; };
 		5BD756272D40EB5AA60C82B3 /* FileSearchPanelView+Actions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearch/FileSearchPanelView+Actions.swift"; sourceTree = "<group>"; };
@@ -11144,6 +11146,7 @@
 				A8BADA0EB7DC1A626D8A6A5A /* RipgrepExecutableResolver.swift */,
 				4845BF2DCEA4B76EC0EBC410 /* BrowserWindowSlotView+PaneDropOverlay.swift */,
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
+				59919FEDFF84353D871E911B /* FileSearchAccent.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14289,6 +14292,7 @@
 				F12748000000000000000007 /* FilePreviewWordWrapMenu.swift in Sources */,
 					F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */,
 				A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */,
+				536709C72094B211CF91B8BB /* FileSearchAccent.swift in Sources */,
 				AA5A057E54DC862E292E727F /* FileSearchBackends.swift in Sources */,
 				2B540C3ABD827F7A5B1933E2 /* FileSearchPanelView+Actions.swift in Sources */,
 				60D45107C76543FA17F808C4 /* FileSearchPanelView+Drag.swift in Sources */,

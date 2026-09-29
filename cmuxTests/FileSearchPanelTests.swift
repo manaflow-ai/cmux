@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFileSearch
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -301,6 +302,26 @@ struct FileSearchPanelTests {
         container.needsLayout = false
         container.updateVisibility(hasContent: false, isLoading: false, statusMessage: nil)
         #expect(container.needsLayout, "A genuine visibility change must still invalidate layout.")
+    }
+
+    @Test("Find draws the cmux accent and follows app.accentColor live")
+    func accentFollowsSetting() throws {
+        let fixture = makeFixture(backend: ReplayFileSearchBackend(batches: []))
+        let suite = "cmux-find-accent-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let observer = CmuxAccentColorObserver(defaults: defaults)
+        defaults.set(CmuxAccentColorMode.custom.rawValue, forKey: CmuxAccentColorMode.userDefaultsKey)
+        defaults.set("#FF0000", forKey: CmuxAccentColorMode.customHexUserDefaultsKey)
+        #expect(observer.refresh())
+
+        let red = try #require(fixture.panel.accent.color.usingColorSpace(.sRGB))
+        #expect(red.redComponent > 0.9 && red.greenComponent < 0.1 && red.blueComponent < 0.1)
+
+        let match = FileSearchMatch(lineNumber: 1, column: 1, length: 6, preview: "needle", previewMatchRange: 0..<6)
+        let preview = FileSearchMatchCellView.attributedPreview(for: match, accent: fixture.panel.accent.color)
+        let highlight = try #require(preview.attribute(.backgroundColor, at: 0, effectiveRange: nil) as? NSColor)
+        #expect((highlight.usingColorSpace(.sRGB)?.redComponent ?? 0) > 0.9)
     }
 
     /// 100,000 matches in 2,000 files streamed through the engine into the

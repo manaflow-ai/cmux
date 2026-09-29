@@ -193,9 +193,9 @@ final class FileSearchMatchCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(with node: FileSearchMatchNode) {
+    func configure(with node: FileSearchMatchNode, accent: NSColor) {
         let match = node.match
-        previewLabel.attributedStringValue = Self.attributedPreview(for: match)
+        previewLabel.attributedStringValue = Self.attributedPreview(for: match, accent: accent)
         toolTip = "\(node.file.relativePath):\(match.lineNumber):\(match.column)"
         setAccessibilityLabel(String(
             format: String(localized: "fileSearch.matchRow.accessibility", defaultValue: "Line %1$@: %2$@"),
@@ -204,7 +204,7 @@ final class FileSearchMatchCellView: NSTableCellView {
         ))
     }
 
-    static func attributedPreview(for match: FileSearchMatch) -> NSAttributedString {
+    static func attributedPreview(for match: FileSearchMatch, accent: NSColor) -> NSAttributedString {
         let text = NSMutableAttributedString(string: match.preview, attributes: [
             .font: FileSearchResultMetrics.matchFont,
             .foregroundColor: NSColor.labelColor,
@@ -214,9 +214,11 @@ final class FileSearchMatchCellView: NSTableCellView {
         let lower = min(max(range.lowerBound, 0), length)
         let upper = min(max(range.upperBound, lower), length)
         if upper > lower {
+            // The cmux accent (`app.accentColor`) marks the match.
             text.addAttributes([
-                .backgroundColor: NSColor.findHighlightColor.withAlphaComponent(0.55),
-                .foregroundColor: NSColor.black,
+                .backgroundColor: accent.withAlphaComponent(0.35),
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+                .underlineColor: accent,
             ], range: NSRange(location: lower, length: upper - lower))
         }
         return text

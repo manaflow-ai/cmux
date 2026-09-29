@@ -18,6 +18,7 @@ final class FileSearchPanelView: NSView {
     private let collapseButton = NSButton()
     private let clearButton = NSButton()
     private let refreshButton = NSButton()
+    let accent = FileSearchAccent()
 
     private(set) var session: FileSearchSession
     private var sessionKey: UUID?
@@ -54,6 +55,21 @@ final class FileSearchPanelView: NSView {
         history = FileSearchHistoryDefaults.load()
         super.init(frame: .zero)
         build()
+        accent.onChange = { [weak self] in self?.applyAccent() }
+        applyAccent()
+    }
+
+    /// Re-applies the cmux accent after `app.accentColor` changes.
+    func applyAccent() {
+        let color = accent.color
+        queryBar.setAccentColor(color)
+        resultsView.enumerateAvailableRowViews { rowView, row in
+            (rowView as? FileSearchResultRowView)?.accentColor = color
+            if let node = self.item(atRow: row) as? FileSearchMatchNode,
+               let cell = rowView.view(atColumn: 0) as? FileSearchMatchCellView {
+                cell.configure(with: node, accent: color)
+            }
+        }
     }
 
     required init?(coder: NSCoder) {

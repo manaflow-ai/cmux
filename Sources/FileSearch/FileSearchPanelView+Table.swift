@@ -7,6 +7,14 @@ extension FileSearchPanelView: NSTableViewDataSource, NSTableViewDelegate, NSMen
         session.rows.count
     }
 
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let rowView = tableView.makeView(withIdentifier: FileSearchResultRowView.reuseIdentifier, owner: nil)
+            as? FileSearchResultRowView ?? FileSearchResultRowView()
+        rowView.identifier = FileSearchResultRowView.reuseIdentifier
+        rowView.accentColor = accent.color
+        return rowView
+    }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let target = item(atRow: row)
         if let file = target as? FileSearchFileNode {
@@ -22,7 +30,7 @@ extension FileSearchPanelView: NSTableViewDataSource, NSTableViewDelegate, NSMen
         if let node = target as? FileSearchMatchNode {
             let cell = tableView.makeView(withIdentifier: FileSearchMatchCellView.reuseIdentifier, owner: nil)
                 as? FileSearchMatchCellView ?? FileSearchMatchCellView(frame: .zero)
-            cell.configure(with: node)
+            cell.configure(with: node, accent: accent.color)
             return cell
         }
         return nil

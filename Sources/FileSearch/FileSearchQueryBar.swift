@@ -198,10 +198,19 @@ final class FileSearchQueryBar: NSView {
     }
 
     @objc private func toggleChanged(_ sender: NSButton) {
+        (sender as? FileSearchToggleButton)?.refreshActiveAppearance()
         onQueryChanged?(true)
     }
 
+    /// Applies the cmux accent to the option toggles.
+    func setAccentColor(_ color: NSColor) {
+        for button in [caseButton, wordButton, regexButton, ignoreButton, detailsButton] {
+            button.accentColor = color
+        }
+    }
+
     @objc private func detailsToggled(_ sender: NSButton) {
+        detailsButton.refreshActiveAppearance()
         setDetailsVisible(sender.state == .on)
         onDetailsVisibilityChanged?(sender.state == .on)
         if sender.state == .on, let window {
@@ -283,16 +292,41 @@ final class FileSearchToggleButton: NSButton {
         guard let textTitle else { return }
         var attributes: [NSAttributedString.Key: Any] = [
             .font: GlobalFontMagnification.monospacedSystemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.labelColor,
         ]
         if isUnderlined { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
         attributedTitle = NSAttributedString(string: textTitle, attributes: attributes)
         attributedAlternateTitle = attributedTitle
     }
 
+    /// The cmux accent drawn behind an active toggle.
+    var accentColor: NSColor = CmuxAccentColor().dynamicNSColor {
+        didSet { refreshActiveAppearance() }
+    }
+
+    override var state: NSControl.StateValue {
+        didSet { refreshActiveAppearance() }
+    }
+
+    /// Draws the on state with the cmux accent rather than the system one.
+    func refreshActiveAppearance() {
+        let isOn = state == .on
+        layer?.backgroundColor = isOn ? accentColor.withAlphaComponent(0.25).cgColor : NSColor.clear.cgColor
+        layer?.borderColor = isOn ? accentColor.withAlphaComponent(0.8).cgColor : NSColor.clear.cgColor
+        contentTintColor = isOn ? accentColor : .secondaryLabelColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshActiveAppearance()
+    }
+
     private func commonConfigure(label: String, identifier: String) {
         setButtonType(.pushOnPushOff)
-        bezelStyle = .accessoryBarAction
-        showsBorderOnlyWhileMouseInside = false
+        isBordered = false
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        layer?.borderWidth = 1
         controlSize = .small
         toolTip = label
         setAccessibilityLabel(label)
@@ -301,5 +335,7 @@ final class FileSearchToggleButton: NSButton {
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
         refusesFirstResponder = true
+        widthAnchor.constraint(greaterThanOrEqualToConstant: 22).isActive = true
+        refreshActiveAppearance()
     }
 }
