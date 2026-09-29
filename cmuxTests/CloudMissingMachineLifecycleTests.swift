@@ -88,12 +88,14 @@ struct CloudMissingMachineLifecycleTests {
         let catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(
             environment: CloudWorkspaceRenameEnvironment(workspaces: { manager.tabs })
         ))
+        var fleetPage = VMListPage(
+            vms: [VMSummary(id: "vm-restored-gone", provider: "freestyle", status: "running", image: "snapshot-test", createdAt: 0)],
+            limits: nil
+        )
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
-            listPage: {
-                VMListPage(vms: [VMSummary(id: "vm-restored-gone", provider: "freestyle", status: "running", image: "snapshot-test", createdAt: 0)], limits: nil)
-            },
+            listPage: { fleetPage },
             refreshProvider: { _, _ in true }
         )
         defer {
@@ -105,6 +107,16 @@ struct CloudMissingMachineLifecycleTests {
         AppDelegate.shared = app
         registry.start(catalog: catalog)
         #expect(await registry.refresh(force: true))
+        #expect(workspace.cloudVMID == "VM-Restored-Gone")
+        #expect(!workspace.panels.isEmpty)
+
+        // A successful page can register the provider with a different ID
+        // spelling than the restored binding. An empty page in the selected
+        // scope must preserve that provider as unavailable instead of
+        // unregistering it as unbound.
+        fleetPage = VMListPage(vms: [], limits: nil)
+        #expect(await registry.refresh(force: true))
+        #expect(registry.providers.keys.contains { $0.caseInsensitiveCompare("vm-restored-gone") == .orderedSame })
         #expect(workspace.cloudVMID == "VM-Restored-Gone")
         #expect(!workspace.panels.isEmpty)
         await registry.accessDidEnd()
