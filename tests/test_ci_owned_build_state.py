@@ -862,6 +862,20 @@ class Prefer(Fixture):
         self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
                          ("false", "true", "false"))
 
+    def test_a_kept_build_that_recompiles_the_app_stays_when_the_seed_would_too(self):
+        """Both starts recompile the app, so the seed's fewer changed inputs save nothing: from 2026-09-27 17:45Z
+        to 2026-09-28, 269 such local-seed starts compiled in 515 s at the median against 408 to 429 s from a kept build."""
+        self.kept(changed=6)
+        (self.store / "derived-data" / state.RECORD).write_text(
+            json.dumps(self.recorded_with_package_change(changed=6)))
+        (self.cache / "p-j14-base").mkdir(parents=True)
+        (self.cache / "p-j14-base" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        result = self.prefer()
+        self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
+                         ("false", "true", "true"))
+        self.assertIn("both recompile the app", result["reason"])
+
     def test_a_nearer_bucket_seed_replaces_a_kept_seed_that_recompiles_the_app(self):
         self.kept(changed=6)
         (self.store / "derived-data" / state.RECORD).write_text(
@@ -873,17 +887,17 @@ class Prefer(Fixture):
             result = self.prefer(("p-j14-base", 0), max_distance=2)
         compare.assert_called_once_with("p-j14-base", self.workspace)
         self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-base", "false"))
-        # When the bucket seed recompiles the app too, or GitHub cannot say,
-        # the clone stays: it is the cheaper start.
+        # When the bucket seed recompiles the app too, or GitHub cannot say, the kept build stays: the kept
+        # seed recompiles the app as well, and a kept build does that faster.
         for answer in (True, None):
             with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=answer):
                 result = self.prefer(("p-j14-base", 0), max_distance=2)
-            self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-oldest", "true"))
-        # Without downloads, the kept seed is all there is.
+            self.assertEqual(result["prefer"], "false")
+        # Without downloads, the kept build stays for the same reason.
         with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app") as compare:
             result = self.prefer(("p-j14-base", 0))
         compare.assert_not_called()
-        self.assertEqual((result["prefer"], result["seed_key"]), ("true", "p-j14-oldest"))
+        self.assertEqual(result["prefer"], "false")
 
     def test_a_far_bucket_seed_replaces_a_kept_build_that_recompiles_the_app(self):
         (self.store / "derived-data").mkdir(parents=True)

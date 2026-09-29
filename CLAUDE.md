@@ -95,8 +95,8 @@ Use these existing owners instead of duplicating their checklists here:
 
 For v2 socket methods and remote CLI changes, read [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md).
 `RemoteRelayCommandPolicy` defaults to deny. Allowlist only for a needed remote
-flow, scoped to the session's objects; command-bearing params stay denied except
-for the documented audited exception. The PR must analyze local command/content
+flow, scoped to the session's objects; command-bearing params stay denied on
+every method. The PR must analyze local command/content
 execution, access to unowned objects and local-state exposure, and include the
 required policy tests and ID scoping. Unsafe local effects must be redesigned.
 Never allowlist terminal spawn/respawn without live verification that it executes
