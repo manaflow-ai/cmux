@@ -20,9 +20,9 @@ import Testing
             phase: .settled
         )
         surface.rendererPresentationReadinessDidChange()
-        acknowledgePendingPresentation(on: surface)
-
         failProbe(on: surface)
+        failProbe(on: surface)
+        #expect(surface.renderHealth == .notRendering)
 
         surface.committedPaneGeometry = TerminalPaneGeometry(
             size: CGSize(width: 640, height: 480),
