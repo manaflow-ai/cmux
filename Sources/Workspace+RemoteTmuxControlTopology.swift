@@ -173,6 +173,18 @@ extension Workspace {
         return false
     }
 
+    /// Whether a terminal's shell runs somewhere other than this Mac: an SSH
+    /// or Cloud machine, a remote tmux pane, or another signed-in Mac. Its
+    /// keystrokes cross a network before they echo, which is what predicted
+    /// echo hides; a local shell never gets it.
+    func terminalRunsOnAnotherMachine(_ surfaceOrPanelID: UUID) -> Bool {
+        if isRemoteTerminalContext(surfaceOrPanelID) { return true }
+        let surfaceID = surfaceOwnershipTarget(for: surfaceOrPanelID)?.surfaceID
+            ?? surfaceOrPanelID
+        guard let machine = machineOwningSurface(surfaceID) else { return false }
+        return !machine.isLocal
+    }
+
     /// Maps a control-plane surface identity to the workspace-owned tab that
     /// participates in reorder. Projected tmux pane surfaces reorder their
     /// window container; hidden mirror wrappers remain unresolved.

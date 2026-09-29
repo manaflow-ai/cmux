@@ -1,10 +1,23 @@
 # Contributing to cmux
 
+New here? Read [docs/start-here.md](docs/start-here.md) first: how to pick an
+issue, what you can fix without a Mac, and what happens to your pull request.
+This file is the mechanics.
+
+Be nice, assume the best: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
 For issues, RFCs, pull requests, and progress updates, follow the short [writing guide](STYLE.md).
 
 Start with the [verification ladder](docs/contributor-verification.md) to choose the
 smallest useful check for your change. It includes a local path that does not require
 maintainer runner access or shared backend credentials.
+
+## Finding something to work on
+
+Issues carry a severity (`S1: critical` through `S4: cosmetic`), an `area:` label,
+and sometimes `good first issue` or `help wanted`. [docs/triage.md](docs/triage.md)
+says what each one means, how new issues get labeled automatically, and how to
+correct a label that is wrong. Comment on an issue before you start working on it.
 
 ## Prerequisites
 
@@ -132,6 +145,31 @@ your PR; a successful parse or build does not mean tests executed.
 The guide covers local contributors first. Maintainer-only focused CI dispatch and
 fleet access are optional paths, not prerequisites for contributing.
 
+## What CI runs for you
+
+You do not need runner access, a signing identity or a Mac build farm to get a
+change tested. Opening the pull request is the request:
+
+- Static checks run on every pull request, and the Linux guards run when your diff
+  touches what they cover. `python3 scripts/verify-local.py` runs the checks your
+  diff touches and `--all` runs the full recipe CI uses, so fix those before you push.
+- Swift, package and tooling tests are routed from your diff. An edited suite runs,
+  and an app-source change runs the suites whose tests mention what you changed.
+  No label is needed for any of that.
+- The broad macOS suite is label-gated. A maintainer adds `full-ci` when a change
+  needs those lanes; see [PR CI coverage](skills/cmux-testing/references/pr-ci-coverage.md).
+  It is not a review or merge requirement, and it is not a substitute for saying
+  what you ran.
+- `cmuxUITests/` is not run in full by any pull request job. If your diff touches
+  that directory, the `suite-coverage` check fails until a maintainer runs the
+  affected classes and records it with `no-full-ci`, because a pull request from a
+  fork cannot dispatch those lanes itself.
+
+Read which tests executed on the current commit rather than the color of the
+checks list: a skipped job is green and is not coverage. If checks never start on
+your first pull request, they are waiting on a maintainer to approve a workflow
+run from a new contributor.
+
 ## Ghostty Submodule
 
 The `ghostty` submodule points to [manaflow-ai/ghostty](https://github.com/manaflow-ai/ghostty), a fork of upstream Ghostty. To change it, rebuild `GhosttyKit.xcframework`, or pull in upstream, follow the [cmux-ghostty skill](skills/cmux-ghostty/SKILL.md): push the submodule commit to the fork before committing the pointer in this repository. Fork changes and conflict notes are in [docs/ghostty-fork.md](docs/ghostty-fork.md).
@@ -142,6 +180,41 @@ The `ghostty` submodule points to [manaflow-ai/ghostty](https://github.com/manaf
 - For a bug fix, commit the failing regression test before the fix; see [regression commits](skills/cmux-testing/SKILL.md#reproduce-and-repair).
 - Fill in the template's `## Changelog` section: one `Added`/`Changed`/`Fixed`/`Removed` line for a user-visible change, or `none`. Don't edit [CHANGELOG.md](CHANGELOG.md); the release builds it from these lines.
 - Sign the [CLA](CLA.md) once by commenting `I have read the CLA Document v2.2 and I hereby sign the CLA` on your pull request. The CLA check asks for it on your first pull request.
+
+### What a good one looks like
+
+- One change. A fix plus a reformat is two pull requests, and the reformat will
+  hold up the fix.
+- A summary that names the problem, then what a person can do after the change.
+- Testing that names the commands you ran and what they establish. If you could
+  not run a layer, say which one and why, once. "It compiles" and "I ran it" are
+  different claims and reviewers read them differently.
+- No unrelated formatting, no generated files, no vendored trees, no drive-by
+  version bumps.
+- User-facing strings localized: see the [localization skill](skills/cmux-localization/SKILL.md).
+
+### How review and merge work
+
+- Automated reviewers comment first, sometimes several of them, sometimes about
+  setup that has nothing to do with your diff. Answer what applies and ignore the
+  rest. Don't `@`-mention review bots to summon more of them.
+- A maintainer reads the description before the diff. If the description doesn't
+  say what the change does and what you ran, review stalls there.
+- Answer review comments in the thread, push fixups, and say when you're done.
+  An unanswered question is the most common reason a finished patch sits still.
+  If a pull request goes quiet and you want eyes on it, say so on the same pull
+  request instead of opening another.
+- A change merges when the CI relevant to it is green, review comments are
+  answered, and no product decision is still open. That last one is the usual
+  cause of delay on an otherwise good patch: when the open question is what cmux
+  should do, a maintainer answers it before the code lands. Ask on the issue
+  rather than guessing in code.
+- Merges are squash merges, so the pull request title and description become the
+  commit that ships. Write them for someone reading `git log` a year from now.
+- `main` is what NIGHTLY builds from. When something lands broken we fix forward
+  instead of reverting, so a follow-up pull request is routine, not a reprimand.
+- If we end up solving the same problem another way, we credit you with a
+  `Co-authored-by` trailer and link the change from your pull request.
 
 Agents working in this repository also follow [CLAUDE.md](CLAUDE.md) (also `AGENTS.md`).
 

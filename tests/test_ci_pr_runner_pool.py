@@ -2055,12 +2055,16 @@ class WarmAffinity(unittest.TestCase):
             self.assertIn(key, values["owned_jobs"])
         self.assertEqual(values["jobs"], "2")
         self.assertIn("claude-wrapper take `" + light_side + "`", values["summary"])
-        # None idle, or no light side count: the std side label as before.
-        for runners, count in ((std, slots), (std + idle, '{"std": 40, "root-std": 10, "light": 2, "root-light": 2}')):
-            values = self.outputs(runners, slots=count, extra=lanes)
-            self.assertEqual((values["runner"], values["side_runner"], values["light_side_jobs"]),
-                             (MINI, SIDE_MINI, ""), runners)
-            self.assertIn(" claude-wrapper ", values["owned_jobs"])
+        # No light side runner online: the std side label as before.
+        values = self.outputs(std, slots=slots, extra=lanes)
+        self.assertEqual((values["runner"], values["side_runner"], values["light_side_jobs"]),
+                         (MINI, SIDE_MINI, ""))
+        self.assertIn(" claude-wrapper ", values["owned_jobs"])
+        # The runners read live decide, not CI_OWNED_POOL_SLOTS: a variable that gives the light pool no
+        # machines beyond its root runners no longer keeps the lanes off the idle light side runners.
+        values = self.outputs(std + idle, slots='{"std": 40, "root-std": 10, "light": 2, "root-light": 2}',
+                              extra=lanes)
+        self.assertEqual(values["light_side_jobs"], " claude-wrapper remote-daemon ")
         # A retry attempt keeps its own route.
         self.assertEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["light_side_jobs"], "")
 
@@ -2125,7 +2129,10 @@ class WarmAffinity(unittest.TestCase):
         self.assertEqual(busy_values["admission_runner"], "")
         # admission-placement still gets the warm names; it re-reads which are idle.
         self.assertEqual(json.loads(busy_values["admission_warm"]), [["cmux2-glaeda"]])
-        self.assertEqual(self.outputs(runners, slots='{"std": 40}')["admission_runner"], "")
+        # No root runner online carries the root label: no root routing, whatever the variable says.
+        self.assertEqual(self.outputs([live_runner(1, MINI), live_runner(2, MINI)])["admission_runner"], "")
+        # The runners read live turn root routing on without a root count in CI_OWNED_POOL_SLOTS.
+        self.assertEqual(json.loads(self.outputs(runners, slots='{"std": 40}')["admission_runner"]), [ROOT_MINI, own])
         # A snapshot without `warm` (the janitor's sweep off or failed).
         self.assertEqual(self.outputs(runners, state={})["admission_warm"], "")
         # Without the route token the runners are never read.
@@ -2323,6 +2330,18 @@ class LiveCapacity(unittest.TestCase):
         runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI, busy=True), mini_runner("mini-a", 1, MINI, SIDE_MINI),
                    mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, LIGHT)]
         self.assertEqual(pool.live_online(runners, (MINI, ROOT_MINI, LIGHT)), {MINI: 2, ROOT_MINI: 1, LIGHT: 1})
+
+    def test_routing_labels_come_from_the_online_runners_and_the_variable_only_without_them(self):
+        gui = pool.gui_label(MINI)
+        runners = [mini_runner("mini-a", 0, MINI, ROOT_MINI), mini_runner("mini-a", 1, gui),
+                   mini_runner("mini-b", 0, MINI, ROOT_MINI, status="offline"), mini_runner("mini-c", 0, MINI)]
+        # Live: a label routes while an online runner carries it; the variable's counts and omissions do not count.
+        self.assertEqual(pool.routing_slots('{"std": 40}', PR_XCODE, runners), {MINI: 2, ROOT_MINI: 1, gui: 1})
+        self.assertEqual(pool.routing_slots('{"std": 40, "root-std": 19, "gui-std": 10}', PR_XCODE,
+                                            [mini_runner("mini-c", 0, MINI)]), {MINI: 1})
+        # Unreadable runners: the variable, as before.
+        self.assertEqual(pool.routing_slots('{"std": 40, "root-std": 19}', PR_XCODE, None),
+                         {MINI: 40, ROOT_MINI: 19})
 
     def test_capacity_is_the_online_count_when_listed(self):
         snap = fleet(busy=0)

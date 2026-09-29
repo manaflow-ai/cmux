@@ -166,6 +166,11 @@
       "message": "Cloud VM setup is temporarily unavailable.",
       "action": "Try again later. If the problem continues, contact support."
     },
+    "recreateRequired": {
+      "title": "Recreate this machine",
+      "message": "This machine was created before a Cloud update and can't be attached.",
+      "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
+    },
     "unsupported": {
       "title": "Cloud VM operation unavailable",
       "reason": "This machine kind does not provide this operation.",

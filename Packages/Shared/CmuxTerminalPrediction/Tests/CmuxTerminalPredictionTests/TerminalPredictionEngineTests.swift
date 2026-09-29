@@ -3,7 +3,7 @@ import Testing
 
 /// Drives the engine the way the host does: keystrokes in, PTY bytes back.
 private struct Session {
-    var engine = TerminalPredictionEngine(isEnabled: true)
+    var engine = TerminalPredictionEngine(isEnabled: true, isRemoteSurface: true)
     var clock: Duration = .zero
 
     mutating func advance(_ step: Duration) { clock += step }
@@ -18,17 +18,30 @@ private struct Session {
         engine.observedOutput(Array(text.utf8), at: clock)
     }
 
+    /// The characters drawn, without the blanks over deleted cells.
     var drawn: String {
-        String(engine.glyphs.map(\.character))
+        String(engine.glyphs.filter { $0.standing != .erased }.map(\.character))
+    }
+
+    /// Offsets of the cells drawn blank because the user deleted them.
+    var blanks: [Int] {
+        engine.glyphs.filter { $0.standing == .erased }.map(\.offset)
+    }
+
+    var liveOffsets: [Int] {
+        engine.glyphs.filter { $0.standing != .erased }.map(\.offset)
     }
 }
 
-/// Reaches the state where the engine is willing to draw: one echoed
-/// character over a link slow enough to be worth predicting.
+/// Reaches the state where the engine is willing to draw: two echoed
+/// characters over a link slow enough to be worth predicting.
 private func armedSession() -> Session {
     var session = Session()
     session.type("l")
     session.remote("l")
+    session.type("s")
+    session.remote("s")
+    session.engine.presentedFrame(at: session.clock)
     return session
 }
 
@@ -121,7 +134,7 @@ struct TerminalPredictionEngineTests {
         session.type("-")
         session.type("a")
         #expect(session.drawn == "s-a")
-        #expect(session.engine.glyphs.map(\.offset) == [0, 1, 2])
+        #expect(session.liveOffsets == [0, 1, 2])
     }
 
     @Test func aConfirmedGlyphKeepsDrawingUntilAFrameIsPresented() {
@@ -143,14 +156,14 @@ struct TerminalPredictionEngineTests {
         var session = armedSession()
         session.type("a")
         session.type("b")
-        #expect(session.engine.glyphs.map(\.offset) == [0, 1])
+        #expect(session.liveOffsets == [0, 1])
 
         session.remote("a")
         session.advance(.milliseconds(5))
         session.engine.presentedFrame(at: session.clock)
 
         #expect(session.drawn == "b")
-        #expect(session.engine.glyphs.map(\.offset) == [0])
+        #expect(session.liveOffsets == [0])
     }
 
     @Test func aConfirmedGlyphSitsLeftOfTheLiveCursor() {
@@ -163,11 +176,11 @@ struct TerminalPredictionEngineTests {
         session.remote("a")
 
         #expect(session.drawn == "ab")
-        #expect(session.engine.glyphs.map(\.offset) == [-1, 0])
+        #expect(session.liveOffsets == [-1, 0])
         #expect(session.engine.glyphs.map(\.standing) == [.confirmed, .speculative])
 
         session.remote("b", after: .milliseconds(1))
-        #expect(session.engine.glyphs.map(\.offset) == [-2, -1])
+        #expect(session.liveOffsets == [-2, -1])
     }
 
     @Test func keystrokesTypedBeforeArmingStillOccupyTheirCells() {
@@ -175,6 +188,8 @@ struct TerminalPredictionEngineTests {
         // of "a" arms the run; "c" is then drawn, and has to land after the
         // cell "b" is about to take rather than on top of it.
         var session = Session()
+        session.type("x")
+        session.remote("x")
         session.type("a")
         session.type("b", after: .milliseconds(5))
         session.remote("a")
@@ -182,12 +197,13 @@ struct TerminalPredictionEngineTests {
 
         session.type("c", after: .milliseconds(5))
         #expect(session.drawn == "c")
-        #expect(session.engine.glyphs.map(\.offset) == [1])
+        #expect(session.liveOffsets == [1])
 
         // "b" arrives: never drawn, so nothing is held, and "c" is now the
-        // cell under the cursor.
+        // cell under the cursor. (The first echo, of "x", only starts the
+        // streak that the echo of "a" completes.)
         session.remote("b", after: .milliseconds(1))
-        #expect(session.engine.glyphs.map(\.offset) == [0])
+        #expect(session.liveOffsets == [0])
         #expect(session.engine.glyphs.map(\.standing) == [.speculative])
     }
 
@@ -214,7 +230,7 @@ struct TerminalPredictionEngineTests {
         #expect(session.engine.status(at: session.clock) == .listening)
     }
 
-    @Test func editingKeysAndReturnWithdrawRatherThanGuess() {
+    @Test func editingKeysAndReturnStopPredictingRatherThanGuess() {
         // Backspace is not here: over an unconfirmed glyph it retracts, which
         // the backspace tests below cover.
         for input in ["\r", "\u{1B}[3~", "\u{1B}[D", "\u{3}"] {
@@ -222,9 +238,50 @@ struct TerminalPredictionEngineTests {
             session.type("s")
             #expect(session.drawn == "s")
 
+            // The glyph already sent echoes ahead of the key, so it stays
+            // drawn until then instead of vanishing and coming back.
             session.type(input)
+            #expect(session.drawn == "s")
+            session.type("x")
+            #expect(session.drawn == "s")
+
+            // Confirmed, it retires with the frame that paints its echo.
+            session.remote("s")
+            session.engine.presentedFrame(at: session.clock)
+            #expect(session.drawn == "")
+            session.type("y")
             #expect(session.drawn == "")
         }
+    }
+
+    @Test func returnAnsweredByANewlineIsNotAMisprediction() {
+        // Typing a command and Return faster than the round trip: the remote
+        // answers with the echo, then CR LF. The newline is Return doing what
+        // it does, so repeating this never suspends prediction.
+        var session = armedSession()
+        for _ in 0..<6 {
+            session.type("s")
+            session.type("\r")
+            session.remote("s\r\n$ ")
+            session.engine.presentedFrame(at: session.clock)
+            #expect(session.drawn == "")
+            session.advance(.milliseconds(600))
+            session.type("l")
+            session.remote("l")
+        }
+        #expect(session.engine.status(at: session.clock) != .suspended)
+    }
+
+    @Test func aLineEraseAfterReturnLeavesTheSubmittedLineDrawn() {
+        // Ctrl-U acts on the new line; the submitted one keeps its glyph
+        // until its echo arrives.
+        var session = armedSession()
+        session.type("s")
+        session.type("\r")
+        session.advance(.milliseconds(10))
+        session.engine.typedLineErase(at: session.clock)
+        #expect(session.drawn == "s")
+        #expect(session.blanks == [])
     }
 
     @Test func nonASCIITextIsNeverPredicted() {
@@ -283,6 +340,8 @@ struct TerminalPredictionEngineTests {
         var session = Session()
         session.type("l")
         session.remote("l", after: .milliseconds(2))
+        session.type("s")
+        session.remote("s", after: .milliseconds(2))
 
         #expect(session.engine.status(at: session.clock) == .linkIsFastEnough)
         session.type("s")
@@ -293,8 +352,13 @@ struct TerminalPredictionEngineTests {
         var session = Session()
         session.type("l")
         session.remote("l", after: .milliseconds(70))
-
         #expect(session.engine.observedEchoLatency == .milliseconds(70))
+        // One echo is what a tty in cooked mode gives a key typed ahead of a
+        // password prompt; the second shows the remote really echoes.
+        #expect(session.engine.status(at: session.clock) == .listening)
+
+        session.type("s")
+        session.remote("s", after: .milliseconds(70))
         #expect(session.engine.status(at: session.clock) == .predicting)
     }
 
@@ -310,6 +374,8 @@ struct TerminalPredictionEngineTests {
             session.advance(.milliseconds(200))
             session.type("l")
             session.remote("l")
+            session.type("l")
+            session.remote("l")
         }
 
         #expect(session.engine.status(at: session.clock) == .suspended)
@@ -317,6 +383,8 @@ struct TerminalPredictionEngineTests {
         #expect(session.drawn == "")
 
         session.advance(.seconds(31))
+        session.type("l")
+        session.remote("l")
         session.type("l")
         session.remote("l")
         #expect(session.engine.status(at: session.clock) == .predicting)
@@ -351,6 +419,55 @@ struct TerminalPredictionEngineTests {
         #expect(session.engine.glyphs.count == 40)
 
         session.type("x", after: .milliseconds(1))
+        #expect(session.drawn == "")
+    }
+
+    @Test func aSurfaceNotKnownToBeRemoteNeverPredicts() {
+        // A local shell under load can echo slower than the threshold. It
+        // must still never see a predicted glyph, and a host that has not
+        // classified the surface yet gets the local behavior.
+        var engine = TerminalPredictionEngine(isEnabled: true)
+        engine.typed("l", at: .milliseconds(10))
+        engine.observedOutput(Array("l".utf8), at: .milliseconds(80))
+        engine.typed("s", at: .milliseconds(90))
+
+        #expect(engine.glyphs.isEmpty)
+        #expect(engine.status(at: .milliseconds(90)) == .localSurface)
+    }
+
+    @Test func classifyingTheSurfaceRemoteLetsTheNextEchoArm() {
+        var engine = TerminalPredictionEngine(isEnabled: true)
+        engine.typed("l", at: .milliseconds(10))
+        engine.isRemoteSurface = true
+        engine.typed("s", at: .milliseconds(20))
+        engine.typed("t", at: .milliseconds(25))
+        engine.observedOutput(Array("st".utf8), at: .milliseconds(90))
+        engine.typed("x", at: .milliseconds(100))
+
+        #expect(engine.status(at: .milliseconds(100)) == .predicting)
+        #expect(engine.glyphs.map(\.character).last == "x")
+    }
+
+    @Test func untrackedInputWithdrawsAndKeepsLaterKeystrokesUndrawn() {
+        // A paste lands between keystrokes. Its echo comes back ahead of the
+        // next key's, so drawing that key at the cursor would put it where the
+        // pasted text is about to go.
+        var session = armedSession()
+        session.type("s")
+        #expect(session.drawn == "s")
+
+        session.advance(.milliseconds(5))
+        _ = session.engine.sentUntrackedInput(at: session.clock)
+        // "s" was sent before the paste, so its echo still lands first.
+        #expect(session.drawn == "s")
+
+        session.type("x")
+        #expect(session.drawn == "s")
+        session.remote("s")
+        session.engine.presentedFrame(at: session.clock)
+        #expect(session.drawn == "")
+        session.remote("foo")
+        session.remote("x")
         #expect(session.drawn == "")
     }
 
@@ -453,13 +570,13 @@ extension TerminalPredictionEngineTests {
 
         session.type(Self.backspace)
         #expect(session.drawn == "s")
-        #expect(session.engine.glyphs.map(\.offset) == [0])
+        #expect(session.liveOffsets == [0])
         #expect(session.engine.status(at: session.clock) == .predicting)
 
         // Typing continues in the cell the retracted glyph gave back.
         session.type("d")
         #expect(session.drawn == "sd")
-        #expect(session.engine.glyphs.map(\.offset) == [0, 1])
+        #expect(session.liveOffsets == [0, 1])
     }
 
     @Test func eitherBackspaceByteRetracts() {
@@ -482,27 +599,27 @@ extension TerminalPredictionEngineTests {
 
         session.remote("s")
         #expect(session.drawn == "s")
-        #expect(session.engine.glyphs.map(\.offset) == [-1])
+        #expect(session.liveOffsets == [-1])
 
         // The remote prints the retracted "a" before it erases it. That cell
         // is the grid's to paint; the overlay must not bring the glyph back.
         // Each echo lands inside the hold of the confirmed "s".
         session.remote("a", after: .milliseconds(10))
         #expect(session.drawn == "s")
-        #expect(session.engine.glyphs.map(\.offset) == [-2])
+        #expect(session.liveOffsets == [-2])
 
         session.remote("\u{8} \u{8}", after: .milliseconds(10))
         #expect(session.drawn == "s")
-        #expect(session.engine.glyphs.map(\.offset) == [-1])
+        #expect(session.liveOffsets == [-1])
         #expect(session.engine.status(at: session.clock) == .predicting)
 
         // Still armed: the next keystroke predicts, and its echo confirms.
         session.type("d")
         #expect(session.drawn == "sd")
-        #expect(session.engine.glyphs.map(\.offset) == [-1, 0])
+        #expect(session.liveOffsets == [-1, 0])
         session.remote("d", after: .milliseconds(10))
         #expect(session.engine.glyphs.map(\.standing) == [.confirmed, .confirmed])
-        #expect(session.engine.glyphs.map(\.offset) == [-2, -1])
+        #expect(session.liveOffsets == [-2, -1])
     }
 
     @Test func anEraseSplitAcrossReadsKeepsOffsetsOnTheLiveCursor() {
@@ -511,14 +628,14 @@ extension TerminalPredictionEngineTests {
         session.type("a")
         session.type(Self.backspace)
         session.remote("sa")
-        #expect(session.engine.glyphs.map(\.offset) == [-2])
+        #expect(session.liveOffsets == [-2])
 
         session.remote("\u{8}", after: .milliseconds(1))
-        #expect(session.engine.glyphs.map(\.offset) == [-1])
+        #expect(session.liveOffsets == [-1])
         session.remote(" ", after: .milliseconds(1))
-        #expect(session.engine.glyphs.map(\.offset) == [-2])
+        #expect(session.liveOffsets == [-2])
         session.remote("\u{8}", after: .milliseconds(1))
-        #expect(session.engine.glyphs.map(\.offset) == [-1])
+        #expect(session.liveOffsets == [-1])
         #expect(session.drawn == "s")
         #expect(session.engine.status(at: session.clock) == .predicting)
     }
@@ -544,7 +661,7 @@ extension TerminalPredictionEngineTests {
             session.remote("sa" + erase)
 
             #expect(session.drawn == "s", "\(Array(erase.utf8))")
-            #expect(session.engine.glyphs.map(\.offset) == [-1], "\(Array(erase.utf8))")
+            #expect(session.liveOffsets == [-1], "\(Array(erase.utf8))")
             #expect(
                 session.engine.status(at: session.clock) == .predicting,
                 "\(Array(erase.utf8))"
@@ -573,28 +690,72 @@ extension TerminalPredictionEngineTests {
 
         session.type("b")
         #expect(session.drawn == "b")
-        #expect(session.engine.glyphs.map(\.offset) == [0])
+        #expect(session.liveOffsets == [0])
 
         // The erases arrive innermost first, as the remote processed them.
         session.remote("sa\u{8} \u{8}\u{8} \u{8}b")
         #expect(session.drawn == "b")
         #expect(session.engine.glyphs.map(\.standing) == [.confirmed])
-        #expect(session.engine.glyphs.map(\.offset) == [-1])
+        #expect(session.liveOffsets == [-1])
         #expect(session.engine.status(at: session.clock) == .predicting)
     }
 
     @Test func backspaceOverConfirmedTextWithdraws() {
-        // The remote has already drawn "s", so erasing it is the remote's
-        // business: behave as before and withdraw.
+        // The remote has already drawn "s" and a frame painted it, so erasing
+        // it is the remote's business: behave as before and withdraw.
         var session = armedSession()
         session.type("s")
         session.remote("s")
-        #expect(session.drawn == "s")
-        #expect(session.engine.glyphs.map(\.standing) == [.confirmed])
+        session.engine.presentedFrame(at: session.clock)
+        #expect(session.drawn == "")
 
         session.type(Self.backspace)
         #expect(session.drawn == "")
         #expect(session.engine.status(at: session.clock) == .listening)
+    }
+
+    @Test func backspaceOverAnEchoNotYetPaintedBlanksItUntilTheErase() {
+        // The echo of "s" arrived but no frame has painted it: the overlay
+        // still holds it. Dropping it would show a blank, then the grid's
+        // "s" for a frame, then the erase. It is blanked instead.
+        var session = armedSession()
+        session.type("s")
+        session.remote("s")
+        #expect(session.engine.glyphs.map(\.standing) == [.confirmed])
+
+        session.type(Self.backspace)
+        #expect(session.drawn == "")
+        #expect(session.blanks == [-1])
+        #expect(session.engine.status(at: session.clock) == .predicting)
+
+        // The erase lands; the blank stays until a frame shows it.
+        session.remote("\u{8}\u{1B}[K")
+        #expect(session.engine.holdsLayoutUntilFrame)
+        session.engine.presentedFrame(at: session.clock)
+        #expect(session.engine.glyphs.isEmpty)
+        #expect(!session.engine.holdsLayoutUntilFrame)
+    }
+
+    @Test func aLayoutHoldWithNoFrameReleasesAfterTheConfirmationHold() {
+        // A host that never reports presented frames (ghostty's IOSurface
+        // layer skips the drawable hook frames are counted on) must not keep
+        // the overlay frozen on the blanks the erase removed.
+        var session = armedSession()
+        session.type("s")
+        session.type(Self.backspace)
+        session.remote("s")
+        session.remote("\u{8}\u{1B}[K")
+        #expect(session.engine.holdsLayoutUntilFrame)
+        let held = session.clock
+        #expect(session.engine.nextExpiry == held + .milliseconds(120))
+
+        let changedEarly = session.engine.tick(at: held + .milliseconds(100))
+        #expect(!changedEarly)
+        #expect(session.engine.holdsLayoutUntilFrame)
+        let changedAfter = session.engine.tick(at: held + .milliseconds(121))
+        #expect(changedAfter)
+        #expect(!session.engine.holdsLayoutUntilFrame)
+        #expect(session.engine.nextExpiry == nil)
     }
 
     @Test func backspaceOnAnEmptyLineWithdraws() {
@@ -654,9 +815,11 @@ extension TerminalPredictionEngineTests {
     }
 
     @Test func aRemoteBackspaceWithNothingRetractedStillWithdraws() {
+        // Moving back over echoed text is fine as long as the remote prints
+        // it again; printing something else there is a redraw.
         var session = armedSession()
         session.type("s")
-        session.remote("\u{8}")
+        session.remote("\u{8}x")
         #expect(session.drawn == "")
         #expect(session.engine.status(at: session.clock) == .listening)
     }
@@ -700,6 +863,8 @@ extension TerminalPredictionEngineTests {
             session.advance(.milliseconds(300))
             session.type("l")
             session.remote("l")
+            session.type("l")
+            session.remote("l")
             session.advance(.milliseconds(5))
             session.engine.presentedFrame(at: session.clock)
         }
@@ -711,16 +876,18 @@ extension TerminalPredictionEngineTests {
         // The echo of "a" changes nothing drawn but moves the cursor "b" is
         // measured from, and the host re-anchors only when asked.
         var session = Session()
+        session.type("k")
+        session.remote("k")
         session.type("l")
         session.type("a", after: .milliseconds(5))
         session.remote("l")
         session.type("b", after: .milliseconds(5))
-        #expect(session.engine.glyphs.map(\.offset) == [1])
+        #expect(session.liveOffsets == [1])
 
         session.advance(.milliseconds(10))
         let redraw = session.engine.observedOutput(Array("a".utf8), at: session.clock)
         #expect(redraw)
-        #expect(session.engine.glyphs.map(\.offset) == [0])
+        #expect(session.liveOffsets == [0])
     }
 
     @Test func anEraseTheRemoteNeverSendsIsWithdrawn() {
