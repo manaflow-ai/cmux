@@ -23,7 +23,7 @@ extension CmuxTuiSurfaceProviderRegistry {
         for rawID in rawIDs {
             let id = resolved[rawID.lowercased()] ?? rawID
             providers[id]?.suspendForFeatureFlag()
-            catalog?.markCloudStateStale(on: .cloud(id), reason: "cloud_scope_unavailable")
+            catalog?.markCloudStateStale(on: SurfaceMachineID.cloud(id), reason: "cloud_scope_unavailable")
         }
     }
 

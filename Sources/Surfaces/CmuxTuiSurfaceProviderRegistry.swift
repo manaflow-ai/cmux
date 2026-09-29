@@ -16,7 +16,7 @@ import Foundation
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
 
-    private var catalog: SurfaceCatalog?
+    var catalog: SurfaceCatalog?
     var providers: [String: CmuxTuiSurfaceProvider] = [:]
     let links: CloudMachineLinkManager
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
