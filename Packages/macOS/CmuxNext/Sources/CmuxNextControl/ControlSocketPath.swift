@@ -6,12 +6,14 @@ public import Foundation
 ///
 /// | Build | Path |
 /// | --- | --- |
-/// | `CMUX_SOCKET_PATH` set | that path |
-/// | tagged debug (`CMUX_TAG`, or bundle `com.cmuxterm.app.debug.<tag>`) | `/tmp/cmux-debug-<tag>.sock` |
+/// | tagged debug (bundle `com.cmuxterm.app.debug.<tag>`, or a bundled tag) | `/tmp/cmux-debug-<tag>.sock` |
 /// | untagged debug | `/tmp/cmux-debug.sock` |
 /// | nightly / rc / staging (optionally tagged) | `/tmp/cmux-<channel>[-<tag>].sock` |
 /// | release | `~/.local/state/cmux/cmux.sock` |
 ///
+/// The inputs are this app's own identity only. Inherited environment
+/// (`CMUX_SOCKET_PATH`, `CMUX_TAG`, `CMUX_BUNDLE_ID` from a shell inside
+/// another cmux) never reaches this function; see ``LaunchIdentity``.
 /// Tags are sanitized the same way (`[^a-z0-9]+` -> `-`).
 public enum ControlSocketPath {
     public static let debugBundleID = "com.cmuxterm.app.debug"
@@ -21,15 +23,14 @@ public enum ControlSocketPath {
         ("com.cmuxterm.app.staging", "staging"),
     ]
 
+    /// `tag` applies to the plain debug bundle only; a tagged bundle id
+    /// carries its own tag.
     public static func resolve(
         bundleID: String?,
-        environment: [String: String],
+        tag: String?,
         isDebugBuild: Bool,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> String {
-        if let explicit = environment["CMUX_SOCKET_PATH"]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
-            return explicit
-        }
         let bundle = bundleID?.trimmingCharacters(in: .whitespaces) ?? ""
         for (channelID, channel) in channelBundleIDs {
             if bundle == channelID { return "/tmp/cmux-\(channel).sock" }
@@ -37,11 +38,11 @@ public enum ControlSocketPath {
                 return "/tmp/cmux-\(channel)-\(slug).sock"
             }
         }
-        if bundle.hasPrefix(debugBundleID + "."), let slug = sanitize(String(bundle.dropFirst(debugBundleID.count + 1))) {
+        if let slug = bundleTag(bundle) {
             return "/tmp/cmux-debug-\(slug).sock"
         }
         if bundle == debugBundleID || (bundle.isEmpty && isDebugBuild) {
-            if let tag = environment["CMUX_TAG"].flatMap(sanitize) {
+            if let tag = tag.flatMap(sanitize) {
                 return "/tmp/cmux-debug-\(tag).sock"
             }
             return "/tmp/cmux-debug.sock"
@@ -50,6 +51,16 @@ public enum ControlSocketPath {
             return "/tmp/cmux-debug.sock"
         }
         return home.appending(path: ".local/state/cmux/cmux.sock").path
+    }
+
+    /// The tag a tagged bundle id carries (`com.cmuxterm.app.debug.<tag>`
+    /// or `com.cmuxterm.app.<channel>.<tag>`), sanitized.
+    public static func bundleTag(_ bundleID: String?) -> String? {
+        let bundle = bundleID?.trimmingCharacters(in: .whitespaces) ?? ""
+        for prefix in [debugBundleID] + channelBundleIDs.map(\.0) where bundle.hasPrefix(prefix + ".") {
+            return sanitize(String(bundle.dropFirst(prefix.count + 1)))
+        }
+        return nil
     }
 
     public static func sanitize(_ raw: String) -> String? {

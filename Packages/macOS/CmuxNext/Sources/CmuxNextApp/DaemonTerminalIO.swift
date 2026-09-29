@@ -1,3 +1,4 @@
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTerminal
 import Foundation
@@ -10,7 +11,8 @@ import os
 /// - Attaches on its own connection without claiming geometry, so showing a
 ///   tab never reflows the PTY. The first settled grid report claims it.
 /// - Maps replays (plain or with Kitty state) and output in order; a replay
-///   is preceded by its grid so follower views size correctly.
+///   is preceded by its grid so the mirror sizes before parsing it. A daemon
+///   `resized` is only a grid change: the mirror reflows in place.
 /// - `overflow` (this view fell behind) re-attaches for a fresh replay.
 /// - Grid reports go through `ResizeCoordinator` and reach the daemon only
 ///   after the view stops resizing.
@@ -147,28 +149,20 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         continuation.finish()
     }
 
-    /// Forwards one attachment's stream. Returns why it ended.
+    /// Forwards one attachment's stream. Returns why it ended. A daemon
+    /// `resized` becomes a grid change applied to the live mirror in place
+    /// (`TerminalStreamPlan`), never a replay.
     private func forward(_ attachment: TerminalAttachment) async -> TerminalChannelCloseReason? {
         for await event in attachment.events {
-            switch event {
-            case .replay(let replay):
-                continuation.yield(.resize(cols: replay.cols, rows: replay.rows))
-                continuation.yield(Self.replayEvent(replay))
-            case .resized(let replay):
-                continuation.yield(.resize(cols: replay.cols, rows: replay.rows))
-                // A view that owns geometry caused this resize and its Ghostty
-                // mirror already reflowed to the same grid; replaying would
-                // swap in a fresh surface, which currently renders blank
-                // (TerminalSession.swapSurface). Followers rebuild from it.
-                if !state.withLock({ $0.claimed }) { continuation.yield(Self.replayEvent(replay)) }
-            case .output(let data, _):
-                continuation.yield(.output(data))
-            case .colorsChanged, .scrollChanged:
-                break
-            case .closed(let reason):
-                if reason == .surfaceGone { continuation.yield(.exited) }
-                return reason
+            for step in TerminalStreamPlan.steps(for: event) {
+                switch step {
+                case .grid(let columns, let rows): continuation.yield(.resize(cols: columns, rows: rows))
+                case .replay(let replay): continuation.yield(Self.replayEvent(replay))
+                case .output(let data): continuation.yield(.output(data))
+                case .exited: continuation.yield(.exited)
+                }
             }
+            if case .closed(let reason) = event { return reason }
         }
         return nil
     }

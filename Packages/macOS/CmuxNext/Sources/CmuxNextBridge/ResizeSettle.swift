@@ -1,8 +1,9 @@
 /// Holds terminal grid reports until a view's size has stopped changing.
 ///
-/// Every `resized` from the daemon makes the app rebuild a Ghostty surface
-/// from a replay, so sending one per animation frame (layout springs, sidebar
-/// width, live window resize) would be expensive. Reports are submitted as
+/// Every grid report resizes the daemon's PTY, which reflows the program
+/// (SIGWINCH, full redraws) and echoes a `resized` to every attached view,
+/// so sending one per animation frame (layout springs, sidebar width, live
+/// window resize) would be expensive. Reports are submitted as
 /// they happen; `tick` runs once per display frame and releases a size after
 /// it has been stable for `stableFrames` frames and no hold is active.
 public struct ResizeSettle<Key: Hashable & Sendable, Size: Equatable & Sendable>: Sendable {

@@ -71,6 +71,8 @@ final class CEFRuntime {
         case notEmbedded
         case shim(CEFShimLibrary.LoadError)
         case framework(String)
+        /// NSApp is not a CefAppProtocol NSApplication subclass.
+        case application
         case initialize
 
         var description: String {
@@ -78,6 +80,7 @@ final class CEFRuntime {
             case .notEmbedded: "runtime not embedded"
             case .shim(let error): "shim: \(error)"
             case .framework(let message): message
+            case .application: "NSApp does not conform to CefAppProtocol"
             case .initialize: "CefInitialize failed"
             }
         }
@@ -91,9 +94,11 @@ final class CEFRuntime {
         guard shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
             throw .framework(String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
         }
+        // The app's NSApplication subclass must conform (CmuxApplication);
+        // the shim no longer patches NSApp at runtime.
+        guard shim.prepareApplication() == 1 else { throw .application }
         self.shim = shim
         self.layout = layout
-        shim.prepareApplication()
 
         let pump = CEFMessagePump(work: { [weak self] in self?.shim?.doWork() },
                                   liveBrowsers: { [weak self] in self?.tabsByBrowser.count ?? 0 })
