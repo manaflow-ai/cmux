@@ -299,8 +299,7 @@ struct UpdateRelaunchAgentResumeTests {
     @Test("The update relaunch save marks only mid-task agents to continue")
     func updateRelaunchSaveMarksMidTaskAgents() throws {
         let nudges = UpdateRelaunchContinuationNudges.shared
-        let previousMidTask = nudges.midTaskPanelIds
-        defer { nudges.midTaskPanelIds = previousMidTask }
+        defer { nudges.arm(panelIds: [], expiresAtUptime: 0) }
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let panelId = try #require(workspace.focusedPanelId)
@@ -315,16 +314,16 @@ struct UpdateRelaunchAgentResumeTests {
             )
         }
 
-        nudges.midTaskPanelIds = [panelId]
+        nudges.arm(panelIds: [panelId], expiresAtUptime: ProcessInfo.processInfo.systemUptime + 60)
         #expect(try savedTerminal().terminal?.resumeWithContinuation == true)
 
         // An idle agent at the relaunch, and every ordinary save, leave the field out, so
         // snapshots from builds without it decode the same way.
-        nudges.midTaskPanelIds = [UUID()]
+        nudges.arm(panelIds: [UUID()], expiresAtUptime: ProcessInfo.processInfo.systemUptime + 60)
         let idle = try savedTerminal()
         #expect(idle.terminal?.resumeWithContinuation == nil)
         #expect(!idle.json.contains("resumeWithContinuation"))
-        nudges.midTaskPanelIds = []
+        nudges.arm(panelIds: [], expiresAtUptime: 0)
         #expect(try savedTerminal().terminal?.resumeWithContinuation == nil)
     }
 
@@ -383,6 +382,29 @@ struct UpdateRelaunchAgentResumeTests {
         ) == nil)
 
         #expect(try restoredRecord(marked: false).record.continuationPrompt == nil)
+    }
+
+    @Test func aNewUpdateAttemptOwnsItsContinuationExpiry() {
+        let nudges = UpdateRelaunchContinuationNudges()
+        let panel = UUID()
+        nudges.arm(panelIds: [panel], expiresAtUptime: 160)
+        #expect(nudges.marksPanel(panel, now: 150) == true)
+        nudges.arm(panelIds: [panel], expiresAtUptime: 210)
+        #expect(nudges.marksPanel(panel, now: 161) == true)
+        #expect(nudges.marksPanel(panel, now: 211) == nil)
+    }
+
+    @Test func anUnmarkedRestoreClearsAnEarlierContinuation() {
+        let nudges = UpdateRelaunchContinuationNudges()
+        let panel = UUID()
+        let marked = SessionTerminalPanelSnapshot(
+            managedAgentResumeBinding: Self.continuationBinding,
+            resumeWithContinuation: true
+        )
+        nudges.registerRestoredPanel(panel, snapshot: marked, resumesAgent: true, now: 100)
+        #expect(nudges.prompt(forPanel: panel, checkpointID: Self.continuationBinding.checkpointId, now: 101) != nil)
+        nudges.registerRestoredPanel(panel, snapshot: nil, resumesAgent: true, now: 102)
+        #expect(nudges.prompt(forPanel: panel, checkpointID: Self.continuationBinding.checkpointId, now: 103) == nil)
     }
 
     /// A nudge the restore never used expires, so a manual resume much later resumes plainly.

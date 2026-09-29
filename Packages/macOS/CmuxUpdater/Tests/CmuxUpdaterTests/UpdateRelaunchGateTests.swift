@@ -322,6 +322,21 @@ private final class CallCounter: @unchecked Sendable {
         await settle { installs.count == 1 }
     }
 
+    @Test func menuInstallRechecksActivitySinceTheLastPublishedHold() async {
+        let controller = makeController()
+        host.idle = .zero
+        let installs = CallCounter()
+        startAutomaticInstall(controller.driver, installs: installs)
+        host.blockers = blockers(risky: 1)
+
+        controller.attemptUpdate()
+
+        #expect(controller.driver.relaunchGate.mode == .askUser)
+        #expect(installs.count == 0)
+        #expect(host.prepareCount == 0)
+        controller.driver.relaunchGate.cancel()
+    }
+
     @Test func menuInstallWhileRiskyAgentsHoldTheUpdateAsksFirst() async {
         let controller = makeController()
         host.blockers = blockers(risky: 1, commands: 0)

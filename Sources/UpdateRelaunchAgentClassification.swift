@@ -121,9 +121,7 @@ final class UpdateRelaunchContinuationNudges {
 
     /// Panels the session saves mark. Set only once the update relaunch is under way, and kept for
     /// the terminate-path save that follows it.
-    var midTaskPanelIds: Set<UUID> = [] {
-        didSet { midTaskPanelIdsExpiresAt = .greatestFiniteMagnitude }
-    }
+    private var midTaskPanelIds: Set<UUID> = []
     private var midTaskPanelIdsExpiresAt: TimeInterval = 0
 
     func arm(panelIds: Set<UUID>, expiresAtUptime: TimeInterval) {
@@ -146,8 +144,8 @@ final class UpdateRelaunchContinuationNudges {
     private var pendingPanels: [UUID: PendingPanel] = [:]
 
     /// Whether a session save should mark `panelId`.
-    func marksPanel(_ panelId: UUID) -> Bool? {
-        guard ProcessInfo.processInfo.systemUptime <= midTaskPanelIdsExpiresAt else { return nil }
+    func marksPanel(_ panelId: UUID, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool? {
+        guard now <= midTaskPanelIdsExpiresAt else { return nil }
         return midTaskPanelIds.contains(panelId) ? true : nil
     }
 
