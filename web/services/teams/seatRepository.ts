@@ -4,7 +4,7 @@ import { stripeSubscriptions, teamBillingOwners } from "../../db/schema";
 
 export type SeatReservation = { readonly userId?: string; readonly email?: string; readonly expiresAt: string };
 export type TeamSeatSession = {
-  getOrCreateOwner(input: { readonly adminUserIds?: readonly string[] }): Promise<string>;
+  getOrCreateOwner(input: { readonly creatorUserId?: string; readonly adminUserIds?: readonly string[] }): Promise<string>;
   syncMemberOrder(memberIds: readonly string[]): Promise<readonly string[]>;
   listReservations(): Promise<Readonly<Record<string, SeatReservation>>>;
   reserve(key: string, reservation: SeatReservation): Promise<void>;
@@ -44,7 +44,14 @@ function sessionFor(tx: any, teamId: string): TeamSeatSession {
     return row;
   };
   return {
-    async getOrCreateOwner(input) { return (await requireOwner(input.adminUserIds)).billingOwnerUserId; },
+    async getOrCreateOwner(input) {
+      let row = await loadOwner(tx, teamId);
+      if (!row && input.creatorUserId) {
+        const [inserted] = await tx.insert(teamBillingOwners).values({ stackTeamId: teamId, billingOwnerUserId: input.creatorUserId, ownerSource: "creator", memberOrder: [input.creatorUserId], seatReservations: {} }).onConflictDoNothing({ target: teamBillingOwners.stackTeamId }).returning();
+        row = inserted ?? await loadOwner(tx, teamId);
+      }
+      return (row ?? await requireOwner(input.adminUserIds)).billingOwnerUserId;
+    },
     async syncMemberOrder(memberIds) {
       const row = await requireOwner();
       const members = new Set(memberIds);
@@ -76,7 +83,7 @@ export const databaseTeamSeatStore: TeamSeatStore = {
   },
   async recordCreator(teamId, userId) {
     await this.withTeamLock(teamId, async (session) => {
-      const owner = await session.getOrCreateOwner({});
+      const owner = await session.getOrCreateOwner({ creatorUserId: userId });
       if (owner !== userId) throw new Error(`team ${teamId} already has an immutable billing owner`);
     });
   },
