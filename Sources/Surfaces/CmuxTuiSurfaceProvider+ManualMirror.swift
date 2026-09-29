@@ -305,21 +305,13 @@ extension CmuxTuiSurfaceProvider {
         restoredAttachTasks[panelID]?.cancel()
         let generation = lifecycleGeneration
         reservation.retry = { [weak self] in
-            guard let self else { return }
-            self.restoredRetryResetTasks[panelID]?.cancel()
-            let retryTask = Task { @MainActor [weak self] in
-                defer { self?.restoredRetryResetTasks[panelID] = nil }
-                guard let self, self.isCurrentLifecycleGeneration(generation), !Task.isCancelled else { return }
-                await self.links.resetRetry(machineID: self.machineID)
-                guard !Task.isCancelled, self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { return }
-                self.restoredAttachTasks[panelID]?.cancel()
-                self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
-            }
-            self.restoredRetryResetTasks[panelID] = retryTask
+            guard self?.isCurrentLifecycleGeneration(generation) == true else { return }
+            self?.attachmentRetry.reset()
+            self?.restoredAttachTasks[panelID]?.cancel()
+            self?.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
         }
         reservation.cancel = { [weak self] in
             guard let self else { return }
-            self.restoredRetryResetTasks.removeValue(forKey: panelID)?.cancel()
             self.restoredAttachTasks.removeValue(forKey: panelID)?.cancel()
             self.materializedPanels.remove(panelID)
         }
