@@ -29,12 +29,14 @@ class XcodePinAudit(unittest.TestCase):
     def test_accepts_symlinked_app_when_versions_match(self):
         with tempfile.TemporaryDirectory() as temporary:
             apps_dir = Path(temporary)
-            actual = apps_dir / "Xcode_26.6.app"
-            (actual / "Contents" / "Developer").mkdir(parents=True)
+            actual = apps_dir / "Xcode.app"
+            newer = apps_dir / "Xcode_26.6.app"
+            for app in (actual, newer):
+                (app / "Contents" / "Developer").mkdir(parents=True)
             link = apps_dir / "Xcode_26.3.app"
             link.symlink_to(actual, target_is_directory=True)
-            with patch.object(audit, "version", side_effect=lambda app: "26.3" if app == link else "26.6"):
-                errors = audit.audit({"26.3", "26.6"}, {"CMUX_CI_XCODE_APP_PR": str(actual)}, apps_dir)
+            with patch.object(audit, "version", side_effect=lambda app: "26.6" if app == newer else "26.3"):
+                errors = audit.audit({"26.3", "26.6"}, {"CMUX_CI_XCODE_APP_PR": str(newer)}, apps_dir)
             self.assertEqual(errors, [])
 
     def test_reads_pool_pins_and_rejects_invalid_rows(self):
