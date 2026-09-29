@@ -22,7 +22,9 @@ const MAX_HOST_CLOSE_WORKERS: usize = 8;
 #[cfg(unix)]
 struct PendingHostClose {
     runtime: Arc<Surface>,
-    termination: crate::surface::HostTermination,
+    /// `None` when the host could not be signaled through its connection;
+    /// the worker then falls back to the host record.
+    termination: Option<crate::surface::HostTermination>,
     identity: Option<TerminalHostIdentity>,
     host_root: Option<PathBuf>,
     deadline: Instant,
@@ -118,18 +120,20 @@ impl TerminalHostCloses {
 #[cfg(unix)]
 fn finish_host_close(close: PendingHostClose) {
     let PendingHostClose { runtime, termination, identity, host_root, deadline } = close;
-    let acknowledged = match runtime.wait_for_host_exit(termination, deadline) {
-        Ok((path, exit)) => acknowledge_exact_terminal_host_exit(&path, &exit),
-        Err(error) => {
-            if let Some(identity) = identity.as_ref() {
-                eprintln!(
-                    "cmux-tui: terminal {} close could not await host exit: {error:#}",
-                    identity.terminal_id
-                );
+    let acknowledged =
+        match termination.map(|termination| runtime.wait_for_host_exit(termination, deadline)) {
+            Some(Ok((path, exit))) => acknowledge_exact_terminal_host_exit(&path, &exit),
+            Some(Err(error)) => {
+                if let Some(identity) = identity.as_ref() {
+                    eprintln!(
+                        "cmux-tui: terminal {} close could not await host exit: {error:#}",
+                        identity.terminal_id
+                    );
+                }
+                false
             }
-            false
-        }
-    };
+            None => false,
+        };
     runtime.kill();
     if !acknowledged && let (Some(identity), Some(root)) = (identity, host_root) {
         terminate_discovered_terminal_host_in(
@@ -149,16 +153,10 @@ impl Mux {
         #[cfg(unix)]
         {
             let termination = match runtime.begin_host_termination() {
-                Ok(Some(termination)) => termination,
-                outcome => {
-                    // A local runtime, or a host that could not be signaled:
-                    // kill inline and fall back to the host record.
-                    if let (Err(error), Some(identity)) = (&outcome, identity.as_ref()) {
-                        eprintln!(
-                            "cmux-tui: terminal {} close could not signal its host: {error:#}",
-                            identity.terminal_id
-                        );
-                    }
+                Ok(Some(termination)) => Some(termination),
+                Ok(None) => {
+                    // A local runtime: kill it inline, and end any host
+                    // record left for the same terminal.
                     runtime.kill();
                     if let Some(identity) = identity {
                         self.terminate_discovered_terminal_host(
@@ -167,6 +165,17 @@ impl Mux {
                         );
                     }
                     return;
+                }
+                Err(error) => {
+                    // The host connection is gone. Re-adopting the host from
+                    // its record can take a second, so the pool does it.
+                    if let Some(identity) = identity.as_ref() {
+                        eprintln!(
+                            "cmux-tui: terminal {} close could not signal its host: {error:#}",
+                            identity.terminal_id
+                        );
+                    }
+                    None
                 }
             };
             let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();

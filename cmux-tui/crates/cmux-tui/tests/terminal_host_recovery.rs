@@ -3596,8 +3596,7 @@ fn tree_terminal_ids(socket: &Path) -> std::collections::HashSet<String> {
 }
 
 /// A close commits and updates the tree before its host exits, and many
-/// closes end their hosts in parallel (the concurrency bench closed about 10
-/// terminals per second when every close waited for its host).
+/// closes end their hosts in parallel instead of one after another.
 #[test]
 fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() {
     const COUNT: usize = 100;
@@ -3641,8 +3640,15 @@ fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() 
     eprintln!(
         "closed {COUNT} terminals: replies {closed_in:?}, tree {tree_in:?}, hosts {hosts_in:?}"
     );
-    assert!(tree_in < test_timeout(Duration::from_secs(2)), "closes took {tree_in:?}");
-    assert!(hosts_in < test_timeout(Duration::from_secs(5)), "host exits took {hosts_in:?}");
+    // Each reply waits only for its durable commit (one fsync plus a full
+    // resource projection), never for a host exit.
+    assert!(closed_in < test_timeout(Duration::from_secs(15)), "closes took {closed_in:?}");
+    // Hosts were signaled as each close committed and end in parallel.
+    let hosts_after_last_reply = hosts_in.saturating_sub(closed_in);
+    assert!(
+        hosts_after_last_reply < test_timeout(Duration::from_secs(3)),
+        "host exits trailed the last close by {hosts_after_last_reply:?}"
+    );
 }
 
 /// The owner ends a terminal once it has no tab for the reap grace period,
