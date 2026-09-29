@@ -45,6 +45,7 @@ on:
           - CmuxSyncStore
           - CmuxMobilePairedMac
           - CmuxMobileChanges
+          - CmuxMobileRPC
           - CmuxMobileShell
           - CmuxMobileShellModel
       ios_version:
@@ -446,7 +447,7 @@ jobs:
           SELECTED_PACKAGE: ${{ inputs.swift_package }}
         run: |
           case "$SELECTED_PACKAGE" in
-            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileShell|CmuxMobileShellModel) ;;
+            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileRPC|CmuxMobileShell|CmuxMobileShellModel) ;;
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
 
@@ -568,6 +569,19 @@ jobs:
             --label CmuxMobileChanges --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileChanges}"
 
+      - name: Run CmuxMobileRPC package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileRPC' }}
+        run: |
+          set -euo pipefail
+          args=(--package-path Packages/iOS/CmuxMobileRPC --no-parallel)
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CmuxMobileRPC-tests.log"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobileRPC --log "$log_path" -- swift test "${args[@]}"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileRPC}"
+
       - name: Run CmuxMobileShell package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShell' }}
         run: |
@@ -608,6 +622,44 @@ jobs:
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
             --label CmuxMobileShellModel --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
+
+      - name: Collect package test crash reports
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          # SwiftPM otherwise reports only a signal number. Give ReportCrash
+          # a bounded window to finish writing a report after a runner abort.
+          if ! grep -q 'unexpected signal' "$RUNNER_TEMP"/*-tests.log 2>/dev/null; then
+            exit 0
+          fi
+          reports="$RUNNER_TEMP/ios-package-test-crashes"
+          mkdir -p "$reports"
+          for attempt in 1 2 3 4 5; do
+            for directory in "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports; do
+              [ -d "$directory" ] || continue
+              while IFS= read -r report; do
+                case "$(basename "$report")" in
+                  *PackageTests*|*xctest*|*swift-testing*|*swiftpm-testing-helper*)
+                    cp "$report" "$reports/"
+                    ;;
+                esac
+              done < <(find "$directory" -maxdepth 1 -type f \( -name '*.ips' -o -name '*.crash' \) -newer "$GITHUB_WORKSPACE/.git" 2>/dev/null)
+            done
+            [ -n "$(ls -A "$reports")" ] && break
+            sleep 1
+          done
+
+      - name: Upload package test crash reports
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-package-test-crashes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-package-test-crashes
+          if-no-files-found: ignore
+          retention-days: 7
 
   ios-simulator-build:
     needs: [runner, detect-ios-changes, package-conventions-lint]

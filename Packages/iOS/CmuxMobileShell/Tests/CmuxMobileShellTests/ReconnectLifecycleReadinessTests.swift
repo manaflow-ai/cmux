@@ -35,7 +35,6 @@ extension ReconnectRouteSelectionTests {
         let oldGeneration = shell.storedMacReconnectGeneration
         // No suspension between these transitions: cancellation cannot finish first.
         shell.suspendForegroundRefresh()
-        shell.pendingInactiveRecoveryTrigger = .foreground
         shell.resumeForegroundRefresh()
         #expect(shell.pendingInactiveRecoveryTrigger != nil)
         _ = await first.value

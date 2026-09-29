@@ -7,6 +7,29 @@ import Testing
 @MainActor
 @Suite struct ReconnectOwnershipTests {
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func scopeChangeRetiresThePendingAttempt(signOut: Bool) async throws {
+        let pairedStore = DelayedTeamPairedMacStore(recordsByTeam: ["": []], blockedTeams: [""])
+        let runtime = LivenessTestRuntime(
+            transportFactory: KindRecordingTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+            now: Date.init, supportedRouteKinds: [.iroh])
+        let shell = MobileShellComposite(
+            runtime: runtime, isSignedIn: true, pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"), reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "scope-retirement-\(UUID())")!)
+        let first = Task { await shell.reconnectActiveMacOutcome(stackUserID: "user-1") }
+        await pairedStore.waitUntilLoadStarted(teamID: nil)
+        let owner = try #require(shell.storedMacReconnectAttempt)
+        if signOut { shell.isSignedIn = false } else { shell.currentTeamDidChange() }
+        #expect(owner.retirement == .superseded)
+        let returned = Task<StoredMacReconnectOutcome, any Error> { await first.value }
+        let result = try? await RPCTaskTimeout().value(returned, timeoutNanoseconds: 2_000_000_000)
+        #expect(result == .superseded, "a scope change must not wait for the old read or deadline")
+        returned.cancel()
+        await pairedStore.release(teamID: nil)
+        _ = await first.value
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func forcedRetrySurvivesRetirement(background: Bool) async throws {
         let pairedStore = DelayedTeamPairedMacStore(recordsByTeam: ["": []], blockedTeams: [""])
         let counts = await pairedStore.loadCounts()
