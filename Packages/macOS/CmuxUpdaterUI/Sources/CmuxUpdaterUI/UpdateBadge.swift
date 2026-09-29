@@ -1,5 +1,5 @@
 public import SwiftUI
-public import CmuxAppKitSupportUI
+import CmuxAppKitSupportUI
 public import CmuxUpdater
 import AppKit
 
@@ -65,6 +65,10 @@ public struct UpdateBadge: View {
             size: NSSize(width: iconSize, height: iconSize),
             tintColor: tintColor,
             symbolWeight: iconWeight,
+            fallbackSource: .systemSymbol(
+                name: systemName,
+                accessibilityDescription: nil
+            ),
             symbolPointSize: iconPointSize
         )
     }
