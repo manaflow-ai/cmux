@@ -4386,7 +4386,10 @@
     "emailUnavailable": "無法取得電子郵件地址",
     "organization": "組織",
     "personalAccount": "個人帳戶",
-    "switchAccountButton": "使用其他帳號"
+    "switchAccountButton": "使用其他帳號",
+    "signedOutTitle": "登入以授權 coderouter",
+    "signedOutBody": "一個命令列應用程式正在等待你登入。使用你的 cmux 帳號登入，即可完成此終端機的連線。如果這不是你發起的請求，請關閉此頁面。",
+    "signInButton": "登入"
   },
   "MobileRelease106": {
     "title": "1.0.6 更新內容",

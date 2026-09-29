@@ -620,14 +620,14 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
 
     func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() throws {
         // The digit defaults are positional over the visible tabs. Resolve them
-        // against an isolated defaults suite with Feed and Dock on, so the test
+        // against an isolated defaults suite with Feed on and Dock always
+        // available, so the test
         // neither depends on nor changes the shared settings other tests read
         // (tab order, hidden tabs, and feature opt-ins all shift the digits).
         let suiteName = "cmux.rightSidebarDigitDefaults.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, RightSidebarMode, String)] = [
             (.switchRightSidebarToFiles, .files, "1"),
@@ -655,9 +655,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         // suite, so this keeps the action-to-tab mapping covered end to end.
         let defaults = UserDefaults.standard
         let feedKey = RightSidebarBetaFeatureSettings.feedEnabledKey
-        let dockKey = RightSidebarBetaFeatureSettings.dockEnabledKey
         let previousFeed = defaults.object(forKey: feedKey)
-        let previousDock = defaults.object(forKey: dockKey)
         // Hidden tabs or a custom tab order left in the host's defaults would
         // change which digit each mode gets, so pin both to the defaults.
         let tabPreferenceKeys = [RightSidebarTabPreferences.hiddenKey, RightSidebarTabPreferences.orderKey]
@@ -665,15 +663,12 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         defer {
             if let previousFeed { defaults.set(previousFeed, forKey: feedKey) }
             else { defaults.removeObject(forKey: feedKey) }
-            if let previousDock { defaults.set(previousDock, forKey: dockKey) }
-            else { defaults.removeObject(forKey: dockKey) }
             for (key, previous) in zip(tabPreferenceKeys, previousTabPreferences) {
                 if let previous { defaults.set(previous, forKey: key) }
                 else { defaults.removeObject(forKey: key) }
             }
         }
         defaults.set(true, forKey: feedKey)
-        defaults.set(true, forKey: dockKey)
         tabPreferenceKeys.forEach { defaults.removeObject(forKey: $0) }
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, RightSidebarMode)] = [
             (.switchRightSidebarToFiles, .files),

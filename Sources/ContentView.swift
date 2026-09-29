@@ -10992,19 +10992,6 @@ struct ContentView: View {
 #endif
 }
 
-private struct SidebarResizerAccessibilityModifier: ViewModifier {
-    let accessibilityIdentifier: String?
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if let accessibilityIdentifier {
-            content.accessibilityIdentifier(accessibilityIdentifier)
-        } else {
-            content
-        }
-    }
-}
-
 private enum SidebarFontSizeProvider {
     static func loadFromGhosttyConfig() async -> CGFloat {
         await Task.detached(priority: .utility) {

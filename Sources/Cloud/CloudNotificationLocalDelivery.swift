@@ -8,6 +8,8 @@ import Foundation
 @MainActor
 struct CloudNotificationLocalDelivery {
     let machineID: String
+    /// `.cloudVM` for a Cloud machine, `.deviceMac` for another Mac.
+    var origin: TerminalNotificationOrigin
     var store: @MainActor () -> TerminalNotificationStore?
     /// The hub's admission gate, shared across every live machine.
     var admit: @MainActor (CloudVMNotificationRow) -> CloudMachineNotificationGate.Decision
@@ -65,7 +67,7 @@ struct CloudNotificationLocalDelivery {
             body: row.body,
             retargetsToLiveSurfaceOwner: target.panelID != nil,
             correlationKey: CloudNotificationCorrelation.key(machineID: machineID, notificationID: row.id),
-            origin: .cloudVM(machineID: machineID)
+            origin: origin
         ) != nil
         // Any other decline is transient (the pane's live owner vanished
         // between placement and delivery): the next fold re-resolves it. A

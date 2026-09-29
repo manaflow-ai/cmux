@@ -6049,7 +6049,10 @@
     "emailUnavailable": "メールアドレスを取得できません",
     "organization": "組織",
     "personalAccount": "個人アカウント",
-    "switchAccountButton": "別のアカウントを使用"
+    "switchAccountButton": "別のアカウントを使用",
+    "signedOutTitle": "サインインして coderouter を承認",
+    "signedOutBody": "コマンドラインアプリケーションがサインインを待っています。cmux アカウントでサインインすると、このターミナルの接続が完了します。このリクエストに心当たりがない場合は、このページを閉じてください。",
+    "signInButton": "サインイン"
   },
   "MobileRelease106": {
     "title": "1.0.6 の新機能",

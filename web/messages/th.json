@@ -4392,7 +4392,10 @@
     "emailUnavailable": "ไม่พบอีเมล",
     "organization": "องค์กร",
     "personalAccount": "บัญชีส่วนตัว",
-    "switchAccountButton": "ใช้บัญชีอื่น"
+    "switchAccountButton": "ใช้บัญชีอื่น",
+    "signedOutTitle": "ลงชื่อเข้าใช้เพื่ออนุญาต coderouter",
+    "signedOutBody": "แอปพลิเคชันบรรทัดคำสั่งกำลังรอให้คุณลงชื่อเข้าใช้ ลงชื่อเข้าใช้ด้วยบัญชี cmux ของคุณเพื่อเชื่อมต่อเทอร์มินัลนี้ให้เสร็จ หากคุณไม่ได้เริ่มคำขอนี้ ให้ปิดหน้านี้",
+    "signInButton": "ลงชื่อเข้าใช้"
   },
   "MobileRelease106": {
     "title": "มีอะไรใหม่ใน 1.0.6",

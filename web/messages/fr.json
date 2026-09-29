@@ -4389,7 +4389,10 @@
     "emailUnavailable": "adresse e-mail indisponible",
     "organization": "Organisation",
     "personalAccount": "compte personnel",
-    "switchAccountButton": "Utiliser un autre compte"
+    "switchAccountButton": "Utiliser un autre compte",
+    "signedOutTitle": "Connectez-vous pour autoriser coderouter",
+    "signedOutBody": "Une application en ligne de commande attend votre connexion. Connectez-vous avec votre compte cmux pour terminer la connexion de ce terminal. Si vous n'êtes pas à l'origine de cette demande, fermez cette page.",
+    "signInButton": "Se connecter"
   },
   "MobileRelease106": {
     "title": "Nouveautés de la version 1.0.6",
