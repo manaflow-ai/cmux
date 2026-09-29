@@ -19,8 +19,8 @@ use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
     CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
     FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MACHINE_USAGE_CAPABILITY,
-    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, SHARED_SIZING_CAPABILITY,
-    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    SHARED_SIZING_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::sizing_policy::{TerminalSizingPolicy, TerminalSizingState};
 use cmux_tui_core::{
@@ -3308,7 +3308,10 @@ mod tests {
                 .unwrap()
                 .participants
                 .iter()
-                .find(|row| row.participant.device_kind == TerminalDeviceKind::Tui && row.participant.id != "c0")
+                .find(|row| {
+                    row.participant.device_kind == TerminalDeviceKind::Tui
+                        && row.participant.id != "c0"
+                })
                 .map(|row| row.participant.clone())
                 .expect("the remote TUI joined shared sizing")
         };
