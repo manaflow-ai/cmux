@@ -29,7 +29,7 @@ enum WorkspacesModelObservationMember: String, CaseIterable, Sendable {
         case .tabs:
             model.tabs = [ObservedStubTab()]
         case .workspaceGroups:
-            model.workspaceGroups = [group(named: "changed")]
+            model.workspaceGroups = [Self.group(named: "changed")]
         case .selectedTabId:
             model.selectedTabId = UUID()
         }
