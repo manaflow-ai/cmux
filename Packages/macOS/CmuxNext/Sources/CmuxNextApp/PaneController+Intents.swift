@@ -120,10 +120,21 @@ extension PaneController {
         let keys = Set(ids.map(\.rawValue))
         Task {
             var failed = false
-            for command in commands where !(await services.daemon.run(command.label, command.run)) { failed = true }
+            var unknown = false
+            for command in commands {
+                switch await services.daemon.runReportingTimeout(command.label, command.run) {
+                case .succeeded: break
+                case .failed: failed = true
+                case .unknown: unknown = true
+                }
+            }
+            // A close that missed its deadline under daemon load usually still
+            // lands: keep the tabs hidden until a snapshot ordered after the
+            // closes says which ones remain, instead of flashing them back.
+            if unknown { await services.daemon.reconcile() }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
-            if failed { resyncStrip() }
+            if failed || unknown { resyncStrip() }
         }
     }
 

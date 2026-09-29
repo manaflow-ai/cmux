@@ -13,18 +13,19 @@
 # Usage:
 #   scripts/cmux-next/bench-cli-storm.sh <tag> [--socket PATH] [--clients 32]
 #       [--requests 2000] [--stream-bytes 52428800] [--seed 1] [--out DIR]
-#       [--prewarm-tabs 16] [--measure-seconds 10]
-#       [--label NAME] [--no-fail]
+#       [--prewarm-tabs 16] [--max-creates 96] [--measure-seconds 10]
+#       [--label NAME] [--profile next|legacy] [--no-fail]
 #
 # Launch the tagged app first with a clean environment, for example:
 #   env -i HOME=$HOME USER=$USER PATH=/usr/bin:/bin CMUX_NEXT_NO_ACTIVATE=1 \
 #     CMUX_NEXT_SOCKET_MODE=automation open -g "<tagged app>"
 #
 # Writes artifacts/cmux-next-bench/<sha>-<label>.json and exits 1 when a
-# criterion fails (unless --no-fail).
+# criterion fails (unless --no-fail). `--profile legacy` drives the old
+# app's v2 socket for a before/after comparison (no stall/frame data there).
 set -euo pipefail
 if [[ $# -lt 1 || "$1" == -* ]]; then
-  sed -n '2,24p' "$0"
+  sed -n '2,26p' "$0"
   exit 2
 fi
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"

@@ -65,6 +65,41 @@ final class DaemonService {
         }
     }
 
+    /// Outcome of a command whose reply may miss its deadline.
+    enum CommandOutcome {
+        case succeeded
+        case failed
+        /// The deadline passed: the daemon may still apply the command.
+        case unknown
+    }
+
+    /// Like ``run(_:_:)``, but tells a deadline miss (outcome unknown) apart
+    /// from a failure, so callers can reconcile instead of reverting.
+    func runReportingTimeout(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> CommandOutcome {
+        guard let connection else {
+            logger.error("\(label, privacy: .public): not connected")
+            return .failed
+        }
+        do {
+            try await body(connection)
+            return .succeeded
+        } catch DaemonError.timedOut(let what) {
+            logger.info("\(label, privacy: .public) outcome unknown: \(what, privacy: .public)")
+            return .unknown
+        } catch {
+            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            return .failed
+        }
+    }
+
+    /// Fetches and applies a snapshot. Requests on the control connection
+    /// are answered in order, so the snapshot reflects every command sent
+    /// before it, including ones whose replies missed their deadline.
+    func reconcile() async {
+        guard let connection, let (tree, _) = try? await connection.snapshot() else { return }
+        store.apply(snapshot: tree)
+    }
+
     /// Fire-and-forget variant for UI handlers.
     func send(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         Task { await run(label, body) }
