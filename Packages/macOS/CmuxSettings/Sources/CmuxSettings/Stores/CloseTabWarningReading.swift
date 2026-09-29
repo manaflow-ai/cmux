@@ -46,6 +46,9 @@ extension CloseTabWarningReading {
         requiresConfirmation: Bool,
         source: CloseTabCloseSource
     ) -> Bool {
-        requiresConfirmation || shouldConfirmClose(requiresConfirmation: true, source: source)
+        requiresConfirmation || shouldConfirmClose(
+            requiresConfirmation: requiresConfirmation,
+            source: source
+        )
     }
 }

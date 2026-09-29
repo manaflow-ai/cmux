@@ -91,6 +91,7 @@ public protocol ControlSystemContext: AnyObject {
     ///   - surfaceID: The explicit `surface_id` / `tab_id`, if any.
     ///   - requestedFocus: The requested `focus` flag (the app applies the
     ///     focus-allowance policy).
+    ///   - force: Whether a close batch may terminate active processes.
     ///   - moveParams: The raw request params, passed through to the
     ///     still-app-side move-to-new-workspace family.
     /// - Returns: The action resolution.
@@ -101,6 +102,7 @@ public protocol ControlSystemContext: AnyObject {
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
+        force: Bool,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution
 
