@@ -4054,7 +4054,19 @@ impl Mux {
             "fields":fields,
         });
         if topology_effect_creates_terminal(operation) {
-            let terminal_id = TerminalId::random()?.to_hex();
+            let terminal_id = match fields.get(RESERVED_TERMINAL_ID_FIELD) {
+                Some(requested) => {
+                    let requested =
+                        requested.as_str().context("bad request: terminal_id must be a string")?;
+                    validate_requested_terminal_id(requested)?;
+                    anyhow::ensure!(
+                        registry.terminal_record(requested)?.is_none(),
+                        "terminal_id_exists: {requested}"
+                    );
+                    requested.to_string()
+                }
+                None => TerminalId::random()?.to_hex(),
+            };
             let mutation = WorkspaceMutation::local(context.mutation_origin);
             intent["terminal_reservation"] = json!({
                 "terminal_id":terminal_id,
@@ -5233,6 +5245,20 @@ fn effect_target(operation: ResourceOperation, selectors: &ResourceSelectors) ->
         }
         _ => ResourceTarget::Session,
     }
+}
+
+/// A caller-chosen terminal id is a lowercase UUIDv4 in 32 hex digits, the
+/// same shape as a daemon-generated one.
+fn validate_requested_terminal_id(value: &str) -> anyhow::Result<()> {
+    let bytes = value.as_bytes();
+    anyhow::ensure!(
+        bytes.len() == 32
+            && bytes.iter().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+            && bytes[12] == b'4'
+            && matches!(bytes[16], b'8'..=b'b'),
+        "bad request: terminal_id must be a 32-character lowercase UUIDv4 hex value"
+    );
+    Ok(())
 }
 
 fn validate_effect_fields(

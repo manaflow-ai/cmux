@@ -1694,6 +1694,26 @@ pub(crate) fn validate_terminal_env(
     Ok(env.iter().map(|(key, value)| (key.clone(), value.clone())).collect())
 }
 
+/// Internal creation field carrying a caller-chosen terminal host id.
+pub(crate) const RESERVED_TERMINAL_ID_FIELD: &str = "reserved_terminal_id";
+
+/// How to start the terminal a placement command creates.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TerminalSpawnOptions {
+    pub cwd: Option<String>,
+    /// Extra environment for the new terminal's child only.
+    pub env: Vec<(String, String)>,
+    /// Caller-chosen terminal host id (32 lowercase hex, UUIDv4), so the
+    /// caller can put it in `env` before the child starts.
+    pub terminal_id: Option<String>,
+}
+
+impl TerminalSpawnOptions {
+    pub fn new(cwd: Option<String>, env: Vec<(String, String)>) -> Self {
+        Self { cwd, env, terminal_id: None }
+    }
+}
+
 /// Environment pairs stored in a creation's `env` field.
 fn terminal_env_field(fields: &Value) -> Vec<(String, String)> {
     fields
@@ -4644,6 +4664,12 @@ impl Mux {
                 ),
             );
         }
+    }
+
+    fn insert_spawn_options(fields: &mut Map<String, Value>, spawn: TerminalSpawnOptions) {
+        Self::insert_optional_string(fields, "cwd", spawn.cwd);
+        Self::insert_terminal_env(fields, spawn.env);
+        Self::insert_optional_string(fields, RESERVED_TERMINAL_ID_FIELD, spawn.terminal_id);
     }
 
     fn insert_cell_size(fields: &mut Map<String, Value>, size: Option<(u16, u16)>) {
@@ -13428,6 +13454,17 @@ impl Mux {
         env: Vec<(String, String)>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_tab_with_options(pane, TerminalSpawnOptions::new(cwd, env), size)
+    }
+
+    /// `new_tab` with a directory, extra environment, and an optional
+    /// caller-chosen terminal id (`terminal-placement-env-v1`).
+    pub fn new_tab_with_options(
+        self: &Arc<Self>,
+        pane: Option<PaneId>,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -13454,9 +13491,8 @@ impl Mux {
             }
         };
         let mut fields = Map::new();
-        Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_cell_size(&mut fields, size);
-        Self::insert_terminal_env(&mut fields, env);
+        Self::insert_spawn_options(&mut fields, spawn);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::TabCreateTerminal,
             selectors,
@@ -14552,6 +14588,18 @@ impl Mux {
         env: Vec<(String, String)>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.split_with_options(target, dir, TerminalSpawnOptions::new(cwd, env), size)
+    }
+
+    /// `split` with a directory, extra environment, and an optional
+    /// caller-chosen terminal id (`terminal-placement-env-v1`).
+    pub fn split_with_options(
+        self: &Arc<Self>,
+        target: PaneId,
+        dir: SplitDir,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
@@ -14561,9 +14609,8 @@ impl Mux {
             SplitDir::Down => "down",
         };
         let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
-        Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_cell_size(&mut fields, size);
-        Self::insert_terminal_env(&mut fields, env);
+        Self::insert_spawn_options(&mut fields, spawn);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::PaneSplit,
             selectors,
@@ -14584,6 +14631,18 @@ impl Mux {
         width: f32,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_pane_right_with_options(target, width, TerminalSpawnOptions::default(), size)
+    }
+
+    /// `new_pane_right` with a directory, extra environment, and an optional
+    /// caller-chosen terminal id (`terminal-placement-env-v1`).
+    pub fn new_pane_right_with_options(
+        self: &Arc<Self>,
+        target: PaneId,
+        width: f32,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
@@ -14598,9 +14657,16 @@ impl Mux {
             ("viewport_width".into(), Value::from(width)),
         ]);
         Self::insert_cell_size(&mut fields, size);
+        Self::insert_spawn_options(&mut fields, spawn);
         let commit = self
             .commit_ordinary_topology_operation(ResourceOperation::PaneSplit, selectors, fields)
             .map_err(|error| {
+                // Caller input errors stay visible; spawn failures keep the
+                // generic message.
+                let message = error.to_string();
+                if message.starts_with("bad request") || message.starts_with("terminal_id_exists") {
+                    return error;
+                }
                 eprintln!("cmux-tui: viewport pane PTY creation failed: {error:#}");
                 anyhow::anyhow!("pane creation failed")
             })?;
@@ -14617,12 +14683,24 @@ impl Mux {
         target: PaneId,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_pane_with_options(target, TerminalSpawnOptions::default(), size)
+    }
+
+    /// `new_pane` with a directory, extra environment, and an optional
+    /// caller-chosen terminal id (`terminal-placement-env-v1`).
+    pub fn new_pane_with_options(
+        self: &Arc<Self>,
+        target: PaneId,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
         let mut fields = Map::new();
         Self::insert_cell_size(&mut fields, size);
+        Self::insert_spawn_options(&mut fields, spawn);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::PaneCreate,
             selectors,

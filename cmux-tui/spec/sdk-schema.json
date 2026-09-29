@@ -7066,6 +7066,23 @@
       "default": false,
       "since": 12,
       "capability": "terminal-reap-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -7079,7 +7096,8 @@
    },
    "stream": null,
    "constraints": [
-    "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+    "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
    ]
   },
   "new-browser-tab": {
@@ -7540,6 +7558,59 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1"
+     },
+     "env": {
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1"
+     },
+     "keep": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "terminal-reap-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -7552,7 +7623,9 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+   ]
   },
   "new-pane-right": {
    "authority": "control",
@@ -7601,6 +7674,59 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1"
+     },
+     "env": {
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1"
+     },
+     "keep": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "terminal-reap-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -7614,7 +7740,9 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+   ]
   },
   "split": {
    "authority": "control",
@@ -7692,6 +7820,23 @@
       "default": false,
       "since": 12,
       "capability": "terminal-reap-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-placement-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -7705,7 +7850,8 @@
    },
    "stream": null,
    "constraints": [
-    "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+    "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
    ]
   },
   "set-ratio": {

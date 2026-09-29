@@ -3716,6 +3716,72 @@ fn unplaced_terminal_host_is_reaped_unless_kept() {
     wait_for_host_records(&harness.host_root(), 1);
 }
 
+/// Every placement command starts its terminal with a caller-chosen id
+/// already in the child's environment (`terminal-placement-env-v1`).
+#[test]
+fn placement_commands_start_terminals_with_the_caller_id_in_env() {
+    let harness = RecoveryHarness::start("placement-env");
+    let (anchor, _) = run_cat_workspace(&harness.socket, 1, "anchor");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "resolve-terminal", "terminal_id": anchor}),
+    );
+    let surface = resolved["surface"].as_u64().unwrap();
+    let tree = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
+    let pane = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .find(|pane| {
+            pane["tabs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|tab| tab["surface"].as_u64() == Some(surface))
+        })
+        .and_then(|pane| pane["id"].as_u64())
+        .expect("anchor pane");
+    let commands = [
+        ("new-tab", serde_json::json!({})),
+        ("split", serde_json::json!({"dir": "down"})),
+        ("new-pane", serde_json::json!({})),
+        ("new-pane-right", serde_json::json!({"width": 0.5})),
+    ];
+    for (index, (command, extra)) in commands.into_iter().enumerate() {
+        let terminal_id = format!("{:012x}4000{:04x}{:012x}", 0x7e57, 0x8000, 0x200 + index);
+        let mut value = serde_json::json!({
+            "id": 10 + index,
+            "cmd": command,
+            "pane": pane,
+            "cols": 80,
+            "rows": 24,
+            "cwd": harness.dir,
+            "env": {"CMUX_SURFACE_ID": terminal_id},
+            "terminal_id": terminal_id,
+        });
+        for (key, field) in extra.as_object().unwrap() {
+            value[key] = field.clone();
+        }
+        let created = request(&harness.socket, value);
+        assert_eq!(created["terminal_id"], terminal_id.as_str(), "{command}: {created}");
+        let surface = created["surface"].as_u64().unwrap();
+        request(
+            &harness.socket,
+            serde_json::json!({
+                "id": 20 + index,
+                "cmd": "send",
+                "surface": surface,
+                "text": "printf 'id=%s cwd=%s\\n' \"$CMUX_SURFACE_ID\" \"$PWD\"\n",
+            }),
+        );
+        let marker = format!("id={terminal_id} cwd=");
+        let screen = wait_for_screen(&harness.socket, surface, &marker);
+        assert!(screen.contains(&marker), "{command}: {screen}");
+    }
+}
+
 /// `shutdown-daemon` with `end_terminals` ends every host before the daemon
 /// exits, so test teardown leaves no terminal host behind.
 #[test]

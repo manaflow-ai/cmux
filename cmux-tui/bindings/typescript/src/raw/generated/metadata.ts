@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e. */
+/* cmux-tui mux protocol 12, IR 006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e" as const;
+export const SDK_IR_SHA256 = "006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -897,17 +897,55 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 9,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "cwd": {
+        "since": 12,
+        "capability": "terminal-placement-env-v1"
+      },
+      "env": {
+        "since": 12,
+        "capability": "terminal-placement-env-v1"
+      },
+      "keep": {
+        "since": 12,
+        "capability": "terminal-reap-v1"
+      },
+      "terminal_id": {
+        "since": 12,
+        "capability": "terminal-placement-env-v1"
+      }
+    },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+    ]
   },
   "new-pane-right": {
     "authority": "control",
     "since": 9,
     "capability": "viewport-splits-v1",
-    "fields": {},
+    "fields": {
+      "cwd": {
+        "since": 12,
+        "capability": "terminal-placement-env-v1"
+      },
+      "env": {
+        "since": 12,
+        "capability": "terminal-placement-env-v1"
+      },
+      "keep": {
+        "since": 12,
+        "capability": "terminal-reap-v1"
+      },
+      "terminal_id": {
+        "since": 12,
+        "capability": "terminal-placement-env-v1"
+      }
+    },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+    ]
   },
   "new-screen": {
     "authority": "control",
@@ -929,11 +967,16 @@ export const COMMAND_METADATA = {
       "keep": {
         "since": 12,
         "capability": "terminal-reap-v1"
+      },
+      "terminal_id": {
+        "since": 12,
+        "capability": "terminal-placement-env-v1"
       }
     },
     "stream": null,
     "constraints": [
-      "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+      "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
+      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
     ]
   },
   "new-workspace": {
@@ -1492,11 +1535,16 @@ export const COMMAND_METADATA = {
       "keep": {
         "since": 12,
         "capability": "terminal-reap-v1"
+      },
+      "terminal_id": {
+        "since": 12,
+        "capability": "terminal-placement-env-v1"
       }
     },
     "stream": null,
     "constraints": [
-      "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+      "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
+      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
     ]
   },
   "subscribe": {
@@ -10609,6 +10657,42 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "cwd": {
+          "capability": "terminal-placement-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "env": {
+          "capability": "terminal-placement-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
+        "keep": {
+          "capability": "terminal-reap-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "pane": {
           "nullable": false,
           "presence": "required",
@@ -10624,6 +10708,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "terminal_id": {
+          "capability": "terminal-placement-env-v1",
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes)",
+              "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },
@@ -10651,6 +10752,42 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "cwd": {
+          "capability": "terminal-placement-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "env": {
+          "capability": "terminal-placement-env-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
+        "keep": {
+          "capability": "terminal-reap-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "pane": {
           "nullable": false,
           "presence": "required",
@@ -10666,6 +10803,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "terminal_id": {
+          "capability": "terminal-placement-env-v1",
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes)",
+              "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "width": {
@@ -10799,6 +10953,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "terminal_id": {
+          "capability": "terminal-placement-env-v1",
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes)",
+              "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },
@@ -13057,6 +13228,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "terminal_id": {
+          "capability": "terminal-placement-env-v1",
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes)",
+              "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },

@@ -80,9 +80,9 @@ pub use mux::{
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
     SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge, TabGroupDestination,
-    TabGroupOutcome, TabNotificationAck, TabPinChange, TreeDecorations, TreeDelta, TreeDeltaKind,
-    ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult, WorkspacePlacement,
-    ZoomMode, ZoomState,
+    TabGroupOutcome, TabNotificationAck, TabPinChange, TerminalSpawnOptions, TreeDecorations,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
+    WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use mux::{
     DEFAULT_TERMINAL_REAP_GRACE, IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper,

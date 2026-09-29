@@ -1902,7 +1902,11 @@ class NewFrontendBrowserTabRequest:
 class NewPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-pane/request'
     pane: Id
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
 
 
@@ -1910,7 +1914,11 @@ class NewPaneRequest:
 class NewPaneRightRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-pane-right/request'
     pane: Id
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -1932,6 +1940,7 @@ class NewTabRequest:
     rows: Union[int, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2357,6 +2366,7 @@ class SplitRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/split/request'
     pane: Id
     dir: SplitDirection
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)

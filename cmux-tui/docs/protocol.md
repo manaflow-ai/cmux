@@ -184,6 +184,15 @@ launchd environment:
 {"id":19,"cmd":"new-tab","pane":2,"cwd":"/Users/me/src","env":{"PATH":"/opt/homebrew/bin:/usr/bin:/bin"}}
 ```
 
+`terminal-placement-env-v1` adds a caller-chosen `terminal_id` to `new-tab`,
+`split`, `new-pane`, and `new-pane-right` (and `cwd`/`env` to the last two),
+so the child starts with its own id in its environment:
+
+```json
+{"id":20,"cmd":"new-pane-right","pane":2,"width":0.5,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","env":{"CMUX_SURFACE_ID":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f"}}
+{"id":20,"ok":true,"data":{"surface":9,"terminal_id":"3f0c2d9e8b1a4c7d9e2f1a0b3c4d5e6f","terminal_incarnation":"..."}}
+```
+
 ## Events
 
 `subscribe` starts event streaming:

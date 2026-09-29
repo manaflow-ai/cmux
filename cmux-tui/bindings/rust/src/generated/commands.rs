@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e.
+// cmux-tui mux protocol 12, IR 006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -999,9 +999,17 @@ pub type NewFrontendBrowserTabResult = T::JsonValue;
 pub struct NewPaneRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1012,9 +1020,17 @@ pub type NewPaneResult = T::SurfaceResult;
 pub struct NewPaneRightRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub width: Optional<f32>,
 }
@@ -1051,6 +1067,8 @@ pub struct NewTabRequest {
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1659,6 +1677,8 @@ pub struct SplitRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -2234,10 +2254,42 @@ impl CmuxClient {
     }
 
     pub fn new_pane(&mut self, request: NewPaneRequest) -> Result<NewPaneResult> {
+        if !request.cwd.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
+        }
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
+        }
         self.execute(&NEW_PANE_METADATA, &request)
     }
 
     pub fn new_pane_right(&mut self, request: NewPaneRightRequest) -> Result<NewPaneRightResult> {
+        if !request.cwd.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
+        if request.keep.is_some() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
 
@@ -2253,6 +2305,10 @@ impl CmuxClient {
         if request.keep.is_some() {
             self.require_protocol_field("new-tab", 12)?;
             self.require_capability_field("new-tab", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "terminal-placement-env-v1")?;
         }
         self.execute(&NEW_TAB_METADATA, &request)
     }
@@ -2524,6 +2580,10 @@ impl CmuxClient {
         if request.keep.is_some() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-reap-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "terminal-placement-env-v1")?;
         }
         self.execute(&SPLIT_METADATA, &request)
     }

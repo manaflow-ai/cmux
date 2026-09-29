@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e";
+pub const ir_sha256 = "006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3603,8 +3603,16 @@ pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequ
 
 pub const NewPaneRequest = struct {
     cols: wire.Field(u16) = .absent,
+    cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
+    keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const NewPaneResult = SurfaceResult;
@@ -3617,6 +3625,12 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
             .authority = "control",
             .since = 9,
             .capability = null,
+            .fields = &.{
+                .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
+            },
         },
         request,
     );
@@ -3624,9 +3638,17 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
 
 pub const NewPaneRightRequest = struct {
     cols: wire.Field(u16) = .absent,
+    cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
+    keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
 };
 
 pub const NewPaneRightResult = SurfaceResult;
@@ -3639,6 +3661,12 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
             .authority = "control",
             .since = 9,
             .capability = "viewport-splits-v1",
+            .fields = &.{
+                .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
+            },
         },
         request,
     );
@@ -3672,6 +3700,7 @@ pub const NewTabRequest = struct {
     keep: ?bool = null,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "keep",
@@ -3691,6 +3720,7 @@ pub fn newTab(client: anytype, request: NewTabRequest) !wire.Decoded(NewTabResul
             .fields = &.{
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
         request,
@@ -4773,6 +4803,7 @@ pub const SplitRequest = struct {
     keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "keep",
@@ -4793,6 +4824,7 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
                 .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
         request,

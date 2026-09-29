@@ -130,6 +130,12 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises a caller-chosen `terminal_id` on `new-tab`, `split`,
+/// `new-pane`, and `new-pane-right`, plus `cwd`/`env` on `new-pane` and
+/// `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four
+/// results. A frontend can put the id in the child's environment before it
+/// starts instead of creating and then moving a terminal.
+pub const TERMINAL_PLACEMENT_ENV_CAPABILITY: &str = "terminal-placement-env-v1";
 /// Durable sidebar workspace groups: the `*-workspace-group` commands,
 /// `move-workspace-to-group`, a `groups` array in `list-workspaces`, and a
 /// `group` field on every workspace.
@@ -264,6 +270,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        TERMINAL_PLACEMENT_ENV_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
         TAB_METADATA_CAPABILITY,
@@ -1042,6 +1049,9 @@ enum Command {
         /// Mark the new terminal `keep` so it survives with no tab.
         #[serde(default)]
         keep: bool,
+        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
+        #[serde(default)]
+        terminal_id: Option<String>,
     },
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     /// The daemon persists its location and never attaches a CDP target.
@@ -1246,6 +1256,17 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
+        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
+        #[serde(default)]
+        terminal_id: Option<String>,
     },
     NewPaneRight {
         pane: PaneId,
@@ -1255,6 +1276,17 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
+        /// Mark the new terminal `keep` so it survives with no tab.
+        #[serde(default)]
+        keep: bool,
+        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
+        #[serde(default)]
+        terminal_id: Option<String>,
     },
     Split {
         pane: PaneId,
@@ -1272,6 +1304,9 @@ enum Command {
         /// Mark the new terminal `keep` so it survives with no tab.
         #[serde(default)]
         keep: bool,
+        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
+        #[serde(default)]
+        terminal_id: Option<String>,
     },
     SetRatio {
         pane: PaneId,
@@ -12575,26 +12610,11 @@ fn handle_command_with_cancellation(
             mux.set_terminal_keep(&terminal_id, keep)?;
             Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep } => {
-            let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?;
-            let surface = mux.new_tab_with_env(
-                pane,
-                cwd,
-                env.unwrap_or_default(),
-                optional_surface_size(cols, rows),
-            )?;
-            let terminal_identity = surface.terminal_host_identity();
-            if keep {
-                let identity = mux.resource_terminal_host_identity(&surface);
-                keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
-            }
-            Ok(json!({
-                "surface": surface.id,
-                "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
-                "terminal_incarnation": terminal_identity
-                    .as_ref()
-                    .map(|identity| &identity.incarnation),
-            }))
+        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let surface =
+                mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
+            placed_terminal_result(mux, &surface, keep)
         }
         Command::NewFrontendBrowserTab {
             url,
@@ -12968,33 +12988,28 @@ fn handle_command_with_cancellation(
             let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::NewPane { pane, cols, rows } => {
-            let surface = mux.new_pane(pane, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let surface =
+                mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
+            placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewPaneRight { pane, width, cols, rows } => {
-            let surface = mux.new_pane_right(
+        Command::NewPaneRight { pane, width, cols, rows, cwd, env, keep, terminal_id } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let surface = mux.new_pane_right_with_options(
                 pane,
                 width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
+                spawn,
                 optional_surface_size(cols, rows),
             )?;
-            Ok(json!({ "surface": surface.id }))
+            placed_terminal_result(mux, &surface, keep)
         }
-        Command::Split { pane, dir, cols, rows, cwd, env, keep } => {
+        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id } => {
             let dir = parse_split_dir(&dir)?;
-            let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?;
-            let surface = mux.split_with(
-                pane,
-                dir,
-                cwd,
-                env.unwrap_or_default(),
-                optional_surface_size(cols, rows),
-            )?;
-            if keep {
-                let identity = mux.resource_terminal_host_identity(&surface);
-                keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
-            }
-            Ok(json!({ "surface": surface.id }))
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let surface =
+                mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
+            placed_terminal_result(mux, &surface, keep)
         }
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
@@ -14367,6 +14382,34 @@ fn handle_command_with_cancellation(
             Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})))
         }
     }
+}
+
+/// Validate the start options of a placement command.
+fn placement_spawn_options(
+    cwd: Option<String>,
+    env: Option<&BTreeMap<String, String>>,
+    terminal_id: Option<String>,
+) -> anyhow::Result<crate::TerminalSpawnOptions> {
+    let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
+    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id })
+}
+
+/// The reply of a placement command: the new view and the terminal it
+/// shows, after applying `keep`.
+fn placed_terminal_result(
+    mux: &Mux,
+    surface: &crate::Surface,
+    keep: bool,
+) -> anyhow::Result<Value> {
+    let identity = mux.resource_terminal_host_identity(surface);
+    if keep {
+        keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
+    }
+    Ok(json!({
+        "surface": surface.id,
+        "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
+        "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
+    }))
 }
 
 /// Apply `keep: true` from a creating command. A terminal without a durable
@@ -22251,6 +22294,50 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pairs, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
+    }
+
+    #[test]
+    fn placement_commands_accept_a_caller_terminal_id_env_and_cwd() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TERMINAL_PLACEMENT_ENV_CAPABILITY));
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let commands = [
+            ("new-tab", json!({})),
+            ("split", json!({"dir":"right"})),
+            ("new-pane", json!({})),
+            ("new-pane-right", json!({"width":0.5})),
+        ];
+        for (index, (command, extra)) in commands.into_iter().enumerate() {
+            let terminal_id = format!("{:012x}4000{:04x}{:012x}", 0, 0x8000, 0x100 + index);
+            let mut request = json!({
+                "cmd":command,
+                "pane":pane,
+                "cols":80,
+                "rows":24,
+                "cwd":"/tmp",
+                "env":{"CMUX_SURFACE_ID":terminal_id},
+                "terminal_id":terminal_id,
+            });
+            for (key, value) in extra.as_object().unwrap() {
+                request[key] = value.clone();
+            }
+            let created = run_json_command(&mux, request.clone()).unwrap();
+            assert_eq!(created["terminal_id"], terminal_id.as_str(), "{command}: {created}");
+            assert!(created["surface"].as_u64().is_some(), "{command}: {created}");
+            let resolved = mux.resolve_terminal(&terminal_id).unwrap().unwrap();
+            assert_eq!(resolved.surface, created["surface"].as_u64(), "{command}");
+            assert!(
+                run_json_command(&mux, request).is_err(),
+                "{command} reused an existing terminal id"
+            );
+        }
+        for bad in ["not-hex", "00000000000000008000000000000001"] {
+            let error =
+                run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"terminal_id":bad}))
+                    .unwrap_err();
+            assert!(error.to_string().contains("terminal_id"), "{error}");
+        }
     }
 
     #[cfg(unix)]

@@ -19,6 +19,7 @@ public final class SplitRequest implements WireValue {
     private final Field<Boolean> keep;
     private final UInt64 pane;
     private final Field<Integer> rows;
+    private final Field<String> terminalId;
 
     private SplitRequest(Builder builder) {
         this.cols = builder.cols;
@@ -30,6 +31,7 @@ public final class SplitRequest implements WireValue {
         if (!builder.paneSet) throw new IllegalArgumentException("pane is required");
         this.pane = Wire.nonNull(builder.pane, "pane");
         this.rows = builder.rows;
+        this.terminalId = builder.terminalId;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -41,6 +43,7 @@ public final class SplitRequest implements WireValue {
     public Field<Boolean> keep() { return keep; }
     public UInt64 pane() { return pane; }
     public Field<Integer> rows() { return rows; }
+    public Field<String> terminalId() { return terminalId; }
 
     public static SplitRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "SplitRequest");
@@ -69,6 +72,10 @@ public final class SplitRequest implements WireValue {
         if (!Wire.isMissing(rawRows)) {
             builder.rows(rawRows == null ? null : Wire.uint16(rawRows, "SplitRequest.rows"));
         }
+        Object rawTerminalId = Wire.optional(object, "terminal_id");
+        if (!Wire.isMissing(rawTerminalId)) {
+            builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "SplitRequest.terminal_id"));
+        }
         return builder.build();
     }
 
@@ -82,17 +89,18 @@ public final class SplitRequest implements WireValue {
         Wire.put(object, "keep", keep);
         Wire.put(object, "pane", pane);
         Wire.put(object, "rows", rows);
+        Wire.put(object, "terminal_id", terminalId);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SplitRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(dir, that.dir) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows);
+        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(dir, that.dir) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(terminalId, that.terminalId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, cwd, dir, env, keep, pane, rows); }
+    public int hashCode() { return Objects.hash(cols, cwd, dir, env, keep, pane, rows, terminalId); }
 
     @Override
     public String toString() { return "SplitRequest" + toWire(); }
@@ -107,6 +115,7 @@ public final class SplitRequest implements WireValue {
         private UInt64 pane;
         private boolean paneSet;
         private Field<Integer> rows = Field.omitted();
+        private Field<String> terminalId = Field.omitted();
 
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
@@ -136,6 +145,10 @@ public final class SplitRequest implements WireValue {
         }
         public Builder rows(Integer value) {
             this.rows = Field.ofNullable(value);
+            return this;
+        }
+        public Builder terminalId(String value) {
+            this.terminalId = Field.ofNullable(value);
             return this;
         }
         public SplitRequest build() { return new SplitRequest(this); }

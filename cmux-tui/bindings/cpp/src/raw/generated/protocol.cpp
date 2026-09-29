@@ -12096,6 +12096,21 @@ Result<Json> Codec<NewPaneRequest>::encode(const NewPaneRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("cols", std::move(encoded).value());
     }
+    if (!value.cwd.is_absent()) {
+        auto encoded = encode_value(value.cwd);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cwd", std::move(encoded).value());
+    }
+    if (!value.env.is_absent()) {
+        auto encoded = encode_value(value.env);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("env", std::move(encoded).value());
+    }
+    if (value.keep) {
+        auto encoded = encode_value(*value.keep);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("keep", std::move(encoded).value());
+    }
     auto encoded_pane = encode_value(value.pane);
     if (!encoded_pane) return std::move(encoded_pane).error();
     object.emplace("pane", std::move(encoded_pane).value());
@@ -12103,6 +12118,11 @@ Result<Json> Codec<NewPaneRequest>::encode(const NewPaneRequest& value) {
         auto encoded = encode_value(value.rows);
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
+    }
+    if (!value.terminal_id.is_absent()) {
+        auto encoded = encode_value(value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
     }
     return Json(std::move(object));
 }
@@ -12120,6 +12140,32 @@ Result<NewPaneRequest> Codec<NewPaneRequest>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.cols = Field<std::uint16_t>(std::move(decoded).value());
         }
+    }
+    const Json* field_cwd = value.find("cwd");
+    if (field_cwd) {
+        if (field_cwd->is_null()) {
+            result.cwd = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_cwd);
+            if (!decoded) return std::move(decoded).error();
+            result.cwd = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_env = value.find("env");
+    if (field_env) {
+        if (field_env->is_null()) {
+            result.env = Field<std::map<std::string, std::string, std::less<>>>::null();
+        } else {
+            auto decoded = decode_value<std::map<std::string, std::string, std::less<>>>(*field_env);
+            if (!decoded) return std::move(decoded).error();
+            result.env = Field<std::map<std::string, std::string, std::less<>>>(std::move(decoded).value());
+        }
+    }
+    const Json* field_keep = value.find("keep");
+    if (field_keep) {
+        auto decoded = decode_value<bool>(*field_keep);
+        if (!decoded) return std::move(decoded).error();
+        result.keep = std::move(decoded).value();
     }
     const Json* field_pane = value.find("pane");
     if (!field_pane) {
@@ -12140,6 +12186,16 @@ Result<NewPaneRequest> Codec<NewPaneRequest>::decode(const Json& value) {
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
         }
     }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
     return result;
 }
 
@@ -12151,6 +12207,21 @@ Result<Json> Codec<NewPaneRightRequest>::encode(const NewPaneRightRequest& value
         if (!encoded) return std::move(encoded).error();
         object.emplace("cols", std::move(encoded).value());
     }
+    if (!value.cwd.is_absent()) {
+        auto encoded = encode_value(value.cwd);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cwd", std::move(encoded).value());
+    }
+    if (!value.env.is_absent()) {
+        auto encoded = encode_value(value.env);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("env", std::move(encoded).value());
+    }
+    if (value.keep) {
+        auto encoded = encode_value(*value.keep);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("keep", std::move(encoded).value());
+    }
     auto encoded_pane = encode_value(value.pane);
     if (!encoded_pane) return std::move(encoded_pane).error();
     object.emplace("pane", std::move(encoded_pane).value());
@@ -12158,6 +12229,11 @@ Result<Json> Codec<NewPaneRightRequest>::encode(const NewPaneRightRequest& value
         auto encoded = encode_value(value.rows);
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
+    }
+    if (!value.terminal_id.is_absent()) {
+        auto encoded = encode_value(value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
     }
     if (!value.width.is_absent()) {
         auto encoded = encode_value(value.width);
@@ -12181,6 +12257,32 @@ Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value
             result.cols = Field<std::uint16_t>(std::move(decoded).value());
         }
     }
+    const Json* field_cwd = value.find("cwd");
+    if (field_cwd) {
+        if (field_cwd->is_null()) {
+            result.cwd = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_cwd);
+            if (!decoded) return std::move(decoded).error();
+            result.cwd = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_env = value.find("env");
+    if (field_env) {
+        if (field_env->is_null()) {
+            result.env = Field<std::map<std::string, std::string, std::less<>>>::null();
+        } else {
+            auto decoded = decode_value<std::map<std::string, std::string, std::less<>>>(*field_env);
+            if (!decoded) return std::move(decoded).error();
+            result.env = Field<std::map<std::string, std::string, std::less<>>>(std::move(decoded).value());
+        }
+    }
+    const Json* field_keep = value.find("keep");
+    if (field_keep) {
+        auto decoded = decode_value<bool>(*field_keep);
+        if (!decoded) return std::move(decoded).error();
+        result.keep = std::move(decoded).value();
+    }
     const Json* field_pane = value.find("pane");
     if (!field_pane) {
         return make_error(ErrorCode::decode, "missing required field 'pane'");
@@ -12198,6 +12300,16 @@ Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_width = value.find("width");
@@ -12304,6 +12416,11 @@ Result<Json> Codec<NewTabRequest>::encode(const NewTabRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.terminal_id.is_absent()) {
+        auto encoded = encode_value(value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -12365,6 +12482,16 @@ Result<NewTabRequest> Codec<NewTabRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
@@ -15216,6 +15343,11 @@ Result<Json> Codec<SplitRequest>::encode(const SplitRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.terminal_id.is_absent()) {
+        auto encoded = encode_value(value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -15285,6 +15417,16 @@ Result<SplitRequest> Codec<SplitRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
@@ -21308,9 +21450,22 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand69FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand77FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand74FieldRequirements{{
+    {"cwd", 12U, "terminal-placement-env-v1"},
+    {"env", 12U, "terminal-placement-env-v1"},
+    {"keep", 12U, "terminal-reap-v1"},
+    {"terminal_id", 12U, "terminal-placement-env-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 4> kCommand75FieldRequirements{{
+    {"cwd", 12U, "terminal-placement-env-v1"},
+    {"env", 12U, "terminal-placement-env-v1"},
+    {"keep", 12U, "terminal-reap-v1"},
+    {"terminal_id", 12U, "terminal-placement-env-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 3> kCommand77FieldRequirements{{
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
+    {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 5> kCommand97FieldRequirements{{
     {"expected_generation", 7U, ""},
@@ -21344,10 +21499,11 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand125FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand127FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand127FieldRequirements{{
     {"cwd", 12U, "terminal-env-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
+    {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 2> kCommand128FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
@@ -21428,8 +21584,8 @@ constexpr std::array<CommandMetadata, 145> kCommands{{
     {"move-workspace-to-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand74FieldRequirements)},
+    {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand75FieldRequirements)},
     {"new-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand77FieldRequirements)},
     {"new-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},

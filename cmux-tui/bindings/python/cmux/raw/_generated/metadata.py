@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5538b27d895c3fe3ba9dd2a1ef6747888b26de5c386dcc639facac50cf9c575e'
+IR_SHA256 = '006ce9e0317fb3ac4fa67c61bbf854d85fb74ae2c6ad91a7d7cb2e47eac8610e'
 
 
 @dataclass(frozen=True)
@@ -1017,8 +1017,12 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
     'new-pane-right': CommandMetadata(
@@ -1030,8 +1034,12 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'width': CommandFieldMetadata(None, None),
         },
     ),
@@ -1062,6 +1070,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
     'new-workspace': CommandMetadata(
@@ -1726,6 +1735,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
     'subscribe': CommandMetadata(

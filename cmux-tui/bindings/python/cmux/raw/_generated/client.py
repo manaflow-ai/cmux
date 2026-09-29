@@ -234,17 +234,17 @@ class GeneratedClientMixin:
     def new_frontend_browser_tab(self, engine: str, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, favicon_url: Union[str, None, MissingType] = MISSING, profile_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('new-frontend-browser-tab', NewFrontendBrowserTabRequest(engine=engine, url=url, pane=pane, cols=cols, favicon_url=favicon_url, profile_id=profile_id, rows=rows, title=title))
 
-    def new_pane(self, pane: Id, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-pane', NewPaneRequest(pane=pane, cols=cols, rows=rows))
+    def new_pane(self, pane: Id, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-pane', NewPaneRequest(pane=pane, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows))
 
-    def new_pane_right(self, pane: Id, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, cols=cols, rows=rows, width=width))
+    def new_pane_right(self, pane: Id, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows, width=width))
 
     def new_screen(self, workspace: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-screen', NewScreenRequest(workspace=workspace, cols=cols, rows=rows))
 
-    def new_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, cwd: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-tab', NewTabRequest(pane=pane, cwd=cwd, cols=cols, rows=rows, env=env, keep=keep))
+    def new_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, cwd: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-tab', NewTabRequest(pane=pane, cwd=cwd, cols=cols, rows=rows, env=env, keep=keep, terminal_id=terminal_id))
 
     def new_workspace(self, *, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-workspace', NewWorkspaceRequest(name=name, cols=cols, rows=rows))
@@ -393,8 +393,8 @@ class GeneratedClientMixin:
     def sidebar_plugin(self, cols: int, rows: int, *, relaunch: Union[bool, MissingType] = MISSING) -> SidebarPluginResult:
         return self._invoke_command('sidebar-plugin', SidebarPluginRequest(cols=cols, rows=rows, relaunch=relaunch))
 
-    def split(self, pane: Id, dir: SplitDirection, *, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows))
+    def split(self, pane: Id, dir: SplitDirection, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows))
 
     def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
