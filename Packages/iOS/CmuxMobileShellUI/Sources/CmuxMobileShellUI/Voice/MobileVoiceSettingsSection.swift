@@ -18,12 +18,21 @@ struct MobileVoiceSettingsSection: View {
     }
 }
 
-/// Separate section so the bypass switch carries its own warning footer.
+/// Separate section so the action permission switches carry their warning
+/// footer.
 private struct MobileVoicePermissionsSectionContent: View {
     @Bindable var settings: MobileVoiceSettings
 
     var body: some View {
         Section {
+            Toggle(isOn: $settings.orchestratorAskBeforeActing) {
+                Text(L10n.string(
+                    "mobile.voice.settings.askBeforeActing",
+                    defaultValue: "Ask Before Acting"
+                ))
+            }
+            .accessibilityIdentifier("MobileSettingsVoiceAskBeforeActingToggle")
+
             Toggle(isOn: $settings.orchestratorBypassPermissions) {
                 Text(L10n.string(
                     "mobile.voice.settings.bypass",
@@ -34,12 +43,20 @@ private struct MobileVoicePermissionsSectionContent: View {
             .accessibilityIdentifier("MobileSettingsVoiceBypassToggle")
         } footer: {
             Text(L10n.string(
-                "mobile.voice.settings.bypassFooter",
-                defaultValue: """
-                The voice assistant acts on your workspaces immediately, \
-                including destructive actions like closing a workspace, \
-                without the on-screen approval card.
-                """
+                settings.orchestratorBypassPermissions
+                    ? "mobile.voice.settings.bypassFooter"
+                    : "mobile.voice.settings.askBeforeActingFooter",
+                defaultValue: settings.orchestratorBypassPermissions
+                    ? """
+                    The voice assistant acts on your workspaces immediately, \
+                    including destructive actions without the on-screen \
+                    approval card.
+                    """
+                    : """
+                    Ask Before Acting adds a spoken confirmation before \
+                    recoverable workspace actions. Destructive actions still \
+                    use the on-screen approval card.
+                    """
             ))
         }
     }

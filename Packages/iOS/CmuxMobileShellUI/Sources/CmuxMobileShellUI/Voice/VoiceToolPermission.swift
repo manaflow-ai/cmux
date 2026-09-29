@@ -3,8 +3,8 @@ import Foundation
 /// Permission tier of one orchestrator tool.
 ///
 /// - `read`: observes state, always allowed.
-/// - `act`: mutates state in a recoverable way; the voice layer confirms
-///   verbally per its instructions, and the app executes immediately.
+/// - `act`: mutates state in a recoverable way; the controller executes it
+///   immediately by default, or asks first when that setting is enabled.
 /// - `destructive`: hard to undo, or arbitrary execution. Execution stops on
 ///   an on-screen approval card unless the user enabled Bypass All
 ///   Permissions in Settings, so spoken misrecognition or a prompt-injected
@@ -19,8 +19,8 @@ public enum VoiceToolPermission: Sendable, Equatable {
     public init(toolNamed name: String) {
         switch name {
         case "list_workspaces", "read_workspace", "read_agent_messages",
-             "read_notifications", "list_computers", "read_workspace_changes",
-             "list_memories", "search_task_directories":
+             "wait_for_agent", "wait", "read_notifications", "list_computers",
+             "read_workspace_changes", "list_memories", "search_task_directories":
             self = .read
         // type_in_terminal is destructive alongside close_workspace: raw
         // text plus Return into a shell is arbitrary command execution, the

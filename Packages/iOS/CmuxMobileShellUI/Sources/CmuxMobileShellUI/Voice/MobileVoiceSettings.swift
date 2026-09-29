@@ -27,6 +27,8 @@ public final class MobileVoiceSettings {
     private static let speakCodeBlocksKey = "cmux.mobile.voice.speakCodeBlocks"
     private static let speakToolActivityKey = "cmux.mobile.voice.speakToolActivity"
     private static let spokenReplyLengthKey = "cmux.mobile.voice.spokenReplyLength"
+    private static let orchestratorAskBeforeActingKey =
+        "cmux.mobile.voice.orchestratorAskBeforeActing"
     private static let orchestratorBypassPermissionsKey =
         "cmux.mobile.voice.orchestratorBypassPermissions"
 
@@ -94,6 +96,19 @@ public final class MobileVoiceSettings {
         didSet { defaults.set(spokenReplyLength.rawValue, forKey: Self.spokenReplyLengthKey) }
     }
 
+    /// Whether the orchestrator asks for spoken confirmation before recoverable
+    /// acting tools. Destructive tools still use the on-screen approval card
+    /// unless ``orchestratorBypassPermissions`` is enabled. Defaults to `false`
+    /// so a direct voice command proceeds without a second question.
+    public var orchestratorAskBeforeActing: Bool {
+        didSet {
+            defaults.set(
+                orchestratorAskBeforeActing,
+                forKey: Self.orchestratorAskBeforeActingKey
+            )
+        }
+    }
+
     /// Bypass All Permissions: the orchestrator executes every tool,
     /// destructive ones included, without the on-screen approval card.
     /// Defaults to `false`.
@@ -149,6 +164,8 @@ public final class MobileVoiceSettings {
         self.speakToolActivity = defaults.bool(forKey: Self.speakToolActivityKey)
         self.spokenReplyLength = defaults.string(forKey: Self.spokenReplyLengthKey)
             .flatMap(SpokenReplyLength.init(rawValue:)) ?? .medium
+        self.orchestratorAskBeforeActing =
+            defaults.bool(forKey: Self.orchestratorAskBeforeActingKey)
         self.orchestratorBypassPermissions =
             defaults.bool(forKey: Self.orchestratorBypassPermissionsKey)
         self.userOpenAIAPIKey = apiKeyStore.load() ?? ""

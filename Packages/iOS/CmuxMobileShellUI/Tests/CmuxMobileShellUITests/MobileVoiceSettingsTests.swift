@@ -25,6 +25,7 @@ struct MobileVoiceSettingsTests {
         #expect(!settings.speakCodeBlocks)
         #expect(!settings.speakToolActivity)
         #expect(settings.spokenReplyLength == .medium)
+        #expect(!settings.orchestratorAskBeforeActing)
         #expect(settings.userOpenAIAPIKey.isEmpty)
         #expect(!settings.orchestratorBypassPermissions)
     }
@@ -38,6 +39,7 @@ struct MobileVoiceSettingsTests {
         settings.voiceName = "cinder"
         settings.speakCodeBlocks = true
         settings.spokenReplyLength = .long
+        settings.orchestratorAskBeforeActing = true
         settings.orchestratorBypassPermissions = true
         settings.userOpenAIAPIKey = " sk-test-123 "
 
@@ -46,6 +48,7 @@ struct MobileVoiceSettingsTests {
         #expect(reloaded.voiceName == "cinder")
         #expect(reloaded.speakCodeBlocks)
         #expect(reloaded.spokenReplyLength == .long)
+        #expect(reloaded.orchestratorAskBeforeActing)
         #expect(reloaded.orchestratorBypassPermissions)
         // The key round-trips trimmed, through the key store only.
         #expect(reloaded.userOpenAIAPIKey == "sk-test-123")

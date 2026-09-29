@@ -59,6 +59,33 @@ public struct VoiceOrchestratorToolExecutor {
                 """#
             ),
             VoiceLiveTool(
+                name: "wait_for_agent",
+                description: """
+                Wait until the coding agent in a workspace finishes its \
+                current work, needs user input, ends, or the timeout expires. \
+                Prefer this after sending a prompt when the user asks you to \
+                wait for the result.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{\#(workspaceParameter),\#
+                "timeout":{"type":"integer","description":"Maximum seconds to wait, default 45, max 120"}},\#
+                "required":["workspace"]}
+                """#
+            ),
+            VoiceLiveTool(
+                name: "wait",
+                description: """
+                Pause for a bounded number of seconds while the app keeps \
+                processing audio and agent events. Use for short waits when \
+                there is no agent session to observe.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{"seconds":{"type":"integer",\#
+                "description":"Seconds to wait, from 1 to 120"}},\#
+                "required":["seconds"]}
+                """#
+            ),
+            VoiceLiveTool(
                 name: "read_notifications",
                 description: """
                 Read the user's recent cmux notifications (agent completions, \
@@ -75,7 +102,7 @@ public struct VoiceOrchestratorToolExecutor {
                 name: "send_prompt",
                 description: """
                 Send a prompt or instruction to the coding agent in a \
-                workspace. Use after the user confirms what to send.
+                workspace.
                 """,
                 parametersJSON: #"""
                 {"type":"object","properties":{\#(workspaceParameter),\#
@@ -114,7 +141,8 @@ public struct VoiceOrchestratorToolExecutor {
                 name: "create_workspace",
                 description: """
                 Create a new empty workspace with one terminal on the \
-                connected Mac. Follow up with send_prompt to start work in it.
+                connected Mac and wait for the Mac to confirm it. Follow up \
+                with send_prompt to start work in it.
                 """,
                 parametersJSON: #"{"type":"object","properties":{},"required":[]}"#
             ),
@@ -320,6 +348,13 @@ public struct VoiceOrchestratorToolExecutor {
                 query: workspaceQuery,
                 limit: arguments["limit"] as? Int ?? 8
             )
+        case "wait_for_agent":
+            return await waitForAgent(
+                query: workspaceQuery,
+                timeout: arguments["timeout"] as? Int
+            )
+        case "wait":
+            return await wait(seconds: arguments["seconds"] as? Int ?? 1)
         case "read_notifications":
             return readNotifications(
                 limit: arguments["limit"] as? Int ?? 10,
@@ -340,7 +375,7 @@ public struct VoiceOrchestratorToolExecutor {
         case "open_workspace":
             return await openWorkspace(query: workspaceQuery)
         case "create_workspace":
-            return createWorkspace()
+            return await createWorkspace()
         case "create_terminal":
             return await createTerminal(query: workspaceQuery)
         case "rename_workspace":
@@ -519,6 +554,112 @@ public struct VoiceOrchestratorToolExecutor {
         ])
     }
 
+    private enum AgentWaitResult: Sendable {
+        case completed(ChatAgentState)
+        case timedOut
+        case streamEnded
+    }
+
+    private func waitForAgent(query: String, timeout: Int?) async -> String {
+        guard let workspace = Self.resolveWorkspace(query, in: store.workspaces) else {
+            return Self.unknownWorkspace(query, workspaces: store.workspaces)
+        }
+        guard let chatSource = store.makeChatEventSource(),
+              let sessions = try? await chatSource.sessions(
+                workspaceID: workspace.rpcWorkspaceID.rawValue
+              ),
+              let session = ChatSessionDescriptor.openable(sessions).first
+        else {
+            return "\(workspace.name) has no readable agent session."
+        }
+
+        switch session.state {
+        case .idle:
+            return "\(workspace.name) is already idle."
+        case .needsInput:
+            return "\(workspace.name) is waiting for the user's input."
+        case .ended:
+            return "\(workspace.name)'s agent session has ended."
+        case .working:
+            break
+        }
+
+        let seconds = Self.boundedWaitSeconds(timeout)
+        let events = await chatSource.events(sessionID: session.id)
+        let result = await withTaskGroup(of: AgentWaitResult.self) { group in
+            group.addTask {
+                for await event in events {
+                    guard case .stateChanged(let state) = event else { continue }
+                    switch state {
+                    case .idle, .needsInput, .ended:
+                        return .completed(state)
+                    case .working:
+                        continue
+                    }
+                }
+                return .streamEnded
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+                return .timedOut
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? .streamEnded
+        }
+
+        switch result {
+        case .completed(let state):
+            let summary = await latestAgentReply(
+                from: chatSource,
+                sessionID: session.id
+            )
+            let suffix = summary.map { ": \($0)" } ?? ""
+            switch state {
+            case .idle:
+                return "\(workspace.name) finished\(suffix)."
+            case .needsInput:
+                return "\(workspace.name) is waiting for the user's input\(suffix)."
+            case .ended:
+                return "\(workspace.name)'s agent session ended\(suffix)."
+            case .working:
+                return "\(workspace.name) is still working."
+            }
+        case .timedOut:
+            return "\(workspace.name) is still working after \(seconds) seconds."
+        case .streamEnded:
+            return "The connection to \(workspace.name)'s agent ended before it reported completion."
+        }
+    }
+
+    private func wait(seconds: Int) async -> String {
+        let bounded = Self.boundedWaitSeconds(seconds)
+        try? await Task.sleep(nanoseconds: UInt64(bounded) * 1_000_000_000)
+        return "Waited \(bounded) seconds."
+    }
+
+    private func latestAgentReply(
+        from chatSource: MobileChatEventSource,
+        sessionID: String
+    ) async -> String? {
+        guard let page = try? await chatSource.history(
+            sessionID: sessionID,
+            beforeSeq: nil,
+            limit: 8
+        ) else {
+            return nil
+        }
+        let filter = SpeakableTextFilter(
+            options: SpeakableTextOptions(speakCodeBlocks: false, maximumCharacters: 320)
+        )
+        for message in page.messages.reversed() where message.role == .agent {
+            if case .prose(let prose) = message.kind {
+                let text = filter.speakableText(from: prose.text)
+                if !text.isEmpty { return text }
+            }
+        }
+        return nil
+    }
+
     private func readNotifications(limit: Int, unreadOnly: Bool) -> String {
         let items = store.notificationFeedItems(scopedTo: nil)
             .filter { unreadOnly ? !$0.isRead : true }
@@ -640,12 +781,16 @@ public struct VoiceOrchestratorToolExecutor {
         return "Opened \(workspace.name) on screen."
     }
 
-    private func createWorkspace() -> String {
-        guard store.workspaces.isEmpty == false || store.pairedMacs.isEmpty == false else {
+    private func createWorkspace() async -> String {
+        guard store.connectedMacDeviceID != nil else {
             return "No connected Mac to create a workspace on."
         }
-        store.createWorkspace()
-        return "Creating a new workspace. It will appear in the list in a moment; read the list again to get its name."
+        switch await store.createWorkspaceRequest() {
+        case .success:
+            return "Created a new workspace. It is ready for a prompt."
+        case .failure:
+            return "The Mac declined creating a new workspace."
+        }
     }
 
     private func createTerminal(query: String) async -> String {
@@ -1066,6 +1211,10 @@ public struct VoiceOrchestratorToolExecutor {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+
+    static func boundedWaitSeconds(_ value: Int?) -> Int {
+        max(1, min(value ?? 45, 120))
     }
 
     /// The single element satisfying `predicate`, or nil when zero or many do

@@ -182,6 +182,12 @@
     "NSMicrophoneUsageDescription": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الصوت للإملاء الصوتي والمحادثات الصوتية المباشرة مع وكلائك."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",

@@ -88111,7 +88111,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Assistant"
+            "value": "Assistant vocal"
           }
         },
         "ar": {
@@ -89387,6 +89387,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべての権限をバイパス"
+          }
+        }
+      }
+    },
+    "mobile.voice.settings.askBeforeActing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Before Acting"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor Aktionen fragen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander avant d'agir"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السؤال قبل التنفيذ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar antes de actuar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行前詢問"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "执行前询问"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 전에 묻기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行前に確認"
+          }
+        }
+      }
+    },
+    "mobile.voice.settings.askBeforeActingFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Before Acting adds a spoken confirmation before recoverable workspace actions. Destructive actions still use the on-screen approval card."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor Aktionen fragen fügt vor wiederherstellbaren Aktionen in Arbeitsbereichen eine gesprochene Bestätigung hinzu. Destruktive Aktionen verwenden weiterhin die Genehmigungskarte auf dem Bildschirm."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander avant d'agir ajoute une confirmation vocale avant les actions récupérables sur les espaces de travail. Les actions destructrices utilisent toujours la carte d'approbation à l'écran."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضيف خيار السؤال قبل التنفيذ تأكيدًا صوتيًا قبل إجراءات مساحة العمل القابلة للاسترجاع. ولا تزال الإجراءات المدمرة تستخدم بطاقة الموافقة على الشاشة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar antes de actuar añade una confirmación de voz antes de las acciones recuperables en los espacios de trabajo. Las acciones destructivas siguen usando la tarjeta de aprobación en pantalla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行前詢問會在可復原的工作空間操作前加入語音確認。破壞性操作仍會使用畫面上的核准卡片。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "执行前询问会在可恢复的工作空间操作前加入语音确认。破坏性操作仍会使用屏幕上的批准卡片。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 전에 묻기는 되돌릴 수 있는 작업공간 작업 전에 음성 확인을 추가합니다. 파괴적인 작업에는 계속 화면의 승인 카드가 사용됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行前に確認を有効にすると、元に戻せるワークスペース操作の前に音声確認を追加します。破壊的な操作では引き続き画面上の承認カードを使用します。"
           }
         }
       }
