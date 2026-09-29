@@ -1401,7 +1401,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// cancelled predecessor's deferred cleanup cannot clear its replacement.
     var stateSyncFetchGeneration = UUID()
     /// Bounds retained noncooperative work until its transport cleanup finishes.
-    var abandonedReconnectDialCount = 0
+    var abandonedReconnectDialTasks: [UUID: Task<Void, Never>] = [:]
+    var abandonedReconnectDialCount: Int { abandonedReconnectDialTasks.count }
+    var abandonedReconnectRecoveryGeneration: Int?
     var connectionReadinessTask: Task<Void, Never>?
     var storedMacReconnectAttempt: StoredMacReconnectAttempt?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
@@ -2349,9 +2351,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the hide path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
         // reconnect is superseded and can't re-set these flags after sign-out.
-        storedMacReconnectGeneration &+= 1
-        isReconnectingStoredMac = false
-        pendingForcedStoredMacReconnect = false
+        invalidateStoredMacReconnectAttempt()
         didFinishStoredMacReconnectAttempt = false
         didSettleExplicitForegroundConnect = false
         replaceRemoteClient(with: nil)
@@ -2454,9 +2454,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // A reconnect that captured the previous team must not finish against the
         // new scope. Starting the replacement is deliberately left to the app
         // root's startup coordinator.
-        storedMacReconnectGeneration &+= 1
-        isReconnectingStoredMac = false
-        pendingForcedStoredMacReconnect = false
+        invalidateStoredMacReconnectAttempt()
         didFinishStoredMacReconnectAttempt = false
         // A team switch that RETAINS the live foreground session satisfies the
         // new scope's launch-connect window with that session: the root only
@@ -3279,7 +3277,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let race = await withTaskCancellationHandler {
             await deadlineTask.value
         } onCancel: { deadlineTask.cancel() }
-        if race.didTimeOut { registerAbandonedReconnectDial(race.abandoned) }
+        registerAbandonedReconnectDial(race.abandoned)
         if let retirement = attempt.retirement {
             retireStoredMacReconnect(attempt, outcome: retirement)
             return retirement
@@ -3310,9 +3308,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "storedMacReconnect deadline expired generation=\(generation)"
         )
         retireStoredMacReconnect(attempt, outcome: .failed(.timedOut))
-        if Self.shouldRecordReconnectBackoff(
-            abandonedDialCount: abandonedReconnectDialCount
-        ),
+        if shouldScheduleReconnectBackoff(),
            let accountID = stackUserID ?? identityProvider?.currentUserID {
             recordTransientAutomaticReconnectBackoff(accountID: accountID)
         }
@@ -5008,10 +5004,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func clearSavedMacHintWhenNoStoredMacsRemainIfNeeded() {
         guard pairedMacs.isEmpty, !hasHiddenComputers else { return }
-        storedMacReconnectGeneration &+= 1
+        invalidateStoredMacReconnectAttempt()
         hasKnownPairedMac = false
-        isReconnectingStoredMac = false
-        pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
     }
 
@@ -5661,9 +5655,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Bump the reconnect generation so an in-flight reconnect cannot reclaim
         // the foreground while the retained pairing is being hidden. Preserve the
         // known-Mac hint: hiding changes list visibility, not the app's shell mode.
-        storedMacReconnectGeneration &+= 1
-        isReconnectingStoredMac = false
-        pendingForcedStoredMacReconnect = false
+        invalidateStoredMacReconnectAttempt()
         didFinishStoredMacReconnectAttempt = false
         if let representativeID = staleRepresentativeID {
             hasKnownPairedMac = true

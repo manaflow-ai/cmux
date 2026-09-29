@@ -62,18 +62,19 @@ extension MobileShellComposite {
 
     /// Tracks an abandoned dial until it resolves, so a persistently wedged
     /// transport cannot accumulate an unbounded set of retained reconnect
-    /// tasks across automatic retries. On resolution, if the shell is still
-    /// signed in and disconnected, the automatic retry loop is re-armed
-    /// (covers the case where retries were paused at the ceiling).
+    /// tasks across automatic retries, including cancelled operations. A
+    /// released slot resumes only a failed attempt's explicitly paused retry.
     func registerAbandonedReconnectDial<Value: Sendable>(_ task: Task<Value, Never>?) {
         guard let task else { return }
-        abandonedReconnectDialCount += 1
-        Task { @MainActor [weak self] in
+        let id = UUID()
+        abandonedReconnectDialTasks[id] = Task { @MainActor [weak self] in
             _ = await task.value
             guard let self else { return }
             let retriesWerePaused = self.abandonedReconnectDialCount >= Self.maximumAbandonedReconnectDials
-            self.abandonedReconnectDialCount = max(0, self.abandonedReconnectDialCount - 1)
-            guard retriesWerePaused else { return }
+            self.abandonedReconnectDialTasks.removeValue(forKey: id)
+            guard retriesWerePaused,
+                  self.abandonedReconnectRecoveryGeneration == self.storedMacReconnectGeneration else { return }
+            self.abandonedReconnectRecoveryGeneration = nil
             // Re-arm the retry loop directly through the coalesced recovery
             // entry, NEVER by recording backoff: a backoff write here can land
             // mid-manual-retry and re-block the dial the user just requested
@@ -87,6 +88,14 @@ extension MobileShellComposite {
                   self.automaticReconnectRetryTask == nil else { return }
             self.recoverMobileConnection(trigger: .automaticBackoffExpired)
         }
+    }
+
+    /// Preserve retry intent separately from cleanup: cancellation alone must
+    /// not start recovery, but any released slot can unblock a failed attempt.
+    func shouldScheduleReconnectBackoff() -> Bool {
+        let allowed = Self.shouldRecordReconnectBackoff(abandonedDialCount: abandonedReconnectDialCount)
+        if !allowed { abandonedReconnectRecoveryGeneration = storedMacReconnectGeneration }
+        return allowed
     }
 
     /// Dials one saved Mac, local routes then refreshed routes, under that
@@ -122,7 +131,7 @@ extension MobileShellComposite {
         }
         if let value = race.value { return value }
         expiry.expired = true
-        if race.didTimeOut { registerAbandonedReconnectDial(race.abandoned) }
+        registerAbandonedReconnectDial(race.abandoned)
         return StoredMacCandidateDial(
             outcome: race.wasCancelled ? .superseded : .failed(.timedOut),
             attemptedIroh: !usesStrictTailscale

@@ -50,9 +50,7 @@ extension MobileShellComposite {
                 // starts. Supersede that exact attempt even while the shell is
                 // still disconnected, otherwise it can finish on the deleted
                 // endpoint.
-                storedMacReconnectGeneration &+= 1
-                isReconnectingStoredMac = false
-                pendingForcedStoredMacReconnect = false
+                invalidateStoredMacReconnectAttempt()
                 didFinishStoredMacReconnectAttempt = true
                 connectionAttemptGeneration = UUID()
             }

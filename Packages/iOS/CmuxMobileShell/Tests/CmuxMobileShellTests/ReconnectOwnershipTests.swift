@@ -24,8 +24,61 @@ import Testing
         #expect(await reconnect.value == .failed(.cancelled))
         #expect(shell.abandonedReconnectDialCount == 1, "cancelled work still owns a cleanup slot")
         #expect(shell.automaticReconnectBackoffOwner.transientRetryAt == nil)
+        let cleanup = Array(shell.abandonedReconnectDialTasks.values)
         await pairedStore.release(teamID: nil)
         if let abandoned = await deadline.value.abandoned { _ = await abandoned.value }
+        for task in cleanup { await task.value }
+        #expect(shell.abandonedReconnectDialCount == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancelledCandidateAccountsForHeldRefreshUntilItDrains() async throws {
+        let gate = ReconnectCleanupGate()
+        let mac = try macDialCandidate(deviceID: "cancelled-candidate", endpointByte: "b")
+        let fixture = try await MacDialFixture.make(macs: [mac], discovered: [])
+        defer { fixture.cleanup() }
+        try await fixture.save(mac, active: true)
+        let saved = try #require(try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil).first)
+        let shell = fixture.shell
+        let scope = try #require(await shell.currentScopeSnapshot(userID: "user-1"))
+        let generation = shell.storedMacReconnectGeneration
+        shell.storedMacReconnectAttempt = StoredMacReconnectAttempt(generation: generation)
+        let refresh = ReconnectRefreshSnapshotLoader { await gate.wait(); return nil }
+        let candidate = Task {
+            await shell.dialSavedCandidateUnderDeadline(
+                saved, storedRoutes: [], isFirstCandidate: true, usesStrictTailscale: false,
+                scope: scope, generation: generation, refreshSnapshot: refresh)
+        }
+        await gate.waitUntilStarted()
+        candidate.cancel()
+        #expect(await candidate.value.outcome == .superseded)
+        #expect(shell.abandonedReconnectDialCount == 1)
+        let cleanup = Array(shell.abandonedReconnectDialTasks.values)
+        await gate.release()
+        for task in cleanup { await task.value }
+        #expect(shell.abandonedReconnectDialCount == 0)
+        #expect(shell.remoteClient == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func releasedCleanupReplaysOnlyAnExplicitlyPausedRecovery(pauseRetry: Bool) async {
+        let gate = ReconnectCleanupGate()
+        let shell = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: []),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            pairingHintDefaults: UserDefaults(suiteName: "cleanup-retry-\(UUID())")!)
+        shell.foregroundRefreshIsActive = false
+        for _ in 0..<MobileShellComposite.maximumAbandonedReconnectDials {
+            shell.registerAbandonedReconnectDial(Task { await gate.wait() })
+        }
+        #expect(shell.abandonedReconnectDialCount == MobileShellComposite.maximumAbandonedReconnectDials)
+        if pauseRetry { #expect(!shell.shouldScheduleReconnectBackoff()) }
+        let cleanup = Array(shell.abandonedReconnectDialTasks.values)
+        await gate.release()
+        for task in cleanup { await task.value }
+        #expect(shell.abandonedReconnectDialCount == 0)
+        #expect((shell.pendingInactiveRecoveryTrigger == .automaticBackoffExpired) == pauseRetry)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])

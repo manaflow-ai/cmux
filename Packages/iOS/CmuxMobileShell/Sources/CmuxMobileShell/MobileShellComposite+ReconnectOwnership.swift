@@ -15,6 +15,9 @@ extension MobileShellComposite {
     }
 
     func suspendStoredMacReconnect() {
+        if storedMacReconnectAttempt != nil, pendingInactiveRecoveryTrigger == nil {
+            pendingInactiveRecoveryTrigger = .foreground
+        }
         storedMacReconnectAttempt?.retire(with: .failed(.cancelled))
         zeroTouchDialRace?.close()
     }
@@ -32,6 +35,7 @@ extension MobileShellComposite {
     func invalidateStoredMacReconnectAttempt() {
         storedMacReconnectAttempt?.retire(with: .superseded)
         storedMacReconnectGeneration &+= 1
+        abandonedReconnectRecoveryGeneration = nil
         zeroTouchDialRace?.close()
         zeroTouchDialRace = nil
         isReconnectingStoredMac = false

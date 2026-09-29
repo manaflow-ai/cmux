@@ -97,7 +97,8 @@ extension MobileShellComposite {
         // advance the generation, and cancel the dial already in flight.
         // Automatic wake-ups are satisfied by the active restore. Manual retry
         // and connection-method changes remain explicit replacements.
-        if storedMacReconnectAttempt != nil, !connectionRecoveryOwner.isActive {
+        if (isReconnectingStoredMac || storedMacReconnectAttempt?.generation == storedMacReconnectGeneration),
+           !connectionRecoveryOwner.isActive {
             switch trigger {
             case .manual, .connectionMethodChanged:
                 break
@@ -1140,9 +1141,7 @@ extension MobileShellComposite {
               failure != .authorizationFailed, failure != .accountMismatch,
               !connectionRequiresReauth else { return }
         guard isSignedIn, connectionState != .connected else { return }
-        guard Self.shouldRecordReconnectBackoff(
-            abandonedDialCount: abandonedReconnectDialCount
-        ) else { return }
+        guard shouldScheduleReconnectBackoff() else { return }
         guard let accountID = stackUserID ?? identityProvider?.currentUserID else {
             return
         }
