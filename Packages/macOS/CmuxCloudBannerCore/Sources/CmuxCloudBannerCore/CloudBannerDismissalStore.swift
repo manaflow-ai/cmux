@@ -1,14 +1,16 @@
 public import Foundation
-public import Combine
+public import Observation
 
 /// Persists signature-based Cloud banner dismissals in user defaults.
 @MainActor
-public final class CloudBannerDismissalStore: ObservableObject {
+@Observable
+public final class CloudBannerDismissalStore {
     private static let defaultsKey = "cmux.cloud.banner.dismissed"
 
+    @ObservationIgnored
     private let defaults: UserDefaults
-    @Published public private(set) var dismissedSignatures: [String: String]
-    private nonisolated(unsafe) var defaultsObserver: (any NSObjectProtocol)?
+    /// The signatures currently hidden by this store's banner surfaces.
+    public private(set) var dismissedSignatures: [String: String]
 
     /// Creates a dismissal repository backed by the supplied defaults store.
     ///
@@ -17,34 +19,16 @@ public final class CloudBannerDismissalStore: ObservableObject {
     public init(defaults: UserDefaults) {
         self.defaults = defaults
         dismissedSignatures = Self.load(from: defaults)
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: defaults,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.reloadFromDefaults()
-            }
-        }
-    }
-
-    deinit {
-        if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
-        }
     }
 
     /// Returns whether the current signature was dismissed for the identifier.
-    ///
-    /// The persisted map is reloaded before every read so a long-lived client
-    /// observes dismissals written by another live client.
     ///
     /// - Parameters:
     ///   - id: Stable identifier for the banner instance.
     ///   - signature: State-and-copy signature for the current banner.
     /// - Returns: `true` only when the stored signature exactly matches.
     public func isDismissed(id: String, signature: String) -> Bool {
-        Self.load(from: defaults)[id] == signature
+        dismissedSignatures[id] == signature
     }
 
     /// Records a dismissal without overwriting newer entries from another client.
@@ -71,10 +55,6 @@ public final class CloudBannerDismissalStore: ObservableObject {
 
     private static func load(from defaults: UserDefaults) -> [String: String] {
         defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
-    }
-
-    private func reloadFromDefaults() {
-        dismissedSignatures = Self.load(from: defaults)
     }
 
     private func persist() {
