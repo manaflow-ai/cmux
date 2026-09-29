@@ -32,6 +32,21 @@ import Testing
         #expect(h.applyTarget == .grid(TerminalGridSize(cols: 50, rows: 30)))
     }
 
+    /// The replay registers the phone before capture, so one connect is one
+    /// grid change: straight to the fitted grid, with no step through the
+    /// Mac-only size, and the phone's follow-up report of the same viewport
+    /// changes nothing.
+    @Test func oneConnectIsExactlyOneGridChange() {
+        var h = host(mac: TerminalGridSize(cols: 120, rows: 40), policy: .fitEveryone)
+        let before = h.state
+        var targets: [TerminalSizingApplyTarget] = []
+        if h.syncPhones([phone("a", cols: 54, rows: 26)]) { targets.append(h.applyTarget) }
+        if h.syncPhones([phone("a", cols: 54, rows: 26)]) { targets.append(h.applyTarget) }
+        #expect(targets == [.grid(TerminalGridSize(cols: 54, rows: 26))])
+        #expect(h.state.generation == before.generation + 1)
+        #expect(h.state.size == TerminalGridSize(cols: 54, rows: 26))
+    }
+
     @Test func macAloneIsUncapped() {
         #expect(host().applyTarget == .uncapped)
     }

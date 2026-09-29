@@ -148,6 +148,10 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
         sizingRelay.hostParticipantID(clientID: clientID)
     }
 
+    func relayAwaitsHost(clientID: String) -> Bool {
+        relaysPhones && sizingRelay.awaitsHost(clientID: clientID, now: Date())
+    }
+
     private func sendRelayView(_ view: CloudTerminalSizingRelay.RelayedView) {
         guard relaysPhones, let connection else { return }
         let requestID = takeRequestID()
@@ -155,6 +159,7 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
             surfaceID: remoteSurfaceID, view: view.view, identity: view.participant, requestID: requestID
         ) else { return }
         pendingRequests[requestID] = .relayView(view.view)
+        sizingRelay.reportSent(view: view.view, at: Date())
         connection.send(command)
     }
 

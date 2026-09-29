@@ -20,4 +20,7 @@ protocol CloudSizingPhoneRelaying: AnyObject {
     func relayPhoneActivity(clientID: String)
     /// The host participant id a phone should treat as itself.
     func relayHostParticipantID(clientID: String) -> String?
+    /// Whether the host has not yet taken this phone's latest viewport, so a
+    /// replay captured now would show the grid from before the phone joined.
+    func relayAwaitsHost(clientID: String) -> Bool
 }

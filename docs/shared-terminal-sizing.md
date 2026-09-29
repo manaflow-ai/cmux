@@ -159,7 +159,15 @@ palette and the shortcut. The tab context menu adds Size to My Window, a
 Terminal Size submenu with the five modes, and Disconnect Others… while anyone
 else is attached.
 The iPhone size sheet uses the same grey avatars and marks rows "Sets size"
-or "Not counted" the same way.
+or "Not counted" the same way. Its greys use the platform separator color
+(`UIColor.separator`); the Mac uses the separator token above.
+
+On the iPhone, when the grid is larger than the phone, the phone renders the
+exact shared grid scaled to its width and pinned to the bottom. Pinch zooms
+and pans; the chip then adds `· scaled`. The phone shows sizing chrome only
+after the host's latest size state includes the phone's confirmed viewport
+and no viewport report of its own is pending, so it never draws bounds for a
+grid it is about to change.
 
 ## Mac ↔ iPhone payloads
 
@@ -169,8 +177,12 @@ sees one shape for both.
 - `mobile.terminal.viewport` gains `device_kind`, `device_name` and
   `counts_override` (`null` clears it). The Mac sets `user_id` from the
   authenticated connection. The phone's participant id is `mobile:<client_id>`.
-- `mobile.terminal.replay` results gain `size_state` (the wire object above) and
-  `self_participant_id`.
+- `mobile.terminal.replay` requests carry the phone's viewport on the first
+  replay: `client_id`, `viewport_columns`, `viewport_rows`,
+  `viewport_generation`, `device_kind`, `device_name`. The Mac registers or
+  updates the phone participant and applies the resulting grid before it
+  captures, so one connect is one grid change, straight to the fitted grid.
+  Results gain `size_state` (the wire object above) and `self_participant_id`.
 - Push event `mobile.terminal.size_state {surface_id, state, self_participant_id}`
   on every published change.
 - Push event `mobile.terminal.detached {surface_id, reason, by, at}`; `at` is
@@ -181,8 +193,12 @@ sees one shape for both.
   `mobile.terminal.participant.disconnect {surface_id, participant_id}` let the
   phone use the same size panel.
 
-For a Cloud terminal the Mac forwards the phone to cmux-tui as an attached-view
-lease with the same identity, forwards `size-state` as
+For a Cloud terminal the Mac forwards the phone to cmux-tui as a relay
+sub-view with the same identity (created or updated from the replay's
+viewport before anything is captured). Until the host's state shows that
+viewport (at most 3 s), the replay answers `viewport_transition` and the phone
+retries, so its first frame is already at the host's new grid. The Mac forwards
+`size-state` as
 `mobile.terminal.size_state` (participant ids are the host's ids), and maps a
 `detached` for that lease to `mobile.terminal.detached`.
 

@@ -1,4 +1,5 @@
 import CmuxTerminalSizing
+import Foundation
 
 /// The Mac's bookkeeping as the relay of one Cloud terminal.
 ///
@@ -40,6 +41,13 @@ public struct CloudTerminalSizingRelay: Sendable {
     public private(set) var state: TerminalSizingState?
     /// Phones viewing this mirror, keyed by view key.
     public private(set) var views: [String: RelayedView] = [:]
+    /// When each view's latest report went to the host, until the host's
+    /// state reflects it.
+    private var reportSentAt: [String: Date] = [:]
+
+    /// How long a replay waits for the host to take a phone's report before
+    /// it captures anyway (a lost answer must not block the phone forever).
+    public static let hostReportTimeout: TimeInterval = 3
 
     /// Creates an empty relay.
     public init() {}
@@ -58,6 +66,7 @@ public struct CloudTerminalSizingRelay: Sendable {
         isSupported = capabilities.contains(Self.capability)
         selfParticipantID = nil
         state = nil
+        reportSentAt.removeAll()
         for key in views.keys { views[key]?.hostParticipantID = nil }
     }
 
@@ -102,7 +111,36 @@ public struct CloudTerminalSizingRelay: Sendable {
     ///
     /// - Returns: the view key to detach on the host, if it was known.
     public mutating func phoneLeft(clientID: String) -> String? {
-        views.removeValue(forKey: Self.viewKey(clientID: clientID))?.view
+        reportSentAt[Self.viewKey(clientID: clientID)] = nil
+        return views.removeValue(forKey: Self.viewKey(clientID: clientID))?.view
+    }
+
+    /// Records that a view's report went to the host.
+    ///
+    /// - Parameters:
+    ///   - view: the relay sub-view key.
+    ///   - date: when it was sent.
+    public mutating func reportSent(view: String, at date: Date) {
+        guard views[view] != nil else { return }
+        reportSentAt[view] = date
+    }
+
+    /// Whether a phone's latest report is still on its way through the host:
+    /// the host has not named the view yet, or its latest state does not show
+    /// the reported viewport. A replay captured now would show the grid from
+    /// before the phone joined, then resize. Gives up after
+    /// ``hostReportTimeout``.
+    ///
+    /// - Parameters:
+    ///   - clientID: the phone's mobile client id.
+    ///   - now: the current time.
+    public func awaitsHost(clientID: String, now: Date) -> Bool {
+        let key = Self.viewKey(clientID: clientID)
+        guard let view = views[key], let sentAt = reportSentAt[key],
+              now.timeIntervalSince(sentAt) < Self.hostReportTimeout else { return false }
+        guard let hostID = view.hostParticipantID,
+              let row = state?.participant(hostID) else { return true }
+        return row.participant.viewport != view.participant.viewport
     }
 
     /// Records the host participant id that answered a view report.

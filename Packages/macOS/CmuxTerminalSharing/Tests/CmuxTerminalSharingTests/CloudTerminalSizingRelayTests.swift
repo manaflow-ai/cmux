@@ -1,5 +1,6 @@
 import CmuxTerminalSharing
 import CmuxTerminalSizing
+import Foundation
 import Testing
 
 @Suite struct CloudTerminalSizingRelayTests {
@@ -69,5 +70,46 @@ import Testing
         let stale = relay.receive(s4)
         let same = relay.receive(s5)
         #expect(first && !stale && !same)
+    }
+
+    @Test func aJoiningPhoneAwaitsTheHostUntilItsStateShowsTheViewport() throws {
+        var relay = CloudTerminalSizingRelay()
+        relay.connectionStarted(capabilities: [CloudTerminalSizingRelay.capability])
+        relay.attached(selfParticipantID: "c7")
+        let sent = Date(timeIntervalSince1970: 100)
+        let reported = relay.phoneReported(clientID: "p1", participant: phone(cols: 50))
+        let view = try #require(reported)
+        #expect(!relay.awaitsHost(clientID: "p1", now: sent))
+        relay.reportSent(view: view.view, at: sent)
+        #expect(relay.awaitsHost(clientID: "p1", now: sent))
+
+        // The host named the view, but its state still predates the report.
+        relay.noteHostParticipant("c7/mobile:p1", forView: view.view)
+        #expect(relay.awaitsHost(clientID: "p1", now: sent.addingTimeInterval(0.1)))
+
+        var engine = TerminalSizingEngine(initialSize: TerminalGridSize(cols: 120, rows: 40))
+        _ = engine.attach(TerminalSizingParticipant(id: "c7", deviceKind: .mac, viewport: TerminalGridSize(cols: 120, rows: 40)))
+        relay.receive(engine.state)
+        #expect(relay.awaitsHost(clientID: "p1", now: sent.addingTimeInterval(0.1)))
+
+        var joined = phone(cols: 50)
+        joined.id = "c7/mobile:p1"
+        _ = engine.attach(joined)
+        relay.receive(engine.state)
+        #expect(engine.state.size == TerminalGridSize(cols: 50, rows: 30))
+        #expect(!relay.awaitsHost(clientID: "p1", now: sent.addingTimeInterval(0.1)))
+    }
+
+    @Test func aLostHostAnswerStopsBlockingAfterTheTimeout() throws {
+        var relay = CloudTerminalSizingRelay()
+        relay.connectionStarted(capabilities: [CloudTerminalSizingRelay.capability])
+        let sent = Date(timeIntervalSince1970: 100)
+        let reported = relay.phoneReported(clientID: "p1", participant: phone())
+        let view = try #require(reported)
+        relay.reportSent(view: view.view, at: sent)
+        #expect(relay.awaitsHost(clientID: "p1", now: sent.addingTimeInterval(CloudTerminalSizingRelay.hostReportTimeout - 0.1)))
+        #expect(!relay.awaitsHost(clientID: "p1", now: sent.addingTimeInterval(CloudTerminalSizingRelay.hostReportTimeout)))
+        relay.connectionStarted(capabilities: [CloudTerminalSizingRelay.capability])
+        #expect(!relay.awaitsHost(clientID: "p1", now: sent))
     }
 }
