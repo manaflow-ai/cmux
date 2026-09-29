@@ -52,6 +52,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Test-only: the shipped iOS app's own RPC decoders verify the compat adapter.
         .package(path: "../../iOS/CmuxMobileRPC"),
+        // Test-only: the iOS app's cmux-tui client drives the daemon lane end to end.
+        .package(path: "../../iOS/CmuxMobileSSH"),
     ],
     targets: [
         .target(
@@ -226,6 +228,7 @@ let package = Package(
                 "CmuxNextDaemon",
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
             ],
             resources: [
                 .copy("Fixtures"),

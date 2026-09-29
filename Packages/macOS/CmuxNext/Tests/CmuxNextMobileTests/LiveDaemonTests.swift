@@ -19,12 +19,11 @@ enum LiveBinary {
     }()
 }
 
-/// Compat adapter and daemon lane against a real, isolated cmux-tui daemon.
-/// Every terminal is closed and the daemon shut down afterwards (terminal
-/// hosts outlive the daemon and each holds a PTY).
-@Suite(.enabled(if: LiveBinary.url != nil, "no cmux-tui binary"), .timeLimit(.minutes(2)), .serialized)
-struct LiveDaemonTests {
-    private func withDaemon(_ body: (DaemonConnection, DaemonEndpoint) async throws -> Void) async throws {
+
+/// One isolated real daemon for a test; closes every terminal and shuts the
+/// daemon down afterwards (terminal hosts outlive it and each holds a PTY).
+enum LiveDaemon {
+    static func with(_ body: (DaemonConnection, DaemonEndpoint) async throws -> Void) async throws {
         let id = UUID().uuidString.prefix(8).lowercased()
         let root = URL(fileURLWithPath: "/tmp/cnm-it-\(id)")
         let launcher = DaemonLauncher(
@@ -47,6 +46,13 @@ struct LiveDaemonTests {
         if let failure { throw failure }
     }
 
+}
+
+/// Compat adapter and daemon lane against a real, isolated cmux-tui daemon.
+/// Every terminal is closed and the daemon shut down afterwards (terminal
+/// hosts outlive the daemon and each holds a PTY).
+@Suite(.enabled(if: LiveBinary.url != nil, "no cmux-tui binary"), .timeLimit(.minutes(2)), .serialized)
+struct LiveDaemonTests {
     private func call(_ session: MobileCompatSession, _ method: String, _ params: [String: Any] = [:]) async throws -> Data {
         let frame = try JSONSerialization.data(withJSONObject: ["id": 1, "method": method, "params": params])
         let raw: Data = await session.handle(frame: frame)
@@ -56,7 +62,7 @@ struct LiveDaemonTests {
     }
 
     @Test func shippedPhoneFlowListsReplaysTypesAndSeesOutput() async throws {
-        try await withDaemon { _, endpoint in
+        try await LiveDaemon.with { _, endpoint in
             let backend = try await DaemonCompatBackend.connect(endpointProvider: { endpoint })
             let recorder = EventRecorder()
             let host = MobileCompatHostInfo(macDeviceID: "m", instanceTag: "it", bundleIdentifier: "com.cmuxterm.app.debug.it",
@@ -100,7 +106,7 @@ struct LiveDaemonTests {
     }
 
     @Test func daemonLaneSplicesToRealSocketAndRefusesShutdown() async throws {
-        try await withDaemon { control, endpoint in
+        try await LiveDaemon.with { control, endpoint in
             let (phoneSide, phoneRemote) = MemoryLane.pair()
             let daemon = try await UnixSocketLane.connect(path: endpoint.socketPath)
             let splice = DaemonLaneSplice(phone: phoneSide, daemon: daemon, policy: DaemonLanePolicy(deviceID: "p"))

@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 import CmuxIrxTransport
+public import CmuxMobileSSH
 public import CmuxMobileRPC
 public import Foundation
 
@@ -168,6 +169,19 @@ extension MobileIrxRuntimeComposition {
         } catch {
             throw MobileTunnelOpenFailure.unavailable
         }
+    }
+
+    /// Opens a cmux-tui protocol-12 carrier to the peer Mac's daemon
+    /// (cmux-next, capability `daemon_lane.v1`). `machine` selects the
+    /// daemon; only `local` is served today.
+    public func openDaemonLane(
+        for request: CmxByteTransportRequest,
+        machine: String = "local"
+    ) async throws -> any CmuxTUICarrier {
+        let peerHex = try peerTarget(for: request)
+        let session = try await ensureSession(forPeer: peerHex, trigger: "daemon-lane")
+        let lane = try await session.connection.openLane(IrxLaneDescriptor(lane: .daemon, resource: machine))
+        return IrxDaemonLaneCarrier(lane: lane)
     }
 
     /// The Mac's loopback listening ports and tunnel policy.
