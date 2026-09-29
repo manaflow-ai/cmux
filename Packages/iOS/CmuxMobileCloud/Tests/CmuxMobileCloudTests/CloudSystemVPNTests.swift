@@ -452,6 +452,37 @@ import Testing
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
+    @Test func aStaleEnrollmentWithoutCapturedCredentialsIsPersisted() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let rig = Rig(
+            operationTimeout: .milliseconds(100),
+            credentials: { nil },
+            pendingRevocationStore: pendingStore
+        )
+        rig.service.enrollmentDelay = .milliseconds(250)
+        rig.controller.setScope("user-1/team-1", teamID: "team-1")
+        await rig.controller.waitForPendingOperation()
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        rig.controller.setScope("user-2/team-9", teamID: "team-9")
+        await rig.service.waitForEnrollmentCompletion()
+        for _ in 0..<50 {
+            if !(await pendingFingerprints(pendingStore, scope: "user-1/team-1")).isEmpty {
+                break
+            }
+            try? await ContinuousClock().sleep(for: .milliseconds(5))
+        }
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.service.calls.revoke.isEmpty)
+        #expect(
+            await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"]
+        )
+    }
+
     @Test func aStartRequestStaysTransitioningUntilStatusArrives() async {
         let rig = Rig()
         rig.manager.phaseAfterStart = .off

@@ -279,6 +279,7 @@ public final class CloudSystemVPNController {
             }
         }
         let shouldReconcile = needsPlatformReconciliation || !phase.isRequestedOn
+        let ownerTeamID = scopeTeamID
         publish(.preparing)
         enqueue { [self] generation in
             do {
@@ -286,7 +287,10 @@ public final class CloudSystemVPNController {
                     try await performBounded(reconcilePlatformOnTimeout: true) {
                         try await self.manager.refresh(scope: scope)
                     }
-                    guard self.isCurrent(generation), self.scope == scope else {
+                    guard self.isCurrent(generation),
+                          self.scope == scope,
+                          self.scopeTeamID == ownerTeamID
+                    else {
                         throw CancellationError()
                     }
                     needsPlatformReconciliation = false
@@ -306,7 +310,7 @@ public final class CloudSystemVPNController {
                         CloudAPITokenSource.TokenContext(
                             accessToken: pair.accessToken,
                             refreshToken: pair.refreshToken,
-                            teamID: self.scopeTeamID
+                            teamID: ownerTeamID
                         )
                     }
                     let identity: CloudDeviceIdentity
@@ -330,10 +334,15 @@ public final class CloudSystemVPNController {
                     } catch {
                         throw CloudSystemVPNError.enrollment
                     }
-                    guard attempt.isValid, self.isCurrent(generation), self.scope == scope else {
+                    guard attempt.isValid,
+                          self.isCurrent(generation),
+                          self.scope == scope,
+                          self.scopeTeamID == ownerTeamID
+                    else {
                         await self.revokeEnrollmentIfOwned(
                             enrollment,
                             scope: scope,
+                            teamID: ownerTeamID,
                             credentials: credentials
                         )
                         throw CancellationError()
@@ -342,13 +351,19 @@ public final class CloudSystemVPNController {
                         enrollment: enrollment,
                         privateKey: keyPair.privateKey,
                         scope: scope,
+                        teamID: ownerTeamID,
                         credentials: credentials
                     )
-                    guard attempt.isValid, self.isCurrent(generation), self.scope == scope else {
+                    guard attempt.isValid,
+                          self.isCurrent(generation),
+                          self.scope == scope,
+                          self.scopeTeamID == ownerTeamID
+                    else {
                         await self.removeLateInstallation()
                         await self.revokeEnrollmentIfOwned(
                             enrollment,
                             scope: scope,
+                            teamID: ownerTeamID,
                             credentials: credentials
                         )
                         throw CancellationError()
@@ -374,6 +389,7 @@ public final class CloudSystemVPNController {
         enrollment: CloudTunnelEnrollment,
         privateKey: String,
         scope: String,
+        teamID: String?,
         credentials: CloudAPITokenSource.TokenContext?
     ) async throws {
         do {
@@ -401,6 +417,7 @@ public final class CloudSystemVPNController {
             await revokeEnrollmentIfOwned(
                 enrollment,
                 scope: scope,
+                teamID: teamID,
                 credentials: credentials
             )
             throw error
@@ -856,17 +873,21 @@ public final class CloudSystemVPNController {
     private func revokeEnrollmentIfOwned(
         _ enrollment: CloudTunnelEnrollment,
         scope: String,
+        teamID: String?,
         credentials: CloudAPITokenSource.TokenContext?
     ) async {
         guard enrollment.created || enrollment.rotated else { return }
         let tunnel = (
             scope: scope,
             deviceFingerprint: enrollment.deviceFingerprint,
-            teamID: credentials?.teamID ?? scopeTeamID,
+            teamID: credentials?.teamID ?? teamID,
             credentials: credentials
         )
         rememberPendingBrowserTunnelRevocation(tunnel)
         await persistPendingBrowserTunnelRevocation(tunnel)
+        guard let credentials else {
+            return
+        }
         let worker = revocationWorker
         let revoked = await Task.detached(priority: .utility) {
             do {

@@ -14,7 +14,9 @@ extension CloudSystemVPNTests {
         init(
             operationTimeout: Duration = .seconds(30),
             cleanupRetryCount: Int = 3,
-            credentials: @escaping @Sendable () async -> CloudAPITokenSource.TokenPair? = { nil },
+            credentials: @escaping @Sendable () async -> CloudAPITokenSource.TokenPair? = {
+                (accessToken: "captured-access", refreshToken: "captured-refresh")
+            },
             pendingRevocationStore: any CloudSystemVPNPendingRevocationStoring =
                 InMemoryCloudSystemVPNPendingRevocationStore()
         ) {
