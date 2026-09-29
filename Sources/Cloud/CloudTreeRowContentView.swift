@@ -21,6 +21,17 @@ struct CloudTreeRowContentView: View {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
+
+    private static func displayTitle(for resource: SurfaceResource) -> String {
+        let prefix = "display:"
+        if resource.id.key.hasPrefix(prefix),
+           let number = Int(resource.id.key.dropFirst(prefix.count)) {
+            return CloudGuestDisplay.title(for: number)
+        }
+        return resource.title.isEmpty
+            ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop")
+            : resource.title
+    }
     var body: some View {
         row
             .overlay(alignment: .bottom) {
@@ -89,7 +100,7 @@ struct CloudTreeRowContentView: View {
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
             let title = Self.nonEmptyTrimmed(remoteView?.name)
-                ?? (resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title)
+                ?? Self.displayTitle(for: resource)
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",

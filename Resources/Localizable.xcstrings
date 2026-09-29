@@ -533287,55 +533287,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desktop %d"
+            "value": "Display %d"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeitsfläche %d"
+            "value": "Anzeige %d"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bureau %d"
+            "value": "Écran %d"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سطح المكتب %d"
+            "value": "الشاشة %d"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escritorio %d"
+            "value": "Pantalla %d"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "桌面 %d"
+            "value": "顯示器 %d"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "桌面 %d"
+            "value": "显示器 %d"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "데스크톱 %d"
+            "value": "디스플레이 %d"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デスクトップ %d"
+            "value": "ディスプレイ %d"
           }
         }
       }
