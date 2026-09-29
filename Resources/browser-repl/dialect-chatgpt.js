@@ -653,6 +653,15 @@
 
   function createChatgptGlobals(session, options = {}) {
     const host = session.host;
+    const chatgptUploadFiles = async (files) => {
+      const list = Array.isArray(files) ? files : [files];
+      if (!list.some((f) => typeof f === "string") || !host.importModule) return files;
+      const fs = await host.importModule("node:fs");
+      return list.map((f) => {
+        if (typeof f !== "string") return f;
+        return { name: f.split("/").pop(), buffer: fs.readFileSync(f) };
+      });
+    };
     const tabsById = new Map();
     const tabOfPage = new Map();
     let nextTabId = 1;
@@ -778,7 +787,17 @@
         // agent is expected not to mutate. Enforcement matches ChatGPT's
         // contract only as far as documentation goes.
         evaluate: (fn, arg) => page.evaluate(fn, arg),
-        waitForEvent: (event, o) => page.waitForEvent(event, mapOptions(o)),
+        waitForEvent: async (event, o) => {
+          const value = await page.waitForEvent(event, mapOptions(o));
+          if (event !== "filechooser") return value;
+          // ChatGPT's REPL is Node, so chooser paths may be absolute paths the
+          // agent wrote with node:fs (often under os.tmpdir()). Read them with
+          // the ChatGPT file scope instead of the Aside session sandbox.
+          return {
+            isMultiple: () => value.isMultiple(),
+            setFiles: async (files, fo) => value.setFiles(await chatgptUploadFiles(files), fo),
+          };
+        },
         waitForLoadState: (o) => (typeof o === "string" ? page.waitForLoadState(o) : page.waitForLoadState(o && o.state, mapOptions(o))),
         waitForTimeout: (ms) => page.waitForTimeout(ms),
         waitForURL: (url, o) => page.waitForURL(url, mapOptions(o)),

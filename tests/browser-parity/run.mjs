@@ -32,8 +32,8 @@ function parseArgs(argv) {
     else throw new Error(`unknown argument ${a}`);
   }
   if (args.mode === "ax") return args;
-  if (!["record", "check"].includes(args.mode) || !args.backend) {
-    throw new Error("usage: run.mjs record|check --backend aside|chatgpt|playwright|cmux|cmux-dev [--dialect aside|chatgpt] [--only PREFIX]\n       run.mjs ax [--only PREFIX] [-v]");
+  if (!["record", "check", "run"].includes(args.mode) || !args.backend) {
+    throw new Error("usage: run.mjs record|check|run --backend aside|chatgpt|playwright|cmux|cmux-dev [--dialect aside|chatgpt] [--only PREFIX]\n       run.mjs ax [--only PREFIX] [-v]");
   }
   return args;
 }
@@ -308,6 +308,14 @@ async function main() {
         const goldenDir = path.join(root, "goldens", dialect);
         const goldenPath = path.join(goldenDir, `${scenarioName}${args.backend === "playwright" ? ".playwright" : ""}.json`);
         total++;
+        // `run` prints values without comparing, for scenarios that have no
+        // golden yet.
+        if (args.mode === "run") {
+          console.log(`${dialect}/${scenarioName}`);
+          for (const e of emits) console.log(`  ${e.k} = ${JSON.stringify(e.v).slice(0, 240)}`);
+          if (args.verbose || !emits.length) console.log(result.raw.slice(-3000));
+          continue;
+        }
         if (args.mode === "record") {
           fs.mkdirSync(path.dirname(goldenPath), { recursive: true });
           fs.writeFileSync(goldenPath, JSON.stringify(emits, null, 2) + "\n");
