@@ -90,6 +90,10 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
     /// A request error is retried this many times before the unit and every
     /// later unit of its stream are reported undeliverable.
     public static var maximumRefusals: Int { 3 }
+    /// An ambiguous transport or busy response is retried this many times
+    /// before the stream is abandoned. The outcome may be unknown, so these
+    /// units must never be sent again under a new identity.
+    public static var maximumRetryAttempts: Int { 3 }
 
     public var transport: Transport
     private let merge: (inout Payload, Payload) -> Bool
@@ -274,7 +278,7 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
             case .failed:
                 guard isPending(entry, key: key) else { continue }
                 outboxes[key]?.rewind(from: entry.delivery.sequence)
-                retryAttempts[key] = (retryAttempts[key] ?? 0) + 1
+                guard scheduleRetry(for: key) else { return }
             case .refused:
                 guard isPending(entry, key: key) else { continue }
                 refused(entry, key: key)
@@ -314,9 +318,23 @@ public final class MobileTerminalInputSender<Payload: Sendable> {
         case .progressed, .resend, .undeliverable:
             pump(key)
         case .retryLater:
-            retryAttempts[key] = (retryAttempts[key] ?? 0) + 1
+            guard scheduleRetry(for: key) else { return }
             pump(key)
         }
+    }
+
+    /// Records one retryable response. Once the outcome is too ambiguous to
+    /// keep retrying, abandon the whole ordered stream so later input cannot
+    /// overtake an unresolved unit.
+    @discardableResult
+    private func scheduleRetry(for key: Key) -> Bool {
+        let attempts = (retryAttempts[key] ?? 0) + 1
+        guard attempts < Self.maximumRetryAttempts else {
+            abandon { $0 == key }
+            return false
+        }
+        retryAttempts[key] = attempts
+        return true
     }
 
     /// The Mac answered this unit with an error before admitting it, so its

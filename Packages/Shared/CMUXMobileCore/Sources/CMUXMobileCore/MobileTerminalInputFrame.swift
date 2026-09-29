@@ -81,7 +81,10 @@ public struct MobileTerminalInputFrame: Equatable, Sendable {
             var delivery: MobileTerminalInputDelivery?
             if delivered {
                 let identity = payload.dropFirst(offset).prefix(MobileTerminalInputDelivery.encodedByteCount)
-                delivery = MobileTerminalInputDelivery(decoding: Data(identity))
+                guard let decoded = MobileTerminalInputDelivery(decoding: Data(identity)) else {
+                    throw FrameError.invalidLength
+                }
+                delivery = decoded
                 offset += MobileTerminalInputDelivery.encodedByteCount
             }
             guard let text = String(data: payload.dropFirst(offset), encoding: .utf8) else {

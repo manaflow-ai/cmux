@@ -43,6 +43,8 @@ struct MobileTerminalInputUnit: Sendable {
 typealias MobileTerminalInputUnitSender = MobileTerminalInputSender<MobileTerminalInputUnit>
 
 extension MobileShellComposite {
+    private static let exactlyOnceExplicitDeliveryTimeout: Duration = .seconds(10)
+
     // MARK: Identity
 
     /// The Mac identity a unit is bound to: canonical device plus instance
@@ -73,6 +75,10 @@ extension MobileShellComposite {
                 exactlyOnceInputHostIDs.insert(host.hostID)
             } else {
                 exactlyOnceInputHostIDs.remove(host.hostID)
+                // An identified unit must not cross a downgrade onto the
+                // legacy path. Its outcome may be ambiguous, so settle the
+                // existing stream as abandoned before new input falls back.
+                exactlyOnceSender.abandon { $0.hostID == host.hostID }
             }
         }
         guard exactlyOnceInputHostIDs.contains(host.hostID) else { return nil }
@@ -100,8 +106,12 @@ extension MobileShellComposite {
         let instanceTag = rowDeviceID != nil ? row?.macInstanceTag : activeMacInstanceTag
         let hostID = Self.exactlyOnceHostID(macDeviceID: macDeviceID, instanceTag: instanceTag)
         if target.isForeground {
-            let live = connectionState == .connected && !supportedHostCapabilities.isEmpty
-            return (hostID, live ? supportedHostCapabilities : nil)
+            // While disconnected, the previous verdict still owns queued
+            // input. Once connected, an empty capability snapshot is
+            // authoritative: the host has downgraded or does not support the
+            // identified-input protocol.
+            let live = connectionState == .connected ? supportedHostCapabilities : nil
+            return (hostID, live)
         }
         let capabilities = target.ownerKey.flatMap {
             secondaryMacSubscriptions[$0]?.supportedHostCapabilities
@@ -155,12 +165,29 @@ extension MobileShellComposite {
             return nil
         }
         let unit = MobileTerminalInputUnit(content: content, workspaceID: workspaceID, terminalID: terminalID)
-        return await withCheckedContinuation { continuation in
-            let accepted = exactlyOnceSender.submit(unit, byteCount: byteCount, to: key) { settlement in
-                continuation.resume(returning: settlement)
+        let timeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: Self.exactlyOnceExplicitDeliveryTimeout)
+            } catch {
+                return
             }
-            if !accepted {
-                continuation.resume(returning: .undeliverable)
+            self?.exactlyOnceSender.abandon { $0 == key }
+        }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let accepted = exactlyOnceSender.submit(unit, byteCount: byteCount, to: key) { settlement in
+                    timeoutTask.cancel()
+                    continuation.resume(returning: settlement)
+                }
+                if !accepted {
+                    timeoutTask.cancel()
+                    continuation.resume(returning: .undeliverable)
+                }
+            }
+        } onCancel: {
+            timeoutTask.cancel()
+            Task { @MainActor [weak self] in
+                self?.exactlyOnceSender.abandon { $0 == key }
             }
         }
     }

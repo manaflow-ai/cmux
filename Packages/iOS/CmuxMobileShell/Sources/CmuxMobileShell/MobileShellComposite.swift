@@ -13582,10 +13582,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "pending_byte_count": .int(text.utf8.count),
                 "reason": .string("outbox_full"),
             ])
-            connectionError = L10n.string(
-                "mobile.terminal.inputQueueFull",
-                defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
-            )
             return true
         case .unsupported:
             if let sendStatusOperationID {

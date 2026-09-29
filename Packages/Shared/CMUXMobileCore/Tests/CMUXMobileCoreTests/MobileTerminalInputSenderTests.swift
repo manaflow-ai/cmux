@@ -150,6 +150,18 @@ struct MobileTerminalInputSenderTests {
         #expect(harness.settlements["rm -rf build\r"] == [.delivered])
     }
 
+    @Test func repeatedAmbiguousResponsesAbandonTheStreamWithoutRepeatingTheWrite() async {
+        let harness = Harness()
+        harness.laneUp = false
+        harness.rpcLosesResponses = MobileTerminalInputSender<String>.maximumRetryAttempts
+        harness.submit("dangerous command\r", to: a)
+        await harness.settle(until: { harness.settlements["dangerous command\r"] != nil })
+        #expect(harness.settlements["dangerous command\r"] == [.abandoned])
+        #expect(harness.mac.screens[a.surfaceID] == "dangerous command\r")
+        #expect(harness.rpcSends.count == MobileTerminalInputSender<String>.maximumRetryAttempts)
+        #expect(harness.sender.pendingKeys().isEmpty)
+    }
+
     @Test func eachTerminalOnlyEverReceivesItsOwnInput() async {
         let harness = Harness()
         harness.submit("to-a ", to: a)
