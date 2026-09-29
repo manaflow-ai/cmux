@@ -60,6 +60,12 @@ final class CloudWorkspaceCreationCoordinator {
         validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
     ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
         guard let catalog, catalog.provider(for: provider.machine) === provider else { throw CancellationError() }
+        guard group.representsWorkspace,
+              group.remoteWorkspaceID == workspace.id,
+              group.placements.allSatisfy({ placement in
+                  placement.resource.machine == provider.machine
+                      && (placement.remoteWorkspaceID == nil || placement.remoteWorkspaceID == workspace.id)
+              }) else { throw CancellationError() }
         try validateOperation()
         if let pending = operations.values.first(where: {
             $0.isExistingWorkspaceOpen && $0.provider === provider
@@ -92,9 +98,14 @@ final class CloudWorkspaceCreationCoordinator {
     /// The pending local identity is the row's projection fence. Callers use
     /// it to make a repeated activation a navigation, even before the next
     /// catalog notification repaints the tree.
-    func pendingLocalWorkspaceID(machine: SurfaceMachineID, remoteWorkspaceID: String) -> UUID? {
+    func pendingLocalWorkspaceID(
+        machine: SurfaceMachineID,
+        remoteWorkspaceID: String,
+        manager: TabManager?
+    ) -> UUID? {
         operations.values.first {
             $0.isExistingWorkspaceOpen && $0.machine == machine && $0.receipt?.workspace.id == remoteWorkspaceID
+                && $0.host?.manager === manager
         }?.reservation?.workspaceID
     }
 
@@ -190,10 +201,21 @@ final class CloudWorkspaceCreationCoordinator {
             // reason before closing the admitted workspace, so rollback does
             // not send remote close-tab mutations.
             let partial = operation.openedProjections
+            let reservation = operation.reservation
+            operations[operation.id] = nil
             for projection in partial {
                 catalog.endProjections(panelID: projection.panelID, reason: .replaced)
+                if let workspace = Workspace.liveWorkspace(id: projection.workspaceID),
+                   workspace.panels[projection.panelID] != nil {
+                    catalog.withProjectionEndReason(for: [projection.panelID], reason: .replaced) {
+                        _ = workspace.closePanel(projection.panelID, force: true)
+                    }
+                }
             }
-            cancel(operation.id, discardRemote: false)
+            if let reservation {
+                operation.host?.discard(reservation, catalog: catalog)
+            }
+            catalog.notifyChange()
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
             throw error
         }
@@ -284,7 +306,7 @@ final class CloudWorkspaceCreationCoordinator {
                 operation.revealToken = reveals.begin(in: manager)
             }
             let operationID = operation.id
-            reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
+            reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: true) }
             // Bind the local workspace to its machine immediately. The remote
             // workspace ID is filled from the receipt later, but selection and
             // Cmd+N must already recognize this pane as Cloud-owned while it
@@ -400,6 +422,11 @@ final class CloudWorkspaceCreationCoordinator {
         if let host = operation.host, !host.isAvailable { throw CancellationError() }
         if let receipt = operation.receipt {
             try catalog.checkCloudWorkspaceNavigation(machine: operation.machine, workspaceID: receipt.workspace.id)
+            if let state = catalog.cloudStates[operation.machine],
+               catalog.cloudStateObservations[operation.machine]?.freshness == .current,
+               !state.workspaceIDs.contains(receipt.workspace.id) {
+                throw CancellationError()
+            }
         }
         if let reservation = operation.reservation, operation.host?.isLive(reservation) != true { throw CancellationError() }
     }
@@ -423,7 +450,11 @@ final class CloudWorkspaceCreationCoordinator {
         for operation in Array(operations.values) where operation.machine == state.machine {
             guard let receipt = operation.receipt else { continue }
             guard let fence = receipt.cursor else {
-                if operation.isComplete, operation.isConfirmed(in: state) { operations[operation.id] = nil }
+                if !state.workspaceIDs.contains(receipt.workspace.id) {
+                    reject(operation)
+                } else if operation.isComplete, operation.isConfirmed(in: state) {
+                    operations[operation.id] = nil
+                }
                 continue
             }
             guard let cursor = state.cursor else { reject(operation); continue }

@@ -105,6 +105,34 @@ struct CloudTreeNodeActions {
                 }
             }
         }
+        @MainActor @discardableResult
+        func runKeyed(
+            _ key: String,
+            _ label: String,
+            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
+        ) -> Bool {
+            guard let controller = operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController else {
+                _ = run(label, operation)
+                return true
+            }
+            onWillMutate(label)
+            return controller.start(key: key) {
+                defer { onDidMutate() }
+                do {
+                    if let recorder = AppDelegate.shared?.cloudOperations {
+                        try await recorder.perform(.workspace) { try await operation(catalog()) }
+                    } else {
+                        try await operation(catalog())
+                    }
+                } catch is CancellationError {
+                    // A locally admitted delete or disabled feature invalidates navigation.
+                } catch let failure as CloudDiagnosticFailure {
+                    onFailure(failure.label)
+                } catch {
+                    onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+                }
+            }
+        }
         func destination(_ placement: SurfacePlacement) throws -> SurfaceDestination {
             guard let workspaceID = selectedWorkspaceID() else {
                 throw SurfaceCatalogError.destinationNotFound("no selected workspace")
@@ -431,53 +459,49 @@ struct CloudTreeNodeActions {
             refresh: refresh
         )
         actions.openWorkspace = { machine, workspace, group in
-            if let pending = catalog().cloudWorkspaceCreationCoordinator.pendingLocalWorkspaceID(
-                machine: machine,
-                remoteWorkspaceID: workspace.id
-            ) {
-                selectLocalWorkspace(pending)
-                return
-            }
             let host = workspaceCreationHost() ?? selectedWorkspaceID()
                 .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
                 .map { CloudWorkspaceCreationHost(manager: $0) }
             guard let host, host.isAvailable else { return }
-            let key = "cloud-workspace-open:\(machine.rawValue):\(workspace.id)"
+            if let pending = catalog().cloudWorkspaceCreationCoordinator.pendingLocalWorkspaceID(
+                machine: machine,
+                remoteWorkspaceID: workspace.id,
+                manager: host.manager
+            ) {
+                selectLocalWorkspace(pending)
+                return
+            }
+            guard let provider = catalog().provider(for: machine) else { return }
+            let managerKey = host.manager.map { ObjectIdentifier($0 as AnyObject).hashValue } ?? 0
+            let key = "cloud-workspace-open:\(machine.rawValue):\(workspace.id):\(managerKey)"
             let label = String(
                 format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"),
                 machineName(machine)
             )
-            let operation: @MainActor () async throws -> Void = {
-                let task = run(label) { catalog in
-                    guard let current = try catalog.currentCloudWorkspace(group),
-                          let provider = catalog.provider(for: machine) else {
-                        throw CancellationError()
-                    }
-                    let currentWorkspace = SurfaceRemoteWorkspace(
-                        id: workspace.id,
-                        name: current.group.title,
-                        index: workspace.index,
-                        focused: workspace.focused
-                    )
-                    _ = try await catalog.cloudWorkspaceCreationCoordinator.openExistingWorkspace(
-                        provider: provider,
-                        workspace: currentWorkspace,
-                        group: current.group,
-                        focus: true,
-                        host: host,
-                        validateOperation: {
-                            guard try catalog.currentCloudWorkspace(group) != nil else {
-                                throw CancellationError()
-                            }
-                        }
-                    )
+            _ = runKeyed(key, label) { catalog in
+                guard let current = try catalog.currentCloudWorkspace(group),
+                      catalog.provider(for: machine) === provider else {
+                    throw CancellationError()
                 }
-                await task.value
-            }
-            if let operationController = operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController {
-                _ = operationController.start(key: key, operation)
-            } else {
-                Task { @MainActor in _ = try? await operation() }
+                let currentWorkspace = SurfaceRemoteWorkspace(
+                    id: workspace.id,
+                    name: current.group.title,
+                    index: workspace.index,
+                    focused: workspace.focused
+                )
+                _ = try await catalog.cloudWorkspaceCreationCoordinator.openExistingWorkspace(
+                    provider: provider,
+                    workspace: currentWorkspace,
+                    group: current.group,
+                    focus: true,
+                    host: host,
+                    validateOperation: {
+                        guard catalog.provider(for: machine) === provider,
+                              try catalog.currentCloudWorkspace(group) != nil else {
+                            throw CancellationError()
+                        }
+                    }
+                )
             }
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }

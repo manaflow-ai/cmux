@@ -1,6 +1,7 @@
 import CmuxCloud
 import AppKit
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 import XCTest
@@ -25,6 +26,7 @@ struct CloudWorkspaceCreationSidebarTests {
             fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
             let terminal = fixture.provider.terminal(in: workspace)
             fixture.catalog.upsert(terminal, from: fixture.provider)
+            try fixture.provider.publish(revision: 10)
 
             let attachStarted = CloudLinkFirstValue<Bool>()
             let releaseAttach = CloudLinkFirstValue<Bool>()
@@ -83,10 +85,12 @@ struct CloudWorkspaceCreationSidebarTests {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
             let workspace = SurfaceRemoteWorkspace(id: "ws_failure", name: "Failure", index: 0, focused: true)
+            _ = try #require(fixture.manager.addWorkspaceIfActive(title: "Other", select: false))
             fixture.provider.createdWorkspaces = [workspace]
             fixture.provider.info.remoteWorkspaces = [workspace]
             fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
             fixture.catalog.upsert(fixture.provider.terminal(in: workspace), from: fixture.provider)
+            try fixture.provider.publish(revision: 10)
             fixture.provider.beforeMaterialize = { _, _ in throw CloudDiagnosticFailure.conflict }
 
             let completed = CloudLinkFirstValue<Bool>()
@@ -126,6 +130,7 @@ struct CloudWorkspaceCreationSidebarTests {
             fixture.provider.info.remoteWorkspaces = [workspace]
             fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
             fixture.catalog.upsert(fixture.provider.terminal(in: workspace), from: fixture.provider)
+            try fixture.provider.publish(revision: 10)
             let attachStarted = CloudLinkFirstValue<Bool>()
             let releaseAttach = CloudLinkFirstValue<Bool>()
             fixture.provider.beforeMaterialize = { _, _ in

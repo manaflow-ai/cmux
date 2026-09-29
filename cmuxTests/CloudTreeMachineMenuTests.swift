@@ -588,7 +588,7 @@ struct CloudTreeMachineMenuTests {
     }
 
     private static func nodeActions(recording recorder: CloudTreeMenuVerbRecorder) -> CloudTreeNodeActions {
-        CloudTreeNodeActions(
+        var actions = CloudTreeNodeActions(
             project: { _, _, _ in },
             projectRemoteView: { _, _, _, _ in recorder.projectRemoteViewCount += 1 },
             projectInLocalWorkspace: { _, _ in },
@@ -596,9 +596,6 @@ struct CloudTreeMachineMenuTests {
             newTerminal: { machine, _ in recorder.newTerminals.append(machine) },
             openGroup: { _, _, _, _ in },
             openGroupAsWorkspace: { _, _, _ in },
-            openWorkspace: { machine, workspace, group in
-                recorder.openWorkspaces.append((machine: machine, workspace: workspace, group: group))
-            },
             newWorkspace: { _ in },
             closeTerminal: { _ in },
             closeWorkspace: { _, _ in },
@@ -614,6 +611,10 @@ struct CloudTreeMachineMenuTests {
                 recorder.ownerNavigations.append((machine: machine, group: group, resource: resource, view: view, openIn: openIn))
             }
         )
+        actions.openWorkspace = { machine, workspace, group in
+            recorder.openWorkspaces.append((machine: machine, workspace: workspace, group: group))
+        }
+        return actions
     }
 }
 

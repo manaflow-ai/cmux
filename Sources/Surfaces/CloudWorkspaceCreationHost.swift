@@ -105,20 +105,34 @@ struct CloudWorkspaceCreationHost {
     }
 
     func discard(_ reservation: CloudTerminalPaneReservation, catalog: SurfaceCatalog) {
-        guard let workspace = Workspace.liveWorkspace(id: reservation.workspaceID),
-              workspace.panels[reservation.panelID] != nil else { return }
-        catalog.endProjections(panelID: reservation.panelID, reason: .replaced)
-        workspace.cancelReservedCloudTerminalPane(panelID: reservation.panelID)
-        if workspace.panels.count == 1,
-           workspace.effectiveCustomTitleSource != .user,
-           let owner = workspace.owningTabManager ?? manager {
-            _ = owner.closeWorkspaceNonInteractively(workspace, recordHistory: false, allowPinned: true)
-        } else {
-            // User-added panes and user-renamed workspaces belong to the user,
-            // even if this create fails.
-            catalog.withProjectionEndReason(for: [reservation.panelID], reason: .replaced) {
-                _ = workspace.closePanel(reservation.panelID, force: true)
+        guard let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) else { return }
+        let shouldRestorePreviousSelection = manager?.selectedTabId == reservation.workspaceID
+        if workspace.panels[reservation.panelID] != nil {
+            catalog.endProjections(panelID: reservation.panelID, reason: .replaced)
+            workspace.cancelReservedCloudTerminalPane(panelID: reservation.panelID)
+            if workspace.panels.count == 1,
+               workspace.effectiveCustomTitleSource != .user,
+               let owner = workspace.owningTabManager ?? manager {
+                _ = owner.closeWorkspaceNonInteractively(workspace, recordHistory: false, allowPinned: true)
+            } else {
+                // User-added panes and user-renamed workspaces belong to the user,
+                // even if this create fails.
+                catalog.withProjectionEndReason(for: [reservation.panelID], reason: .replaced) {
+                    _ = workspace.closePanel(reservation.panelID, force: true)
+                }
             }
+        } else if workspace.panels.isEmpty,
+                  workspace.effectiveCustomTitleSource != .user,
+                  let owner = workspace.owningTabManager ?? manager {
+            // Closing the pending pane can race cancellation. Retire the empty
+            // admitted workspace so a pane-level cancel cannot leave a ghost tab.
+            _ = owner.closeWorkspaceNonInteractively(workspace, recordHistory: false, allowPinned: true)
+        }
+        if shouldRestorePreviousSelection,
+           let manager,
+           let selectedWorkspaceID,
+           let previous = manager.workspacesById[selectedWorkspaceID] {
+            manager.selectWorkspace(previous)
         }
     }
 }
