@@ -77,6 +77,15 @@ struct AgentLifecycleReducerTests {
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .backgroundWorkPending)
     }
 
+    @Test func newTurnRemainsRunningWhileBackgroundWorkIsPending() {
+        let state = fold([
+            event(1, .turnStarted),
+            event(2, .turnCompleted, pendingWork: true),
+            event(3, .turnStarted, pendingWork: true),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+    }
+
     @Test func idleAttentionResolutionUsesDeclaredPhase() {
         let state = fold([
             event(1, .turnStarted),
