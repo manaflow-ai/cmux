@@ -292,8 +292,8 @@ struct CloudFailureCard: View {
     var body: some View {
         CloudFailureCardBody(
             title: title, detail: detail, copyableText: copyableText,
-            style: style, onRetry: onRetry, onDismiss: onDismiss,
-            actionTitle: actionTitle, onRecreate: onRecreate,
+            style: style, onRetry: onRetry,
+            actionTitle: actionTitle, onRecreate: onRecreate, onDismiss: onDismiss,
             theme: themeObserver.theme
         )
         .ghosttyDialogTheme()
