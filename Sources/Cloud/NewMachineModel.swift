@@ -361,7 +361,7 @@ final class NewMachineModel {
         return String(format: format, memoryUpgradePlanNames)
     }
 
-    /// "1 of 1 machine" from the panel's meter; nil when the plan is unknown.
+    /// The sheet's plan usage, "0 of 1 machine in use"; nil when the plan is unknown.
     /// Uncapped plans read "2 machines in use".
     var planMeterText: String? {
         guard let plan else { return nil }
