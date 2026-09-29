@@ -12,6 +12,8 @@ function readHeadings(root: HTMLElement): DocsTocHeading[] {
   return Array.from(
     root.querySelectorAll<HTMLHeadingElement>("h2[id], h3[id]"),
   ).flatMap((heading) => {
+    // Client navigation keeps earlier pages mounted but hidden; skip them.
+    if (!heading.checkVisibility()) return [];
     // The anchor link inside each heading is an icon, not heading text.
     const clone = heading.cloneNode(true) as HTMLElement;
     clone.querySelectorAll("[data-pagefind-ignore]").forEach((n) => n.remove());

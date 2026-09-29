@@ -122,7 +122,7 @@ export function DocsNav({
                 {eyebrow}
               </div>
               {/* Sits on the title line, like Mintlify; the title reserves room for it. */}
-              <div className="absolute right-0 top-[33px] hidden sm:block">
+              <div className="absolute right-0 top-[33px] z-10 hidden sm:block">
                 <DocsPageActions />
               </div>
             </div>

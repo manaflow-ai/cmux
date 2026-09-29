@@ -72,3 +72,16 @@ describe("docsHtmlToMarkdown", () => {
     );
   });
 });
+
+describe("docsHtmlToMarkdown hidden pages", () => {
+  test("skips pages that client navigation kept mounted but hidden", () => {
+    const root = el(
+      "div",
+      {},
+      el("div", { style: "display: none !important;" }, el("h1", {}, "Old page")),
+      el("div", { hidden: "" }, el("p", {}, "Hidden")),
+      el("div", {}, el("h1", {}, "Current page")),
+    );
+    expect(docsHtmlToMarkdown(root, origin)).toBe("# Current page\n");
+  });
+});

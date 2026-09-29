@@ -27,6 +27,9 @@ function attr(node: MarkdownSourceNode, name: string): string | null {
 
 function isSkipped(node: MarkdownSourceNode): boolean {
   if (attr(node, "data-pagefind-ignore") === "all") return true;
+  // Client navigation keeps earlier pages mounted with an inline display:none.
+  if (/display:\s*none/i.test(attr(node, "style") ?? "")) return true;
+  if (attr(node, "hidden") !== null) return true;
   if (attr(node, "aria-hidden") === "true") return true;
   const tag = node.nodeName.toLowerCase();
   return tag === "svg" || tag === "button" || tag === "script" || tag === "style";
