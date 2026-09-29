@@ -1,0 +1,59 @@
+public import Foundation
+public import WebKit
+
+/// Creates the WebKit data stores backing profiles. Swappable for tests.
+public protocol WebsiteDataStoreFactory {
+    /// A persistent store identified by `identifier`. WebKit keeps cookies,
+    /// caches, and storage for it in a directory keyed by that UUID.
+    func makeStore(identifier: UUID) -> WKWebsiteDataStore
+    /// Deletes every piece of data WebKit holds for `identifier`.
+    func removeStore(identifier: UUID) async throws
+}
+
+/// The real factory: `WKWebsiteDataStore(forIdentifier:)`.
+public struct SystemWebsiteDataStoreFactory: WebsiteDataStoreFactory {
+    public init() {}
+
+    public func makeStore(identifier: UUID) -> WKWebsiteDataStore {
+        WKWebsiteDataStore(forIdentifier: identifier)
+    }
+
+    public func removeStore(identifier: UUID) async throws {
+        try await WKWebsiteDataStore.remove(forIdentifier: identifier)
+    }
+}
+
+/// Maps cmux browser profiles onto WebKit data stores.
+///
+/// Each `BrowserProfileID` gets exactly one persistent store for the life of
+/// the process, keyed by the profile UUID, so tabs of one profile share
+/// cookies and tabs of different profiles never do. The default profile uses
+/// its own identified store, never `WKWebsiteDataStore.default()`.
+public final class WebKitProfileStore {
+    private let factory: any WebsiteDataStoreFactory
+    private var stores: [BrowserProfileID: WKWebsiteDataStore] = [:]
+
+    public init(factory: any WebsiteDataStoreFactory = SystemWebsiteDataStoreFactory()) {
+        self.factory = factory
+    }
+
+    /// The store for `profile`, created on first use.
+    public func dataStore(for profile: BrowserProfileID) -> WKWebsiteDataStore {
+        if let store = stores[profile] { return store }
+        let store = factory.makeStore(identifier: profile.rawValue)
+        stores[profile] = store
+        return store
+    }
+
+    /// Profiles with a live store in this process.
+    public var loadedProfiles: Set<BrowserProfileID> {
+        Set(stores.keys)
+    }
+
+    /// Deletes all website data of a profile. Close its tabs first: WebKit
+    /// refuses to remove a store that live web views still use.
+    public func removeData(for profile: BrowserProfileID) async throws {
+        stores[profile] = nil
+        try await factory.removeStore(identifier: profile.rawValue)
+    }
+}
