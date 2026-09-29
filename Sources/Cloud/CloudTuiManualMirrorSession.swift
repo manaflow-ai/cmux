@@ -561,7 +561,7 @@ final class CloudTuiManualMirrorSession {
     private func handle(frame: CloudTuiManualIOFrame) {
         watchdog.noteFrame()
         switch frame {
-        case let .snapshot(surfaceID, columns, rows, bytes, colors):
+        case let .snapshot(surfaceID, columns, rows, bytes, colors, pending):
             // This dedicated connection has only one pending attachment. The
             // identity-capable daemon validates the receipt before sending its
             // initial frame; input still waits for the attachment acknowledgement.
@@ -575,7 +575,7 @@ final class CloudTuiManualMirrorSession {
             // A snapshot replaces the local VT state. Reset first so cells,
             // cursor state, alternate-screen mode, and SGR from a prior
             // restore cannot survive where the replacement is shorter.
-            applyReplay(bytes, colors: colors)
+            applyReplay(bytes, colors: colors, pending: pending)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
             if phase == .attached { finishDiagnostics() }
@@ -588,12 +588,12 @@ final class CloudTuiManualMirrorSession {
             guard surfaceID == remoteSurfaceID else { return }
             surface?.processRemoteOutput(bytes)
             applyColors(colors)
-        case let .resized(surfaceID, columns, rows, bytes, colors):
+        case let .resized(surfaceID, columns, rows, bytes, colors, pending):
             guard surfaceID == remoteSurfaceID else { return }
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
             // surviving a shrink or a reconnect.
-            applyReplay(bytes, colors: colors)
+            applyReplay(bytes, colors: colors, pending: pending)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
             if phase == .attached { finishDiagnostics() }
@@ -628,7 +628,7 @@ final class CloudTuiManualMirrorSession {
             break
         }
     }
-    private func applyReplay(_ bytes: Data, colors: CloudTuiRemoteColors?) {
+    private func applyReplay(_ bytes: Data, colors: CloudTuiRemoteColors?, pending: Data) {
         // A sidecar replaces authored colors; an absent sidecar preserves them.
         // Restore the authoritative set after resetting the replacement VT state.
         let replayColors = colors ?? appliedRemoteColors
@@ -636,6 +636,10 @@ final class CloudTuiManualMirrorSession {
         replay.append(Self.replayReset)
         replay.append(bytes)
         replay.append(replayColors.oscBytes)
+        // The daemon's parser is inside this sequence; the next output
+        // completes it. It goes last because the color OSCs above would
+        // otherwise land inside it.
+        replay.append(pending)
         appliedRemoteColors = replayColors
         guard let surface else { return }
         surface.processRemoteReplay(replay) { [weak surface] in

@@ -59,6 +59,9 @@ public struct CloudTuiManualIOCommand: Sendable {
                 viewAttachmentLeaseCapability,
                 viewAttachmentDetachCapability,
                 "terminal-color-overrides-v1",
+                // The pane writes its color sidecar after a replay, so the
+                // daemon's incomplete sequence must arrive separately.
+                "terminal-pending-sequence-v1",
             ],
         ]
     }
