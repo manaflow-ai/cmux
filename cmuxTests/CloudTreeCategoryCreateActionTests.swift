@@ -12,7 +12,7 @@ import Testing
 
 @MainActor
 @Suite("Cloud sidebar category create rows")
-struct CloudTreeFooterActionsTests {
+struct CloudTreeCategoryCreateActionTests {
     @Test("Cloud Machines ends with a New Cloud VM row, even when the fleet is empty")
     func cloudMachinesCategoryHasPersistentMachineAction() throws {
         let fixture = Fixture()
