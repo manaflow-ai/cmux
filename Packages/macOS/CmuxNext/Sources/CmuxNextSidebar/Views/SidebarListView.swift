@@ -64,8 +64,8 @@ final class SidebarListView: NSView, NSTextFieldDelegate, NSMenuItemValidation {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    private var metrics: SidebarLayoutMetrics { compact ? .compact : .expanded }
-    private var inset: CGFloat { compact ? 6 : SidebarStyle.horizontalInset }
+    private var metrics: SidebarLayoutMetrics { compact ? .iconsOnly : .standard }
+    private var inset: CGFloat { compact ? SidebarStyle.compactInset : SidebarStyle.horizontalInset }
 
     // MARK: - Reload
 
@@ -613,8 +613,10 @@ final class SidebarListView: NSView, NSTextFieldDelegate, NSMenuItemValidation {
         let fromTop = point.y - b.minY
         let fromBottom = b.maxY - point.y
         var velocity: CGFloat = 0 // points per second
-        if fromTop < zone { velocity = -pow((zone - max(fromTop, -zone)) / zone, 2) * 900 }
-        else if fromBottom < zone { velocity = pow((zone - max(fromBottom, -zone)) / zone, 2) * 900 }
+        // Up to ~25 rows per second at the very edge, easing in quadratically.
+        let maxSpeed = Metrics.sidebarRowHeight * 25
+        if fromTop < zone { velocity = -pow((zone - max(fromTop, -zone)) / zone, 2) * maxSpeed }
+        else if fromBottom < zone { velocity = pow((zone - max(fromBottom, -zone)) / zone, 2) * maxSpeed }
         guard velocity != 0 else { return }
         let dt = max(1.0 / 240, min(1.0 / 30, link.targetTimestamp - link.timestamp))
         let maxY = max(0, frame.height - b.height)
@@ -793,12 +795,12 @@ final class SidebarListView: NSView, NSTextFieldDelegate, NSMenuItemValidation {
         field.cell?.isScrollable = true
         field.delegate = self
         field.wantsLayer = true
-        field.layer?.cornerRadius = 4
+        field.layer?.cornerRadius = Metrics.space2
         let height = ceil(field.intrinsicContentSize.height)
         field.frame = NSRect(
-            x: titleFrame.minX - 3,
+            x: titleFrame.minX - Metrics.space1,
             y: titleFrame.midY - height / 2,
-            width: max(60, view.frame.maxX - titleFrame.minX - 8),
+            width: max(Metrics.sidebarCollapsedWidth, view.frame.width - titleFrame.minX - Metrics.space3),
             height: height
         )
         addSubview(field)

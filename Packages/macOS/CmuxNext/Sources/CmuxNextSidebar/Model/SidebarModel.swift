@@ -1,4 +1,5 @@
 public import CoreGraphics
+import CmuxNextDesign
 import Foundation
 public import Observation
 
@@ -21,15 +22,15 @@ public final class SidebarModel {
     public var filterText = ""
     public var presentation: SidebarPresentation = .expanded
     /// Expanded width, clamped to `widthRange`.
-    public var width: CGFloat = 248 {
+    public var width: CGFloat = Metrics.sidebarWidth {
         didSet {
             let clamped = min(max(width, Self.widthRange.lowerBound), Self.widthRange.upperBound)
             if clamped != width { width = clamped }
         }
     }
 
-    public static let widthRange: ClosedRange<CGFloat> = 180...440
-    public static let iconsOnlyWidth: CGFloat = 60
+    public static var widthRange: ClosedRange<CGFloat> { Metrics.sidebarMinWidth...Metrics.sidebarMaxWidth }
+    public static var iconsOnlyWidth: CGFloat { Metrics.sidebarCollapsedWidth }
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?

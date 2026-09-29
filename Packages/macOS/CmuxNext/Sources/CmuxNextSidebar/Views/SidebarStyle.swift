@@ -2,22 +2,36 @@ import AppKit
 import CmuxNextDesign
 import SwiftUI
 
-/// Visual constants and motion helpers local to the sidebar.
+/// Sidebar sizes and fonts, derived only from CmuxNextDesign tokens
+/// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
-    static let horizontalInset: CGFloat = 8
-    static let rowCornerRadius: CGFloat = 9
-    static let groupIndent: CGFloat = 12
-    static let iconBox: CGFloat = 22
-    static let autoscrollZone: CGFloat = 44
-    static let dragThreshold: CGFloat = 4
-    static let overscan: CGFloat = 400
+    static var horizontalInset: CGFloat { Metrics.space3 }
+    static var compactInset: CGFloat { Metrics.space2 }
+    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    /// Leading indent of grouped rows (room for the group color rail).
+    static var groupIndent: CGFloat { Metrics.space5 }
+    /// Icon frame; the glyph inside uses `Metrics.smallIconSize`.
+    static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
+    static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
+    static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
+    static var indicatorSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
+    static var dotSize: CGFloat { Metrics.space3 }
+    static var badgeHeight: CGFloat { Metrics.iconSize }
+    static var railWidth: CGFloat { Metrics.space1 }
+    static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
+    static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
+    static var autoscrollZone: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
+    static var dragThreshold: CGFloat { Metrics.space2 }
+    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
 
-    static let titleFont = NSFont.systemFont(ofSize: 13, weight: .regular)
-    static let titleUnreadFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
-    static let subtitleFont = NSFont.systemFont(ofSize: 11, weight: .regular)
-    static let headerFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
-    static let groupFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
-    static let badgeFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .semibold)
+    static var titleFont: NSFont { Typography.body }
+    static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
+    static var subtitleFont: NSFont { Typography.caption }
+    static var headerFont: NSFont { Typography.header }
+    static var groupFont: NSFont { Typography.bodyEmphasized }
+    static var badgeFont: NSFont { Typography.shortcut }
+    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize, weight: .medium) }
+    static var chevronConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize - Metrics.space2, weight: .bold) }
 
     /// Fill for multi-selected rows that are not the active one.
     static let secondarySelectionFill = NSColor(name: nil) { appearance in
@@ -52,7 +66,7 @@ enum SidebarStyle {
     }
 
     /// A small filled circle for color menus.
-    static func swatchImage(_ color: SidebarColor?, size: CGFloat = 12) -> NSImage {
+    static func swatchImage(_ color: SidebarColor?, size: CGFloat = Metrics.smallIconSize) -> NSImage {
         NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             let path = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
             if let color {

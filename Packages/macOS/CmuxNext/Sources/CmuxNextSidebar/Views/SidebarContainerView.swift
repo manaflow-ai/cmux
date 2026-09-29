@@ -20,7 +20,7 @@ public final class SidebarContainerView: NSView {
 
     /// Dragging narrower than this switches to icons-only; dragging an
     /// icons-only sidebar wider than this expands it.
-    public static let collapseThreshold: CGFloat = 130
+    public static var collapseThreshold: CGFloat { (Metrics.sidebarMinWidth + Metrics.sidebarCollapsedWidth) / 2 }
 
     public init(model: SidebarModel) {
         self.model = model
@@ -39,10 +39,10 @@ public final class SidebarContainerView: NSView {
             panel.topAnchor.constraint(equalTo: topAnchor),
             panel.bottomAnchor.constraint(equalTo: bottomAnchor),
             panel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            handle.trailingAnchor.constraint(equalTo: trailingAnchor, constant: 4),
+            handle.trailingAnchor.constraint(equalTo: trailingAnchor, constant: Metrics.dividerHitWidth / 2),
             handle.topAnchor.constraint(equalTo: topAnchor),
             handle.bottomAnchor.constraint(equalTo: bottomAnchor),
-            handle.widthAnchor.constraint(equalToConstant: 8),
+            handle.widthAnchor.constraint(equalToConstant: Metrics.dividerHitWidth),
         ])
         panel.alphaValue = model.presentation == .hidden ? 0 : 1
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }

@@ -185,7 +185,7 @@ private func shape(_ sections: [SidebarSection], _ section: SectionID) -> String
 // MARK: - Layout
 
 @Suite struct Layout {
-    let m = SidebarLayoutMetrics.expanded
+    let m = SidebarLayoutMetrics.standard
 
     @Test func collapsedGroupHidesChildrenAndCountsNodes() {
         let layout = SidebarLayout.make(sections: fixture(), metrics: m)
@@ -211,10 +211,10 @@ private func shape(_ sections: [SidebarSection], _ section: SectionID) -> String
     @Test func emptyPinnedHidesUnlessDragging() {
         var s = fixture()
         s[0].nodes = []
-        #expect(SidebarLayout.make(sections: s).row(for: .section(.pinned)) == nil)
+        #expect(SidebarLayout.make(sections: s, metrics: .standard).row(for: .section(.pinned)) == nil)
         var o = SidebarLayoutOptions()
         o.showEmptyPinned = true
-        #expect(SidebarLayout.make(sections: s, options: o).row(for: .emptySection(.pinned)) != nil)
+        #expect(SidebarLayout.make(sections: s, metrics: .standard, options: o).row(for: .emptySection(.pinned)) != nil)
     }
 
     @Test func gapShiftsFollowingRows() {
@@ -265,7 +265,7 @@ private func shape(_ sections: [SidebarSection], _ section: SectionID) -> String
         o.excludedWorkspaces = Set(ids.map(id))
         o.excludedGroup = group
         o.showEmptyPinned = true
-        return SidebarLayout.make(sections: sections, options: o)
+        return SidebarLayout.make(sections: sections, metrics: .standard, options: o)
     }
 
     func y(_ key: SidebarRowKey, _ fraction: CGFloat, in layout: SidebarLayout) -> CGFloat {
@@ -345,9 +345,11 @@ private func shape(_ sections: [SidebarSection], _ section: SectionID) -> String
         o.showEmptyPinned = true
         o.gap = position
         o.gapHeight = 40
-        let displayed = SidebarLayout.make(sections: sections, options: o)
+        let displayed = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
         let gapY = displayed.gapY!
-        for displayY in stride(from: gapY - 10, through: gapY + displayed.gapShift + 6, by: 2) {
+        // Past the gap the pointer lands in G2's top edge zone, still "before G2".
+        let edge = baseLayout.row(for: .group(g2))!.height * DropResolver.groupEdgeFraction * 0.8
+        for displayY in stride(from: gapY - 10, through: gapY + displayed.gapShift + edge, by: 1) {
             guard let by = DropResolver.baseY(forDisplayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { continue }
             let again = DropResolver.resolve(y: by, payload: .workspaces(ids.map(id)), base: baseLayout, sections: sections)
             // Just above the gap or just below it still names the same slot.

@@ -16,7 +16,7 @@ final class SidebarIconView: NSView {
         swatch.borderWidth = 0.5
         layer?.addSublayer(swatch)
         imageView.imageScaling = .scaleProportionallyDown
-        monogram.font = .systemFont(ofSize: 10, weight: .bold)
+        monogram.font = NSFont.systemFont(ofSize: Typography.caption.pointSize, weight: .bold)
         monogram.textColor = .white
         monogram.alignment = .center
         addSubview(imageView)
@@ -32,7 +32,7 @@ final class SidebarIconView: NSView {
         self.icon = icon
         switch icon {
         case let .symbol(name, tint):
-            let config = NSImage.SymbolConfiguration(pointSize: 13.5, weight: .medium)
+            let config = SidebarStyle.glyphConfig
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
                 ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)?.withSymbolConfiguration(config)
             imageView.contentTintColor = tint.map(SidebarStyle.color) ?? Palette.textSecondary
@@ -63,7 +63,7 @@ final class SidebarIconView: NSView {
     override func layout() {
         super.layout()
         imageView.frame = bounds
-        let side = min(bounds.width, bounds.height) - 4
+        let side = Metrics.iconSize
         let rect = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -106,15 +106,15 @@ final class ActivityIndicatorView: NSView {
     override func layout() {
         super.layout()
         shape.frame = bounds
-        let rect = bounds.insetBy(dx: 1.5, dy: 1.5)
+        let rect = bounds.insetBy(dx: Metrics.space1 / 2, dy: Metrics.space1 / 2)
         switch activity {
         case .running:
             shape.path = CGPath(ellipseIn: rect, transform: nil)
             shape.strokeStart = 0
             shape.strokeEnd = 0.72
-            shape.lineWidth = 1.6
+            shape.lineWidth = Metrics.space1 * 0.75
         case .needsInput, .error:
-            let side: CGFloat = 7
+            let side = SidebarStyle.dotSize
             shape.path = CGPath(ellipseIn: CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side), transform: nil)
             shape.strokeEnd = 1
             shape.lineWidth = 0
@@ -208,8 +208,8 @@ final class UnreadBadgeView: NSView {
     var preferredWidth: CGFloat {
         switch state {
         case .none: 0
-        case .dot: 8
-        case .count: max(18, ceil(label.intrinsicContentSize.width) + 10)
+        case .dot: SidebarStyle.dotSize
+        case .count: max(SidebarStyle.badgeHeight + Metrics.space2, ceil(label.attributedStringValue.size().width) + Metrics.space4)
         }
     }
 
@@ -237,7 +237,7 @@ final class SidebarIconButton: NSButton {
     private var hovering = false { didSet { needsDisplay = true } }
     var onPress: (() -> Void)?
 
-    init(symbol: String, pointSize: CGFloat = 11, weight: NSFont.Weight = .semibold, label: String) {
+    init(symbol: String, pointSize: CGFloat = Metrics.smallIconSize, weight: NSFont.Weight = .semibold, label: String) {
         super.init(frame: .zero)
         let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
         image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?.withSymbolConfiguration(config)
@@ -261,7 +261,7 @@ final class SidebarIconButton: NSButton {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.cornerRadius = min(bounds.width, bounds.height) / 2.6
+        layer?.cornerRadius = Metrics.itemCornerRadius
         layer?.backgroundColor = hovering ? resolvedCGColor(Palette.selectionFill) : nil
     }
 
@@ -284,8 +284,8 @@ final class SelectionPillView: NSView {
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         layer?.borderWidth = 0.5
         layer?.shadowOpacity = 1
-        layer?.shadowRadius = 3
-        layer?.shadowOffset = CGSize(width: 0, height: -1)
+        layer?.shadowRadius = Metrics.space1
+        layer?.shadowOffset = CGSize(width: 0, height: -Metrics.space1 / 2)
     }
 
     @available(*, unavailable)

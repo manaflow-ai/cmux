@@ -34,30 +34,45 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var maxY: CGFloat { y + height }
 }
 
-/// Row metrics for the two sidebar densities.
+/// Row metrics. Values come from CmuxNextDesign `Metrics` tokens; see
+/// `standard` and `iconsOnly`. Kept as a plain value so layout stays pure.
 public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var topPadding: CGFloat
     public var bottomPadding: CGFloat
     public var sectionHeaderHeight: CGFloat
     public var sectionSpacing: CGFloat
     public var groupHeaderHeight: CGFloat
+    /// Workspace row with one line.
     public var rowHeight: CGFloat
+    /// Workspace row with a subtitle line.
+    public var rowHeightWithSubtitle: CGFloat
     public var rowSpacing: CGFloat
     public var groupBottomPadding: CGFloat
     public var emptySectionHeight: CGFloat
 
-    public static let expanded = SidebarLayoutMetrics(
-        topPadding: 2, bottomPadding: 12, sectionHeaderHeight: 26, sectionSpacing: 10,
-        groupHeaderHeight: 28, rowHeight: 40, rowSpacing: 2, groupBottomPadding: 4, emptySectionHeight: 34
-    )
+    public init(
+        topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
+        groupHeaderHeight: CGFloat, rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, rowSpacing: CGFloat,
+        groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
+    ) {
+        self.topPadding = topPadding
+        self.bottomPadding = bottomPadding
+        self.sectionHeaderHeight = sectionHeaderHeight
+        self.sectionSpacing = sectionSpacing
+        self.groupHeaderHeight = groupHeaderHeight
+        self.rowHeight = rowHeight
+        self.rowHeightWithSubtitle = rowHeightWithSubtitle
+        self.rowSpacing = rowSpacing
+        self.groupBottomPadding = groupBottomPadding
+        self.emptySectionHeight = emptySectionHeight
+    }
 
-    public static let compact = SidebarLayoutMetrics(
-        topPadding: 2, bottomPadding: 12, sectionHeaderHeight: 13, sectionSpacing: 6,
-        groupHeaderHeight: 30, rowHeight: 36, rowSpacing: 4, groupBottomPadding: 2, emptySectionHeight: 36
-    )
+    func height(for ws: SidebarWorkspace) -> CGFloat {
+        (ws.subtitle ?? "").isEmpty ? rowHeight : rowHeightWithSubtitle
+    }
 }
 
-/// Inputs that change the layout besides the tree itself.
+/// Inputs that change the layout besides the tree itself./// Inputs that change the layout besides the tree itself.
 public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Workspaces removed from the layout (being dragged).
     public var excludedWorkspaces: Set<WorkspaceID> = []
@@ -93,7 +108,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
     public static func make(
         sections: [SidebarSection],
-        metrics m: SidebarLayoutMetrics = .expanded,
+        metrics m: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
         var rows: [SidebarRow] = []
@@ -163,12 +178,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
+                    let h = m.height(for: ws)
                     rows.append(SidebarRow(
-                        key: .workspace(ws.id), y: y, height: m.rowHeight, section: section.id,
+                        key: .workspace(ws.id), y: y, height: h, section: section.id,
                         group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: false, childCount: 0, groupColor: nil
                     ))
-                    y += m.rowHeight + m.rowSpacing
+                    y += h + m.rowSpacing
                 case let .group(group):
                     let groupCollapsed = group.isCollapsed && !filtering
                     rows.append(SidebarRow(
@@ -180,13 +196,14 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     guard !groupCollapsed else { continue }
                     for (childIndex, ws) in entry.children.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
+                        let h = m.height(for: ws)
                         rows.append(SidebarRow(
-                            key: .workspace(ws.id), y: y, height: m.rowHeight, section: section.id,
+                            key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
                             isLastInGroup: childIndex == entry.children.count - 1,
                             isCollapsed: false, childCount: 0, groupColor: group.color
                         ))
-                        y += m.rowHeight + m.rowSpacing
+                        y += h + m.rowSpacing
                     }
                     openGapIfNeeded(section: section.id, group: group.id, index: entry.children.count)
                     y += m.groupBottomPadding

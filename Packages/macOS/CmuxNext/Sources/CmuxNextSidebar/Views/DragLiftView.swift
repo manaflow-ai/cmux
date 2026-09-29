@@ -47,8 +47,8 @@ final class DragLiftView: NSView {
         }
         layer?.shadowColor = NSColor.black.cgColor
         layer?.shadowOpacity = 0
-        layer?.shadowOffset = CGSize(width: 0, height: -2)
-        layer?.shadowRadius = 4
+        layer?.shadowOffset = CGSize(width: 0, height: Metrics.space1)
+        layer?.shadowRadius = Metrics.space2
         updateColors()
     }
 
@@ -64,12 +64,13 @@ final class DragLiftView: NSView {
         content.frame = card.contentView?.bounds ?? bounds
         for back in stack {
             let depth = CGFloat(Int(back.identifier?.rawValue ?? "1") ?? 1)
-            back.frame = bounds.insetBy(dx: 5 * depth, dy: 0).offsetBy(dx: 0, dy: 4 * depth)
+            back.frame = bounds.insetBy(dx: Metrics.space2 * depth, dy: 0).offsetBy(dx: 0, dy: Metrics.space2 * depth)
         }
         let size = countBadge.intrinsicContentSize
-        let w = max(20, size.width + 10)
-        badgeBackground.frame = NSRect(x: bounds.maxX - w + 6, y: -7, width: w, height: 18)
-        badgeBackground.layer?.cornerRadius = 9
+        let h = SidebarStyle.badgeHeight + Metrics.space1
+        let w = max(h, size.width + Metrics.space4)
+        badgeBackground.frame = NSRect(x: bounds.maxX - w + Metrics.space3, y: -h / 2, width: w, height: h)
+        badgeBackground.layer?.cornerRadius = h / 2
         countBadge.frame = NSRect(x: badgeBackground.frame.minX, y: badgeBackground.frame.midY - size.height / 2, width: w, height: size.height)
         layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
     }
@@ -92,8 +93,8 @@ final class DragLiftView: NSView {
         guard lifted != self.lifted, let layer else { return }
         self.lifted = lifted
         let opacity: Float = lifted ? 0.28 : 0
-        let radius: CGFloat = lifted ? 14 : 4
-        let offset = CGSize(width: 0, height: lifted ? -8 : -2)
+        let radius = lifted ? Metrics.space5 : Metrics.space2
+        let offset = CGSize(width: 0, height: lifted ? Metrics.space3 : Metrics.space1)
         if animated && !Motion.reduceMotion {
             let group = CAAnimationGroup()
             let o = CABasicAnimation(keyPath: "shadowOpacity")

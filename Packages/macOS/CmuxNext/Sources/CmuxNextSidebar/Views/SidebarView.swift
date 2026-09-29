@@ -24,18 +24,18 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
 
     /// Height reserved at the top for the window's traffic lights. The
     /// toolbar buttons sit in this row, trailing.
-    public var titlebarHeight: CGFloat = 34 { didSet { needsLayout = true } }
+    public var titlebarHeight: CGFloat = Metrics.titlebarHeight { didSet { needsLayout = true } }
 
     private let list: SidebarListView
     private let scrollView = NSScrollView()
     private let searchField = NSTextField()
     private let searchIcon = NSImageView()
-    private let clearButton = SidebarIconButton(symbol: "xmark.circle.fill", pointSize: 11, weight: .regular, label: Strings.clearSearch)
+    private let clearButton = SidebarIconButton(symbol: "xmark.circle.fill", pointSize: Metrics.smallIconSize - Metrics.space1, weight: .regular, label: Strings.clearSearch)
     private let searchGlass: NSGlassEffectView
     private let searchContent = NSView()
-    private let newButton = SidebarIconButton(symbol: "plus", pointSize: 12, label: Strings.newWorkspace)
-    private let presentationButton = SidebarIconButton(symbol: "sidebar.left", pointSize: 12, weight: .regular, label: Strings.showIconsOnly)
-    private let compactSearchButton = SidebarIconButton(symbol: "magnifyingglass", pointSize: 12, label: Strings.searchPlaceholder)
+    private let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
+    private let presentationButton = SidebarIconButton(symbol: "sidebar.left", weight: .regular, label: Strings.showIconsOnly)
+    private let compactSearchButton = SidebarIconButton(symbol: "magnifyingglass", label: Strings.searchPlaceholder)
     private let emptyLabel = NSTextField(labelWithString: Strings.noMatches)
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
     private let footer = NSView()
@@ -45,7 +45,7 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
     public init(model: SidebarModel) {
         self.model = model
         list = SidebarListView(model: model)
-        searchGlass = Glass.makePanel(content: searchContent, style: .clear, cornerRadius: 9)
+        searchGlass = Glass.makePanel(content: searchContent, style: .clear, cornerRadius: Metrics.itemCornerRadius + Metrics.space1)
         super.init(frame: .zero)
         buildHierarchy()
         list.reload(animated: false)
@@ -118,7 +118,7 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
             list.externalDragExited()
             return nil
         }
-        if !newButton.isHidden, newButton.frame.insetBy(dx: -4, dy: -4).contains(local) {
+        if !newButton.isHidden, newButton.frame.insetBy(dx: -Metrics.space2, dy: -Metrics.space2).contains(local) {
             list.externalDragExited()
             let machine = sourceMachine ?? .local
             let index = model.section(.machine(machine))?.nodes.count ?? 0
@@ -147,13 +147,13 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
 
     private func buildHierarchy() {
         searchIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .medium))
+            .withSymbolConfiguration(SidebarStyle.glyphConfig)
         searchIcon.contentTintColor = Palette.textSecondary
         searchField.placeholderString = Strings.searchPlaceholder
         searchField.isBordered = false
         searchField.drawsBackground = false
         searchField.focusRingType = .none
-        searchField.font = .systemFont(ofSize: 12.5)
+        searchField.font = Typography.body
         searchField.textColor = Palette.textPrimary
         searchField.delegate = self
         searchField.usesSingleLineMode = true
@@ -211,57 +211,66 @@ public final class SidebarView: NSView, NSTextFieldDelegate {
         newButton.isHidden = compact
         presentationButton.isHidden = compact
         presentationButton.toolTip = compact ? Strings.showFull : Strings.showIconsOnly
-        let button: CGFloat = 26
-        let rowY = max(4, (titlebarHeight - button) / 2)
-        newButton.frame = NSRect(x: b.width - 8 - button, y: rowY, width: button, height: button)
-        presentationButton.frame = NSRect(x: newButton.frame.minX - 2 - button, y: rowY, width: button, height: button)
+        let button = SidebarStyle.toolbarButtonSize
+        let rowY = max(Metrics.space2, (titlebarHeight - button) / 2)
+        newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
+        presentationButton.frame = NSRect(x: newButton.frame.minX - Metrics.space1 - button, y: rowY, width: button, height: button)
 
         if compact {
             searchGlass.isHidden = true
             compactSearchButton.isHidden = false
-            compactSearchButton.frame = NSRect(x: (b.width - 30) / 2, y: y, width: 30, height: 30)
-            y += 34
+            let side = Metrics.sidebarRowHeight
+            compactSearchButton.frame = NSRect(x: (b.width - side) / 2, y: y, width: side, height: side)
+            y += side + Metrics.space2
         } else {
             searchGlass.isHidden = false
             compactSearchButton.isHidden = true
-            searchGlass.frame = NSRect(x: 8, y: y, width: max(0, b.width - 16), height: 30)
+            let inset = SidebarStyle.horizontalInset
+            searchGlass.frame = NSRect(x: inset, y: y, width: max(0, b.width - inset * 2), height: SidebarStyle.searchHeight)
+            searchGlass.layoutSubtreeIfNeeded()
             let content = searchContent.bounds
-            searchIcon.frame = NSRect(x: 9, y: (content.height - 14) / 2, width: 14, height: 14)
-            clearButton.frame = NSRect(x: content.width - 24, y: (content.height - 18) / 2, width: 18, height: 18)
+            let glyph = Metrics.smallIconSize
+            searchIcon.frame = NSRect(x: Metrics.space4, y: (content.height - glyph) / 2, width: glyph, height: glyph)
+            let control = SidebarStyle.controlSize
+            clearButton.frame = NSRect(x: content.width - Metrics.space2 - control, y: (content.height - control) / 2, width: control, height: control)
             let fieldHeight = ceil(searchField.intrinsicContentSize.height)
-            searchField.frame = NSRect(x: 28, y: (content.height - fieldHeight) / 2, width: max(0, content.width - 28 - 26), height: fieldHeight)
-            y += 30 + 8
+            let fieldX = searchIcon.frame.maxX + Metrics.space3
+            searchField.frame = NSRect(x: fieldX, y: (content.height - fieldHeight) / 2, width: max(0, clearButton.frame.minX - fieldX), height: fieldHeight)
+            y += SidebarStyle.searchHeight + Metrics.space4
         }
 
         // Footer slots.
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in accessories[slot].map { (slot, $0) } }
-        let footerHeight: CGFloat = visibleSlots.isEmpty ? 0 : (compact ? CGFloat(visibleSlots.count) * 32 + 8 : 40)
+        let slot = Metrics.sidebarRowHeight
+        let footerHeight: CGFloat = visibleSlots.isEmpty ? 0 : (compact ? CGFloat(visibleSlots.count) * (slot + Metrics.space2) + Metrics.space4 : SidebarStyle.footerHeight)
         footer.frame = NSRect(x: 0, y: b.height - footerHeight, width: b.width, height: footerHeight)
         layoutFooter(visibleSlots, compact: compact)
 
         scrollView.frame = NSRect(x: 0, y: y, width: b.width, height: max(0, b.height - y - footerHeight))
         list.setFrameSize(NSSize(width: scrollView.contentSize.width, height: list.frame.height))
-        emptyLabel.frame = NSRect(x: 8, y: y + 24, width: max(0, b.width - 16), height: 18)
+        emptyLabel.frame = NSRect(x: Metrics.space4, y: y + Metrics.space6, width: max(0, b.width - Metrics.space6), height: Metrics.sidebarRowHeight)
     }
 
     private func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)], compact: Bool) {
         let f = footer.bounds
         if compact {
             for (i, (_, view)) in slots.enumerated() {
-                view.frame = NSRect(x: (f.width - 28) / 2, y: 4 + CGFloat(i) * 32, width: 28, height: 28)
+                let slot = Metrics.sidebarRowHeight
+                view.frame = NSRect(x: (f.width - slot) / 2, y: Metrics.space2 + CGFloat(i) * (slot + Metrics.space2), width: slot, height: slot)
             }
             return
         }
         // account leading, cloud next to it, status fills the trailing space.
-        var x: CGFloat = 10
+        let side = Metrics.sidebarRowHeight
+        var x = Metrics.space4
         for (slot, view) in slots {
             let width: CGFloat
             switch slot {
-            case .account, .cloud: width = 28
-            case .status: width = max(0, f.width - x - 10)
+            case .account, .cloud: width = side
+            case .status: width = max(0, f.width - x - Metrics.space4)
             }
-            view.frame = NSRect(x: x, y: (f.height - 28) / 2, width: width, height: 28)
-            x += width + 4
+            view.frame = NSRect(x: x, y: (f.height - side) / 2, width: width, height: side)
+            x += width + Metrics.space2
         }
     }
 
