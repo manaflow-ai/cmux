@@ -126,14 +126,15 @@ jobs:
         if: ${{ needs.analyze.outputs.state == 'red' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+          # A demo against an old commit (inputs.head) never pings anyone.
+          DRY_RUN: ${{ (inputs.dry_run || inputs.head) && '--dry-run' || '' }}
         run: python3 scripts/ci/main_compile_attribution.py report --report "$RUNNER_TEMP/compile-report/compile-report.json" $DRY_RUN
 
       # Owned warm minis first. A probe still queued after three minutes is
       # cancelled and sent to Blacksmith (CI routing is minis first; Blacksmith
       # only takes overflow).
       - name: Probe the commits the seeds skipped
-        if: ${{ needs.analyze.outputs.probes != '' && !inputs.dry_run }}
+        if: ${{ needs.analyze.outputs.probes != '' && !inputs.dry_run && !inputs.head }}
         env:
           GH_TOKEN: ${{ github.token }}
           PROBES: ${{ needs.analyze.outputs.probes }}
@@ -195,13 +196,14 @@ jobs:
           set -euo pipefail
           analyzed="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["head"])' "$REPORT")"
           culprit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["fix"]["culprit"]["pr"])' "$REPORT")"
-          open_for="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" \
+          # Any state: a person who closed one said no.
+          open_for="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=all&per_page=100" \
             --jq "[.[] | select(.head.ref | test(\"^compile-(fix/[0-9a-f]+-|revert/)$culprit\$\"))] | length")"
           if [ "$(git rev-parse HEAD)" != "$analyzed" ]; then
             echo "main moved past $analyzed; the next analysis decides." >> "$GITHUB_STEP_SUMMARY"
             echo "current=false" >> "$GITHUB_OUTPUT"
           elif [ "$open_for" != 0 ]; then
-            echo "A compile fix or revert for #$culprit is already open." >> "$GITHUB_STEP_SUMMARY"
+            echo "A compile fix or revert for #$culprit already exists (open or closed)." >> "$GITHUB_STEP_SUMMARY"
             echo "current=false" >> "$GITHUB_OUTPUT"
           else
             echo "current=true" >> "$GITHUB_OUTPUT"
@@ -234,6 +236,8 @@ jobs:
                   out = json.loads(data.get("result") or "{}")
               except ValueError:
                   out = {}
+          # No structured answer is no decision: neither a fix nor a revert.
+          print(f"decided={'true' if isinstance(out.get('mechanical'), bool) else 'false'}")
           print(f"mechanical={'true' if out.get('mechanical') else 'false'}")
           print("summary=" + " ".join(str(out.get("summary") or "").split())[:400])
           PY
@@ -242,7 +246,7 @@ jobs:
       # no fix and no revert, and the culprit comment still stands.
       - name: Keep only a small mechanical diff
         id: diff
-        if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' }}
+        if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
         env:
           MECHANICAL: ${{ steps.fixer.outputs.mechanical }}
         run: |
@@ -299,7 +303,12 @@ jobs:
               echo "The culprit is only suspected; no revert." >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            if ! git revert --no-edit "$(field merge_sha)"; then
+            sha="$(field merge_sha)"
+            mainline=()
+            if [ "$(git rev-list --parents -n1 "$sha" | wc -w)" -gt 2 ]; then
+              mainline=(-m 1)  # a merge commit: undo what it brought onto main
+            fi
+            if ! git revert --no-edit ${mainline[@]+"${mainline[@]}"} "$sha"; then
               git revert --abort || true
               echo "The revert does not apply cleanly to main's head; left to a person." >> "$GITHUB_STEP_SUMMARY"
               exit 0

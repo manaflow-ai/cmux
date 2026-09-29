@@ -102,6 +102,14 @@ class Attribute(unittest.TestCase):
         _, _, breaks = attribute([TWO, AD, FF, ED], known)
         self.assertEqual((breaks[0].commits, breaks[0].confirmed), ([AD], True))
 
+    def test_a_one_merge_range_after_a_red_commit_is_only_suspected(self):
+        # Errors a first break hid surface at the commit that fixes it; that commit is not confirmed.
+        hidden = mca.CompileError("cmuxTests/Later.swift", 3, "cannot find 'x' in scope")
+        known = {TWO: mca.State(TWO, "red", {hidden.key: hidden}), AD: mca.State(AD, "red", {PANE.key: PANE}),
+                 FF: mca.State(FF, "green")}
+        _, _, breaks = attribute([TWO, AD, FF], known)
+        self.assertEqual((breaks[0].commits, breaks[0].confirmed), ([TWO], False))
+
     def test_green_head_means_nothing_to_attribute(self):
         state, newest, breaks = attribute([TWO, AD], {TWO: mca.State(TWO, "green")})
         self.assertEqual((state, newest.sha, breaks), ("green", TWO, []))
@@ -139,6 +147,20 @@ class JobVerdicts(unittest.TestCase):
         self.assertEqual(mca.job_verdict(self.job(None), "Build"), "unknown")
         self.assertEqual(mca.job_verdict({"steps": []}, "Build"), "unknown")
 
+    def test_a_run_with_a_red_pool_is_red_though_another_compiled(self):
+        class Fake:
+            def jobs(self, run_id):
+                return [{"id": 1, "status": "completed", "steps": [{"name": "Build", "conclusion": "success"}]},
+                        {"id": 2, "status": "completed", "html_url": "j2",
+                         "steps": [{"name": "Build", "conclusion": "failure"}]}]
+
+            def log(self, job_id):
+                return SEED_LOG
+
+        state = mca.run_state(Fake(), {"id": 9, "head_sha": TWO, "status": "completed", "conclusion": "failure"},
+                              mca.SEED_WORKFLOW_FILE, 0)
+        self.assertEqual((state.state, state.job_url, len(state.errors)), ("red", "j2", 2))
+
     def test_a_real_error_outranks_a_green_pool(self):
         red = mca.State(TWO, "red", {PANE.key: PANE})
         self.assertIs(mca.merge([mca.State(TWO, "unknown"), red, mca.State(TWO, "green")]), red)
@@ -158,14 +180,26 @@ class FollowThrough(unittest.TestCase):
                 "body": "", "created_at": "2026-09-29T10:00:00Z", "head": {"ref": "fix/compile"}}]
         self.assertEqual(mca.already_fixing(prs, 15550, "2026-09-29T09:26:21Z")["number"], 15561)
         self.assertIsNone(mca.already_fixing(prs, 15551, "2026-09-29T09:26:21Z"))
-        # Our own branch counts whatever its title says.
-        ours = [{"number": 1, "title": "x", "body": "", "created_at": "", "head": {"ref": "compile-fix/217ef1338a-15550"}}]
+        # Naming the culprit is not enough when its files are known: it must edit an erroring file.
+        files = {15561: ["cmuxTests/PaneDropTargetIdentityTests.swift"], 15577: ["scripts/ci/x.py"]}
+        canary = {**prs[0], "number": 15577, "title": "ci: compile canary (replays #15550)"}
+        self.assertIsNone(mca.already_fixing([canary], 15550, None, [PANE.path], files.get))
+        self.assertEqual(mca.already_fixing([canary, prs[0]], 15550, None, [PANE.path], files.get)["number"], 15561)
+        # Our own branch counts whatever its title says, closed too: a person closed it on purpose.
+        ours = [{"number": 1, "title": "x", "body": "", "created_at": "", "state": "closed",
+                 "head": {"ref": "compile-fix/217ef1338a-15550"}},
+                {"number": 2, "title": "x", "body": "", "created_at": "", "head": {"ref": "compile-revert/15116"}}]
         self.assertEqual(mca.already_fixing(ours, 15550, None)["number"], 1)
+        self.assertEqual(mca.already_fixing(ours, 15116, None)["number"], 2)
+        self.assertIsNone(mca.already_fixing(ours, 155, None))
+        # Someone else's closed pull request naming the culprit does not stop the fixer.
+        closed = [{**prs[0], "state": "closed"}]
+        self.assertIsNone(mca.already_fixing(closed, 15550, "2026-09-29T09:26:21Z"))
 
     def test_comment_pings_and_fences_the_errors(self):
         report = self.report()
         body = mca.render_culprit_comment(report, report["breaks"][0], self.CULPRIT, {})
-        self.assertTrue(body.startswith("<!-- main-compile-culprit pr=15550 errors="))
+        self.assertEqual(body.splitlines()[0], "<!-- main-compile-culprit pr=15550 -->")
         self.assertIn("@austinywang:", body)
         self.assertEqual(body.count("@austinywang"), 1)
         self.assertIn("```\n" + PANE.render() + "\n```", body)

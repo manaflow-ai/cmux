@@ -86,7 +86,8 @@ MAX_PROBES = 4
 MAX_ERRORS_SHOWN = 20
 # A failed job whose log is not downloadable yet (the job is finishing).
 LOG_WAIT_SECONDS = 150
-CULPRIT_MARKER = "<!-- main-compile-culprit pr={pr} errors={digest} -->"
+# One comment per culprit, edited in place (an edit pings nobody again) as the errors or range change.
+CULPRIT_MARKER = "<!-- main-compile-culprit pr={pr} -->"
 FIX_MARKER = "<!-- main-compile-fix culprit={pr} -->"
 REVERT_LABEL = "compile-revert"
 FIX_BRANCH_PREFIX = "compile-fix/"
@@ -239,10 +240,8 @@ def run_state(source: Source, run: Mapping, workflow_file: str, log_wait: float)
     except RuntimeError:
         return base
     verdicts = [(job, job_verdict(job, step)) for job in jobs]
-    green = next((job for job, verdict in verdicts if verdict == "green"), None)
-    if green is not None:
-        base.state, base.job_url = "green", green.get("html_url")
-        return base
+    # A real compiler error on any pool is the verdict, as merge() decides across runs: a pool that
+    # compiled has another Xcode, or has not reached the failing target yet.
     for job, verdict in verdicts:
         if verdict != "red":
             continue
@@ -250,6 +249,9 @@ def run_state(source: Source, run: Mapping, workflow_file: str, log_wait: float)
         if errors:
             return State(sha, "red", errors, run.get("html_url"), job.get("html_url"), workflow_file,
                          job.get("completed_at") or run.get("updated_at"))
+    green = next((job for job, verdict in verdicts if verdict == "green"), None)
+    if green is not None:
+        base.state, base.job_url = "green", green.get("html_url")
     return base
 
 
@@ -357,7 +359,11 @@ def attribute(window: list[str], states: Mapping[str, State], files_of=changed_f
         commits = list(reversed(window[order[sha]:lo]))
         errors = [state.errors[key] for key in appeared]
         brk = Break(older if older_state is not None else None, sha, commits, errors, state)
-        brk.confirmed = len(commits) == 1 and older_state is not None
+        # A green commit before it confirms. After a red one, errors a first break hid (a module that never
+        # compiled) can surface at the commit that fixes it without being its doing, so a red base confirms
+        # only a commit that edits a file the new errors are in.
+        brk.confirmed = len(commits) == 1 and older_state is not None and (
+            older_state.state == "green" or bool(suspects(commits, errors, files_of, text_of)[1].get(commits[0]) == 2))
         if brk.confirmed:
             brk.culprits = [{"sha": commits[0]}]
         else:
@@ -393,6 +399,9 @@ def collect_states(source: Source, window: list[str], log_wait: float) -> tuple[
     """Known compile states over the window, stopping at the first green commit, and in-flight probes."""
     runs: dict[str, list[tuple[str, dict]]] = {}
     probes_in_flight: dict[str, dict] = {}
+    # Commits that already have a probe (any outcome) or a seed still compiling: never probed (again), so
+    # a probe that ends without a verdict cannot re-dispatch itself through its own completion.
+    busy: set[str] = set()
     for workflow_file in (SEED_WORKFLOW_FILE, PROBE_WORKFLOW_FILE):
         for run in source.runs(workflow_file):
             if run.get("event") not in ("push", "workflow_dispatch"):
@@ -404,10 +413,13 @@ def collect_states(source: Source, window: list[str], log_wait: float) -> tuple[
                 if not match:
                     continue
                 sha = match[1]
+                busy.add(sha)
                 if run.get("status") != "completed":
                     probes_in_flight[sha] = run
             elif run.get("event") != "push":
                 continue
+            elif run.get("status") != "completed":
+                busy.add(sha)
             runs.setdefault(sha, []).append((workflow_file, run))
     states: dict[str, State] = {}
     for sha in window:
@@ -418,7 +430,7 @@ def collect_states(source: Source, window: list[str], log_wait: float) -> tuple[
         states[sha] = state
         if state.state == "green":
             break
-    return states, probes_in_flight
+    return states, probes_in_flight, busy
 
 
 def describe(gh: GitHub | None, sha: str) -> dict:
@@ -427,7 +439,7 @@ def describe(gh: GitHub | None, sha: str) -> dict:
 
 def analyze(source: Source, gh: GitHub | None, head: str, log_wait: float = LOG_WAIT_SECONDS) -> dict:
     window = first_parents(head)
-    states, in_flight = collect_states(source, window, log_wait)
+    states, in_flight, busy = collect_states(source, window, log_wait)
     state, newest, breaks = attribute(window, states)
     report: dict = {
         "head": head,
@@ -440,7 +452,7 @@ def analyze(source: Source, gh: GitHub | None, head: str, log_wait: float = LOG_
     budget = MAX_PROBES
     for brk in breaks:
         culprits = [describe(gh, c["sha"]) for c in brk.culprits]
-        wanted = [c for c in probe_order(brk.probes, MAX_PROBES) if c not in in_flight]
+        wanted = [c for c in probe_order([c for c in brk.probes if c not in busy], MAX_PROBES)]
         chosen = wanted[:budget]
         budget -= len(chosen)
         report["probes"] += chosen
@@ -480,7 +492,7 @@ def mentions(culprit: Mapping) -> str:
 
 
 def render_culprit_comment(report: Mapping, brk: Mapping, culprit: Mapping, links: Mapping[str, str]) -> str:
-    marker = CULPRIT_MARKER.format(pr=culprit["pr"], digest=digest(brk["error_keys"]))
+    marker = CULPRIT_MARKER.format(pr=culprit["pr"])
     shown = brk["errors"][:MAX_ERRORS_SHOWN]
     more = len(brk["errors"]) - len(shown)
     if brk["confirmed"]:
@@ -546,14 +558,28 @@ def fix_target(report: Mapping) -> dict | None:
     return None
 
 
-def already_fixing(open_prs: Iterable[Mapping], culprit_pr: int, merged_at: str | None) -> Mapping | None:
-    """An open pull request that already answers this break: ours, or one that names the culprit."""
-    for pr in open_prs:
+def ours_for(ref: str, culprit_pr: int) -> bool:
+    return bool(re.fullmatch(rf"{FIX_BRANCH_PREFIX}[0-9a-f]+-{culprit_pr}|{REVERT_BRANCH_PREFIX}{culprit_pr}", ref))
+
+
+def already_fixing(prs: Iterable[Mapping], culprit_pr: int, merged_at: str | None,
+                   error_files: Iterable[str] = (), files_of_pr=None) -> Mapping | None:
+    """A pull request that already answers this break: our fix or revert in any state (a person who
+    closed one said no), or someone's open one, opened since the culprit merged, that names the culprit
+    and edits a file an error is in (files_of_pr, when given, reads its files)."""
+    wanted = set(error_files)
+    for pr in prs:
         ref = str((pr.get("head") or {}).get("ref") or "")
-        if ref.startswith((FIX_BRANCH_PREFIX, REVERT_BRANCH_PREFIX)) and f"-{culprit_pr}" in ref:
+        if ours_for(ref, culprit_pr):
             return pr
+        if pr.get("state", "open") != "open":
+            continue
         text = f"{pr.get('title') or ''}\n{pr.get('body') or ''}"
-        if re.search(rf"#{culprit_pr}\b", text) and (not merged_at or str(pr.get("created_at") or "") >= merged_at):
+        if not re.search(rf"#{culprit_pr}\b", text):
+            continue
+        if merged_at and str(pr.get("created_at") or "") < merged_at:
+            continue
+        if files_of_pr is None or not wanted or wanted & set(files_of_pr(int(pr["number"]))):
             return pr
     return None
 
@@ -568,12 +594,23 @@ def command_analyze(args: argparse.Namespace) -> int:
         pull = gh.pull(int(target["culprit"]["pr"]))
         target["culprit"]["merged_at"] = pull.get("merged_at")
         target["culprit"]["merge_sha"] = pull.get("merge_commit_sha") or target["culprit"]["sha"]
-        open_prs = list(gh.get(f"repos/{gh.repo}/pulls?state=open&per_page=100&sort=created&direction=desc") or [])
-        busy = already_fixing(open_prs, int(target["culprit"]["pr"]), pull.get("merged_at"))
+        recent = list(gh.get(f"repos/{gh.repo}/pulls?state=all&per_page=100&sort=created&direction=desc") or [])
+        def pr_files(number: int) -> list[str]:
+            try:
+                return [f["filename"] for f in gh.get(f"repos/{gh.repo}/pulls/{number}/files?per_page=100") or []]
+            except RuntimeError:
+                return []
+
+        found = already_fixing(recent, int(target["culprit"]["pr"]), pull.get("merged_at"),
+                               target["break"]["files"], pr_files)
         # The fixer works on main's head: only when head itself is the red commit analyzed.
         stale = report.get("newest_known") != head
-        target["skip"] = (f"open pull request #{busy['number']} already addresses #{target['culprit']['pr']}"
-                          if busy else "main's head has no compile result yet" if stale else "")
+        if found and found.get("state", "open") == "open":
+            target["skip"] = f"open pull request #{found['number']} already addresses #{target['culprit']['pr']}"
+        elif found:
+            target["skip"] = f"pull request #{found['number']} for #{target['culprit']['pr']} was closed"
+        else:
+            target["skip"] = "main's head has no compile result yet" if stale else ""
         report["fix"] = target
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n")
     Path(args.summary_out).write_text(summary(report)) if args.summary_out else None
@@ -626,8 +663,8 @@ def prompt(report: Mapping) -> str:
         "function or closure signature, a renamed or moved symbol, a missing import, a changed initializer, a",
         "`let` assigned twice, an argument label. Keep the intent of both sides: prefer adapting the call sites",
         "(usually tests) to the new API over changing the API back. Do not change behavior, delete tests, or",
-        "touch files the errors do not lead to. Read `git show " + str(culprit.get("sha"))[:12] + "` style context",
-        "with the Read and Grep tools only; you cannot run builds.",
+        "touch files the errors do not lead to. Find the API the errors meet with Grep and Read (the culprit's",
+        "changed files are the likely place); you cannot run builds or git.",
         "",
         "If the fix is not mechanical (it needs a design decision, or you are unsure), edit nothing.",
         "Finish with the structured output: mechanical (whether you edited files for a mechanical fix) and",
