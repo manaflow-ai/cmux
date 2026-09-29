@@ -1,6 +1,0 @@
-{
-  "trusted-log": {
-    "source": "playwright",
-    "reason": "Aside clicks checkboxes with synthetic DOM events; target is trusted input."
-  }
-}

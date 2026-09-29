@@ -42,6 +42,9 @@ function handler(origins) {
       const body = Buffer.concat(chunks);
       return send(200, "application/json", JSON.stringify({ bytes: body.length, type: req.headers["content-type"] ?? null }));
     }
+    if (url.pathname === "/echo-cookie") {
+      return send(200, "application/json", JSON.stringify({ cookie: req.headers.cookie ?? null }));
+    }
     if (url.pathname === "/api/data") {
       return send(200, "application/json", JSON.stringify({ ok: true, q: url.searchParams.get("q") }));
     }

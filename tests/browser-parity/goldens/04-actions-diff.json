@@ -1,0 +1,24 @@
+{
+  "oracle": {
+    "result": "Submitted me@x.com tos=true plan=Team",
+    "trusted-log": [
+      "input #email",
+      "change #email",
+      "click #tos",
+      "input #tos",
+      "change #tos",
+      "input #plan UNTRUSTED",
+      "change #plan UNTRUSTED",
+      "click #submit"
+    ]
+  },
+  "cmux": {
+    "after-actions": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2] [url=/aria.html]\n  - link \"Docs\" [ref=e3] [url=/dynamic.html]\n- main:\n  - heading \"Sign up\" [level=1]\n  - textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]: \"me@x.com\"\n  - checkbox \"Accept terms\" [ref=e5] [checked]\n  - combobox \"Plan\" [ref=e6]: \"Team\"\n  - textbox \"Bio\" [ref=e7]: \"hi\"\n  - button \"Create account\" [ref=e8] [focused]\n  - button \"Disabled\" [ref=e9] [disabled]\n  - list:\n    - listitem: \"One\"\n    - listitem: \"Two\"\n  - paragraph:\n    - text: \"Plain bold text.\"\n    - img \"Logo\"\n  - button \"Far away\" [ref=e10]\n- paragraph: \"Submitted me@x.com tos=true plan=Team\"",
+    "small-change-prints-diff": true,
+    "small-change": "title: ARIA Fixture\nurl: PRIMARY/aria.html\n# changes since the previous snapshot (+ added, - removed):\n  - main:\n-   - textbox \"Label for\" [ref=e15]: \"prefilled\"\n+   - textbox \"Label for\" [ref=e15]: \"changed\"\n-   - heading \"Level three\" [level=3]\n+   - heading \"Level three renamed\" [level=3]",
+    "no-change": "title: ARIA Fixture\nurl: PRIMARY/aria.html\n# no changes since the previous snapshot",
+    "large-change-prints-diff": false,
+    "large-change": "title: ARIA Fixture\nurl: PRIMARY/aria.html\n- banner:\n  - heading \"ARIA roles\" [level=1]\n- navigation \"Breadcrumb\" [ref=e11]:\n  - list:\n    - listitem:\n      - link \"Root\" [ref=e12] [url=/]\n    - listitem:\n      - link \"Here\" [ref=e13] [url=/aria.html]\n- main:\n  - heading \"Replaced\" [level=1]\n  - paragraph: \"New content\"\n- contentinfo: \"Footer text\"",
+    "large-change-diff": "title: ARIA Fixture\nurl: PRIMARY/aria.html\n# changes since the previous snapshot (+ added, - removed):\n  - main:\n-   - heading \"Names\" [level=2]\n-   - text: \"Labelled by span\"\n-   - textbox \"Labelled by span\" [ref=e14]\n-   - textbox \"Label for\" [ref=e15]: \"changed\"\n-   - textbox \"Title only\" [ref=e16]\n-   - button \"Icon button\" [ref=e17]\n-   - button \"Described\" [ref=e18]\n-   - text: \"extra description\"\n-   - heading \"Level three renamed\" [level=3]\n-   - heading \"Level four\" [level=4]\n-   - heading \"Widgets\" [level=2]\n-   - tablist \"Tabs\" [ref=e19]:\n-     - tab \"First\" [ref=e20] [selected]\n-     - tab \"Second\" [ref=e21]\n-   - tabpanel: \"Panel one\"\n-   - button \"Menu\" [ref=e22] [expanded=false]\n-   - button \"Bold\" [ref=e23] [pressed]\n-   - switch \"Wifi\" [ref=e24] [checked]\n-   - slider \"Volume\" [ref=e25]: \"3\"\n-   - group \"Size\":\n-     - radio \"Small\" [ref=e26] [checked]\n-     - radio \"Large\" [ref=e27]\n-   - progressbar \"Upload\": \"40\"\n-   - alert: \"Heads up\"\n-   - table \"Scores\":\n-     - row: \"Name | Score\"\n-     - row: \"Ada | 9\"\n-   - tree \"Files\" [ref=e28]:\n-     - treeitem \"src\" [ref=e29] [expanded]:\n-       - treeitem \"main.swift\" [ref=e30]\n-   - button \"More\" [ref=e31] [expanded=false]\n-   - heading \"Visibility\" [level=2]\n-   - paragraph: \"Offscreen text\"\n-   - dialog \"Inline dialog\" [ref=e32]:\n-     - paragraph: \"Dialog body\"\n-     - button \"OK\" [ref=e33]\n-   - link \"Anchor link\" [ref=e34] [url=/aria.html#top]\n-   - generic [ref=e35]: \"Clickable div\"\n-   - textbox \"Editor\" [ref=e36]: \"Editable text\"\n+   - heading \"Replaced\" [level=1]\n+   - paragraph: \"New content\""
+  }
+}

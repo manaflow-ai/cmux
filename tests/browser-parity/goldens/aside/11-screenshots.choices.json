@@ -1,6 +1,0 @@
-{
-  "element-shot": {
-    "source": "playwright",
-    "reason": "Aside returns WebP for locator.screenshot(); Playwright's default and page.screenshot() are PNG."
-  }
-}

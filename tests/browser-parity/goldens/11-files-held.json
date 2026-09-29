@@ -1,0 +1,14 @@
+{
+  "oracle": {},
+  "cmux": {
+    "snapshot": "title: Files Fixture\nurl: PRIMARY/files.html\nfile chooser: [ref=e1] (answer with page.fileChooser().setFiles(paths) or .cancel())\n- button \"Single\" [ref=e2]\n- button \"Many\" [ref=e3]\n- button \"Choose via button\" [ref=e4] [focused]\n- link \"Download file\" [ref=e5] [url=/download.txt]\n- paragraph: \"none\"",
+    "multiple": false,
+    "set": "hidden-file: held.txt(held file)",
+    "answered": null,
+    "many-line": "file chooser: [ref=e3] [multiple] (answer with page.fileChooser().setFiles(paths) or .cancel())",
+    "many-multiple": true,
+    "cancelled": null,
+    "unchanged": "hidden-file: held.txt(held file)",
+    "answer-twice": "File chooser was already answered"
+  }
+}

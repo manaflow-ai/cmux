@@ -1,0 +1,1062 @@
+{
+  "$comment": "Every Aside and ChatGPT for Chrome browser capability (tests/browser-parity/reference) mapped to its cmux equivalent and the scenario:key that proves it, or to an exclusion from docs/browser-repl/README.md. unit/capabilities.test.mjs keeps this complete.",
+  "aside": {
+    "globals": {
+      "page": {
+        "cmux": "page",
+        "proof": "13-tabs:current-is-opened"
+      },
+      "tabs": {
+        "cmux": "tabs.list(), tabs.current()",
+        "proof": "13-tabs:list-keys"
+      },
+      "listBrowserTabs": {
+        "cmux": "tabs.list()",
+        "proof": "13-tabs:list-count"
+      },
+      "attachBrowserTab": {
+        "cmux": "tabs.use(id)",
+        "proof": "13-tabs:use-by-id"
+      },
+      "attachActiveBrowserTab": {
+        "cmux": "tabs.use((await tabs.list()).find((t) => t.active).id)",
+        "proof": "13-tabs:one-active"
+      },
+      "getTabByTargetId": {
+        "cmux": "tabs.get(id)",
+        "proof": "13-tabs:get-by-id"
+      },
+      "openTab": {
+        "cmux": "tabs.open(url)",
+        "proof": "13-tabs:current-is-opened"
+      },
+      "closeTab": {
+        "cmux": "page.close()",
+        "proof": "13-tabs:closed"
+      },
+      "snapshot": {
+        "cmux": "snapshot(target?, options?)",
+        "proof": "01-snapshot:full"
+      },
+      "snapshot.interactive": {
+        "cmux": "snapshot({ interactive: true })",
+        "proof": "01-snapshot:interactive"
+      },
+      "snapshot.showHidden": {
+        "cmux": "snapshot({ showHidden: true })",
+        "proof": "02-aria:show-hidden"
+      },
+      "snapshot.ref": {
+        "cmux": "snapshot(ref)",
+        "proof": "01-snapshot:scoped-ref"
+      },
+      "snapshot.selector": {
+        "cmux": "snapshot(page.locator(selector))",
+        "proof": "01-snapshot:scoped-locator"
+      },
+      "snapshot.diff": {
+        "cmux": "printing a snapshot, or .diff",
+        "proof": "04-actions-diff:small-change"
+      },
+      "annotatedScreenshot": {
+        "cmux": "screenshot({ annotate: true })",
+        "proof": "14-screenshots:annotated-differs"
+      },
+      "fetch": {
+        "cmux": "fetch(url, init)",
+        "proof": "16-network-console:fetch-sends-cookies"
+      },
+      "fs": {
+        "cmux": "fs (node:fs)",
+        "proof": "21-fs:read"
+      },
+      "path": {
+        "cmux": "path (node:path)",
+        "proof": "21-fs:path"
+      },
+      "Buffer": {
+        "cmux": "Buffer",
+        "proof": "21-fs:buffer"
+      },
+      "sleep": {
+        "cmux": "sleep(ms)",
+        "proof": "16-network-console:events"
+      },
+      "display": {
+        "cmux": "display(value)",
+        "proof": "18-print:output:12"
+      },
+      "pwd": {
+        "cmux": "path.resolve(\".\")",
+        "proof": "21-fs:cwd"
+      },
+      "console": {
+        "cmux": "console.log()",
+        "proof": "18-print:output:12"
+      }
+    },
+    "Page": {
+      "goto": {
+        "cmux": "page.goto(url)",
+        "proof": "12-navigation:goto-status"
+      },
+      "reload": {
+        "cmux": "page.reload()",
+        "proof": "12-navigation:reload-title"
+      },
+      "goBack": {
+        "cmux": "page.goBack()",
+        "proof": "12-navigation:back-url"
+      },
+      "goForward": {
+        "cmux": "page.goForward()",
+        "proof": "12-navigation:forward-url"
+      },
+      "url": {
+        "cmux": "page.url()",
+        "proof": "12-navigation:pushed-url"
+      },
+      "title": {
+        "cmux": "page.title()",
+        "proof": "12-navigation:title"
+      },
+      "content": {
+        "cmux": "page.content()",
+        "proof": "22-api-surface:content"
+      },
+      "evaluate": {
+        "cmux": "page.evaluate(fn, arg)",
+        "proof": "15-locators:evaluate-arg"
+      },
+      "$": {
+        "cmux": "page.$(selector)",
+        "proof": "22-api-surface:$"
+      },
+      "$$": {
+        "cmux": "page.$$(selector)",
+        "proof": "22-api-surface:$$"
+      },
+      "$$eval": {
+        "cmux": "page.$$eval(selector, fn)",
+        "proof": "15-locators:$$eval"
+      },
+      "locator": {
+        "cmux": "page.locator(selector or ref)",
+        "proof": "15-locators:nth"
+      },
+      "getByRole": {
+        "cmux": "page.getByRole(role, options)",
+        "proof": "15-locators:role-tabs"
+      },
+      "getByText": {
+        "cmux": "page.getByText(text)",
+        "proof": "15-locators:by-text"
+      },
+      "getByLabel": {
+        "cmux": "page.getByLabel(text)",
+        "proof": "15-locators:by-label"
+      },
+      "frameLocator": {
+        "cmux": "page.frameLocator(selector)",
+        "proof": "06-frames:cross-fill"
+      },
+      "frames": {
+        "cmux": "page.frames()",
+        "proof": "22-api-surface:frames"
+      },
+      "mainFrame": {
+        "cmux": "page.mainFrame()",
+        "proof": "22-api-surface:main-frame"
+      },
+      "click": {
+        "cmux": "page.click(selector)",
+        "proof": "22-api-surface:page-click-fill"
+      },
+      "fill": {
+        "cmux": "page.fill(selector, value)",
+        "proof": "22-api-surface:page-click-fill"
+      },
+      "screenshot": {
+        "cmux": "page.screenshot()",
+        "proof": "14-screenshots:buffer"
+      },
+      "pdf": {
+        "cmux": "page.pdf(options)",
+        "proof": "14-screenshots:pdf-magic"
+      },
+      "waitForSelector": {
+        "cmux": "page.waitForSelector(selector)",
+        "proof": "12-navigation:late"
+      },
+      "waitForLoadState": {
+        "cmux": "page.waitForLoadState(state)",
+        "proof": "12-navigation:slow-heading"
+      },
+      "waitForURL": {
+        "cmux": "page.waitForURL(url)",
+        "proof": "12-navigation:wait-url"
+      },
+      "waitForEvent": {
+        "cmux": "page.waitForEvent(event)",
+        "proof": "10-files:download-name"
+      },
+      "on": {
+        "cmux": "page.on(event, handler)",
+        "proof": "13-tabs:popup-listener"
+      },
+      "off": {
+        "cmux": "page.off(event, handler)",
+        "proof": "22-api-surface:off"
+      },
+      "viewportSize": {
+        "cmux": "page.viewportSize(), page.setViewportSize(size)",
+        "proof": "22-api-surface:viewport"
+      },
+      "bringToFront": {
+        "cmux": "page.bringToFront()",
+        "proof": "22-api-surface:bring-to-front"
+      },
+      "close": {
+        "cmux": "page.close()",
+        "proof": "13-tabs:closed"
+      },
+      "keyboard": {
+        "cmux": "page.keyboard",
+        "proof": "05-input:keys-value"
+      },
+      "mouse": {
+        "cmux": "page.mouse",
+        "proof": "05-input:canvas"
+      },
+      "video": {
+        "cmux": "page.video() (null: no recording)",
+        "proof": "22-api-surface:video"
+      }
+    },
+    "Locator": {
+      "click": {
+        "cmux": "locator.click()",
+        "proof": "04-actions-diff:result"
+      },
+      "dblclick": {
+        "cmux": "locator.dblclick()",
+        "proof": "05-input:dbl"
+      },
+      "fill": {
+        "cmux": "locator.fill(value)",
+        "proof": "04-actions-diff:result"
+      },
+      "type": {
+        "cmux": "locator.type(text)",
+        "proof": "22-api-surface:type-press"
+      },
+      "press": {
+        "cmux": "locator.press(key)",
+        "proof": "22-api-surface:type-press"
+      },
+      "pressSequentially": {
+        "cmux": "locator.pressSequentially(text)",
+        "proof": "22-api-surface:type-press"
+      },
+      "hover": {
+        "cmux": "locator.hover()",
+        "proof": "05-input:hover-visible"
+      },
+      "focus": {
+        "cmux": "locator.focus()",
+        "proof": "22-api-surface:focus-blur"
+      },
+      "blur": {
+        "cmux": "locator.blur()",
+        "proof": "22-api-surface:focus-blur"
+      },
+      "check": {
+        "cmux": "locator.check()",
+        "proof": "22-api-surface:check"
+      },
+      "uncheck": {
+        "cmux": "locator.uncheck()",
+        "proof": "22-api-surface:check"
+      },
+      "setChecked": {
+        "cmux": "locator.setChecked(checked)",
+        "proof": "22-api-surface:check"
+      },
+      "selectOption": {
+        "cmux": "locator.selectOption(value)",
+        "proof": "04-actions-diff:result"
+      },
+      "setInputFiles": {
+        "cmux": "locator.setInputFiles(files)",
+        "proof": "10-files:single"
+      },
+      "dragTo": {
+        "cmux": "locator.dragTo(target)",
+        "proof": "05-input:drop"
+      },
+      "tap": {
+        "cmux": "locator.tap() (a click: panes have no touch screen)",
+        "proof": "22-api-surface:tap"
+      },
+      "clear": {
+        "cmux": "locator.clear()",
+        "proof": "22-api-surface:type-press"
+      },
+      "scrollIntoViewIfNeeded": {
+        "cmux": "locator.scrollIntoViewIfNeeded()",
+        "proof": "22-api-surface:scrolled-into-view"
+      },
+      "screenshot": {
+        "cmux": "locator.screenshot(), screenshot(locator)",
+        "proof": "14-screenshots:locator-smaller"
+      },
+      "boundingBox": {
+        "cmux": "locator.boundingBox()",
+        "proof": "05-input:canvas"
+      },
+      "textContent": {
+        "cmux": "locator.textContent()",
+        "proof": "15-locators:role-tab-selected"
+      },
+      "innerText": {
+        "cmux": "locator.innerText()",
+        "proof": "15-locators:inner-text"
+      },
+      "innerHTML": {
+        "cmux": "locator.innerHTML()",
+        "proof": "22-api-surface:inner-html"
+      },
+      "inputValue": {
+        "cmux": "locator.inputValue()",
+        "proof": "15-locators:by-label"
+      },
+      "getAttribute": {
+        "cmux": "locator.getAttribute(name)",
+        "proof": "15-locators:attr"
+      },
+      "isVisible": {
+        "cmux": "locator.isVisible()",
+        "proof": "15-locators:visible"
+      },
+      "isHidden": {
+        "cmux": "locator.isHidden()",
+        "proof": "22-api-surface:hidden-disabled"
+      },
+      "isEnabled": {
+        "cmux": "locator.isEnabled()",
+        "proof": "15-locators:states"
+      },
+      "isDisabled": {
+        "cmux": "locator.isDisabled()",
+        "proof": "22-api-surface:hidden-disabled"
+      },
+      "isChecked": {
+        "cmux": "locator.isChecked()",
+        "proof": "15-locators:states"
+      },
+      "isEditable": {
+        "cmux": "locator.isEditable()",
+        "proof": "15-locators:states"
+      },
+      "count": {
+        "cmux": "locator.count()",
+        "proof": "15-locators:role-tabs"
+      },
+      "all": {
+        "cmux": "locator.all()",
+        "proof": "15-locators:count-all"
+      },
+      "first": {
+        "cmux": "locator.first()",
+        "proof": "15-locators:first-last"
+      },
+      "last": {
+        "cmux": "locator.last()",
+        "proof": "15-locators:first-last"
+      },
+      "nth": {
+        "cmux": "locator.nth(index)",
+        "proof": "15-locators:nth"
+      },
+      "filter": {
+        "cmux": "locator.filter(options)",
+        "proof": "15-locators:filter"
+      },
+      "locator": {
+        "cmux": "locator.locator(selector)",
+        "proof": "22-api-surface:chained"
+      },
+      "waitFor": {
+        "cmux": "locator.waitFor(options)",
+        "proof": "22-api-surface:wait-for"
+      },
+      "evaluate": {
+        "cmux": "locator.evaluate(fn, arg)",
+        "proof": "15-locators:locator-evaluate"
+      },
+      "evaluateAll": {
+        "cmux": "locator.evaluateAll(fn)",
+        "proof": "15-locators:eval-all"
+      },
+      "dispatchEvent": {
+        "cmux": "locator.dispatchEvent(type)",
+        "proof": "22-api-surface:dispatch-event"
+      }
+    },
+    "Keyboard": {
+      "down": {
+        "cmux": "page.keyboard.down(key)",
+        "proof": "22-api-surface:keyboard-primitives"
+      },
+      "up": {
+        "cmux": "page.keyboard.up(key)",
+        "proof": "22-api-surface:keyboard-primitives"
+      },
+      "press": {
+        "cmux": "page.keyboard.press(combo)",
+        "proof": "05-input:keys-value"
+      },
+      "type": {
+        "cmux": "page.keyboard.type(text)",
+        "proof": "05-input:editor"
+      },
+      "insertText": {
+        "cmux": "page.keyboard.insertText(text)",
+        "proof": "22-api-surface:keyboard-primitives"
+      }
+    },
+    "Mouse": {
+      "click": {
+        "cmux": "page.mouse.click(x, y)",
+        "proof": "05-input:canvas"
+      },
+      "dblclick": {
+        "cmux": "page.mouse.dblclick(x, y)",
+        "proof": "22-api-surface:mouse-dblclick"
+      },
+      "down": {
+        "cmux": "page.mouse.down()",
+        "proof": "22-api-surface:mouse-down-up"
+      },
+      "up": {
+        "cmux": "page.mouse.up()",
+        "proof": "22-api-surface:mouse-down-up"
+      },
+      "move": {
+        "cmux": "page.mouse.move(x, y)",
+        "proof": "22-api-surface:mouse-drag"
+      },
+      "wheel": {
+        "cmux": "page.mouse.wheel(dx, dy)",
+        "proof": "05-input:scrolled"
+      }
+    }
+  },
+  "chatgpt": {
+    "Agent.browsers": {
+      "cmux": "tabs (one browser: the workspace's panes)",
+      "proof": "13-tabs:list-keys"
+    },
+    "Agent.documentation": {
+      "cmux": "session.guide(), cmux browser repl guide",
+      "proof": "20-session:guide"
+    },
+    "Browsers.get": {
+      "cmux": "not needed: the session drives its workspace's browser; tabs",
+      "proof": "13-tabs:list-keys"
+    },
+    "Browsers.getDefault": {
+      "cmux": "not needed: the session drives its workspace's browser; tabs",
+      "proof": "13-tabs:list-keys"
+    },
+    "Browsers.getForUrl": {
+      "cmux": "not needed: the session drives its workspace's browser; tabs.open(url)",
+      "proof": "13-tabs:current-is-opened"
+    },
+    "Browsers.list": {
+      "cmux": "not needed: one browser per workspace; tabs.list()",
+      "proof": "13-tabs:list-count"
+    },
+    "Browser.browserId": {
+      "cmux": "session.id",
+      "proof": "20-session:session-id"
+    },
+    "Browser.capabilities": {
+      "excluded": "Raw CDP: WebKit has no CDP and ChatGPT disables it by default (docs/browser-repl/README.md, Excluded). Browser-scoped capabilities are the CDP and history backends."
+    },
+    "Browser.tabs": {
+      "cmux": "tabs",
+      "proof": "13-tabs:list-keys"
+    },
+    "Browser.user": {
+      "cmux": "tabs.list() lists every workspace tab; tabs.use(id) attaches one",
+      "proof": "13-tabs:use-by-id"
+    },
+    "Browser.documentation": {
+      "cmux": "session.guide()",
+      "proof": "20-session:guide"
+    },
+    "Browser.history": {
+      "excluded": "Product feature outside the REPL's browser-operation scope (docs/browser-repl/README.md, Excluded)."
+    },
+    "Browser.nameSession": {
+      "cmux": "session.name(label)",
+      "proof": "20-session:session-name"
+    },
+    "BrowserUser.claimTab": {
+      "excluded": "Product feature outside the REPL's browser-operation scope (docs/browser-repl/README.md, Excluded). tabs.use(id) attaches any workspace tab."
+    },
+    "BrowserUser.getTabContext": {
+      "cmux": "snapshot(await tabs.get(id)) reads a tab without switching to it",
+      "proof": "13-tabs:snapshot-other-tab"
+    },
+    "BrowserUser.openTabs": {
+      "cmux": "tabs.list()",
+      "proof": "13-tabs:list-count"
+    },
+    "Tabs.content": {
+      "excluded": "Product feature outside the REPL's browser-operation scope (docs/browser-repl/README.md, Excluded)."
+    },
+    "Tabs.get": {
+      "cmux": "tabs.get(id)",
+      "proof": "13-tabs:get-by-id"
+    },
+    "Tabs.list": {
+      "cmux": "tabs.list()",
+      "proof": "13-tabs:list-keys"
+    },
+    "Tabs.new": {
+      "cmux": "tabs.open(url?)",
+      "proof": "13-tabs:current-is-opened"
+    },
+    "Tabs.selected": {
+      "cmux": "tabs.current(), page",
+      "proof": "13-tabs:current-is-opened"
+    },
+    "Tab.ax": {
+      "cmux": "snapshot() and refs",
+      "proof": "01-snapshot:full"
+    },
+    "Tab.capabilities": {
+      "cmux": "page.setViewportSize(), page.viewportSize() (the viewport capability); raw CDP is excluded",
+      "proof": "22-api-surface:viewport",
+      "note": "Only the cdp capability is excluded (Raw CDP)."
+    },
+    "Tab.clipboard": {
+      "cmux": "page.clipboard",
+      "proof": "19-clipboard:read-text"
+    },
+    "Tab.content": {
+      "cmux": "fs.writeFileSync(path, await page.locator(\"body\").innerText())",
+      "proof": "22-api-surface:export-content"
+    },
+    "Tab.cua": {
+      "cmux": "page.mouse, page.keyboard",
+      "proof": "05-input:canvas"
+    },
+    "Tab.dev": {
+      "cmux": "page.consoleMessages(), page.errors()",
+      "proof": "16-network-console:history"
+    },
+    "Tab.dom_cua": {
+      "cmux": "snapshot refs with locator actions",
+      "proof": "04-actions-diff:result"
+    },
+    "Tab.id": {
+      "cmux": "page.id",
+      "proof": "13-tabs:get-by-id"
+    },
+    "Tab.playwright": {
+      "cmux": "page",
+      "proof": "15-locators:role-tabs"
+    },
+    "Tab.back": {
+      "cmux": "page.goBack()",
+      "proof": "12-navigation:back-url"
+    },
+    "Tab.close": {
+      "cmux": "page.close()",
+      "proof": "13-tabs:closed"
+    },
+    "Tab.forward": {
+      "cmux": "page.goForward()",
+      "proof": "12-navigation:forward-url"
+    },
+    "Tab.getJsDialog": {
+      "cmux": "page.dialog()",
+      "proof": "09-dialogs-held:dialog"
+    },
+    "Tab.goto": {
+      "cmux": "page.goto(url)",
+      "proof": "12-navigation:goto-status"
+    },
+    "Tab.markDeliverable": {
+      "cmux": "page.keep()",
+      "proof": "20-session:after-one-shot"
+    },
+    "Tab.markHandoff": {
+      "cmux": "page.keep(); a later call attaches it with tabs.use(id)",
+      "proof": "20-session:attach-kept"
+    },
+    "Tab.reload": {
+      "cmux": "page.reload()",
+      "proof": "12-navigation:reload-title"
+    },
+    "Tab.requestManualHandoff": {
+      "cmux": "page.bringToFront(): panes are local, so the user can take over any tab",
+      "proof": "22-api-surface:bring-to-front"
+    },
+    "Tab.screenshot": {
+      "cmux": "screenshot(), page.screenshot()",
+      "proof": "14-screenshots:viewport"
+    },
+    "Tab.title": {
+      "cmux": "page.title()",
+      "proof": "12-navigation:title"
+    },
+    "Tab.url": {
+      "cmux": "page.url() (includes history.pushState changes)",
+      "proof": "12-navigation:pushed-url"
+    },
+    "AXAPI.click": {
+      "cmux": "page.locator(ref).click(), page.mouse.click(x, y)",
+      "proof": "04-actions-diff:result"
+    },
+    "AXAPI.drag": {
+      "cmux": "page.mouse.down/move/up, locator.dragTo()",
+      "proof": "22-api-surface:mouse-drag"
+    },
+    "AXAPI.get": {
+      "cmux": "snapshot()",
+      "proof": "01-snapshot:full"
+    },
+    "AXAPI.get#2": {
+      "cmux": "screenshot()",
+      "proof": "14-screenshots:viewport"
+    },
+    "AXAPI.get#3": {
+      "cmux": "snapshot() and screenshot()",
+      "proof": "14-screenshots:viewport"
+    },
+    "AXAPI.paste": {
+      "cmux": "page.clipboard.writeText(text); page.keyboard.press(\"Meta+v\")",
+      "proof": "19-clipboard:pasted"
+    },
+    "AXAPI.performSecondaryAction": {
+      "cmux": "page.locator(ref).click() on an [expanded=false] control",
+      "proof": "22-api-surface:expand"
+    },
+    "AXAPI.pressKey": {
+      "cmux": "page.locator(ref).press(key), page.keyboard.press(key)",
+      "proof": "22-api-surface:type-press"
+    },
+    "AXAPI.scroll": {
+      "cmux": "page.mouse.wheel(dx, dy) over a [scrollable] ref, locator.scrollIntoViewIfNeeded()",
+      "proof": "05-input:scrolled"
+    },
+    "AXAPI.selectText": {
+      "cmux": "page.locator(ref).selectText()",
+      "proof": "19-clipboard:copied"
+    },
+    "AXAPI.setValue": {
+      "cmux": "page.locator(ref).fill(), .selectOption(), .setChecked()",
+      "proof": "04-actions-diff:result"
+    },
+    "AXAPI.typeText": {
+      "cmux": "page.locator(ref).pressSequentially(text), page.keyboard.type(text)",
+      "proof": "22-api-surface:type-press"
+    },
+    "AXAPI.write": {
+      "cmux": "print snapshot() (the diff when shorter)",
+      "proof": "18-print:output:10"
+    },
+    "AXAPI.write#2": {
+      "cmux": "print screenshot()",
+      "proof": "18-print:output:11"
+    },
+    "AXAPI.write#3": {
+      "cmux": "display(await snapshot()); display(await screenshot())",
+      "proof": "18-print:output:12"
+    },
+    "ContentAPI.export": {
+      "cmux": "fs.writeFileSync(path, await page.locator(\"body\").innerText())",
+      "proof": "22-api-surface:export-content"
+    },
+    "ContentAPI.exportGsuite": {
+      "excluded": "Product feature outside the REPL's browser-operation scope (docs/browser-repl/README.md, Excluded)."
+    },
+    "ContentAPI.exportYouTubeTranscript": {
+      "excluded": "Product feature outside the REPL's browser-operation scope (docs/browser-repl/README.md, Excluded)."
+    },
+    "CUAAPI.click": {
+      "cmux": "page.mouse.click(x, y, { button })",
+      "proof": "05-input:canvas"
+    },
+    "CUAAPI.double_click": {
+      "cmux": "page.mouse.dblclick(x, y)",
+      "proof": "22-api-surface:mouse-dblclick"
+    },
+    "CUAAPI.downloadMedia": {
+      "cmux": "page.waitForEvent(\"download\") around a click",
+      "proof": "10-files:download-body"
+    },
+    "CUAAPI.drag": {
+      "cmux": "page.mouse.down(), .move(x, y, { steps }), .up()",
+      "proof": "22-api-surface:mouse-drag"
+    },
+    "CUAAPI.keypress": {
+      "cmux": "page.keyboard.press(combo)",
+      "proof": "05-input:keys-value"
+    },
+    "CUAAPI.move": {
+      "cmux": "page.mouse.move(x, y)",
+      "proof": "22-api-surface:mouse-drag"
+    },
+    "CUAAPI.scroll": {
+      "cmux": "page.mouse.move(x, y); page.mouse.wheel(dx, dy)",
+      "proof": "05-input:scrolled"
+    },
+    "CUAAPI.type": {
+      "cmux": "page.keyboard.type(text)",
+      "proof": "05-input:editor"
+    },
+    "DomCUAAPI.click": {
+      "cmux": "page.locator(ref).click()",
+      "proof": "04-actions-diff:result"
+    },
+    "DomCUAAPI.double_click": {
+      "cmux": "page.locator(ref).dblclick()",
+      "proof": "05-input:dbl"
+    },
+    "DomCUAAPI.downloadMedia": {
+      "cmux": "page.waitForEvent(\"download\") around page.locator(ref).click()",
+      "proof": "10-files:download-name"
+    },
+    "DomCUAAPI.get_visible_dom": {
+      "cmux": "snapshot({ interactive: true })",
+      "proof": "01-snapshot:interactive"
+    },
+    "DomCUAAPI.keypress": {
+      "cmux": "page.keyboard.press(combo)",
+      "proof": "05-input:keys-value"
+    },
+    "DomCUAAPI.scroll": {
+      "cmux": "page.mouse.wheel(dx, dy) over a ref's box",
+      "proof": "05-input:scrolled"
+    },
+    "DomCUAAPI.type": {
+      "cmux": "page.keyboard.type(text)",
+      "proof": "05-input:editor"
+    },
+    "PlaywrightAPI.domSnapshot": {
+      "cmux": "snapshot() (frames inlined), page.content()",
+      "proof": "06-frames:full"
+    },
+    "PlaywrightAPI.elementInfo": {
+      "cmux": "page.elementAt(x, y)",
+      "proof": "05-input:element-at-button"
+    },
+    "PlaywrightAPI.elementScreenshot": {
+      "cmux": "screenshot({ annotate: true }), screenshot(locator)",
+      "proof": "14-screenshots:annotated-differs"
+    },
+    "PlaywrightAPI.evaluate": {
+      "cmux": "page.evaluate(fn, arg)",
+      "proof": "15-locators:evaluate-arg"
+    },
+    "PlaywrightAPI.expectNavigation": {
+      "cmux": "click, then page.waitForURL(url)",
+      "proof": "12-navigation:slow-heading"
+    },
+    "PlaywrightAPI.frameLocator": {
+      "cmux": "page.frameLocator(selector)",
+      "proof": "06-frames:cross-fill"
+    },
+    "PlaywrightAPI.getByLabel": {
+      "cmux": "page.getByLabel(text)",
+      "proof": "15-locators:by-label"
+    },
+    "PlaywrightAPI.getByPlaceholder": {
+      "cmux": "page.getByPlaceholder(text)",
+      "proof": "22-api-surface:placeholder-testid"
+    },
+    "PlaywrightAPI.getByRole": {
+      "cmux": "page.getByRole(role, options)",
+      "proof": "15-locators:role-tabs"
+    },
+    "PlaywrightAPI.getByTestId": {
+      "cmux": "page.getByTestId(id)",
+      "proof": "22-api-surface:placeholder-testid"
+    },
+    "PlaywrightAPI.getByText": {
+      "cmux": "page.getByText(text)",
+      "proof": "15-locators:by-text"
+    },
+    "PlaywrightAPI.locator": {
+      "cmux": "page.locator(selector or ref)",
+      "proof": "15-locators:nth"
+    },
+    "PlaywrightAPI.waitForEvent": {
+      "cmux": "page.waitForEvent(\"download\")",
+      "proof": "10-files:download-name"
+    },
+    "PlaywrightAPI.waitForEvent#2": {
+      "cmux": "page.waitForEvent(\"filechooser\"); page.fileChooser() without a listener",
+      "proof": "10-files:chooser"
+    },
+    "PlaywrightAPI.waitForLoadState": {
+      "cmux": "page.waitForLoadState(state)",
+      "proof": "12-navigation:slow-heading"
+    },
+    "PlaywrightAPI.waitForTimeout": {
+      "cmux": "page.waitForTimeout(ms), sleep(ms)",
+      "proof": "09-dialogs-held:timer-dialog"
+    },
+    "PlaywrightAPI.waitForURL": {
+      "cmux": "page.waitForURL(url)",
+      "proof": "12-navigation:wait-url"
+    },
+    "PlaywrightFrameLocator.frameLocator": {
+      "cmux": "frameLocator.frameLocator(selector)",
+      "proof": "22-api-surface:nested-frames"
+    },
+    "PlaywrightFrameLocator.getByLabel": {
+      "cmux": "frameLocator.getByLabel()",
+      "proof": "22-api-surface:nested-frames"
+    },
+    "PlaywrightFrameLocator.getByPlaceholder": {
+      "cmux": "frameLocator.getByPlaceholder()",
+      "proof": "22-api-surface:nested-frames"
+    },
+    "PlaywrightFrameLocator.getByRole": {
+      "cmux": "frameLocator.getByRole()",
+      "proof": "22-api-surface:nested-frames"
+    },
+    "PlaywrightFrameLocator.getByTestId": {
+      "cmux": "frameLocator.getByTestId()",
+      "proof": "22-api-surface:nested-frames"
+    },
+    "PlaywrightFrameLocator.getByText": {
+      "cmux": "frameLocator.getByText()",
+      "proof": "22-api-surface:nested-frames"
+    },
+    "PlaywrightFrameLocator.locator": {
+      "cmux": "frameLocator.locator()",
+      "proof": "22-api-surface:nested-frames"
+    },
+    "PlaywrightLocator.all": {
+      "cmux": "locator.all()",
+      "proof": "15-locators:count-all"
+    },
+    "PlaywrightLocator.allTextContents": {
+      "cmux": "locator.allTextContents()",
+      "proof": "15-locators:all-text"
+    },
+    "PlaywrightLocator.and": {
+      "cmux": "locator.and()",
+      "proof": "15-locators:and-or"
+    },
+    "PlaywrightLocator.check": {
+      "cmux": "locator.check()",
+      "proof": "22-api-surface:check"
+    },
+    "PlaywrightLocator.click": {
+      "cmux": "locator.click()",
+      "proof": "04-actions-diff:result"
+    },
+    "PlaywrightLocator.count": {
+      "cmux": "locator.count()",
+      "proof": "15-locators:role-tabs"
+    },
+    "PlaywrightLocator.dblclick": {
+      "cmux": "locator.dblclick()",
+      "proof": "05-input:dbl"
+    },
+    "PlaywrightLocator.downloadMedia": {
+      "cmux": "page.waitForEvent(\"download\") around locator.click()",
+      "proof": "10-files:download-body"
+    },
+    "PlaywrightLocator.evaluate": {
+      "cmux": "locator.evaluate()",
+      "proof": "15-locators:locator-evaluate"
+    },
+    "PlaywrightLocator.evaluateAll": {
+      "cmux": "locator.evaluateAll()",
+      "proof": "15-locators:eval-all"
+    },
+    "PlaywrightLocator.fill": {
+      "cmux": "locator.fill()",
+      "proof": "04-actions-diff:result"
+    },
+    "PlaywrightLocator.filter": {
+      "cmux": "locator.filter()",
+      "proof": "15-locators:filter"
+    },
+    "PlaywrightLocator.first": {
+      "cmux": "locator.first()",
+      "proof": "15-locators:first-last"
+    },
+    "PlaywrightLocator.getAttribute": {
+      "cmux": "locator.getAttribute()",
+      "proof": "15-locators:attr"
+    },
+    "PlaywrightLocator.getByLabel": {
+      "cmux": "locator.getByLabel()",
+      "proof": "22-api-surface:scoped-getby"
+    },
+    "PlaywrightLocator.getByPlaceholder": {
+      "cmux": "locator.getByPlaceholder()",
+      "proof": "22-api-surface:scoped-getby"
+    },
+    "PlaywrightLocator.getByRole": {
+      "cmux": "locator.getByRole()",
+      "proof": "22-api-surface:scoped-getby"
+    },
+    "PlaywrightLocator.getByTestId": {
+      "cmux": "locator.getByTestId()",
+      "proof": "22-api-surface:scoped-getby"
+    },
+    "PlaywrightLocator.getByText": {
+      "cmux": "locator.getByText()",
+      "proof": "22-api-surface:scoped-getby"
+    },
+    "PlaywrightLocator.innerText": {
+      "cmux": "locator.innerText()",
+      "proof": "15-locators:inner-text"
+    },
+    "PlaywrightLocator.isEnabled": {
+      "cmux": "locator.isEnabled()",
+      "proof": "15-locators:states"
+    },
+    "PlaywrightLocator.isVisible": {
+      "cmux": "locator.isVisible()",
+      "proof": "15-locators:visible"
+    },
+    "PlaywrightLocator.last": {
+      "cmux": "locator.last()",
+      "proof": "15-locators:first-last"
+    },
+    "PlaywrightLocator.locator": {
+      "cmux": "locator.locator()",
+      "proof": "22-api-surface:chained"
+    },
+    "PlaywrightLocator.nth": {
+      "cmux": "locator.nth()",
+      "proof": "15-locators:nth"
+    },
+    "PlaywrightLocator.or": {
+      "cmux": "locator.or()",
+      "proof": "15-locators:and-or"
+    },
+    "PlaywrightLocator.press": {
+      "cmux": "locator.press()",
+      "proof": "22-api-surface:type-press"
+    },
+    "PlaywrightLocator.pressSequentially": {
+      "cmux": "locator.pressSequentially()",
+      "proof": "22-api-surface:type-press"
+    },
+    "PlaywrightLocator.selectOption": {
+      "cmux": "locator.selectOption()",
+      "proof": "04-actions-diff:result"
+    },
+    "PlaywrightLocator.setChecked": {
+      "cmux": "locator.setChecked()",
+      "proof": "22-api-surface:check"
+    },
+    "PlaywrightLocator.textContent": {
+      "cmux": "locator.textContent()",
+      "proof": "15-locators:role-tab-selected"
+    },
+    "PlaywrightLocator.type": {
+      "cmux": "locator.type()",
+      "proof": "22-api-surface:type-press"
+    },
+    "PlaywrightLocator.uncheck": {
+      "cmux": "locator.uncheck()",
+      "proof": "22-api-surface:check"
+    },
+    "PlaywrightLocator.waitFor": {
+      "cmux": "locator.waitFor()",
+      "proof": "22-api-surface:wait-for"
+    },
+    "PlaywrightDownload.path": {
+      "cmux": "download.path()",
+      "proof": "10-files:download-body"
+    },
+    "PlaywrightFileChooser.isMultiple": {
+      "cmux": "fileChooser.isMultiple(), page.fileChooser().multiple",
+      "proof": "10-files:chooser-multiple"
+    },
+    "PlaywrightFileChooser.setFiles": {
+      "cmux": "fileChooser.setFiles(files), page.fileChooser().setFiles(files)",
+      "proof": "10-files:chooser"
+    },
+    "TabClipboardAPI.read": {
+      "cmux": "page.clipboard.read()",
+      "proof": "19-clipboard:read-items"
+    },
+    "TabClipboardAPI.readText": {
+      "cmux": "page.clipboard.readText()",
+      "proof": "19-clipboard:read-text"
+    },
+    "TabClipboardAPI.write": {
+      "cmux": "page.clipboard.write(items)",
+      "proof": "19-clipboard:read-items"
+    },
+    "TabClipboardAPI.writeText": {
+      "cmux": "page.clipboard.writeText(text)",
+      "proof": "19-clipboard:read-text"
+    },
+    "TabDevAPI.logs": {
+      "cmux": "page.consoleMessages({ level, filter, limit })",
+      "proof": "16-network-console:history-filter"
+    },
+    "AlertDialog.type": {
+      "cmux": "page.dialog().type",
+      "proof": "09-dialogs-held:keyboard-opened"
+    },
+    "AlertDialog.dismiss": {
+      "cmux": "page.dialog().dismiss()",
+      "proof": "09-dialogs-held:after-alert"
+    },
+    "BeforeUnloadDialog.type": {
+      "cmux": "page.dialog().type after page.close({ runBeforeUnload: true })",
+      "proof": "09-dialogs-held:dialog",
+      "note": "Same held-dialog path as the other types. Playwright's headless WebKit (the dev driver) never fires beforeunload, so this type is unproven outside the app."
+    },
+    "BeforeUnloadDialog.dismiss": {
+      "cmux": "page.dialog().dismiss()",
+      "proof": "09-dialogs-held:after-alert",
+      "note": "Same held-dialog path as the other types; beforeunload itself is unproven in the dev driver."
+    },
+    "ConfirmDialog.type": {
+      "cmux": "page.dialog().type",
+      "proof": "09-dialogs-held:dialog"
+    },
+    "ConfirmDialog.accept": {
+      "cmux": "page.dialog().accept()",
+      "proof": "09-dialogs-held:after-accept"
+    },
+    "ConfirmDialog.dismiss": {
+      "cmux": "page.dialog().dismiss()",
+      "proof": "09-dialogs-held:after-timer"
+    },
+    "Documentation.get": {
+      "cmux": "session.guide()",
+      "proof": "20-session:guide"
+    },
+    "PromptDialog.type": {
+      "cmux": "page.dialog().type",
+      "proof": "09-dialogs-held:prompt-line"
+    },
+    "PromptDialog.accept": {
+      "cmux": "page.dialog().accept(text)",
+      "proof": "09-dialogs-held:after-prompt"
+    },
+    "PromptDialog.dismiss": {
+      "cmux": "page.dialog().dismiss()",
+      "proof": "09-dialogs-held:prompt-dismissed"
+    }
+  }
+}

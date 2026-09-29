@@ -1,6 +1,12 @@
-// Normalizes backend-specific identifiers so goldens compare representation,
-// not ephemeral IDs. Only values that differ per run are rewritten: fixture
-// origins and ports, browser target IDs, and window IDs.
+// Normalizes values that differ per run so goldens compare behavior and
+// format, not ephemeral identifiers: fixture origins and ports, tab target
+// IDs, window IDs and temporary paths.
+import os from "node:os";
+import fs from "node:fs";
+
+const TMP = [fs.realpathSync(os.tmpdir()), os.tmpdir(), "/private/tmp", "/tmp"]
+  .map((p) => p.replace(/\/$/, ""))
+  .sort((a, b) => b.length - a.length);
 
 export function normalize(value, origins) {
   if (typeof value === "string") return normalizeString(value, origins);
@@ -24,42 +30,34 @@ function normalizeString(s, origins) {
     const port = new URL(origin).port;
     out = out.replace(new RegExp(`\\b${port}\\b`, "g"), `<${name}_PORT>`);
   }
-  // Chromium DevTools target IDs and Aside tab IDs.
-  out = out.replace(/\b[0-9A-F]{32}\b/g, "<TARGET>");
+  // Tab IDs (32 hex characters in both the dev driver and the oracle).
+  out = out.replace(/\b[0-9A-Fa-f]{32}\b/g, "<TARGET>");
+  for (const t of TMP) out = out.split(t + "/").join("<TMP>/");
+  // Per-run directory names under the temporary directory.
+  out = out.replace(/<TMP>\/(cmux-repl-|parity-oracle-|parity-)[A-Za-z0-9]+/g, "<TMP>/$1XXXX");
+  out = out.replace(/<TMP>\/cmux-browser-repl\/[^/\s\]]+/g, "<TMP>/cmux-browser-repl/<SESSION>");
   return out;
 }
 
-export function diffEmits(golden, actual) {
+// Compares expected and actual key/value maps; every expected key must be
+// present and equal, and no unexpected key may appear.
+export function diffValues(expected, actual) {
   const problems = [];
-  const max = Math.max(golden.length, actual.length);
-  for (let i = 0; i < max; i++) {
-    const g = golden[i];
-    const a = actual[i];
-    if (!a) {
-      problems.push(`missing value #${i} "${g.k}"`);
-      continue;
-    }
-    if (!g) {
-      problems.push(`extra value #${i} "${a.k}": ${preview(a.v)}`);
-      continue;
-    }
-    if (g.k !== a.k) {
-      problems.push(`value #${i}: expected key "${g.k}", got "${a.k}" (${preview(a.v)})`);
-      continue;
-    }
-    const gs = JSON.stringify(g.v);
-    const as = JSON.stringify(a.v);
-    if (gs !== as) problems.push(`"${g.k}" differs:\n${textDiff(g.v, a.v)}`);
+  for (const [k, v] of Object.entries(expected)) {
+    if (!(k in actual)) problems.push(`missing "${k}"`);
+    else if (JSON.stringify(v) !== JSON.stringify(actual[k])) problems.push(`"${k}" differs:\n${textDiff(v, actual[k])}`);
+  }
+  for (const [k, v] of Object.entries(actual)) {
+    if (!(k in expected)) problems.push(`unexpected "${k}": ${preview(v)}`);
   }
   return problems;
 }
 
 function preview(v) {
   const s = typeof v === "string" ? v : JSON.stringify(v);
-  return s.length > 160 ? s.slice(0, 160) + "…" : s;
+  return s.length > 300 ? s.slice(0, 300) + "…" : s;
 }
 
-// Line diff for multi-line snapshot text; JSON preview for other values.
 function textDiff(expected, actual) {
   if (typeof expected !== "string" || typeof actual !== "string") {
     return `    expected ${preview(expected)}\n    actual   ${preview(actual)}`;
@@ -67,8 +65,7 @@ function textDiff(expected, actual) {
   const e = expected.split("\n");
   const a = actual.split("\n");
   const lines = [];
-  const n = Math.max(e.length, a.length);
-  for (let i = 0; i < n && lines.length < 24; i++) {
+  for (let i = 0; i < Math.max(e.length, a.length) && lines.length < 30; i++) {
     if (e[i] === a[i]) continue;
     if (e[i] !== undefined) lines.push(`    - ${e[i]}`);
     if (a[i] !== undefined) lines.push(`    + ${a[i]}`);

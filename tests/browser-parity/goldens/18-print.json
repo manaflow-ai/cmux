@@ -1,0 +1,20 @@
+{
+  "oracle": {},
+  "cmux": {
+    "output:1": "2",
+    "output:2": "",
+    "output:3": "{ a: 1, b: [ 1, 2, 's' ], c: null, nested: { deep: true } }",
+    "output:4": "plain string",
+    "output:5": "42",
+    "output:6": "",
+    "output:7": "title: ARIA Fixture\nurl: PRIMARY/aria.html\n- navigation \"Breadcrumb\" [ref=e1]:\n  - link \"Root\" [ref=e2] [url=/]\n  - link \"Here\" [ref=e3] [url=/aria.html]\n- textbox \"Labelled by span\" [ref=e4]\n- textbox \"Label for\" [ref=e5]: \"prefilled\"\n- textbox \"Title only\" [ref=e6]\n- button \"Icon button\" [ref=e7]\n- button \"Described\" [ref=e8]\n- tablist \"Tabs\" [ref=e9]:\n  - tab \"First\" [ref=e10] [selected]\n  - tab \"Second\" [ref=e11]\n- button \"Menu\" [ref=e12] [expanded=false]\n- button \"Bold\" [ref=e13] [pressed]\n- switch \"Wifi\" [ref=e14] [checked]\n- slider \"Volume\" [ref=e15]: \"3\"\n- group \"Size\":\n  - radio \"Small\" [ref=e16] [checked]\n  - radio \"Large\" [ref=e17]\n- tree \"Files\" [ref=e18]:\n  - treeitem \"src\" [ref=e19] [expanded]:\n    - treeitem \"main.swift\" [ref=e20]\n- button \"More\" [ref=e21] [expanded=false]\n- dialog \"Inline dialog\" [ref=e22]:\n  - button \"OK\" [ref=e23]\n- link \"Anchor link\" [ref=e24] [url=/aria.html#top]\n- generic [ref=e25]: \"Clickable div\"\n- textbox \"Editor\" [ref=e26]: \"Editable text\"",
+    "output:8": "title: ARIA Fixture\nurl: PRIMARY/aria.html\n# no changes since the previous snapshot",
+    "output:9": "title: ARIA Fixture\nurl: PRIMARY/aria.html\n- banner:\n  - heading \"Renamed\" [level=1]\n- navigation \"Breadcrumb\" [ref=e1]:\n  - list:\n    - listitem:\n      - link \"Root\" [ref=e2] [url=/]\n    - listitem:\n      - link \"Here\" [ref=e3] [url=/aria.html]\n- main:\n  - heading \"Names\" [level=2]\n  - text: \"Labelled by span\"\n  - textbox \"Labelled by span\" [ref=e4]\n  - textbox \"Label for\" [ref=e5]: \"prefilled\"\n  - textbox \"Title only\" [ref=e6]\n  - button \"Icon button\" [ref=e7]\n  - button \"Described\" [ref=e8]\n  - text: \"extra description\"\n  - heading \"Level three\" [level=3]\n  - heading \"Level four\" [level=4]\n  - heading \"Widgets\" [level=2]\n  - tablist \"Tabs\" [ref=e9]:\n    - tab \"First\" [ref=e10] [selected]\n    - tab \"Second\" [ref=e11]\n  - tabpanel: \"Panel one\"\n  - button \"Menu\" [ref=e12] [expanded=false]\n  - button \"Bold\" [ref=e13] [pressed]\n  - switch \"Wifi\" [ref=e14] [checked]\n  - slider \"Volume\" [ref=e15]: \"3\"\n  - group \"Size\":\n    - radio \"Small\" [ref=e16] [checked]\n    - radio \"Large\" [ref=e17]\n  - progressbar \"Upload\": \"40\"\n  - alert: \"Heads up\"\n  - table \"Scores\":\n    - row: \"Name | Score\"\n    - row: \"Ada | 9\"\n  - tree \"Files\" [ref=e18]:\n    - treeitem \"src\" [ref=e19] [expanded]:\n      - treeitem \"main.swift\" [ref=e20]\n  - button \"More\" [ref=e21] [expanded=false]\n  - heading \"Visibility\" [level=2]\n  - paragraph: \"Offscreen text\"\n  - dialog \"Inline dialog\" [ref=e22]:\n    - paragraph: \"Dialog body\"\n    - button \"OK\" [ref=e23]\n  - link \"Anchor link\" [ref=e24] [url=/aria.html#top]\n  - generic [ref=e25]: \"Clickable div\"\n  - textbox \"Editor\" [ref=e26]: \"Editable text\"\n- contentinfo: \"Footer text\"",
+    "output:10": "title: ARIA Fixture\nurl: PRIMARY/aria.html\n# changes since the previous snapshot (+ added, - removed):\n  - banner:\n-   - heading \"Renamed\" [level=1]\n+   - heading \"Renamed again\" [level=1]",
+    "output:11": "[Image 1280x800 png: <TMP>/cmux-browser-repl/<SESSION>/image-1.png]",
+    "output:12": "{ shown: true }\n[Image 1264x37 png: <TMP>/cmux-browser-repl/<SESSION>/image-2.png]\nlog [ 1, 2 ] { k: 'v' }",
+    "output:13": "PRIMARY/aria.html",
+    "output:14": "Map(1) { 'k' => 1 }",
+    "output:15": "[]"
+  }
+}

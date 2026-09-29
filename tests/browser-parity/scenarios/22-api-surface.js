@@ -1,0 +1,86 @@
+// The rest of the Playwright surface that Aside and ChatGPT expose: page and
+// frame reads, selector shortcuts, locator actions and states, nested frame
+// locators, keyboard and mouse primitives, viewport.
+// ---- cell session=surface
+await page.goto(`${PRIMARY}/surface.html`);
+emit("content", (await page.content()).includes("<h1>Surface</h1>"));
+emit("$", await (await page.$("h1")).textContent());
+emit("$$", (await page.$$("input")).length);
+emit("frames", page.frames().length);
+emit("main-frame", page.mainFrame().url() === page.url());
+emit("video", page.video());
+await page.setViewportSize({ width: 900, height: 700 });
+emit("viewport", page.viewportSize());
+await page.setViewportSize({ width: 1280, height: 800 });
+await page.bringToFront();
+emit("bring-to-front", true);
+let seen = 0;
+const onConsole = () => seen++;
+page.on("console", onConsole);
+page.off("console", onConsole);
+await page.evaluate(() => console.log("after off"));
+emit("off", seen);
+await page.click("#counter");
+await page.fill("#ph", "q");
+emit("page-click-fill", [await page.locator("#counter").textContent(), await page.locator("#ph").inputValue()]);
+const t = page.getByLabel("Text field");
+await t.clear();
+await t.type("ab");
+await t.press("Backspace");
+await t.pressSequentially("cd");
+emit("type-press", await t.inputValue());
+await t.focus();
+await t.blur();
+emit("focus-blur", await page.locator("#events").textContent());
+const cb = page.getByRole("checkbox", { name: "Check me" });
+await cb.check();
+const c1 = await cb.isChecked();
+await cb.uncheck();
+const c2 = await cb.isChecked();
+await cb.setChecked(true);
+emit("check", [c1, c2, await cb.isChecked()]);
+await page.locator("#far").scrollIntoViewIfNeeded();
+emit("scrolled-into-view", await page.locator("#far").evaluate((e) => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }));
+emit("inner-html", await page.locator("details").innerHTML());
+emit("hidden-disabled", [await page.locator("#nothing").isHidden(), await page.locator("#off").isDisabled()]);
+await page.locator("#late-btn").waitFor();
+emit("wait-for", await page.locator("#late-btn").isVisible());
+await page.locator("#counter").dispatchEvent("click");
+emit("dispatch-event", await page.locator("#counter").textContent());
+emit("chained", await page.locator("details").locator("summary").textContent());
+emit("placeholder-testid", [await page.getByPlaceholder("Search here").inputValue(), await page.getByTestId("counter").textContent()]);
+emit("scoped-getby", [await page.locator("body").getByTestId("counter").count(), await page.locator("body").getByRole("button", { name: "Off" }).count(), await page.locator("body").getByText("Details body").count(), await page.locator("body").getByLabel("Text field").count(), await page.locator("body").getByPlaceholder("Search here").count()]);
+await page.locator("summary").click();
+emit("expand", await page.locator("details").evaluate((d) => d.open));
+const inner = page.frameLocator("#outer").frameLocator("#inner");
+await inner.getByLabel("Inner label").fill("nested");
+emit("nested-frames", [await inner.getByPlaceholder("Inner-ph").inputValue(), await inner.getByTestId("inner-tid").count(), await inner.getByText("Inner text").count(), await inner.locator("p").textContent(), await inner.getByRole("textbox").count()]);
+await page.locator("#ph").focus();
+await page.keyboard.down("Shift");
+await page.keyboard.press("KeyA");
+await page.keyboard.up("Shift");
+await page.keyboard.insertText("é");
+emit("keyboard-primitives", await page.locator("#ph").inputValue());
+const pad = await page.locator("#pad").boundingBox();
+await page.mouse.move(pad.x + 20, pad.y + 20);
+await page.mouse.down();
+await page.mouse.up();
+emit("mouse-down-up", await page.locator("#pad").evaluate((e) => [e.dataset.down, e.dataset.up]));
+await page.mouse.dblclick(pad.x + 30, pad.y + 30);
+emit("mouse-dblclick", await page.locator("#pad").textContent());
+const from = await page.locator("#drag").boundingBox();
+const to = await page.locator("#drop").boundingBox();
+await page.mouse.move(from.x + 10, from.y + 10);
+await page.mouse.down();
+await page.mouse.move(to.x + 20, to.y + 20, { steps: 5 });
+await page.mouse.up();
+emit("mouse-drag", await page.locator("#drop").textContent());
+fs.mkdirSync("./artifacts", { recursive: true });
+fs.writeFileSync("./artifacts/content.txt", await page.locator("body").innerText());
+emit("export-content", fs.readFileSync("./artifacts/content.txt", "utf8").includes("Surface"));
+emit("untrusted", await page.evaluate(() => window.__summary().filter((l) => l.includes("UNTRUSTED") && !l.startsWith("click #counter"))));
+// ---- cell session=surface cmux-only
+// WebKit panes have no touch screen, so tap() is a click in cmux; Playwright
+// needs a touch-enabled context for it.
+await page.locator("#counter").tap();
+emitCmux("tap", await page.locator("#counter").textContent());

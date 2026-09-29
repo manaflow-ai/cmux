@@ -6,10 +6,15 @@
 // the main world and the page agent lives under a non-enumerable symbol.
 // Input goes through page.mouse / page.keyboard, which WebKit delivers as
 // trusted events.
+//
+// One browser serves several REPL sessions, as one cmux window does: each
+// session gets its own driver, and a session's detach closes the tabs it
+// opened unless they were kept (tab.keep), like the app's one-shot runs.
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import crypto from "node:crypto";
+import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +26,7 @@ const AGENT_KEY = 'Symbol.for("cmux.browserRepl.agent")';
 const NEEDS_AGENT = "__cmuxNeedsAgent__";
 const ERROR_KEY = "__cmuxError__";
 
-function loadPlaywright() {
+export function loadPlaywright() {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(process.env.HOME, ".cache/cmux-parity-browsers");
   const dirs = [process.env.PARITY_PLAYWRIGHT_DIR, "/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"].filter(Boolean);
   for (const d of dirs) {
@@ -78,12 +83,12 @@ function textPdf(text) {
   return Buffer.from(out);
 }
 
-export async function createDevDriver({ headless = true, viewport = { width: 1280, height: 800 } } = {}) {
+export async function createDevBrowser({ headless = true, viewport = { width: 1280, height: 800 } } = {}) {
   const { webkit } = loadPlaywright();
   const installSource = agentInstallSource();
   const browser = await webkit.launch({ headless });
   const context = await browser.newContext({ viewport, acceptDownloads: true });
-  const listeners = new Map();
+  const drivers = new Set();
   const tabs = new Map(); // targetId -> tab record
   const tabOf = new WeakMap(); // page -> tab record
   const dialogs = new Map();
@@ -94,11 +99,13 @@ export async function createDevDriver({ headless = true, viewport = { width: 128
   const modifiersDown = new Set();
 
   const emit = (event, payload) => {
-    for (const h of listeners.get(event) ?? []) {
-      try {
-        h(payload);
-      } catch (e) {
-        console.error(`driver listener for ${event} failed:`, e);
+    for (const d of drivers) {
+      for (const h of d.listeners.get(event) ?? []) {
+        try {
+          h(payload);
+        } catch (e) {
+          console.error(`driver listener for ${event} failed:`, e);
+        }
       }
     }
   };
@@ -261,7 +268,35 @@ export async function createDevDriver({ headless = true, viewport = { width: 128
 
   const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
 
-  async function keyEvent(page, { type, key, code, text }) {
+  // Meta+C, Meta+X and Meta+V use the tab's virtual clipboard, as the app
+  // driver does; the system pasteboard is never touched.
+  async function clipboardShortcut(tab, key) {
+    const page = tab.page;
+    if (key === "v") {
+      const item = tab.clipboard.find((i) => i.type === "text/plain");
+      const text = item ? Buffer.from(item.base64, "base64").toString("utf8") : "";
+      if (text) await page.keyboard.insertText(text);
+      return;
+    }
+    const selection = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.selectionStart !== null) {
+        return el.value.slice(el.selectionStart, el.selectionEnd);
+      }
+      return String(getSelection() || "");
+    });
+    tab.clipboard = [{ type: "text/plain", base64: Buffer.from(selection).toString("base64") }];
+    // The app sends Cocoa's delete: action; execCommand is its page-side twin.
+    if (key === "x" && selection) await page.evaluate(() => document.execCommand("delete"));
+  }
+
+  async function keyEvent(tab, { type, key, code, text, modifiers = [] }) {
+    const page = tab.page;
+    const lower = String(key).toLowerCase();
+    if ((modifiers.includes("Meta") || modifiersDown.has("Meta")) && ["c", "x", "v"].includes(lower)) {
+      if (type === "down") await clipboardShortcut(tab, lower);
+      return;
+    }
     const names = [key, code].filter(Boolean);
     for (const name of names) {
       try {
@@ -286,12 +321,20 @@ export async function createDevDriver({ headless = true, viewport = { width: 128
         windowId: 1,
         ...(t.openerTargetId ? { openerTargetId: t.openerTargetId } : {}),
       }))),
-    "tabs.open": async ({ url, background }) => {
+    "tabs.open": async ({ url, background }, driver) => {
       const page = await context.newPage();
       const tab = register(page);
+      driver.opened.add(tab.targetId);
       if (!background) activeTarget = tab.targetId;
       if (url) await page.goto(url, { waitUntil: "commit" });
       return { targetId: tab.targetId };
+    },
+    "tab.keep": async ({ targetId }, driver) => {
+      tabFor(targetId);
+      driver.opened.delete(targetId);
+    },
+    "session.name": async ({ name }, driver) => {
+      driver.sessionName = String(name);
     },
     "tabs.close": async ({ targetId, runBeforeUnload }) => {
       await tabFor(targetId).page.close({ runBeforeUnload: !!runBeforeUnload });
@@ -404,7 +447,7 @@ export async function createDevDriver({ headless = true, viewport = { width: 128
         } else throw new DriverError("invalid", `Unknown mouse event ${type}`);
       });
     },
-    "input.key": async ({ targetId, ...event }) => keyEvent(tabFor(targetId).page, event),
+    "input.key": async ({ targetId, ...event }) => keyEvent(tabFor(targetId), event),
     "input.insertText": async ({ targetId, text }) => tabFor(targetId).page.keyboard.insertText(text),
     "input.drag": async ({ targetId, path: points, button = "left", modifiers }) => {
       const page = tabFor(targetId).page;
@@ -462,110 +505,221 @@ export async function createDevDriver({ headless = true, viewport = { width: 128
     },
   };
 
+  function createDriver() {
+    const driver = {
+      name: "dev",
+      listeners: new Map(),
+      opened: new Set(),
+      sessionName: null,
+      async call(method, params = {}) {
+        const fn = methods[method];
+        if (!fn) throw new DriverError("unsupported", `Unsupported driver method ${method}`);
+        return fn(params, driver);
+      },
+      on(event, handler) {
+        if (!driver.listeners.has(event)) driver.listeners.set(event, new Set());
+        driver.listeners.get(event).add(handler);
+        return () => driver.listeners.get(event).delete(handler);
+      },
+      capabilities: () => [],
+      // Ends the session: tabs it opened close unless kept.
+      async detach() {
+        drivers.delete(driver);
+        for (const targetId of driver.opened) {
+          const tab = tabs.get(targetId);
+          if (tab) await tab.page.close().catch(() => {});
+        }
+        driver.opened.clear();
+      },
+    };
+    drivers.add(driver);
+    return driver;
+  }
+
   return {
-    name: "dev",
-    async call(method, params = {}) {
-      const fn = methods[method];
-      if (!fn) throw new DriverError("unsupported", `Unsupported driver method ${method}`);
-      return fn(params);
-    },
-    on(event, handler) {
-      if (!listeners.has(event)) listeners.set(event, new Set());
-      listeners.get(event).add(handler);
-      return () => listeners.get(event).delete(handler);
-    },
-    capabilities: () => [],
+    driver: createDriver,
     async close() {
       await browser.close().catch(() => {});
     },
   };
 }
 
+// A single-session driver on its own browser, closed with the driver.
+export async function createDevDriver(options) {
+  const browser = await createDevBrowser(options);
+  const driver = browser.driver();
+  driver.close = () => browser.close();
+  return driver;
+}
+
 // Loads the runtime scripts into this Node process the way the app loads them
-// into JavaScriptCore: as plain scripts that attach to globalThis.CmuxBrowserRepl.
+// into JavaScriptCore: the `repl` list of manifest.json, as plain scripts that
+// attach to globalThis.CmuxBrowserRepl.
 export function loadRuntime() {
   if (globalThis.CmuxBrowserRepl?.replHost) return globalThis.CmuxBrowserRepl;
-  const files = [
-    "vendor/acorn.js",
-    "vendor/playwright-locator-utils.js",
-    "runtime-core.js",
-    "dialect-aside.js",
-    "dialect-chatgpt.js",
-    "repl-host.js",
-  ];
-  for (const f of files) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(runtimeDir, "manifest.json"), "utf8"));
+  for (const f of manifest.repl) {
     const file = path.join(runtimeDir, f);
     vm.runInThisContext(fs.readFileSync(file, "utf8"), { filename: file });
   }
   return globalThis.CmuxBrowserRepl;
 }
 
-// Host capabilities the app provides natively. fs is confined to `workDir`
-// by the dialect; the host only performs the operation.
-export function createNodeHost({ workDir, log = (line) => process.stdout.write(line + "\n") }) {
+function fsError(code, message) {
+  const e = new Error(message);
+  e.code = code;
+  return e;
+}
+
+// The app's fs sandbox, in Node: paths must resolve inside the session
+// directory or the temporary directory; downloads the driver reported are
+// readable too (BrowserReplFileSandbox.swift).
+export function createFsOp({ workDir, tmpdir, readable = new Set() }) {
+  const roots = [fs.realpathSync(workDir), fs.realpathSync(tmpdir)];
+  const canonical = (p) => {
+    let head = path.resolve(p);
+    const tail = [];
+    while (!fs.existsSync(head) && head !== "/") {
+      tail.unshift(path.basename(head));
+      head = path.dirname(head);
+    }
+    return path.join(fs.realpathSync(head), ...tail);
+  };
+  const inside = (p) => roots.some((r) => p === r || p.startsWith(r + "/"));
+  const check = (raw, write) => {
+    if (typeof raw !== "string") throw fsError("EINVAL", "EINVAL: missing path");
+    const p = canonical(path.resolve(workDir, raw));
+    if (inside(p) || (!write && readable.has(p))) return p;
+    throw fsError("EACCES", `EACCES: permission denied, '${raw}' is outside the REPL's directories`);
+  };
+  const type = (p) => {
+    const st = fs.lstatSync(p);
+    return st.isSymbolicLink() ? "symlink" : st.isFile() ? "file" : st.isDirectory() ? "directory" : "other";
+  };
+  const ops = {
+    resolve: (a) => check(a.path, false),
+    exists: (a) => {
+      try {
+        return fs.existsSync(check(a.path, false));
+      } catch {
+        return false;
+      }
+    },
+    readFile: (a) => fs.readFileSync(check(a.path, false)).toString("base64"),
+    writeFile: (a) => {
+      const p = check(a.path, true);
+      const data = Buffer.from(a.base64 || "", "base64");
+      if (a.append) fs.appendFileSync(p, data);
+      else fs.writeFileSync(p, data);
+      return null;
+    },
+    mkdir: (a) => {
+      fs.mkdirSync(check(a.path, true), { recursive: !!a.recursive });
+      return null;
+    },
+    readdir: (a) => {
+      const p = check(a.path, false);
+      return fs.readdirSync(p).sort().map((name) => ({ name, type: type(path.join(p, name)) }));
+    },
+    stat: (a) => {
+      const st = fs.statSync(check(a.path, false));
+      return { size: st.size, type: st.isFile() ? "file" : st.isDirectory() ? "directory" : "other", mtimeMs: st.mtimeMs, birthtimeMs: st.birthtimeMs };
+    },
+    rm: (a) => {
+      const p = check(a.path, true);
+      if (roots.includes(p)) throw fsError("EACCES", "EACCES: refusing to remove the REPL working directory");
+      fs.rmSync(p, { recursive: !!a.recursive, force: !!a.force });
+      return null;
+    },
+    rename: (a) => {
+      fs.renameSync(check(a.from, true), check(a.to, true));
+      return null;
+    },
+    copyFile: (a) => {
+      fs.copyFileSync(check(a.from, false), check(a.to, true));
+      return null;
+    },
+  };
+  return (op, args) => {
+    const fn = ops[op];
+    if (!fn) throw fsError("EINVAL", `EINVAL: unknown fs operation ${op}`);
+    try {
+      return fn(args || {});
+    } catch (e) {
+      if (e.code) throw fsError(e.code, e.message);
+      throw e;
+    }
+  };
+}
+
+// Host capabilities the app provides natively (driver-protocol.md, "Native
+// host contract").
+export function createNodeHost({ workDir, sessionId = "dev", print, readable = new Set() }) {
+  const tmpdir = fs.realpathSync(os.tmpdir());
   return {
     workDir,
+    sessionId,
+    tmpdir,
+    homedir: os.homedir(),
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     clearTimeout: (t) => clearTimeout(t),
     now: () => Date.now(),
-    console: { log },
-    display: (value) => log(typeof value === "string" ? value : JSON.stringify(value)),
-    // The ChatGPT reference REPL is Node, so dev runs allow Node modules.
-    importModule: (specifier) => import(specifier),
+    print,
+    console: { error: (text) => print("error", text) },
+    readResource: (relativePath) => {
+      const file = path.join(runtimeDir, relativePath);
+      return file.startsWith(runtimeDir + "/") && fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
+    },
+    fsOp: createFsOp({ workDir, tmpdir, readable }),
     async fetch(url, init = {}) {
       const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body === undefined ? undefined : Buffer.from(init.body, "base64") });
       const body = Buffer.from(await res.arrayBuffer());
-      return { status: res.status, statusText: res.statusText, url: res.url, headers: Object.fromEntries(res.headers), base64: body.toString("base64") };
-    },
-    fs: {
-      async readFile(p) {
-        return (await fs.promises.readFile(p)).toString("base64");
-      },
-      async writeFile(p, base64) {
-        await fs.promises.writeFile(p, Buffer.from(base64, "base64"));
-      },
-      async appendFile(p, base64) {
-        await fs.promises.appendFile(p, Buffer.from(base64, "base64"));
-      },
-      async mkdir(p, recursive) {
-        await fs.promises.mkdir(p, { recursive: !!recursive });
-      },
-      async readdir(p) {
-        return fs.promises.readdir(p);
-      },
-      async stat(p) {
-        const s = await fs.promises.stat(p);
-        return { size: s.size, isFile: s.isFile(), isDirectory: s.isDirectory(), mtimeMs: s.mtimeMs };
-      },
-      async rm(p, recursive) {
-        await fs.promises.rm(p, { recursive: !!recursive, force: true });
-      },
-      async exists(p) {
-        return fs.existsSync(p);
-      },
-      realpath: (p) => (fs.existsSync(p) ? fs.realpathSync(p) : p),
+      return { status: res.status, statusText: res.statusText, url: res.url, headers: Object.fromEntries(res.headers), base64: body.toString("base64"), redirected: res.redirected };
     },
   };
 }
 
-// Runs one REPL cell against a fresh browser, the way `cmux browser repl
-// --eval` runs a one-shot session. Returns the printed output.
-export async function runDevRepl(code, { workDir } = {}) {
+// Runs REPL cells the way `cmux browser repl` runs calls: every cell is a
+// one-shot session unless it names a session, and one-shot sessions close
+// the tabs they opened unless kept. Returns each cell's printed output and
+// uncaught error.
+export async function runDevCells(cells, { workDir } = {}) {
   const ns = loadRuntime();
-  const os = await import("node:os");
-  const dir = workDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-"));
-  const lines = [];
-  const host = createNodeHost({ workDir: fs.realpathSync(dir), log: (line) => lines.push(line) });
-  host.console.error = (line) => lines.push(line);
-  const driver = await createDevDriver();
+  const dir = fs.realpathSync(workDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-")));
+  const browser = await createDevBrowser();
+  const named = new Map();
+  const readable = new Set();
+  const outputs = [];
   try {
-    const repl = ns.replHost.createBrowserRepl({ host, driver, workDir: host.workDir });
-    const r = await repl.evaluate(code);
-    if (!r.ok) lines.push(`Uncaught ${r.error}`);
-    repl.dispose();
+    for (const cell of cells) {
+      const lines = [];
+      const print = (level, text) => lines.push(text);
+      let entry = cell.session ? named.get(cell.session) : null;
+      if (!entry) {
+        const driver = browser.driver();
+        driver.on("download.finished", (p) => p.path && readable.add(fs.realpathSync(p.path)));
+        let current = print;
+        const host = createNodeHost({ workDir: dir, sessionId: cell.session || `oneshot-${outputs.length + 1}`, print: (l, t) => current(l, t), readable });
+        entry = { driver, repl: ns.replHost.createBrowserRepl({ host, driver }), setPrint: (p) => (current = p) };
+        if (cell.session) named.set(cell.session, entry);
+      }
+      entry.setPrint(print);
+      const r = await entry.repl.evaluate(cell.code);
+
+      if (!cell.session) {
+        entry.repl.dispose();
+        await entry.driver.detach();
+      }
+      outputs.push({ output: lines.join("\n"), error: r.ok ? null : r.error });
+    }
   } finally {
-    await driver.close();
+    await browser.close();
     if (!workDir) fs.rmSync(dir, { recursive: true, force: true });
   }
-  return lines.join("\n");
+  return outputs;
+}
+
+export async function runDevRepl(code, options) {
+  const [r] = await runDevCells([{ code }], options);
+  return r.error ? `${r.output}\nUncaught ${r.error}`.replace(/^\n/, "") : r.output;
 }
