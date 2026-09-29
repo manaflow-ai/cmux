@@ -555,6 +555,7 @@ public struct CMUXMobileRootScene: View {
             ),
             browserStreamEvents: browserStreamEvents,
             simulatorStreamStore: simulatorStreamStore,
+            workspaceSnapshotStore: MobileWorkspaceSnapshotStore(defaults: .standard),
             // SSH hosts and keys are device-local and account-independent
             // (docs/prd/ios-direct-ssh.md D5): Application Support, never
             // cleared by sign-out.

@@ -1099,6 +1099,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
+    /// Device-local display snapshots used to render cached workspace rows
+    /// while the live Mac connection is still being established.
+    let workspaceSnapshotStore: MobileWorkspaceSnapshotStore?
     /// The user's connection-method choice. The shipping app always injects
     /// this at the composition root (`AppCompositionRoot` holds it
     /// non-optional), so a user-selected Tailscale Only choice can never be
@@ -1958,7 +1961,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         simulatorStreamStore: MobileSimulatorStreamStore? = nil,
         simulatorStreamStalenessClock: any Clock<Duration> = ContinuousClock(),
         storedMacReconnectRestoringDeadlineSeconds: Double = 15,
-        sshComputers: MobileSSHComputers? = nil
+        sshComputers: MobileSSHComputers? = nil,
+        workspaceSnapshotStore: MobileWorkspaceSnapshotStore? = nil
     ) {
         // Tests and previews get an ephemeral SSH store; the app injects the
         // persistent one from its composition root.
@@ -1967,6 +1971,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 .appendingPathComponent("cmux-ssh-ephemeral-\(UUID().uuidString)")
         )
         self.runtime = runtime
+        self.workspaceSnapshotStore = workspaceSnapshotStore
         self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
@@ -3845,6 +3850,58 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacCacheScope = scope
     }
 
+    /// Restore display-only workspace rows for the current account/team before
+    /// the first live list response. Cached rows are deliberately marked
+    /// reconnecting and non-authoritative, so no action or terminal stream can
+    /// use them until the Mac sends a fresh authenticated snapshot.
+    private func restoreWorkspaceSnapshots(
+        for macs: [MobilePairedMac],
+        scope: MobileShellScopeSnapshot
+    ) {
+        guard let workspaceSnapshotStore else { return }
+        var changed = false
+        for mac in macs {
+            let key = MacPairingKey(mac)
+            guard workspacesByMac[key]?.status != .connected,
+                  let cached = workspaceSnapshotStore.load(
+                      userID: scope.userID,
+                      teamID: scope.teamID,
+                      pairing: key
+                  ) else { continue }
+            workspacesByMac[key] = cached
+            changed = true
+        }
+        if changed {
+            recomputeDerivedWorkspaceState()
+        }
+    }
+
+    /// Persist only a complete live workspace list. The snapshot is scoped by
+    /// Stack account/team and exact Mac app instance, and contains metadata plus
+    /// terminal identities, never terminal output or credentials.
+    private func persistForegroundWorkspaceSnapshot() {
+        guard let workspaceSnapshotStore,
+              let macDeviceID = foregroundMacDeviceID,
+              !macDeviceID.isEmpty,
+              let state = workspacesByMac[foregroundMacKey],
+              state.workspaceSnapshotIsAuthoritative else { return }
+        let pairing = MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: activeMacInstanceTag
+        )
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let scope = await self.currentScopeSnapshot(),
+                  await self.isScopeCurrent(scope) else { return }
+            workspaceSnapshotStore.save(
+                state: state,
+                userID: scope.userID,
+                teamID: scope.teamID,
+                pairing: pairing
+            )
+        }
+    }
+
     private func clearStoredPairedMacCache() {
         storedPairedMacsIncludingHidden = []
         storedPairedMacsByCanonicalDeviceID = [:]
@@ -4534,6 +4591,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             result[mac.id] = aliasIDsByPairingID[mac.id] ?? [mac.macDeviceID]
         }
         pairedMacs = visibleLoaded
+        restoreWorkspaceSnapshots(for: visibleLoaded, scope: scope)
         recordAppEvent(
             .pairedMacStoreReadSucceeded,
             startedAt: startedAt,
@@ -16659,6 +16717,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        if !mergeExistingWorkspaces {
+            persistForegroundWorkspaceSnapshot()
+        }
         #if DEBUG
         startLatencyProbeAutoNavigationIfNeeded()
         #endif
