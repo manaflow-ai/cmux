@@ -1,0 +1,51 @@
+{
+  "schema": "acpmux.rpc.v1",
+  "transport": "JSON-RPC 2.0 over the Unix socket or WebSocket (?token=...). Standard ACP methods pass through to the session's agent; _acpmux/* methods are the multiplexer's own.",
+  "acp": ["initialize", "session/new", "session/load", "session/prompt", "session/cancel", "session/fork", "session/set_mode", "session/set_model", "session/set_config_option"],
+  "methods": {
+    "_acpmux/status": {"params": {}, "result": {"version": "string", "pid": "number", "sessions": "number", "liveAgents": "number", "harnesses": "string[]", "peers": "object[]", "webUrl": "string|null"}},
+    "_acpmux/sessions": {"params": {}, "result": {"sessions": "SessionSummary[]"}},
+    "_acpmux/harnesses": {"params": {}, "result": {"harnesses": "{name: HarnessProfile + family + defaults}", "defaultHarness": "string|null", "families": "{family: string[]}", "defaults": "{family|profile: SessionDefaults}"}},
+    "_acpmux/reload_config": {"params": {}, "result": "{reloaded: true, harnesses: string[], defaultHarness: string|null, retainedProfiles: string[], modelProbePending: true}; replaces catalog config without stopping sessions"},
+    "_acpmux/defaults": {"params": {"family": "string?", "set": "SessionDefaults? (null field clears it)", "clear": "boolean?"}, "result": "{families: {family: {kind, profile, error, profiles, model, effort, policy, prefer, env}}, defaults} or one entry", "note": "session/new takes _meta.acpmux.harness (a family or profile: the head of -m HEAD/MODEL), .preset, .model, .effort, .policy, .name. Explicit values win over the preset, which wins over profile then family defaults."},
+    "_acpmux/presets": {"params": {"name": "string?", "set": "{harness (family or profile), model?, effort?, policy?, env?, description?}? (null field clears it)", "clear": "boolean?"}, "result": "{presets: [{name, harness, profile, error, model, effort, policy, env, description}]} or one preset"},
+    "_acpmux/models_note": "params {refresh?: boolean} forgets reported catalogs and probes every ACP harness again before answering",
+    "_acpmux/models": {"params": {}, "result": {"harnesses": [{"harness": "string", "kind": "acp|claude-stdio", "isDefault": "boolean", "models": [{"id": "string", "name": "string"}]}]}},
+    "_acpmux/info": {"params": {"sessionId": "string (id, name or unique prefix)"}, "result": "SessionDetail"},
+    "_acpmux/attach": {"params": {"sessionId": "string", "afterSeq": "number?", "limit": "number?"}, "result": {"session": "SessionDetail", "events": "Event[]"}, "note": "Subscribes this connection to the session's events and counts it as attached (clears unread)."},
+    "_acpmux/detach": {"params": {"sessionId": "string"}, "result": {}},
+    "_acpmux/watch": {"params": {"enabled": "boolean"}, "result": {}, "note": "Receive _acpmux/session_changed and _acpmux/permission_pending for every session."},
+    "_acpmux/events": {"params": {"sessionId": "string", "afterSeq": "number?", "limit": "number?"}, "result": {"events": "Event[]"}, "errors": {"cursor_future": "afterSeq is beyond the last event"}},
+    "_acpmux/history": {"params": {"sessionId": "string", "limit": "number?"}, "result": {"turns": [{"seq": "number", "startedAt": "number", "endedAt": "number|null", "wallMs": "number|null", "prompt": "string", "stopReason": "string|null", "status": "completed|cancelled|failed|running", "toolCalls": "number", "permissions": "number", "tokens": "number|null"}]}},
+    "_acpmux/wait": {"params": {"sessions": "string[]? (empty = every running or waiting session on every host)", "until": "('ready'|'permission'|'closed'|'done'|'running')[]? default ready+permission", "all": "boolean? default false (first to resolve)", "afterSeq": "{sessionId: number}?", "timeoutMs": "number?"}, "result": {"sessions": "SessionSummary[] with resolved: boolean and matched: string[]", "resolved": "SessionSummary[]", "timedOut": "boolean"}},
+    "_acpmux/rename": {"params": {"sessionId": "string", "newName": "string"}, "result": "SessionSummary"},
+    "_acpmux/kill": {"params": {"sessionId": "string", "purge": "boolean?"}, "result": {"sessionId": "string", "purged": "boolean"}},
+    "_acpmux/permission_respond": {"params": {"sessionId": "string", "permissionId": "string", "optionId": "string? (omit to cancel)", "answers": "object?"}, "result": {}},
+    "_acpmux/set_policy": {"params": {"sessionId": "string", "policy": "ask|approve-reads|approve-edits|approve-all|deny-all"}, "result": "SessionSummary"},
+    "_acpmux/set_rules": {"params": {"sessionId": "string", "rules": "{autoApprove?: string[], autoDeny?: string[], ask?: string[], default?: 'approve'|'deny'|'ask'} | null"}, "result": "SessionSummary"},
+    "_acpmux/tag": {"params": {"sessionId": "string", "set": "{key: value}?", "remove": "string[]?", "ttlSeconds": "number?"}, "result": "SessionSummary"},
+    "_acpmux/export": {"params": {"sessionId": "string", "dest": "string?"}, "result": {"path": "string"}},
+    "_acpmux/import": {"params": {"path": "string", "name": "string?"}, "result": "SessionSummary"},
+    "_acpmux/peers": {"params": {}, "result": {"peers": "object[]"}},
+    "_acpmux/peer_add": {"params": {"name": "string", "url": "ws://... | ssh://host", "token": "string?"}, "result": {}},
+    "_acpmux/peer_remove": {"params": {"name": "string"}, "result": {}},
+    "_acpmux/schema": {"params": {}, "result": "this document"},
+    "_acpmux/shutdown": {"params": {}, "result": {}}
+  },
+  "notifications": {
+    "_acpmux/event": {"params": "Event", "note": "Every recorded event of an attached session."},
+    "_acpmux/session_changed": {"params": {"sessionId": "string", "kind": "string", "session": "SessionSummary"}, "note": "For watchers: status, permission, turn and policy changes."},
+    "_acpmux/permission_pending": {"params": {"sessionId": "string", "permissionId": "string", "request": "object"}},
+    "_acpmux/lagged": {"params": {"dropped": "number"}}
+  },
+  "types": {
+    "SessionDefaults": {"model": "string?", "effort": "string?", "policy": "string?", "prefer": "string[]? (profiles to use for a family, in order; first installed wins)", "env": "{key: value}? (${cwd}, ${home}, ${model}, ~/ expand)", "note": "keyed by family or profile"},
+    "HarnessProfile": {"kind": "acp|claude-stdio", "argv": "string[] (${model} = the requested model at spawn)", "env": "{key: value}", "family": "string? (derived from argv when absent)", "models": "(string | {id, name})[] declared catalog, shown ahead of the reported one", "model": "string?", "effort": "string?", "policy": "string?", "fallback": "string? (profile to move to on limit or auth errors)", "description": "string?"},
+    "SessionSummary": {"sessionId": "string", "name": "string", "harness": "string", "family": "string|null", "cwd": "string", "status": "idle|ready|running|waiting|disconnected|closed", "peer": "string? (host name for remote sessions)", "stateSeq": "number (bumps on status, permission and turn changes)", "unread": "boolean (a turn ended while no client was attached)", "attached": "number (clients attached now)", "pendingPermissions": "number", "queued": "number", "turnCount": "number", "lastSeq": "number", "lastPrompt": "string|null", "preview": "string|null", "model": "string|null", "currentModeId": "string|null", "policy": "string|null", "rules": "boolean", "tags": "{key: value}", "createdAt": "number", "updatedAt": "number"},
+    "SessionDetail": "SessionSummary plus modes, configOptions, models, agentInfo, agentCapabilities, usage, pending: [{permissionId, request}], rulesJson",
+    "Event": {"sessionId": "string", "seq": "number", "at": "number (unix ms)", "dir": "in|out|mux|peer", "kind": "string (method, sessionUpdate value, or mux kind)", "msg": "object"},
+    "muxEventKinds": ["created", "user_message", "queued", "turn_started", "turn_end", "turn_error", "turn_result", "status", "permission_request", "permission_auto", "permission_decision", "mode", "model", "config", "policy", "rules", "tags", "renamed", "forked", "imported", "resumed", "resume_failed", "failover", "reopened", "stopped", "exited", "stderr"],
+    "turn_result": {"status": "completed|cancelled|failed", "stopReason": "string?", "error": "string?", "detail": "string? (outcome_unknown when the daemon restarted mid-turn)"}
+  },
+  "exitCodes": {"0": "ok", "1": "runtime or agent error", "2": "usage", "3": "timeout", "4": "no such session", "5": "every permission in the turn was denied", "130": "interrupted"}
+}

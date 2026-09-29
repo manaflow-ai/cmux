@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "acpmux"
+version = "0.0.1"
+description = "tmux for ACP agents: a session multiplexer daemon with CLI and TUI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Manaflow" }]
+keywords = ["acp", "agent-client-protocol", "agents", "multiplexer", "tmux"]
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Topic :: Software Development",
+]
+
+[project.urls]
+Homepage = "https://github.com/manaflow-ai/acpmux"
+Repository = "https://github.com/manaflow-ai/acpmux"
+Issues = "https://github.com/manaflow-ai/acpmux/issues"
+
+[project.scripts]
+acpmux = "acpmux.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/acpmux"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "README.md", "LICENSE"]
