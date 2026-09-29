@@ -2274,6 +2274,54 @@ struct ContentView: View {
                 ))
                 .padding(.trailing, 8)
             }
+
+            // Keep the most frequently used commands visible without taking
+            // over the title. The strip is also a native menu, so keyboard
+            // users can open it and move through the same actions with arrows.
+            CommandToolbeltView(items: [
+                .init(
+                    id: "new-terminal",
+                    title: String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab"),
+                    systemImage: "terminal",
+                    shortcut: "1",
+                    action: {
+                        if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID) {
+                            tabManager.newSurface()
+                        }
+                    }
+                ),
+                .init(
+                    id: "new-browser",
+                    title: String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab"),
+                    systemImage: "globe",
+                    shortcut: "2",
+                    action: { _ = AppDelegate.shared?.openBrowserAndFocusAddressBar() }
+                ),
+                .init(
+                    id: "command-palette",
+                    title: String(localized: "commandPalette.title", defaultValue: "Command Palette"),
+                    systemImage: "magnifyingglass",
+                    shortcut: "3",
+                    action: { toggleCommandPalette() }
+                ),
+                .init(
+                    id: "toggle-sidebar",
+                    title: String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar"),
+                    systemImage: "sidebar.left",
+                    shortcut: "4",
+                    action: { sidebarState.toggle() }
+                ),
+                .init(
+                    id: "notifications",
+                    title: String(localized: "command.showNotifications.title", defaultValue: "Notifications"),
+                    systemImage: "bell",
+                    shortcut: "5",
+                    action: { AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
+                )
+            ])
+            .frame(height: titlebarContentHeight)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .allowsHitTesting(true)
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
         .frame(maxWidth: .infinity)
@@ -18160,4 +18208,63 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
 enum SidebarSelection {
     case tabs
     case notifications
+}
+
+/// Compact titlebar access to the commands people reach for most often.
+private struct CommandToolbeltView: View {
+    struct Item: Identifiable {
+        let id: String
+        let title: String
+        let systemImage: String
+        let shortcut: KeyEquivalent
+        let action: () -> Void
+    }
+
+    let items: [Item]
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(items.prefix(4)) { item in
+                Button(action: item.action) {
+                    Label(item.title, systemImage: item.systemImage)
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 27, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(item.title)
+                .accessibilityLabel(item.title)
+            }
+
+            Divider()
+                .frame(height: 16)
+
+            Menu {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    Button(action: item.action) {
+                        Label(item.title, systemImage: item.systemImage)
+                    }
+                    .keyboardShortcut(item.shortcut, modifiers: [.command, .option])
+                    .help("⌘⌥\(index + 1)")
+                }
+            } label: {
+                Label("Toolbelt", systemImage: "bolt.horizontal")
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 27, height: 22)
+            }
+            .menuStyle(.borderlessButton)
+            .help("Command toolbelt — ⌘⌥K")
+            .accessibilityLabel("Command toolbelt")
+            .keyboardShortcut("k", modifiers: [.command, .option])
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 1))
+        .opacity(isHovering ? 1 : 0.86)
+        .onHover { isHovering = $0 }
+    }
 }
