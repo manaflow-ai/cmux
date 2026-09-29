@@ -1,0 +1,168 @@
+import AppKit
+import CmuxCloud
+import CmuxSurfaceCatalogModel
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite("Cloud sidebar category create rows")
+struct CloudTreeFooterActionsTests {
+    @Test("Cloud Machines ends with a New Cloud VM row, even when the fleet is empty")
+    func cloudMachinesCategoryHasPersistentMachineAction() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        fixture.apply(machines: [])
+
+        let section = try #require(fixture.cloudSection)
+        let action = try #require(section.children.last)
+        #expect(action.kind == .createAction(.newCloudVM))
+        #expect(fixture.row(for: action) >= 0)
+        #expect(try fixture.cell(for: action).accessibilityLabel() == "New Cloud VM")
+        #expect(try fixture.createHost(for: action).passesThrough == false)
+    }
+
+    @Test("Each Cloud machine's Workspaces category ends with New Workspace")
+    func workspacesCategoryHasPersistentWorkspaceAction() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        fixture.apply(machines: [fixture.machine])
+
+        let machine = try #require(fixture.machineNode)
+        let workspaces = try #require(machine.children.first { node in
+            if case .workspacesGroup = node.kind { return true }
+            return false
+        })
+        let action = try #require(workspaces.children.last)
+        #expect(action.kind == .createAction(.newWorkspace(.cloud(fixture.machineID))))
+        #expect(fixture.row(for: action) >= 0)
+        #expect(try fixture.cell(for: action).accessibilityLabel() == "New Workspace")
+    }
+
+    @Test("Category rows route through the existing Cloud VM and workspace action closures")
+    func categoryActionsRouteToExistingFlows() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+
+        fixture.apply(machines: [])
+        let newVM = try #require(fixture.cloudSection?.children.last)
+        fixture.coordinator.open(newVM)
+        #expect(fixture.events.cloudVMActionCalled)
+
+        fixture.apply(machines: [fixture.machine])
+        let machine = try #require(fixture.machineNode)
+        let workspaces = try #require(machine.children.first { node in
+            if case .workspacesGroup = node.kind { return true }
+            return false
+        })
+        let newWorkspace = try #require(workspaces.children.last)
+        fixture.coordinator.open(newWorkspace)
+        #expect(fixture.events.workspaceMachine == .cloud(fixture.machineID))
+    }
+
+    @MainActor
+    private final class Fixture {
+        let defaultsSuiteName = "CloudTreeCreateAction-\(UUID().uuidString)"
+        let defaults: UserDefaults
+        let machineID = "footer-machine"
+        let machine: MachineSnapshot
+        let events: Events
+        let coordinator: CloudTreeOutlineView.Coordinator
+        let container: CloudTreeContainerView
+
+        var cloudSection: CloudTreeNode? {
+            coordinator.nodes.first { $0.id == "cloud-machines-section" }
+        }
+
+        var machineNode: CloudTreeNode? {
+            cloudSection?.children.first { node in
+                if case .machine = node.kind { return true }
+                return false
+            }
+        }
+
+        init() {
+            defaults = UserDefaults(suiteName: defaultsSuiteName)!
+            machine = MachineSnapshot(
+                id: machineID, provider: "test", image: "test", isDesktop: false, activity: .ready
+            )
+            let eventBox = Events()
+            self.events = eventBox
+            let actions = CloudTreeNodeActions(
+                project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
+                projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },
+                newTerminal: { _, _ in }, openGroup: { _, _, _, _ in }, openGroupAsWorkspace: { _, _, _ in },
+                newWorkspace: { eventBox.workspaceMachine = $0 },
+                closeTerminal: { _ in }, closeWorkspace: { _, _ in },
+                renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
+                selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {},
+                newMachine: { eventBox.cloudVMActionCalled = true }
+            )
+            coordinator = CloudTreeOutlineView.Coordinator(
+                machineActions: MachineRowActions(
+                    openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
+                    confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
+                ),
+                nodeActions: actions,
+                expansionStore: CloudTreeExpansionStore(defaults: defaults),
+                tabDragTransferRegistry: { nil }
+            )
+            container = CloudTreeContainerView(coordinator: coordinator)
+            container.frame = NSRect(x: 0, y: 0, width: 320, height: 420)
+        }
+
+        func apply(machines: [MachineSnapshot]) {
+            let snapshot = SurfaceCatalogSnapshot(
+                machines: machines.map { machine in
+                    SurfaceMachineInfo(
+                        id: .cloud(machine.id), name: machine.displayName, status: "running", image: nil,
+                        hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected,
+                        linkError: nil, remoteWorkspaces: []
+                    )
+                },
+                resources: [], projections: []
+            )
+            let nodes = CloudTreeNodeBuilder.nodes(
+                machines: machines,
+                snapshot: snapshot,
+                localWorkspaces: [],
+                includeLocalMachine: false,
+                source: .cloudWithDevicesSection,
+                canCreateCloudMachine: true
+            )
+            coordinator.apply(nodes: CloudTreeCreateActionBuilder.add(to: nodes))
+            coordinator.outlineView?.expandItem(nil, expandChildren: true)
+            container.layoutSubtreeIfNeeded()
+        }
+
+        func row(for node: CloudTreeNode) -> Int {
+            coordinator.outlineView?.row(forItem: node) ?? -1
+        }
+
+        func cell(for node: CloudTreeNode) throws -> CloudTreeCellView {
+            let outline = try #require(coordinator.outlineView)
+            let cell = try #require(outline.view(atColumn: 0, row: outline.row(forItem: node), makeIfNecessary: true) as? CloudTreeCellView)
+            cell.layoutSubtreeIfNeeded()
+            return cell
+        }
+
+        func createHost(for node: CloudTreeNode) throws -> CloudTreePassthroughHostingView {
+            try #require(try cell(for: node).subviews.compactMap { $0 as? CloudTreePassthroughHostingView }.first)
+        }
+
+        func close() {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        @MainActor
+        final class Events {
+            var workspaceMachine: SurfaceMachineID?
+            var cloudVMActionCalled = false
+        }
+    }
+}
