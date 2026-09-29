@@ -149,6 +149,8 @@ def gui_backlog(github: Any, labels: Sequence[str], *, exclude_run_id: int | Non
                 if run.get("id") != exclude_run_id and created is not None and created <= newest:
                     runs[run.get("id")] = {**run, "_backlog_workflow": workflow}
     def queued_in(run: Mapping[str, Any]) -> list[str]:
+        gui_pool = pool.pool_label(labels[0]) if labels else ""
+        gui_root = pool.root_label(gui_pool) if gui_pool else ""
         jobs = github.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={pool.PAGE_SIZE}").get("jobs") or []
         found: list[str] = []
         for job in jobs:
@@ -160,7 +162,8 @@ def gui_backlog(github: Any, labels: Sequence[str], *, exclude_run_id: int | Non
             # the GUI token inside the job. Charge those queued jobs to the
             # GUI backlog even though the token is not in runs-on.
             if not matched and run.get("_backlog_workflow") == E2E_WORKFLOW \
-                    and any(pool.persistent(label) for label in job_labels) and labels:
+                    and any(pool.persistent(label) for label in job_labels) and labels \
+                    and {gui_pool, gui_root}.intersection(job_labels):
                 matched = [labels[0]]
             found.extend(matched)
         return found

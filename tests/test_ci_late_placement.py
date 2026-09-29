@@ -313,6 +313,28 @@ class GuiOverflow(unittest.TestCase):
         self.assertEqual(late.gui_backlog(API(), [GUI, RETRY], exclude_run_id=None, now=now),
                          {GUI: 1, RETRY: 0})
 
+    def test_e2e_fallback_rejects_unrelated_or_unowned_jobs(self):
+        import datetime as dt
+        now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
+        runs = [
+            ({"id": 22, "created_at": "2026-09-28T00:00:00Z"}, "test-e2e.yml", ["glaeda-other-xcode-26.6"]),
+            ({"id": 23, "created_at": "2026-09-28T00:00:00Z"}, "test-e2e.yml", ["ubuntu-latest"]),
+            ({"id": 24, "created_at": "2026-09-28T00:00:00Z"}, "ci.yml", ["glaeda-other-xcode-26.6"]),
+        ]
+
+        class API:
+            def runs_since(self, workflow, since, **filters):
+                return [run for run, run_workflow, _ in runs
+                        if workflow == run_workflow and filters["status"] == "in_progress"]
+
+            def get(self, path):
+                run_id = int(path.split("/")[3])
+                labels = next(labels for run, _, labels in runs if run["id"] == run_id)
+                return {"jobs": [{"status": "queued", "labels": labels}]}
+
+        self.assertEqual(late.gui_backlog(API(), [GUI, RETRY], exclude_run_id=None, now=now),
+                         {GUI: 0, RETRY: 0})
+
     def test_backlog_reads_runs_concurrently(self):
         import datetime as dt
         import threading
