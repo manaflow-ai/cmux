@@ -405,8 +405,7 @@
         "memberReadOnly": "Solo gli admin del team possono modificare questo piano.",
         "grantedBody": "L’accesso Team è stato concesso a {team} dal team di cmux. Non c’è alcun abbonamento da gestire.",
         "seatsUsed": "{members} di {seats} utilizzati",
-        "overSeat": "{team} ha {members} membri e {seats} posti pagati. È ancora possibile unirsi; aggiungi posti per coprire tutti.",
-        "addSeats": "Aggiungi posti"
+        "overSeat": "{team} ha {members} membri e {seats} posti pagati. I posti seguono il numero di membri, quindi l’abbonamento si aggiorna da solo."
       },
       "teamList": {
         "heading": "Ambiti di fatturazione",
@@ -834,7 +833,7 @@
         "featurePrioritySupport": "Supporto prioritario",
         "chooseFree": "Continua con il piano gratuito",
         "chooseTeam": "Passa a Team (${price}/posto/mese)",
-        "upgradeLater": "I posti sono flessibili: puoi invitare più persone di quante ne paghi e aggiungere posti in seguito.",
+        "upgradeLater": "I posti seguono il numero di membri: ogni membro viene fatturato e il totale si aggiorna quando qualcuno entra o esce.",
         "inviteTitle": "Invita persone in {team}",
         "inviteDescription": "Facoltativo. Puoi invitare persone anche in seguito dalla pagina Membri del team.",
         "inviteByEmail": "Invita via e-mail",
@@ -954,9 +953,7 @@
         "resent": "Inviato",
         "revoke": "Revoca",
         "linksTitle": "Link di invito",
-        "linksDescription": "Un link riutilizzabile con cui chiunque può unirsi come membro.",
-        "seatNudge": "{used} persone sono membri o invitate, ma il piano ha {seats} posti. Gli inviti funzionano comunque; aggiungi {over, plural, one {# posto} other {# posti}} per coprire tutti.",
-        "seatNudgeAction": "Gestisci posti"
+        "linksDescription": "Un link riutilizzabile con cui chiunque può unirsi come membro."
       },
       "apiKeys": {
         "title": "Chiavi API del team",

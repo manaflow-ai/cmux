@@ -405,8 +405,7 @@
         "memberReadOnly": "只有團隊管理員可以變更此方案。",
         "grantedBody": "cmux 團隊已授予 {team} Team 存取權限，沒有需要管理的訂閱。",
         "seatsUsed": "已使用 {members}/{seats}",
-        "overSeat": "{team} 有 {members} 位成員，但只有 {seats} 個付費席次。成員仍可加入；請新增席次以涵蓋所有人。",
-        "addSeats": "新增席次"
+        "overSeat": "{team} 有 {members} 位成員和 {seats} 個付費席次。席次數會跟隨成員數，訂閱會自動更新。"
       },
       "teamList": {
         "heading": "帳單範圍",
@@ -834,7 +833,7 @@
         "featurePrioritySupport": "優先支援",
         "chooseFree": "繼續使用免費方案",
         "chooseTeam": "升級至 Team（${price}/席次/月）",
-        "upgradeLater": "席次具有彈性：邀請人數可以超過已付費席次，之後再新增席次即可。",
+        "upgradeLater": "席次數跟隨成員數：每位成員都會計費，有人加入或離開時總數會更新。",
         "inviteTitle": "邀請成員加入 {team}",
         "inviteDescription": "選填。你也可以稍後在團隊的成員頁面邀請成員。",
         "inviteByEmail": "透過電子郵件邀請",
@@ -954,9 +953,7 @@
         "resent": "已寄送",
         "revoke": "撤銷",
         "linksTitle": "邀請連結",
-        "linksDescription": "任何人都能透過此可重複使用的連結以成員身分加入。",
-        "seatNudge": "已有 {used} 人是成員或已受邀，但方案只有 {seats} 個席次。邀請仍然有效；請新增 {over, plural, other {# 個席次}}以涵蓋所有人。",
-        "seatNudgeAction": "管理席次"
+        "linksDescription": "任何人都能透過此可重複使用的連結以成員身分加入。"
       },
       "apiKeys": {
         "title": "團隊 API 金鑰",

@@ -405,8 +405,7 @@
         "memberReadOnly": "Ten plan mogą zmieniać tylko administratorzy zespołu.",
         "grantedBody": "Dostęp do Team został przyznany zespołowi {team} przez zespół cmux. Nie ma subskrypcji do zarządzania.",
         "seatsUsed": "Wykorzystano {members} z {seats}",
-        "overSeat": "{team}: członkowie — {members}, opłacone miejsca — {seats}. Dołączanie nadal działa; dodaj miejsca, aby objąć wszystkich.",
-        "addSeats": "Dodaj miejsca"
+        "overSeat": "{team} ma {members} członków i {seats} opłaconych miejsc. Liczba miejsc podąża za liczbą członków, więc subskrypcja aktualizuje się sama."
       },
       "teamList": {
         "heading": "Zakresy rozliczeń",
@@ -834,7 +833,7 @@
         "featurePrioritySupport": "Priorytetowe wsparcie",
         "chooseFree": "Kontynuuj z planem Darmowym",
         "chooseTeam": "Przejdź na Team (${price}/miejsce/mies.)",
-        "upgradeLater": "Liczba miejsc to miękki limit: możesz zaprosić więcej osób, niż opłacasz, i dodać miejsca później.",
+        "upgradeLater": "Liczba miejsc podąża za liczbą członków: każdy członek jest rozliczany, a suma aktualizuje się, gdy ktoś dołącza lub odchodzi.",
         "inviteTitle": "Zaproś osoby do {team}",
         "inviteDescription": "Opcjonalnie. Osoby możesz zaprosić także później na stronie „Członkowie” zespołu.",
         "inviteByEmail": "Zaproś przez e-mail",
@@ -954,9 +953,7 @@
         "resent": "Wysłano",
         "revoke": "Unieważnij",
         "linksTitle": "Linki z zaproszeniem",
-        "linksDescription": "Link wielokrotnego użytku, przez który każdy może dołączyć jako członek.",
-        "seatNudge": "Członkowie i zaproszeni: {used}, a plan obejmuje miejsca: {seats}. Zaproszenia nadal działają; dodaj {over, plural, one {# miejsce} few {# miejsca} many {# miejsc} other {# miejsca}}, aby objąć wszystkich.",
-        "seatNudgeAction": "Zarządzaj miejscami"
+        "linksDescription": "Link wielokrotnego użytku, przez który każdy może dołączyć jako członek."
       },
       "apiKeys": {
         "title": "Klucze API zespołu",

@@ -405,8 +405,7 @@
         "memberReadOnly": "Bare teamadministratorer kan endre dette abonnementet.",
         "grantedBody": "cmux-teamet har gitt {team} tilgang til Team. Det finnes ikke noe abonnement å administrere.",
         "seatsUsed": "{members} av {seats} brukt",
-        "overSeat": "{team} har {members} medlemmer og {seats} betalte plasser. Det går fortsatt an å bli med; legg til plasser slik at alle dekkes.",
-        "addSeats": "Legg til plasser"
+        "overSeat": "{team} har {members} medlemmer og {seats} betalte plasser. Plassene følger antall medlemmer, så abonnementet oppdateres av seg selv."
       },
       "teamList": {
         "heading": "Faktureringsomfang",
@@ -834,7 +833,7 @@
         "featurePrioritySupport": "Prioritert støtte",
         "chooseFree": "Fortsett med Gratis",
         "chooseTeam": "Oppgrader til Team (${price}/plass/måned)",
-        "upgradeLater": "Plassene er fleksible: Du kan invitere flere personer enn du betaler for, og legge til plasser senere.",
+        "upgradeLater": "Plassene følger antall medlemmer: hvert medlem faktureres, og totalen oppdateres når folk blir med eller forlater teamet.",
         "inviteTitle": "Inviter personer til {team}",
         "inviteDescription": "Valgfritt. Du kan også invitere personer senere fra teamets Medlemmer-side.",
         "inviteByEmail": "Inviter via e-post",
@@ -954,9 +953,7 @@
         "resent": "Sendt",
         "revoke": "Tilbakekall",
         "linksTitle": "Invitasjonslenker",
-        "linksDescription": "En gjenbrukbar lenke som alle kan bruke for å bli med som medlem.",
-        "seatNudge": "{used} personer er medlemmer eller invitert, men abonnementet har {seats} plasser. Invitasjoner fungerer fortsatt; legg til {over, plural, one {# plass} other {# plasser}} slik at alle dekkes.",
-        "seatNudgeAction": "Administrer plasser"
+        "linksDescription": "En gjenbrukbar lenke som alle kan bruke for å bli med som medlem."
       },
       "apiKeys": {
         "title": "Teamets API-nøkler",

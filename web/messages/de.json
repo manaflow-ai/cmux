@@ -405,8 +405,7 @@
         "memberReadOnly": "Nur Team-Admins können diesen Tarif ändern.",
         "grantedBody": "Das cmux-Team hat {team} Team-Zugang gewährt. Es gibt kein Abonnement zu verwalten.",
         "seatsUsed": "{members} von {seats} belegt",
-        "overSeat": "{team} hat {members} Mitglieder und {seats} bezahlte Plätze. Beitreten funktioniert weiterhin; füge Plätze hinzu, um alle abzudecken.",
-        "addSeats": "Plätze hinzufügen"
+        "overSeat": "{team} hat {members} Mitglieder und {seats} bezahlte Plätze. Die Plätze folgen der Mitgliederzahl, das Abonnement wird automatisch angepasst."
       },
       "teamList": {
         "heading": "Abrechnungsbereiche",
@@ -834,7 +833,7 @@
         "featurePrioritySupport": "Priorisierter Support",
         "chooseFree": "Kostenlos fortfahren",
         "chooseTeam": "Upgrade auf Team (${price}/Platz/Monat)",
-        "upgradeLater": "Plätze sind flexibel: Du kannst mehr Personen einladen, als du bezahlst, und später Plätze hinzufügen.",
+        "upgradeLater": "Die Plätze folgen der Mitgliederzahl: jedes Mitglied wird berechnet, und die Summe ändert sich, wenn jemand beitritt oder geht.",
         "inviteTitle": "Personen zu {team} einladen",
         "inviteDescription": "Optional. Du kannst Personen auch später über die Mitgliederseite des Teams einladen.",
         "inviteByEmail": "Per E-Mail einladen",
@@ -954,9 +953,7 @@
         "resent": "Gesendet",
         "revoke": "Widerrufen",
         "linksTitle": "Einladungslinks",
-        "linksDescription": "Ein wiederverwendbarer Link, über den jeder als Mitglied beitreten kann.",
-        "seatNudge": "{used} Personen sind Mitglieder oder eingeladen, aber der Tarif hat {seats} Plätze. Einladungen funktionieren weiterhin; füge {over, plural, one {# Platz} other {# Plätze}} hinzu, um alle abzudecken.",
-        "seatNudgeAction": "Plätze verwalten"
+        "linksDescription": "Ein wiederverwendbarer Link, über den jeder als Mitglied beitreten kann."
       },
       "apiKeys": {
         "title": "Team-API-Schlüssel",

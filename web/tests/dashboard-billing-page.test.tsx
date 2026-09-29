@@ -329,7 +329,7 @@ describe("dashboard billing page", () => {
     expect(await renderBillingPage()).toContain("$28/seat/mo, billed annually");
   });
 
-  test("nudges admins when members exceed paid seats without blocking", async () => {
+  test("explains a seat count that has not caught up with the members", async () => {
     const team = teamWithMembers("team-pro", "Team Pro", 6);
     proUser.selectedTeam = team;
     subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, plan: "team", scope: "team", seats: 4 })];
@@ -337,8 +337,8 @@ describe("dashboard billing page", () => {
     const html = await renderBillingPage();
 
     expect(html).toContain("6 of 4 used");
-    expect(html).toContain("Team Pro has 6 members and 4 paid seats.");
-    expect(html).toContain("Add seats");
+    expect(html).toContain("Team Pro has 6 members and 4 paid seats. Seats follow the member count");
+    expect(html).not.toContain("Add seats");
   });
 
   test("shows team members a read-only Team plan without billing actions", async () => {

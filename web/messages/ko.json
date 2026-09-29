@@ -405,8 +405,7 @@
         "memberReadOnly": "이 플랜은 팀 관리자만 변경할 수 있습니다.",
         "grantedBody": "cmux 팀이 {team}에 Team 액세스를 부여했습니다. 관리할 구독이 없습니다.",
         "seatsUsed": "{seats}개 중 {members}개 사용",
-        "overSeat": "{team}에는 멤버가 {members}명 있지만 유료 시트는 {seats}개입니다. 참여는 계속 가능하며, 모두를 포함하려면 시트를 추가하세요.",
-        "addSeats": "시트 추가"
+        "overSeat": "{team}에는 멤버가 {members}명 있고 유료 시트는 {seats}개입니다. 시트 수는 멤버 수를 따르므로 구독이 자동으로 갱신됩니다."
       },
       "teamList": {
         "heading": "결제 범위",
@@ -834,7 +833,7 @@
         "featurePrioritySupport": "우선 지원",
         "chooseFree": "무료로 계속하기",
         "chooseTeam": "Team으로 업그레이드 (${price}/시트/월)",
-        "upgradeLater": "시트는 유연하게 운영됩니다. 결제한 시트보다 많은 사람을 초대하고 나중에 시트를 추가할 수 있습니다.",
+        "upgradeLater": "시트 수는 멤버 수를 따릅니다. 멤버마다 요금이 청구되며, 누군가 참여하거나 나가면 합계가 갱신됩니다.",
         "inviteTitle": "{team}에 사람 초대",
         "inviteDescription": "선택 사항입니다. 나중에 팀의 멤버 페이지에서 초대할 수도 있습니다.",
         "inviteByEmail": "이메일로 초대",
@@ -954,9 +953,7 @@
         "resent": "보냄",
         "revoke": "취소",
         "linksTitle": "초대 링크",
-        "linksDescription": "누구나 멤버로 참여할 수 있는 재사용 가능한 링크입니다.",
-        "seatNudge": "멤버이거나 초대된 사람이 {used}명이지만 플랜의 시트는 {seats}개입니다. 초대는 계속 가능하며, 모두를 포함하려면 {over, plural, other {시트 #개}}를 추가하세요.",
-        "seatNudgeAction": "시트 관리"
+        "linksDescription": "누구나 멤버로 참여할 수 있는 재사용 가능한 링크입니다."
       },
       "apiKeys": {
         "title": "팀 API 키",

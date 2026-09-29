@@ -643,8 +643,7 @@
         "memberReadOnly": "このプランを変更できるのはチーム管理者のみです。",
         "grantedBody": "{team} には cmux チームから Team へのアクセスが付与されています。管理するサブスクリプションはありません。",
         "seatsUsed": "{seats} シート中 {members} 使用",
-        "overSeat": "{team} にはメンバーが {members} 人いますが、有料シートは {seats} です。参加は引き続き可能です。全員をカバーするにはシートを追加してください。",
-        "addSeats": "シートを追加"
+        "overSeat": "{team} にはメンバーが {members} 人いますが、有料シートは {seats} です。シート数はメンバー数に追従し、サブスクリプションは自動的に更新されます。"
       },
       "teamList": {
         "heading": "請求の対象",
@@ -1107,7 +1106,7 @@
         "featurePrioritySupport": "優先サポート",
         "chooseFree": "Free で続ける",
         "chooseTeam": "Team にアップグレード（${price}/シート/月）",
-        "upgradeLater": "シート数は柔軟です。支払い済みのシート数を超えて招待でき、シートは後から追加できます。",
+        "upgradeLater": "シート数はメンバー数に追従します。メンバーごとに課金され、参加や退出のたびに合計が更新されます。",
         "inviteTitle": "{team} にメンバーを招待",
         "inviteDescription": "任意です。チームのメンバーページから後で招待することもできます。",
         "inviteByEmail": "メールで招待",
@@ -1227,9 +1226,7 @@
         "resent": "送信済み",
         "revoke": "取り消す",
         "linksTitle": "招待リンク",
-        "linksDescription": "誰でもメンバーとして参加できる、再利用可能なリンクです。",
-        "seatNudge": "メンバーまたは招待中の人が {used} 人いますが、プランのシートは {seats} です。招待は引き続き有効です。全員をカバーするには {over, plural, other {# シート}}を追加してください。",
-        "seatNudgeAction": "シートを管理"
+        "linksDescription": "誰でもメンバーとして参加できる、再利用可能なリンクです。"
       },
       "apiKeys": {
         "title": "チームの API キー",

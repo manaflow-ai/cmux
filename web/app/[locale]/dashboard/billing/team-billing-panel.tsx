@@ -179,8 +179,7 @@ function ActiveTeamPlan({
 
       {view.overSeat && view.canManageBilling ? (
         <p className="mt-3 max-w-2xl text-muted">
-          {t("teamPanel.overSeat", { team, members: view.memberCount ?? 0, seats })}{" "}
-          <PortalLink teamId={view.team.id} className="underline">{t("teamPanel.addSeats")}</PortalLink>
+          {t("teamPanel.overSeat", { team, members: view.memberCount ?? 0, seats })}
         </p>
       ) : null}
 

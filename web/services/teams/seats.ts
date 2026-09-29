@@ -7,7 +7,8 @@ import { TeamApiError } from "./errors";
  * Members a personal-plan team may hold, the owner included. Pro and Max are
  * priced per person but the pool they buy is shared by the whole team, so a
  * small fixed roster keeps a personal plan from turning into a team plan.
- * Team subscriptions keep soft seats (see docs/team-settings-and-invites.md).
+ * Team subscriptions have no cap: their Stripe quantity follows the member
+ * count (services/billing/teamSeats.ts).
  */
 export const PERSONAL_PLAN_MEMBER_LIMIT = 3;
 

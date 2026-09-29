@@ -405,8 +405,7 @@
         "memberReadOnly": "Somente administradores da equipe podem alterar este plano.",
         "grantedBody": "O acesso ao Team foi concedido a {team} pela equipe do cmux. Não há assinatura para gerenciar.",
         "seatsUsed": "{members} de {seats} em uso",
-        "overSeat": "{team} tem {members} membros e {seats} assentos pagos. Ainda é possível entrar; adicione assentos para cobrir todos.",
-        "addSeats": "Adicionar assentos"
+        "overSeat": "{team} tem {members} membros e {seats} assentos pagos. Os assentos seguem o número de membros, então a assinatura é atualizada sozinha."
       },
       "teamList": {
         "heading": "Escopos de cobrança",
@@ -834,7 +833,7 @@
         "featurePrioritySupport": "Suporte prioritário",
         "chooseFree": "Continuar com o Grátis",
         "chooseTeam": "Fazer upgrade para o Team (${price}/assento/mês)",
-        "upgradeLater": "Os assentos são flexíveis: você pode convidar mais pessoas do que paga e adicionar assentos depois.",
+        "upgradeLater": "Os assentos seguem o número de membros: cada membro é cobrado e o total é atualizado quando alguém entra ou sai.",
         "inviteTitle": "Convidar pessoas para {team}",
         "inviteDescription": "Opcional. Você também pode convidar pessoas depois na página Membros da equipe.",
         "inviteByEmail": "Convidar por e-mail",
@@ -954,9 +953,7 @@
         "resent": "Enviado",
         "revoke": "Revogar",
         "linksTitle": "Links de convite",
-        "linksDescription": "Um link reutilizável que qualquer pessoa pode usar para entrar como membro.",
-        "seatNudge": "{used} pessoas são membros ou foram convidadas, mas o plano tem {seats} assentos. Os convites continuam funcionando; adicione {over, plural, one {# assento} other {# assentos}} para cobrir todos.",
-        "seatNudgeAction": "Gerenciar assentos"
+        "linksDescription": "Um link reutilizável que qualquer pessoa pode usar para entrar como membro."
       },
       "apiKeys": {
         "title": "Chaves de API da equipe",

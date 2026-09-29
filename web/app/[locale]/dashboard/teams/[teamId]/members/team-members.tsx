@@ -2,7 +2,6 @@
 
 import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
-import { Link } from "@/i18n/navigation";
 import { ConfirmDialog } from "../../../components/settings-ui/confirm-dialog";
 import { Badge, InlineError } from "../../../components/settings-ui/feedback";
 import { SettingsPanel, SettingsStack } from "../../../components/settings-ui/settings-section";
@@ -17,9 +16,8 @@ import {
   useResendInvitation,
   useRevokeInvitation,
 } from "../../team-api";
-import { seatOverage } from "../../team-logic";
 import { RoleBadge, TeamAvatar, useTeamErrorText } from "../../team-ui";
-import { teamTabHref, useTeamContext } from "../team-shell";
+import { useTeamContext } from "../team-shell";
 
 export function TeamMembers() {
   const detail = useTeamContext();
@@ -27,7 +25,6 @@ export function TeamMembers() {
   const canInvite = detail.viewer.permissions.inviteMembers;
   return (
     <SettingsStack>
-      <SeatNudge detail={detail} />
       <SettingsPanel title={t("title")} description={t("count", { count: detail.members.length })}>
         <MembersTable detail={detail} />
       </SettingsPanel>
@@ -50,30 +47,6 @@ export function TeamMembers() {
         </>
       ) : null}
     </SettingsStack>
-  );
-}
-
-/** Seats are soft: this never blocks an invite, it only points admins at billing. */
-export function SeatNudge({ detail }: { readonly detail: TeamDetail }) {
-  const t = useTranslations("dashboard.teams.members");
-  if (!detail.viewer.permissions.inviteMembers) return null;
-  const overage = seatOverage({
-    seats: detail.billing.seats,
-    memberCount: detail.members.length,
-    pendingInvitations: detail.invitations.length,
-  });
-  if (!overage) return null;
-  return (
-    <div role="status" data-testid="seat-nudge" className="flex flex-wrap items-center gap-2 border border-border p-3 text-xs">
-      <span className="min-w-0 flex-1">
-        {t("seatNudge", { used: overage.used, seats: overage.seats, over: overage.over })}
-      </span>
-      {detail.viewer.permissions.manageBilling ? (
-        <Link href={teamTabHref(detail.team.id, "billing")} className={settingsButtonClass("secondary", "sm")}>
-          {t("seatNudgeAction")}
-        </Link>
-      ) : null}
-    </div>
   );
 }
 

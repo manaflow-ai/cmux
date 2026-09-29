@@ -405,8 +405,7 @@
         "memberReadOnly": "Solo los administradores del equipo pueden cambiar este plan.",
         "grantedBody": "El equipo de cmux concedió acceso a Team a {team}. No hay ninguna suscripción que gestionar.",
         "seatsUsed": "{members} de {seats} en uso",
-        "overSeat": "{team} tiene {members} miembros y {seats} puestos pagados. Unirse sigue funcionando; añade puestos para cubrir a todos.",
-        "addSeats": "Añadir puestos"
+        "overSeat": "{team} tiene {members} miembros y {seats} asientos pagados. Los asientos siguen el número de miembros, así que la suscripción se actualiza sola."
       },
       "teamList": {
         "heading": "Ámbitos de facturación",
@@ -834,7 +833,7 @@
         "featurePrioritySupport": "Soporte prioritario",
         "chooseFree": "Continuar con el plan gratuito",
         "chooseTeam": "Mejorar a Team (${price}/puesto/mes)",
-        "upgradeLater": "Los puestos son flexibles: puedes invitar a más personas de las que pagas y añadir puestos más tarde.",
+        "upgradeLater": "Los asientos siguen el número de miembros: se factura cada miembro y el total se actualiza cuando alguien se une o se va.",
         "inviteTitle": "Invitar a personas a {team}",
         "inviteDescription": "Opcional. También puedes invitar a personas más tarde desde la página de miembros del equipo.",
         "inviteByEmail": "Invitar por correo",
@@ -954,9 +953,7 @@
         "resent": "Enviada",
         "revoke": "Revocar",
         "linksTitle": "Enlaces de invitación",
-        "linksDescription": "Un enlace reutilizable que cualquiera puede usar para unirse como miembro.",
-        "seatNudge": "{used} personas son miembros o están invitadas, pero el plan tiene {seats} puestos. Las invitaciones siguen funcionando; añade {over, plural, one {# puesto} other {# puestos}} para cubrir a todos.",
-        "seatNudgeAction": "Gestionar puestos"
+        "linksDescription": "Un enlace reutilizable que cualquiera puede usar para unirse como miembro."
       },
       "apiKeys": {
         "title": "Claves de API del equipo",
