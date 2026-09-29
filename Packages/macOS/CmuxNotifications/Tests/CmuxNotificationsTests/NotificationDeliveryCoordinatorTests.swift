@@ -407,7 +407,7 @@ struct NotificationDeliveryCoordinatorTests {
         "CMUXFeedQuestion",
         "CMUXFeedQuestion.req-3",
     ])
-    func feedDefaultOpensWorkstream(categoryIdentifier: String) {
+    func feedDefaultOpensWorkstream(categoryIdentifier: String) async {
         let activation = FakeApplicationActivation()
         let feed = FakeFeedReplying()
         let terminal = FakeTerminalNavigation()
@@ -417,7 +417,7 @@ struct NotificationDeliveryCoordinatorTests {
             applicationActivation: activation
         )
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: categoryIdentifier,
             actionIdentifier: UNNotificationDefaultActionIdentifier,
             requestIdentifier: "feed.req-3",
@@ -431,12 +431,12 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("Feed banner click without a workstream only activates the app")
-    func feedDefaultWithoutWorkstreamActivatesOnly() {
+    func feedDefaultWithoutWorkstreamActivatesOnly() async {
         let activation = FakeApplicationActivation()
         let feed = FakeFeedReplying()
         let coordinator = makeCoordinator(feedReplying: feed, applicationActivation: activation)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "CMUXFeedPermission",
             actionIdentifier: UNNotificationDefaultActionIdentifier,
             requestIdentifier: "feed.req-4",
@@ -448,12 +448,12 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("Feed banner dismiss neither activates the app nor opens the workstream")
-    func feedDismissDoesNotActivate() {
+    func feedDismissDoesNotActivate() async {
         let activation = FakeApplicationActivation()
         let feed = FakeFeedReplying()
         let coordinator = makeCoordinator(feedReplying: feed, applicationActivation: activation)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "CMUXFeedPermission",
             actionIdentifier: UNNotificationDismissActionIdentifier,
             requestIdentifier: "feed.req-5",
