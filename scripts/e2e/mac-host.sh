@@ -80,9 +80,13 @@ APP="$(ls -d "$DERIVED_DATA/Build/Products/Debug/"*.app 2>/dev/null | head -1 ||
 [[ -n "$APP" ]] || { phase launch "tagged Mac app not found for tag ${TAG}"; exit 1; }
 
 APP_PID=""
+DIRECT_PID=""
 cleanup() {
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
     kill "$APP_PID" 2>/dev/null || true
+  fi
+  if [[ -n "$DIRECT_PID" ]] && kill -0 "$DIRECT_PID" 2>/dev/null; then
+    kill "$DIRECT_PID" 2>/dev/null || true
   fi
   if [[ "$SECRETS_WROTE" -eq 1 ]]; then
     : > "$SECRETS_FILE"
@@ -109,6 +113,16 @@ CMUX_SKIP_ZIG_BUILD=1 \
 # tag-specific socket settings from reload.sh.
 open -n -g "$APP"
 APP_PID="$(pgrep -f "DerivedData/$(basename "$DERIVED_DATA")/.*/cmux DEV" | head -1 || true)"
+if [[ ! -S "$SOCKET" ]]; then
+  LAUNCH_LOG="${RUNNER_TEMP:-/tmp}/cmux-e2e-mac-direct-${TAG_SLUG}.log"
+  CMUX_TAG="$TAG_SLUG" CMUX_BUNDLE_ID="com.cmuxterm.app.debug.${TAG_SLUG}" \
+  CMUX_ALLOW_SOCKET_OVERRIDE=1 CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=allowAll \
+  CMUX_SOCKET_PATH="$SOCKET" CMUXD_UNIX_PATH="$SOCKET" \
+  CMUX_API_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" CMUX_VM_API_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
+  CMUX_IROH_BROKER_BASE_URL="${CMUX_DEV_BACKEND_URL:-}" \
+  "$APP/Contents/MacOS/cmux DEV" >"$LAUNCH_LOG" 2>&1 &
+  DIRECT_PID="$!"
+fi
 
 # Bounded readiness wait on the tagged debug socket, then capture the pid the
 # socket belongs to so cleanup never kills another tag's instance.
@@ -116,6 +130,7 @@ deadline=$(( $(date +%s) + 180 ))
 until CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" identify >/dev/null 2>&1; do
   if (( $(date +%s) >= deadline )); then
     phase socket "debug socket never came up: $SOCKET"
+    [[ -s "${LAUNCH_LOG:-}" ]] && tail -80 "$LAUNCH_LOG" >&2 || true
     exit 1
   fi
   sleep 2
