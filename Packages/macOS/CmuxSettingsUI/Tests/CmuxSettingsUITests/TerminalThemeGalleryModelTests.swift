@@ -63,6 +63,52 @@ struct TerminalThemeGalleryModelTests {
         #expect(model.hasPendingChange)
     }
 
+    @Test("With one theme for both appearances, a pick on the other tab still applies now")
+    func singleThemePickAppliesToAppearanceInUse() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, _, _) = try makeModel(existingConfig: nil, currentThemeValue: "3024 Night", prefersDark: true)
+        #expect(!model.separatesAppearances)
+
+        // The slot is not user-selectable in this mode; a stale light slot
+        // must not strand the pick on the appearance that is not showing.
+        model.slot = .light
+        model.select("Violet Light")
+
+        #expect(model.selection == CmuxTerminalThemePair(light: "Violet Light", dark: "Violet Light"))
+    }
+
+    @Test("Separate themes start on for an existing pair and edit one side")
+    func separateThemesEditOneSide() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, _, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Violet Light,dark:3024 Night",
+            prefersDark: true
+        )
+        #expect(model.separatesAppearances)
+        #expect(model.slotInUse == .dark)
+
+        model.slot = .light
+        model.select("Rose Pine Dawn")
+
+        #expect(model.selection == CmuxTerminalThemePair(light: "Rose Pine Dawn", dark: "3024 Night"))
+    }
+
+    @Test("Turning separate themes off keeps the theme the terminal shows now")
+    func turningSeparateOffKeepsThemeInUse() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, _, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Violet Light,dark:3024 Night",
+            prefersDark: true
+        )
+
+        model.setSeparatesAppearances(false)
+
+        #expect(!model.separatesAppearances)
+        #expect(model.selection == CmuxTerminalThemePair(light: "3024 Night", dark: "3024 Night"))
+    }
+
     @Test("With no theme set, a pick fills both sides so Ghostty accepts it")
     func pickFromDefaultFillsBothSides() throws {
         defer { try? FileManager.default.removeItem(at: root) }
