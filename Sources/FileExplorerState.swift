@@ -8,7 +8,17 @@ final class FileExplorerState: ObservableObject {
     private static let customSidebarNameKey = "rightSidebar.customSidebarName"
 
     @Published var isVisible: Bool {
-        didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
+        didSet { persistVisibility() }
+    }
+    /// Hidden because the window was too narrow (SidePanelWidthFit), not by the
+    /// person. Persisted as visible, so a narrow window neither changes the
+    /// default for new windows nor the next launch. Set it before `isVisible`.
+    var isAutoCollapsed = false {
+        didSet { persistVisibility() }
+    }
+
+    private func persistVisibility() {
+        UserDefaults.standard.set(isVisible || isAutoCollapsed, forKey: "fileExplorer.isVisible")
     }
     @Published var width: CGFloat {
         didSet { UserDefaults.standard.set(Double(width), forKey: "fileExplorer.width") }
@@ -35,6 +45,9 @@ final class FileExplorerState: ObservableObject {
     /// focus ring when the sidebar owns focus, and vice versa. Runtime-only (not
     /// persisted).
     @Published var rightSidebarOwnsInputFocus: Bool = false
+
+    /// The right-sidebar Cloud picker belongs to this window, even before it mounts.
+    @MainActor lazy var cloudTeamPickerPresentation = CloudTeamPickerPresentation()
 
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
     var mode: RightSidebarMode {

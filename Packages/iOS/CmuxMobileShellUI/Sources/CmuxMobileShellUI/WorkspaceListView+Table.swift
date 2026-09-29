@@ -4,6 +4,16 @@ import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceListView {
+    /// Which copy the aggregated (All Computers) empty state gives. With SSH
+    /// computers and no paired Mac, the Mac-pairing copy would describe a Mac
+    /// the user does not have; any paired Mac keeps Macs the context.
+    var emptyStateGuidance: WorkspaceListEmptyGuidance {
+        WorkspaceListEmptyGuidance(
+            hasSSHComputers: !(store?.sshComputers.hosts.isEmpty ?? true),
+            hasPairedMacs: !displayPairedMacsForPicker.isEmpty
+        )
+    }
+
     var showsWorkspaceTableFilterEmptyRow: Bool {
         activeFilter.isActive
             && trimmedQuery.isEmpty
@@ -171,6 +181,7 @@ extension WorkspaceListView {
             workspaceOwnerID: emptyStateMacDeviceID,
             workspaceOwnerInstanceTag: emptyStateMacInstanceTag,
             showsWorkspaceEmptyState: connectionChrome.showsWorkspaceEmptyState,
+            emptyStateGuidance: emptyStateGuidance,
             workspaceChangesCapable: workspaceChangesCapable,
             workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,
             openWorkspaceChanges: openChanges,
@@ -209,6 +220,7 @@ extension WorkspaceListView {
             } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             closeWorkspace: closeWorkspace,
+            closeConfirmation: { workspaceCloseConfirmation(for: $0) },
             setUnread: setUnread,
             setPinned: setPinned,
             renameRequest: requestWorkspaceRename,

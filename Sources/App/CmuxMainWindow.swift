@@ -163,24 +163,34 @@ final class CmuxMainWindow: NSWindow {
         if inLiveResize {
             recordUserPlacement()
         }
-        guard !styleMask.contains(.fullScreen) else {
-            super.setFrame(frameRect, display: flag)
-            return
-        }
+        super.setFrame(frameWithinSizePolicy(frameRect), display: flag)
+    }
+
+    /// The animating variant is a separate entry point that does not route
+    /// through `setFrame(_:display:)`, so without this override display
+    /// placement, UI-test placement and automation could size the window
+    /// below the layout floor. Content that cannot shrink with it then
+    /// overflows the window, and a pane laid out past the window edge ends
+    /// at 0x0.
+    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
+        super.setFrame(frameWithinSizePolicy(frameRect), display: displayFlag, animate: animateFlag)
+    }
+
+    /// Caps a proposed frame to the display union and raises it to the
+    /// minimum content size. Full screen frames belong to the system.
+    private func frameWithinSizePolicy(_ frameRect: NSRect) -> NSRect {
+        guard !styleMask.contains(.fullScreen) else { return frameRect }
         let capped = Self.frameByCappingOversizedDimensions(
             frameRect,
             displayFrames: NSScreen.screens.map {
                 (frame: $0.frame, visibleFrame: $0.visibleFrame)
             }
         )
-        super.setFrame(
-            Self.frameByRaisingUndersizedDimensions(
-                capped,
-                minimumSize: Self.minimumContentSize,
-                currentFrame: frame,
-                isLiveResize: inLiveResize
-            ),
-            display: flag
+        return Self.frameByRaisingUndersizedDimensions(
+            capped,
+            minimumSize: Self.minimumContentSize,
+            currentFrame: frame,
+            isLiveResize: inLiveResize
         )
     }
 
@@ -402,13 +412,12 @@ final class CmuxMainWindow: NSWindow {
     /// otherwise be stranded off-screen (e.g. a display was disconnected), so a
     /// genuinely lost window can still be pulled back into view.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        if Self.shouldPreserveFrameDuringConstrain(
-            frameRect,
-            visibleFrames: NSScreen.screens.map(\.visibleFrame)
-        ) {
-            return frameRect
-        }
-        return super.constrainFrameRect(frameRect, to: screen)
+        // AppKit's constrainer can synchronously call back into setFrame while
+        // WindowServer is processing a display reconfiguration. Returning the
+        // proposed frame avoids that _adjustWindowToScreen → setFrame → layout
+        // cycle. Stranded windows are repaired by the display reconciliation
+        // pass, which has the complete display topology available.
+        return frameRect
     }
 
     /// Whether `proposedFrame` is reachable enough across `visibleFrames` that

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Observation
 
@@ -8,6 +9,7 @@ final class AgentRestoreRecoveryPresentation {
     enum State: Equatable {
         case checking
         case liveOwner(kind: String, processID: Int)
+        case writerLock(candidates: [CodexWriterProcessInspector.Candidate])
     }
 
     var state: State?

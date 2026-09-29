@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import SwiftUI
 
 /// Displays recovery state outside the terminal input stream.
@@ -18,6 +19,8 @@ struct AgentRestoreRecoveryView: View {
         switch state {
         case .checking:
             String(localized: "agentRestore.recovery.checking", defaultValue: "Restoring saved agent session…")
+        case .writerLock(let candidates):
+            CodexWriterRestoreNotice().message(candidates: candidates)
         case .liveOwner(let kind, let processID):
             String(
                 format: String(

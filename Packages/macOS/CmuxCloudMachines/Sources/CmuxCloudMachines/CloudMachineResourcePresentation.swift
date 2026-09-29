@@ -41,7 +41,7 @@ private func gb(_ mb: Int) -> String {
 /// Pure presentation of the latest stats snapshot, shared by the row and its tooltip.
 public struct CloudMachineResourcePresentation: Equatable, Sendable {
     /// Whether the latest sample can be presented as live usage.
-    public enum Availability: Equatable, Sendable {
+    public enum Availability: Hashable, Sendable {
         /// The machine snapshot has not received its first stats response yet.
         case loading
         /// The machine is awake and supports resource statistics.

@@ -234,8 +234,7 @@ import Testing
                         displayName: "Desk Mac",
                         host: "100.82.214.112",
                         lastSeenAt: Date(timeIntervalSince1970: 10),
-                        isActive: true,
-                        instanceTag: "nightly"
+                        isActive: true
                     ),
                 ],
             ],
@@ -257,10 +256,47 @@ import Testing
 
         #expect(store.pairedMacs.isEmpty)
         #expect(store.hasHiddenComputers)
-        #expect(store.hiddenComputers.map(\.instanceTag) == ["nightly"])
+        #expect(store.hiddenComputers.map(\.instanceTag) == [nil])
         #expect(store.hasKnownPairedMac)
         #expect(defaults.bool(forKey: "cmux.mobile.hasKnownPairedMac"))
         #expect(await hiddenStore.load(scope: store.pairedMacScopeKey(scope)) == ["mac-a"])
+    }
+
+    /// A bare device marker names only the legacy untagged pairing (#10179).
+    /// A Stable/Nightly row on that device does not back it, so the marker is
+    /// cleared as rowless and the tagged row stays visible.
+    @Test func rawDeviceIDMarkerDoesNotHideTaggedRowOfSameDevice() async throws {
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        await store.rememberHiddenMacDeviceID("mac-a", scope: scope)
+
+        await store.loadPairedMacs()
+
+        #expect(store.pairedMacs.map(\.instanceTag) == ["nightly"])
+        #expect(!store.hasHiddenComputers)
+        #expect(await hiddenStore.load(scope: store.pairedMacScopeKey(scope)).isEmpty)
     }
 
     @Test func pairingIDMarkerMatchingExistingRowSurvivesMigration() async throws {

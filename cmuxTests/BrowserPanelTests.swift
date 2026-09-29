@@ -41,6 +41,120 @@ struct BrowserWebViewUserAgentRegressionTests {
     }
 }
 
+@MainActor
+@Suite(.serialized)
+struct BrowserLocalFileEncodingTests {
+    private struct DocumentSnapshot {
+        let characterSet: String
+        let text: String
+    }
+
+    @Test func utf8LocalTextSurvivesNavigationAwayBackAndReload() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-utf8-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fileURL = directory.appendingPathComponent("notes.md")
+        let expectedText = "# 산책의 즐거움"
+        try XCTUnwrap(expectedText.data(using: .utf8)).write(to: fileURL)
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let fallbackEncoding = panel.webView.configuration.preferences
+            .value(forKey: "_defaultTextEncodingName") as? String
+
+        panel.navigate(to: fileURL)
+        let initial = try await waitForDocument(at: fileURL, in: panel)
+        #expect(initial.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(initial.text.contains(expectedText))
+
+        panel.navigate(to: URL(string: "about:blank")!)
+        _ = try await waitForDocument(at: URL(string: "about:blank")!, in: panel)
+        #expect(
+            (panel.webView.configuration.preferences.value(forKey: "_defaultTextEncodingName") as? String)
+                == fallbackEncoding
+        )
+
+        panel.goBack()
+        let afterBack = try await waitForDocument(at: fileURL, in: panel)
+        #expect(afterBack.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(afterBack.text.contains(expectedText))
+
+        panel.reload()
+        let afterReload = try await waitForDocument(at: fileURL, in: panel)
+        #expect(afterReload.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(afterReload.text.contains(expectedText))
+    }
+
+    @Test func encodingPolicyLeavesNonUTF8DeclaredAndNonFileNavigationOnWebKitFallback() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-encoding-policy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let utf8URL = directory.appendingPathComponent("utf8.txt")
+        try XCTUnwrap("산책".data(using: .utf8)).write(to: utf8URL)
+        let nonUTF8URL = directory.appendingPathComponent("legacy.txt")
+        try Data([0xB0, 0xA1]).write(to: nonUTF8URL)
+        let declaredCharsetURL = directory.appendingPathComponent("declared.html")
+        try XCTUnwrap(
+            "<html><head><meta charset=\"windows-1252\"></head><body>산책</body></html>"
+                .data(using: .utf8)
+        ).write(to: declaredCharsetURL)
+        let unsupportedCharsetURL = directory.appendingPathComponent("unsupported.html")
+        try XCTUnwrap(
+            "<html><head><meta charset=\"unsupported-encoding\"></head><body>산책</body></html>"
+                .data(using: .utf8)
+        ).write(to: unsupportedCharsetURL)
+
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: utf8URL) == "UTF-8")
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: nonUTF8URL) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: declaredCharsetURL) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: unsupportedCharsetURL) == "UTF-8")
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: URL(string: "about:blank")!) == nil)
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.navigate(to: unsupportedCharsetURL)
+        let snapshot = try await waitForDocument(at: unsupportedCharsetURL, in: panel)
+        #expect(snapshot.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(snapshot.text.contains("산책"))
+    }
+
+    private func waitForDocument(
+        at url: URL,
+        in panel: BrowserPanel,
+        timeout: Duration = .seconds(10)
+    ) async throws -> DocumentSnapshot {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if panel.webView.url?.absoluteString == url.absoluteString,
+               panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString,
+               !panel.webView.isLoading,
+               let raw = try? await panel.webView.evaluateJavaScript(
+                   """
+                   ({
+                     characterSet: document.characterSet,
+                     text: document.body?.textContent || document.documentElement?.textContent || ''
+                   })
+                   """
+               ) as? [String: Any],
+               let characterSet = raw["characterSet"] as? String,
+               let text = raw["text"] as? String {
+                return DocumentSnapshot(characterSet: characterSet, text: text)
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        throw NSError(
+            domain: "BrowserLocalFileEncodingTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(url.absoluteString)"]
+        )
+    }
+}
+
 private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
@@ -1394,6 +1508,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
     private struct TabStripPassThroughFixture {
         let host: WindowBrowserHostView
         let pointInHost: NSPoint
+        let pointInWindow: NSPoint
     }
 
     private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
@@ -1430,7 +1545,30 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
         let pointInWindow = contentView.convert(pointInContent, to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
-        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost, pointInWindow: pointInWindow)
+    }
+
+    /// Leaves a hover event for another window as `NSApp.currentEvent`, the
+    /// state earlier suites leave behind when a real mouseEntered for one of
+    /// their windows was the last event AppKit dequeued.
+    private func leaveStaleHoverEventAsCurrentEvent(for window: NSWindow) {
+        guard let staleHover = NSEvent.enterExitEvent(
+            with: .mouseEntered,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ) else {
+            XCTFail("Failed to create a mouseEntered event")
+            return
+        }
+        NSApp.postEvent(staleHover, atStart: true)
+        _ = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true)
+        XCTAssertEqual(NSApp.currentEvent?.type, .mouseEntered)
     }
 
     func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
@@ -1459,12 +1597,43 @@ final class WindowBrowserHostViewTests: XCTestCase {
             return
         }
 
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 64, y: 64, width: 200, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { otherWindow.orderOut(nil) }
+        leaveStaleHoverEventAsCurrentEvent(for: otherWindow)
+
+        // `hitTest(_:)` would route on that stale hover, and hover events
+        // deliberately skip this unregistered tab-strip fallback. The
+        // regression is about clicks, so hit-test with the click itself.
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
         XCTAssertNil(
-            firstFixture.host.hitTest(firstFixture.pointInHost),
+            firstFixture.host.performHitTest(
+                at: firstFixture.pointInHost,
+                currentEvent: makeMouseEvent(
+                    type: .leftMouseDown,
+                    location: firstFixture.pointInWindow,
+                    window: firstWindow
+                ),
+                dragPasteboard: pasteboard
+            ),
             "Browser portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
         )
         XCTAssertNil(
-            secondFixture.host.hitTest(secondFixture.pointInHost),
+            secondFixture.host.performHitTest(
+                at: secondFixture.pointInHost,
+                currentEvent: makeMouseEvent(
+                    type: .leftMouseDown,
+                    location: secondFixture.pointInWindow,
+                    window: secondWindow
+                ),
+                dragPasteboard: pasteboard
+            ),
             "Browser portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
         )
     }
@@ -3366,8 +3535,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let portal = WindowBrowserPortal(window: window)
         defer { portal.tearDown() }
-        let mainWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        let dockWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let mainWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
+        let dockWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let dockContext = BrowserPaneDropContext(
             workspaceId: UUID(),
             panelId: UUID(),
@@ -3582,7 +3751,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 160, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -3688,7 +3857,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor1)
         contentView.addSubview(anchor2)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor1, visibleInUI: true)
         let firstSuperview = webView.superview
 
@@ -3731,7 +3900,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 120, y: 20, width: 260, height: 150))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3770,7 +3939,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: -30, y: 0, width: 220, height: 120))
         clipView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         clipView.layoutSubtreeIfNeeded()
@@ -3806,7 +3975,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 20, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3829,7 +3998,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
     func testPortalSlotPinPreservesSideDockedInspectorManagedWebViewFrameOnRehost() {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 132, height: 160), configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 132, height: 160), configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let inspectorContainer = NSView(frame: NSRect(x: 132, y: 0, width: 108, height: 160))
         let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
         inspectorView.autoresizingMask = [.width, .height]
@@ -3872,7 +4041,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4074,7 +4243,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4189,7 +4358,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4258,7 +4427,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -4289,7 +4458,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -4561,7 +4730,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         XCTAssertNotNil(webView.superview)
@@ -4586,7 +4755,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)

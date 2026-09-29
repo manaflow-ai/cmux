@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import CmuxSettings
 import CmuxSurfaceCatalogModel
@@ -146,7 +147,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard !isRetired, generation == refreshGeneration, scope == creationScope,
               providers[summary.id] == nil else { return }
         let provider = CmuxTuiSurfaceProvider(
-            summary: summary, links: links, catalog: catalog,
+            summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
             portForwards: portForwards, portAccessStore: portAccess
         )
         providers[summary.id] = provider
@@ -310,7 +311,11 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.refresh(force: false)
+                // The periodic pass is upkeep: a machine whose link just
+                // failed is left alone until its backoff ends.
+                await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
+                    await self?.refresh(force: false)
+                }
                 // The poll interval is the intended behavior (the list is not push-driven),
                 // not a synchronization substitute.
                 try? await Task.sleep(for: self?.pollInterval ?? .seconds(45))
@@ -514,7 +519,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 provider.update(summary: summary)
             } else {
                 let provider = CmuxTuiSurfaceProvider(
-                    summary: summary, links: links, catalog: catalog,
+                    summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,
                     portForwards: portForwards, portAccessStore: portAccess
                 )
                 providers[summary.id] = provider

@@ -51,7 +51,7 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `web-complexity-trusted.yml` | pr_target merge_group push (paths) | gh-ubuntu | 13,693 | 5,490 / 179 / 0 / 8,023 | 18,747 | 2026-09-22 | lawrencecchen #11944 | Leo 2026-09-19 | REQUIRED: Web complexity; 2 wf refs; 6 docs/tests |  |
 | `nightly.yml` | push schedule dispatch | blacksmith/warp/macos | 489 | 150 / 39 / 0 / 300 | 14,637 | 2026-09-22 | lawrencecchen (direct push)  | Lawrence Chen 2026-09-21 | 7 wf refs; 23 docs/tests |  |
 | `ios-testflight.yml` | schedule dispatch | blacksmith/warp/macos | 507 | 231 / 251 / 0 / 25 | 13,771 | 2026-09-22 | lawrencecchen #5448 | Abdulaziz Albahar 2026-09-21 | 11 docs/tests | **c** overlaps ios-appstore-upload; 50% fail |
-| `cli-pipe-regressions.yml` | call dispatch | warp/macos | 2,432 | 1,500 / 228 / 0 / 588 | 7,710 | 2026-09-22 | austinywang #12503 | Leo 2026-09-22 | REQUIRED: ci-status (reusable); called by ci; 3 docs/tests |  |
+| `cli-pipe-regressions.yml` | call dispatch | warp/macos | 2,432 | 1,500 / 228 / 0 / 588 | 7,710 | 2026-09-22 | austinywang #12503 | Leo 2026-09-22 | REQUIRED: ci-status (reusable); called by ci; 3 docs/tests | removed: its CLI tests run in compile admission's CLI smoke step |
 | `cmux-tui-sdks.yml` | push pr dispatch (paths) | blacksmith | 453 | 235 / 82 / 0 / 132 | 7,271 | 2026-09-22 | lawrencecchen #9215 | Lawrence Chen 2026-09-16 | 1 docs/tests |  |
 | `test-e2e.yml` | dispatch | blacksmith/warp/macos | 959 | 270 / 531 / 0 / 158 | 6,730 | 2026-09-22 | lawrencecchen #778 | Leo 2026-09-21 | 6 docs/tests | 55% fail |
 | `cmux-tui.yml` | dispatch | blacksmith/macos/gh-ubuntu | 114 | 37 / 47 / 0 / 30 | 5,696 | 2026-09-22 | lawrencecchen #7710 | Austin Wang 2026-09-12 | 1 wf refs; 5 docs/tests |  |

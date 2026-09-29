@@ -20,7 +20,7 @@
 import { HealthSchema } from "../src/health";
 import { CONTROL_PLANE_RULES } from "../src/rules";
 
-const PRODUCTION_HEALTH_URL = "https://cmux-iroh-v2.debussy.workers.dev/v2/health";
+const PRODUCTION_HEALTH_URL = "https://cmux-v2.debussy.workers.dev/v2/health";
 const DEPLOY_COMMAND = "cd workers/iroh-v2 && bun install --frozen-lockfile && CLOUDFLARE_ACCOUNT_ID=<account> bun run deploy:production";
 
 function argument(flag: string): string | undefined {
@@ -53,7 +53,7 @@ try {
 }
 const text = (await response.text()).slice(0, 64 * 1024);
 if (response.status === 404) {
-  failures.push(`${url} returned 404: the deployment predates the health route, so it also predates every rule in src/rules.ts. Deploy: ${DEPLOY_COMMAND}`);
+  failures.push(`${url} returned 404: the deployment predates the health route; its source and rule support cannot be verified. Deploy: ${DEPLOY_COMMAND}`);
 } else if (!response.ok) {
   failures.push(`${url} returned HTTP ${response.status}`);
 } else {

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxCloud
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import CmuxTerminal
@@ -18,6 +19,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     private(set) var record: DeviceDirectoryRecord
     /// Live projections keyed by the local panel that shows them.
     var sessions: [UUID: DeviceTerminalMirrorSession] = [:]
+    /// Unambiguous owners from the last accepted workspace mirror, keyed by canonical terminal ID.
+    private(set) var terminalWorkspaceIDs: [String: String] = [:]
     lazy var layoutSync = DeviceWorkspaceLayoutCoordinator(
         machine: machine, catalog: catalog,
         workspace: { Workspace.liveWorkspace(id: $0) },
@@ -75,23 +78,32 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     // MARK: - Catalog rows
 
     var info: SurfaceMachineInfo {
+        let live = link.isConnected
         let state = Self.linkState(
             record: record, phase: link.phase, lastFailure: link.lastFailure?.message, needsAuthorization: link.needsAuthorization
         )
+        // A restored mirror can still contain the last workspace snapshot after
+        // its transport has gone away. Never publish that stale snapshot as a
+        // connected device: the Cloud tree would otherwise make its terminals
+        // look openable even though the Mac is offline.
+        let effectiveState: (linkState: SurfaceLinkState, linkError: String?) =
+            (!live && state.linkState == .connected)
+                ? (.offline, nil)
+                : state
         let workspaces = link.mirror.workspaces.hasState
-            ? DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
+            ? DeviceWorkspaceProjection(machine: machine, isLive: live)
                 .remoteWorkspaces(link.mirror.workspaces.orderedRecords)
             : nil
         return SurfaceMachineInfo(
             id: machine,
             name: record.displayName,
-            status: record.isOnline || link.isConnected ? "running" : "offline",
+            status: record.isOnline || live ? "running" : "offline",
             image: nil,
             hasDesktop: false,
             memoryMb: nil,
             diskMb: nil,
-            linkState: state.linkState,
-            linkError: state.linkError,
+            linkState: effectiveState.linkState,
+            linkError: effectiveState.linkError,
             cpuPercent: nil,
             memoryUsedMb: nil,
             diskUsedMb: nil,
@@ -135,7 +147,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
                 return (.unavailable, String(localized: "devices.link.ownerUnknown", defaultValue: "Waiting to confirm this Mac belongs to your account…"))
             }
             if needsAuthorization {
-                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings › Computers to connect."))
+                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings › Devices to connect."))
             }
             return (.unavailable, lastFailure)
         }
@@ -151,6 +163,17 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         layoutSync.connectionChanged()
         let projection = DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
         let records = link.mirror.workspaces.orderedRecords
+        var owners: [String: String] = [:]
+        var ambiguous = Set<String>()
+        for workspace in records {
+            for terminal in workspace.terminals {
+                let key = terminal.id.lowercased()
+                if let previous = owners[key], previous != workspace.id { ambiguous.insert(key) }
+                owners[key] = workspace.id
+            }
+        }
+        for key in ambiguous { owners[key] = nil }
+        terminalWorkspaceIDs = owners
         let resources = projection.resources(records, layouts: layoutSync.snapshots.mapValues(\.layout))
         catalog.replaceResources(resources, on: machine, info: info, from: self)
         if link.isConnected { reconnectRestoredPanes(resources: resources) }
@@ -211,6 +234,16 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         at destination: SurfaceDestination,
         focus: Bool
     ) async throws -> SurfaceProjection {
+        try await materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: nil)
+    }
+
+    func materialize(
+        _ resource: SurfaceResource,
+        remoteView: SurfaceRemoteView?,
+        at destination: SurfaceDestination,
+        focus: Bool,
+        adopting reservation: CloudTerminalPaneReservation?
+    ) async throws -> SurfaceProjection {
         guard resource.kind == .terminal else {
             throw SurfaceCatalogError.unsupported(
                 String(localized: "devices.open.browserUnsupported", defaultValue: "Browsers on another Mac can’t be opened here yet.")
@@ -227,16 +260,28 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         let session = DeviceTerminalMirrorSession(link: link, remoteWorkspaceID: workspaceID, remoteSurfaceID: surfaceID)
         let router = session.inputRouter
         let created: (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)
+        var adoptedRelay: CloudOptimisticInputRelay?
         do {
             guard let workspace = Workspace.liveWorkspace(id: destination.workspaceID) else {
                 throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
             }
-            created = try workspace.performRemoteTmuxMirrorMutation {
-                try SurfacePaneFactory.makeCloudManualMirrorPane(
-                    at: destination, focus: false,
-                    onInput: { input in router.enqueue(input) }, keyNameResolver: nil,
-                    onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
-                )
+            if let reservation,
+               let adopted = workspace.adoptPendingDeviceTerminalPane(
+                   reservation, machine: machine, remoteWorkspaceID: workspaceID, resource: resource
+               ) {
+                // The reservation was created before the Device provider had
+                // a session. Hand its queued/next input to the real device
+                // router before the pane becomes interactive.
+                created = adopted
+                adoptedRelay = reservation.inputRelay
+            } else {
+                created = try workspace.performRemoteTmuxMirrorMutation {
+                    try SurfacePaneFactory.makeCloudManualMirrorPane(
+                        at: destination, focus: false,
+                        onInput: { input in router.enqueue(input) }, keyNameResolver: nil,
+                        onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
+                    )
+                }
             }
             if focus { SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID) }
         } catch {
@@ -259,6 +304,9 @@ final class DeviceSurfaceProvider: SurfaceProvider {
             }
         }
         session.bind(surface: created.surface)
+        // Only a pane this session actually adopted writes into the relay. A
+        // reservation that fell through to a new pane keeps its own owner.
+        if let adoptedRelay { session.adopt(adoptedRelay) }
         sessions[created.panelID] = session
         session.start()
         Self.setInitialTitle(resource.title, panelID: created.panelID, workspaceID: created.workspaceID)
@@ -290,6 +338,11 @@ final class DeviceSurfaceProvider: SurfaceProvider {
 
     func projectionDidEnd(_ projection: SurfaceProjection) {
         sessions.removeValue(forKey: projection.panelID)?.stop()
+    }
+
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        layoutSync.projectionDidEnd(projection, reason: reason)
+        projectionDidEnd(projection)
     }
 
     @discardableResult

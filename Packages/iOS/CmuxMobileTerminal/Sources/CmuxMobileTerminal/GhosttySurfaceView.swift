@@ -18,7 +18,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// terminal) can dismiss the live keyboard via ``resignActiveInput()``
     /// without holding a reference to the specific surface.
     private static weak var activeInputSurface: GhosttySurfaceView?
-    private weak var runtime: GhosttyRuntime?
+    /// Strong: freeing libghostty's app tears down every surface created
+    /// from it, so the runtime must outlive this view's surface. See
+    /// ``enqueueSurfaceFree(_:generation:on:completion:)`` for the free
+    /// that runs after the view is gone.
+    private let runtime: GhosttyRuntime
     /// Renderer-effective colors used by this surface and its UIKit chrome.
     public var terminalTheme: TerminalTheme = .monokai {
         didSet { if terminalTheme != oldValue { inputProxy.terminalTheme = terminalTheme; refreshThemeColors() } }
@@ -32,6 +36,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var scrollPresentationAuthority: TerminalScrollPresentationAuthority = .legacyMirror
     private var appliedTerminalConfigTheme: TerminalTheme?
     weak var delegate: GhosttySurfaceViewDelegate?
+    /// Who answers terminal queries for this surface. `.mirror` (a paired
+    /// Mac) drops everything the local emulator writes; SSH surfaces set
+    /// `.authoritative` (plain/tmux) or `.inputOnly` (cmux-tui).
+    public var localEmulation: TerminalLocalEmulation = .mirror
     private let fontSize: Float32
     /// Surface-owned live font size (points). Zoom mutates this; it is the
     /// source of truth for the current size, so the size accumulates correctly
@@ -89,6 +97,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
     var onFocusInputRequestedForTesting: (() -> Void)?
+    var onDrawForWakeupForTesting: (() -> Void)?
     private var surfaceTitle: String?
     var displayLink: CADisplayLink?
     private var cursorRenderWakeState = TerminalCursorRenderWakeState()
@@ -336,12 +345,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             var dockedAtTail: Bool
         }
 
-        /// The last position the pixel pump applied. While a gesture is
-        /// active this is the position AUTHORITY: batches rebase from it
-        /// instead of the live viewport, so a verified-replay bottom-reset
-        /// between batches is overwritten on the next frame instead of
-        /// hijacking the gesture. Cleared on dock/typing snaps and surface
-        /// replacement, where the live viewport becomes the truth again.
+        /// The last position the pixel pump applied. While pixel authority is
+        /// held this is the position AUTHORITY: batches rebase from it instead
+        /// of the live viewport, so a verified-replay bottom-reset between
+        /// batches is overwritten on the next frame instead of hijacking the
+        /// gesture. Cleared on dock/typing snaps and surface replacement,
+        /// where the live viewport becomes the truth again.
         var lastApplied: Held?
         /// Device pixels of scroll-top reveal: how far the gesture has pulled
         /// into the clipped-top zone, realized by the host sliding the
@@ -414,6 +423,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
+    /// The native route is captured for a drag and remains stable through its
+    /// deceleration. A render-grid update must not turn a pixel gesture into a
+    /// line gesture halfway through the same motion.
+    private var scrollGestureRoute = TerminalScrollGestureRoute()
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
@@ -1099,6 +1112,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppDidEnterBackground() {
+        // Leaving the foreground is not a transient interruption: the
+        // keyboard stays down when the app returns.
+        inputSession.send(.sceneDidEnterBackground)
         // Backstop: `willResignActive` already suspended, but guarantee the
         // surface is occluded before the GPU goes away.
         suspendRendering()
@@ -1739,6 +1755,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var hostedAltScreenActive = false {
         didSet {
             guard hostedAltScreenActive != oldValue else { return }
+            scrollGestureRoute.reset()
             if !hostedAltScreenActive || useLegacyTerminalSizing {
                 committedKeyboardHeight = 0
             } else if !keyboardTransitionActiveForGeometry {
@@ -2881,6 +2898,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
+        scrollGestureRoute.reset()
         pendingScrollLines = 0
         linePathFractionCarry = 0
         pendingScrollPixels = 0
@@ -2933,15 +2951,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingScrollLines = 0
         pendingScrollPixels = 0
         pendingScrollInteractionGeneration = nil
-        let appliedLocally = scrollPresentationAuthority.appliesLocally
+        let route = scrollGestureRoute.resolve(
+            currentAuthority: scrollPresentationAuthority,
+            currentOwnsLocalPrimaryScreen: ownsLocalPrimaryScreenScroll
+        )
+        let appliedLocally = route.appliesLocally
         var dispatchLines = lines
         if appliedLocally {
             // Pixel-precise local scroll only where the phone owns
             // primary-screen scrolling (the confirmed-primary condition that
             // also suppresses the Mac scroll RPC). Alt screens and legacy
             // transports keep the row-quantized line path.
-            if pixels != 0,
-               delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true {
+            if pixels != 0, route.usesPixelPath {
                 // Entering the pixel path: drop any line-path residue so a
                 // sub-line fraction from an earlier alt gesture cannot leak
                 // into a later line-path dispatch.
@@ -3023,7 +3044,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
             }
         }
-        if dispatchLines != 0 {
+        // Locally emulated surfaces already scrolled (or sent wheel bytes)
+        // above; only a Mac mirror forwards the gesture.
+        if dispatchLines != 0, localEmulation == .mirror {
             delegate?.ghosttySurfaceView(self, didScrollLines: dispatchLines, atCol: cell.col, row: cell.row)
         }
         return (generation, appliedLocally)
@@ -3114,6 +3137,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ).deferredTapID
         }
 
+        if localEmulation != .mirror {
+            sendLocalMouseClick(col: cell.col, row: cell.row)
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             let disposition = await self.delegate?.ghosttySurfaceView(
@@ -3467,9 +3493,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if window != nil {
             isDismantled = false
             setNeedsLayout()
-            if UIApplication.shared.applicationState == .active {
+            switch UIApplication.shared.applicationState {
+            case .active:
                 inputSession.send(.sceneDidBecomeActive)
-            } else {
+            case .background:
+                inputSession.send(.sceneWillResignActive)
+                inputSession.send(.sceneDidEnterBackground)
+            default:
                 inputSession.send(.sceneWillResignActive)
             }
             #if DEBUG
@@ -3670,7 +3700,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             appliedTerminalConfigTheme == theme ? nil : theme
         }
         let preparedConfigBits = configThemeToApply
-            .flatMap { runtime?.makeThemeConfig($0) }
+            .flatMap { runtime.makeThemeConfig($0) }
             .map { Int(bitPattern: $0) }
         // Optimistic: rolled back on a fence failure below, or the surface
         // would permanently skip re-applying this theme after the replay.
@@ -3903,6 +3933,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The bottom snap resets Ghostty's fractional pixel offset; drop the
         // pixel batch, remainder, and held position so the next gesture
         // rebases from the bottom.
+        scrollGestureRoute.reset()
         pendingScrollPixels = 0
         pendingLocalScrollPixels = 0
         pendingLocalPixelScrollInteractionGeneration = nil
@@ -4222,19 +4253,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func simulateTextInputForTesting(_ text: String) {
         setFocus(true)
         sendText(text)
-        runtime?.tick()
+        runtime.tick()
     }
 
     func simulatePasteInputForTesting(_ text: String) {
         setFocus(true)
         sendPaste(text)
-        runtime?.tick()
+        runtime.tick()
     }
 
     func simulateInputProxyTextChangeForTesting(_ text: String, isComposing: Bool) {
         setFocus(true)
         inputProxy.simulateTextChangeForTesting(text, isComposing: isComposing)
-        runtime?.tick()
+        runtime.tick()
     }
 
     func renderedTextForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
@@ -4410,11 +4441,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
-        queue.async { [weak self] in
+        // The free can run after this view is gone, so it holds the runtime
+        // itself: the app has to outlive the surface. The retain is released
+        // on the main actor so the runtime's deinit, which frees the app,
+        // never runs on the output queue. The queue admits the free even when
+        // it's full, since a refused free would leak the surface and this
+        // retain with it. The free also holds its queue, which keeps itself
+        // only weakly between work items. Without that, a free that hasn't
+        // started yet is dropped once the queue's owner lets go of it, as
+        // render recovery does when it replaces the queue.
+        let retainedRuntime = Unmanaged.passRetained(runtime)
+        queue.asyncTeardown { [weak self] in
             let userdata = ghostty_surface_userdata(surface)
             ghostty_surface_free(surface)
             GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
-            Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
+            withExtendedLifetime(queue) {}
+            Task { @MainActor in
+                self?.surfaceFreeDrainWatchdog.cancel(generation: generation)
+                completion?()
+                retainedRuntime.release()
+            }
         }
     }
 
@@ -4447,7 +4493,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func initializeSurface() {
-        guard let app = runtime?.app else { return }
+        guard let app = runtime.app else { return }
         surface = makeSurface(app: app)
         if let surface {
             GhosttySurfaceView.register(surface: surface, for: self)
@@ -5208,7 +5254,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard force || appliedTerminalConfigTheme != configTheme else { return }
         appliedTerminalConfigTheme = configTheme
         refreshThemeColors()
-        runtime?.applyTheme(configTheme, to: self)
+        runtime.applyTheme(configTheme, to: self)
     }
 
     func setFocus(_ focused: Bool) {
@@ -6015,18 +6061,67 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func handleOutboundBytes(_ bytes: Data) {
-        // The mirror is display-only, so any bytes its libghostty writes toward a
-        // PTY are spurious: the Mac is the real terminal and already produces
-        // them. The clearest case is focus reporting — `set_focus` on
-        // background/foreground, with mode 1004 restored from the Mac, emits
-        // `ESC[O`/`ESC[I`, and forwarding those as input made the Mac type a
-        // literal "[O[I". DA/cursor-query responses to bytes in the render-grid
-        // stream are the same: the Mac already answered them. Real user input
-        // flows through `inputProxy` (`didProduceInput`), not here, so dropping
-        // these is safe.
-        #if DEBUG
-        TerminalInputDebugLog.log("surface.outboundDropped data=\(TerminalInputDebugLog.dataSummary(bytes))")
-        #endif
+        switch localEmulation {
+        case .mirror:
+            // The mirror is display-only, so any bytes its libghostty writes toward a
+            // PTY are spurious: the Mac is the real terminal and already produces
+            // them. The clearest case is focus reporting — `set_focus` on
+            // background/foreground, with mode 1004 restored from the Mac, emits
+            // `ESC[O`/`ESC[I`, and forwarding those as input made the Mac type a
+            // literal "[O[I". DA/cursor-query responses to bytes in the render-grid
+            // stream are the same: the Mac already answered them. Real user input
+            // flows through `inputProxy` (`didProduceInput`), not here, so dropping
+            // these is safe.
+            #if DEBUG
+            TerminalInputDebugLog.log("surface.outboundDropped data=\(TerminalInputDebugLog.dataSummary(bytes))")
+            #endif
+        case .authoritative:
+            // The phone is the only emulator: query replies, mouse and focus
+            // reports, and alternate-scroll arrows all belong to the PTY.
+            delegate?.ghosttySurfaceView(self, didProduceInput: bytes)
+        case .inputOnly:
+            // The server's emulator already answered every query; forwarding
+            // our replies too would hand the program duplicates.
+            let input = bytes.removingTerminalQueryReplies
+            if !input.isEmpty {
+                delegate?.ghosttySurfaceView(self, didProduceInput: input)
+            }
+        }
+    }
+
+    /// A tap on a locally emulated surface is a left click for apps that
+    /// captured the mouse; the emulator encodes it and the bytes reach the
+    /// PTY through `handleOutboundBytes`. Ordinary shells ignore it.
+    private func sendLocalMouseClick(col: Int, row: Int) {
+        guard let surface, ghostty_surface_mouse_captured(surface) else { return }
+        let scale = max(Double(window?.windowScene?.screen.scale ?? traitCollection.displayScale), 1)
+        // Same serial queue that owns every other surface mutation, so the
+        // click orders after pending output.
+        let target = SendableSurfacePointer(surface: surface)
+        _ = outputQueue.asyncPriority {
+            let surface = target.surface
+            let size = ghostty_surface_size(surface)
+            let posX = (Double(max(0, col)) + 0.5) * max(Double(size.cell_width_px) / scale, 1)
+            let posY = (Double(max(0, row)) + 0.5) * max(Double(size.cell_height_px) / scale, 1)
+            ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
+            _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+            _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+        }
+    }
+
+    /// Whether native pixel scrolling may move this surface's viewport. A
+    /// Mac-mirrored surface asks the delegate (the Mac reports the active
+    /// screen); a locally emulated one checks its own emulator: primary
+    /// screen with history, and no app capturing the mouse.
+    var ownsLocalPrimaryScreenScroll: Bool {
+        guard !hostedAltScreenActive else { return false }
+        guard localEmulation != .mirror else {
+            return delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true
+        }
+        guard let surface, !ghostty_surface_mouse_captured(surface) else { return false }
+        var scrollbar = ghostty_surface_scrollbar_s()
+        guard ghostty_surface_scrollbar(surface, &scrollbar) else { return false }
+        return scrollbar.total > scrollbar.len
     }
 
     func drawForWakeup() {
@@ -6037,6 +6132,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // with the display-link's main-thread present. Just flag dirty; the
         // next display-link tick runs `render_now` on main (which itself does
         // drainMailbox + updateFrame), keeping a single present owner on main.
+        onDrawForWakeupForTesting?()
         needsDraw = true
     }
 
@@ -6265,6 +6361,7 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView else { return }
+        scrollGestureRoute.begin()
         // Reveal on touch-down and hold the chip (no linger) while the finger
         // is down; the end/deceleration callbacks arm the fade-out. Recorded
         // even before any chip content mounts (see noteArtifactChipScrollActivity).
@@ -6365,3 +6462,8 @@ private class DisplayLinkProxy {
 }
 
 #endif
+
+/// A surface pointer handed to the serial surface queue.
+struct SendableSurfacePointer: @unchecked Sendable {
+    let surface: ghostty_surface_t
+}
