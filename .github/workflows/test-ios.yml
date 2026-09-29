@@ -42,6 +42,7 @@ on:
         options:
           - ""
           - CMUXMobileCore
+          - CmuxIrxTransport
           - CmuxSyncStore
           - CmuxMobilePairedMac
           - CmuxMobileChanges
@@ -447,7 +448,7 @@ jobs:
           SELECTED_PACKAGE: ${{ inputs.swift_package }}
         run: |
           case "$SELECTED_PACKAGE" in
-            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileRPC|CmuxMobileShell|CmuxMobileShellModel) ;;
+            ""|CMUXMobileCore|CmuxIrxTransport|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileRPC|CmuxMobileShell|CmuxMobileShellModel) ;;
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
 
@@ -568,6 +569,21 @@ jobs:
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
             --label CmuxMobileChanges --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileChanges}"
+
+      # Normal PR CI already runs this shared package. Manual selection enables
+      # exact-SHA regression proofs without dispatching every native package.
+      - name: Run CmuxIrxTransport package tests
+        if: ${{ inputs.swift_package == 'CmuxIrxTransport' }}
+        run: |
+          set -euo pipefail
+          args=(--package-path Packages/Shared/CmuxIrxTransport --no-parallel)
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CmuxIrxTransport-tests.log"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxIrxTransport --log "$log_path" -- swift test "${args[@]}"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxIrxTransport}"
 
       - name: Run CmuxMobileRPC package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileRPC' }}
