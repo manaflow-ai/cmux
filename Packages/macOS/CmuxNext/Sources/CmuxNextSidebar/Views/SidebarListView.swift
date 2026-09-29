@@ -63,6 +63,33 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
 
     isolated deinit {
         autoscrollLink?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    // MARK: - Window occlusion
+
+    private var observedWindow: NSWindow?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard observedWindow !== window else { return }
+        let center = NotificationCenter.default
+        if let observedWindow { center.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observedWindow) }
+        observedWindow = window
+        if let window {
+            center.addObserver(self, selector: #selector(windowOcclusionChanged), name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        }
+    }
+
+    @objc private func windowOcclusionChanged(_ note: Notification) {
+        setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
+    }
+
+    /// Pauses (or resumes) every row's activity animation.
+    func setWindowVisible(_ visible: Bool) {
+        for row in subviews {
+            for case let indicator as ActivityIndicatorView in row.subviews { indicator.isWindowVisible = visible }
+        }
     }
 
     override var isFlipped: Bool { true }
