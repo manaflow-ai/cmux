@@ -1,0 +1,18 @@
+public import AppKit
+public import Foundation
+
+/// What the host did with a key equivalent.
+public nonisolated enum BrowserKeyDisposition: Hashable, Sendable {
+    /// Let the page (and then the engine's default handling) see it.
+    case passToPage
+    /// The host consumed it (app shortcut such as new tab, palette).
+    case handledByHost
+}
+
+/// Hook that runs before the page sees a key equivalent, so app shortcuts
+/// win over page handlers. CEF implements it from its pre-key-event handler.
+public protocol BrowserKeyRouting: AnyObject {
+    func browserTab(_ tab: any BrowserTab, keyEquivalent event: NSEvent) -> BrowserKeyDisposition
+}
+
+// MARK: - Prompts
