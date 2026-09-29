@@ -116,6 +116,10 @@ actor's `user_id`, `display_name` and `device_name`.
 - A relay that receives `disconnected-by` for one of its leaves forwards it to that
   leaf only and keeps its own attachment.
 
+The Mac socket `terminal.size_state` (and `cmux surface size`) adds
+`detachment {reason, by, at}` while this Mac view is detached, else `null`; the
+grid it reports is then the last state seen before the detach.
+
 Disconnecting is not unpairing. Pairing revoke stays in pairing settings.
 
 ## Showing the bounds

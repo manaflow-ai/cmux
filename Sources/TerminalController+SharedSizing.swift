@@ -537,15 +537,10 @@ extension TerminalController {
     // MARK: - Socket / CLI
 
     func sizeStatePayload(surfaceID: UUID) -> [String: Any] {
-        var payload: [String: Any] = ["surface_id": surfaceID.uuidString]
-        guard let snapshot = terminalSharing.snapshot(for: surfaceID) else {
-            payload["size_state"] = NSNull()
-            return payload
-        }
-        payload["size_state"] = TerminalSizingWireCoder().jsonObject(snapshot.state)
-        payload["self_participant_id"] = snapshot.selfParticipantID ?? NSNull()
-        payload["is_cloud"] = snapshot.isCloud
-        return payload
+        TerminalSizingWireCoder().sizeStatePayload(
+            surfaceID: surfaceID.uuidString,
+            snapshot: terminalSharing.snapshot(for: surfaceID)
+        )
     }
 
     /// Resolves the terminal a socket request names, making sure a local

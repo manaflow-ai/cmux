@@ -47,6 +47,35 @@ public struct TerminalSizingWireCoder: Sendable {
         return payload
     }
 
+    /// The socket / CLI `terminal.size_state` payload for one terminal.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: the terminal.
+    ///   - snapshot: this Mac's latest snapshot, or `nil` when not shared.
+    /// - Returns: `{surface_id, size_state, self_participant_id, is_cloud,
+    ///   detachment}`. `detachment` is `{reason, by, at}` while this Mac view
+    ///   is detached (its `size_state` is then the last one seen before the
+    ///   detach), else `null`.
+    public func sizeStatePayload(surfaceID: String, snapshot: TerminalSharingSnapshot?) -> [String: Any] {
+        var payload: [String: Any] = ["surface_id": surfaceID]
+        guard let snapshot else {
+            payload["size_state"] = NSNull()
+            payload["detachment"] = NSNull()
+            return payload
+        }
+        payload["size_state"] = jsonObject(snapshot.state)
+        payload["self_participant_id"] = snapshot.selfParticipantID ?? NSNull()
+        payload["is_cloud"] = snapshot.isCloud
+        if let detachment = snapshot.detachment {
+            var detached = detachedPayload(surfaceID: surfaceID, detachment: detachment)
+            detached["surface_id"] = nil
+            payload["detachment"] = detached
+        } else {
+            payload["detachment"] = NSNull()
+        }
+        return payload
+    }
+
     /// Decodes a size state from a wire value.
     ///
     /// - Parameter value: a dictionary from `JSONSerialization`.

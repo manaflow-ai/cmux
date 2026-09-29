@@ -86,8 +86,19 @@ extension CMUXCLI {
         }
         let selfID = payload["self_participant_id"] as? String
         let owners = Set(state["owners"] as? [String] ?? [])
-        let mode = (state["policy"] as? [String: Any])?["mode"] as? String ?? "latest"
+        let mode = (state["policy"] as? [String: Any])?["mode"] as? String ?? "smallest"
         var lines = ["\(cols)x\(rows)  mode=\(mode)  reason=\(state["reason"] as? String ?? "")"]
+        if let detachment = payload["detachment"] as? [String: Any] {
+            // The grid above is the last state seen before this view was detached.
+            var detached = "detached  reason=\(detachment["reason"] as? String ?? "unknown")"
+            if let by = detachment["by"] as? [String: Any],
+               let name = (by["display_name"] as? String) ?? (by["device_name"] as? String) {
+                detached += "  by=\(name)"
+                if let device = by["device_name"] as? String, device != name { detached += " (\(device))" }
+            }
+            if let at = detachment["at"] as? String { detached += "  at=\(at)" }
+            lines.append(detached)
+        }
         if let disconnected = payload["disconnected"] as? Int {
             lines.append("disconnected=\(disconnected)")
         }
