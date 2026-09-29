@@ -53,17 +53,17 @@ final class TabCell {
     var bounds: CGRect { CGRect(origin: .zero, size: layer.bounds.size) }
 
     private let backgroundLayer = CALayer()
-    private let iconLayer = CALayer()
-    private let titleLayer = CATextLayer()
+    let iconLayer = CALayer()
+    let titleLayer = CATextLayer()
     private let titleMask = CAGradientLayer()
     private let separatorLayer = CALayer()
     // Created on first need and removed when unused, so 100 idle tabs cost
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
-    private var spinnerLayer: CAShapeLayer?
-    private var badgeLayer: CALayer?
-    private var closeBackgroundLayer: CALayer?
-    private var closeGlyphLayer: CAShapeLayer?
+    var spinnerLayer: CAShapeLayer?
+    var badgeLayer: CALayer?
+    var closeBackgroundLayer: CALayer?
+    var closeGlyphLayer: CAShapeLayer?
 
     var hasSpinnerLayer: Bool { spinnerLayer != nil }
     var hasBadgeLayer: Bool { badgeLayer != nil }
@@ -124,82 +124,13 @@ final class TabCell {
         separatorLayer.actions = ["opacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
     }
 
-    // MARK: - Lazy layers (z-order: icon, spinner, badge, title, close)
-
-    private func makeSpinner() -> CAShapeLayer {
-        if let spinnerLayer { return spinnerLayer }
-        let spinner = CAShapeLayer()
-        spinner.actions = Self.noActions
-        spinner.fillColor = nil
-        spinner.lineWidth = Metrics.space1 * 0.75
-        spinner.lineCap = .round
-        spinner.strokeStart = 0
-        spinner.strokeEnd = 0.72
-        spinner.contentsScale = scale
-        appearance.performAsCurrentDrawingAppearance { spinner.strokeColor = Palette.textSecondary.cgColor }
-        layer.insertSublayer(spinner, above: iconLayer)
-        spinnerLayer = spinner
-        return spinner
-    }
-
-    private func makeBadge() -> CALayer {
-        if let badgeLayer { return badgeLayer }
-        let badge = CALayer()
-        badge.actions = Self.noActions
-        layer.insertSublayer(badge, below: titleLayer)
-        badgeLayer = badge
-        applyBadgeColor()
-        return badge
-    }
-
-    private func applyBadgeColor() {
-        guard let badgeLayer else { return }
-        appearance.performAsCurrentDrawingAppearance { badgeLayer.backgroundColor = badgeColor?.cgColor }
-    }
-
-    private func makeCloseLayers() -> (background: CALayer, glyph: CAShapeLayer) {
-        if let closeBackgroundLayer, let closeGlyphLayer { return (closeBackgroundLayer, closeGlyphLayer) }
-        let background = CALayer()
-        background.cornerCurve = .continuous
-        background.actions = ["backgroundColor": Self.fade, "bounds": NSNull(), "position": NSNull()]
-        let glyph = CAShapeLayer()
-        glyph.actions = Self.noActions
-        glyph.fillColor = nil
-        glyph.lineWidth = Metrics.space1 * 0.65
-        glyph.lineCap = .round
-        glyph.contentsScale = scale
-        layer.insertSublayer(background, above: titleLayer)
-        layer.insertSublayer(glyph, above: background)
-        closeBackgroundLayer = background
-        closeGlyphLayer = glyph
-        applyCloseColors()
-        return (background, glyph)
-    }
-
-    private func applyCloseColors() {
-        guard let closeBackgroundLayer, let closeGlyphLayer else { return }
-        appearance.performAsCurrentDrawingAppearance {
-            closeGlyphLayer.strokeColor = (isCloseHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
-            closeBackgroundLayer.backgroundColor = isClosePressed
-                ? Palette.selectionFill.cgColor
-                : (isCloseHovered ? Palette.hoverFill.cgColor : nil)
-        }
-    }
-
-    private func removeCloseLayers() {
-        closeBackgroundLayer?.removeFromSuperlayer()
-        closeGlyphLayer?.removeFromSuperlayer()
-        closeBackgroundLayer = nil
-        closeGlyphLayer = nil
-    }
-
-    private static let noActions: [String: any CAAction] = [
+    static let noActions: [String: any CAAction] = [
         "bounds": NSNull(), "position": NSNull(), "contents": NSNull(), "opacity": NSNull(),
         "hidden": NSNull(), "string": NSNull(), "foregroundColor": NSNull(), "backgroundColor": NSNull(),
         "mask": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "sublayers": NSNull(),
     ]
 
-    private static let fade: CABasicAnimation = {
+    static let fade: CABasicAnimation = {
         let animation = CABasicAnimation()
         animation.duration = 0.14
         animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -277,7 +208,7 @@ final class TabCell {
         CATransaction.commit()
     }
 
-    private var badgeColor: NSColor? {
+    var badgeColor: NSColor? {
         switch item.status {
         case .needsInput: return .systemOrange
         case .success: return .systemGreen
