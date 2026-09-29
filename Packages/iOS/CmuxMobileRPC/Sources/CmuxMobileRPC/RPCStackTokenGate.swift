@@ -4,12 +4,20 @@ import Foundation
 public actor RPCStackTokenGate {
     private var current: (id: UUID, task: Task<String, any Error>, waiters: Int, timedOutUntil: UInt64?)?
     private var abandoned: [UUID: Task<String, any Error>] = [:]
-    private let taskTimeout = RPCTaskTimeout()
+    private let taskTimeout: RPCTaskTimeout
     private let timedOutResetNanoseconds: UInt64
 
     /// Creates a gate that suppresses retries after every waiter times out or cancels.
-    public init(timedOutResetNanoseconds: UInt64 = 30_000_000_000) {
+    ///
+    /// - Parameters:
+    ///   - timedOutResetNanoseconds: Retry suppression after the last waiter leaves.
+    ///   - taskTimeout: Acquisition deadline scheduler, monotonic by default.
+    public init(
+        timedOutResetNanoseconds: UInt64 = 30_000_000_000,
+        taskTimeout: RPCTaskTimeout = RPCTaskTimeout()
+    ) {
         self.timedOutResetNanoseconds = timedOutResetNanoseconds
+        self.taskTimeout = taskTimeout
     }
 
     func token(
