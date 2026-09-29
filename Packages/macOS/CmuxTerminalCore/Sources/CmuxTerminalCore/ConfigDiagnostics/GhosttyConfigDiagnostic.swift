@@ -17,8 +17,7 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
     public let filePath: String?
     /// The 1-based line in ``filePath``, when present.
     public let line: Int?
-    /// The config key the diagnostic is about, when it has a file location
-    /// and a key.
+    /// The config key the diagnostic is about, when Ghostty included one.
     public let key: String?
 
     /// Parses a Ghostty diagnostic message.
@@ -48,7 +47,14 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
     }
 
     private static func parseFileLocation(_ message: String) -> (path: String?, line: Int?, key: String?) {
-        guard message.hasPrefix("/") || message.hasPrefix("~") else { return (nil, nil, nil) }
+        guard message.hasPrefix("/") || message.hasPrefix("~") else {
+            // The embedded Ghostty config API can omit the synthetic source
+            // location for diagnostics emitted while loading inherited or
+            // inline configuration. Keep cmux-owned keys filterable in that
+            // form too (the notice would otherwise show the exact noise this
+            // policy is meant to suppress).
+            return (nil, nil, parseCmuxOwnedKey(message))
+        }
         // Find the first ":<digits>:" after the path.
         var searchStart = message.startIndex
         while let colon = message[searchStart...].firstIndex(of: ":") {
@@ -74,6 +80,17 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
         let key = rest[..<colon]
         guard !key.isEmpty, !key.contains(where: \.isWhitespace) else { return nil }
         return String(key)
+    }
+
+    private static func parseCmuxOwnedKey(_ message: String) -> String? {
+        guard let colon = message.firstIndex(of: ":") else { return nil }
+        let candidate = message[..<colon]
+        guard !candidate.isEmpty,
+              !candidate.contains(where: \.isWhitespace),
+              GhosttyConfig.cmuxOwnedKeys.contains(String(candidate)) else {
+            return nil
+        }
+        return String(candidate)
     }
 }
 
