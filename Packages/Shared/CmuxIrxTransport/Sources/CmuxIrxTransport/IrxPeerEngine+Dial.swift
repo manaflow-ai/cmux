@@ -7,7 +7,7 @@ extension IrxPeerEngine {
     public func ensureSession(explicit: Bool = false, trigger: String) async throws -> IrxClientSession {
         try Task.checkCancellation()
         hasConnectionIntent = true
-        if let current = session, !explicit, await !current.connection.isConnectionClosed(),
+        if let current = session, !explicit, await !connectionIsClosed(current.connection),
            session?.connection === current.connection {
             try Task.checkCancellation()
             return current

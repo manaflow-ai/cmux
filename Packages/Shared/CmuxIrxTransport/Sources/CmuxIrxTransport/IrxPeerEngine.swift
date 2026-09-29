@@ -72,6 +72,8 @@ public actor IrxPeerEngine {
     public typealias DialOnce = @Sendable () async throws -> IrxClientSession
 
     let dialOnce: DialOnce
+    /// Native closed-state observation crosses the connection's actor boundary.
+    let connectionIsClosed: @Sendable (IrxConnection) async -> Bool
     let clockNow: @Sendable () -> ContinuousClock.Instant
     let dialClock: any Clock<Duration>
     private let retrySleep: @Sendable (Duration) async throws -> Void
@@ -114,6 +116,7 @@ public actor IrxPeerEngine {
         applicationActive: Bool = true,
         clockNow: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        connectionIsClosed: @escaping @Sendable (IrxConnection) async -> Bool = { await $0.isConnectionClosed() },
         dialClock: any Clock<Duration> = ContinuousClock(),
         dialOnce: @escaping DialOnce
     ) {
@@ -122,6 +125,7 @@ public actor IrxPeerEngine {
         self.label = label
         self.applicationActive = applicationActive
         self.dialOnce = dialOnce
+        self.connectionIsClosed = connectionIsClosed
         self.dialClock = dialClock
         self.clockNow = clockNow
         self.retrySleep = retrySleep
@@ -281,7 +285,7 @@ public actor IrxPeerEngine {
     }
 
     public func currentSession() async -> IrxClientSession? {
-        if let session, await !session.connection.isConnectionClosed() {
+        if let session, await !connectionIsClosed(session.connection) {
             return session
         }
         return nil
