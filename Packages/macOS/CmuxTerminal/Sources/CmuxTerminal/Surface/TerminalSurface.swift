@@ -76,6 +76,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let globalFontMagnificationPercent: @Sendable () -> Int
     let terminalWork: TerminalSurfaceWorkDiagnostics
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
+#if DEBUG
+    /// Monotonic origin for the optional terminal startup timing trace.
+    /// Kept nil unless the Debug-menu measurement toggle is enabled.
+    var terminalStartupProbeStart: UInt64?
+#endif
     /// Current renderer health; the direct callback below is the observation seam for hosts.
     public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
         didSet { if oldValue != renderHealth { onRenderHealthChanged?(renderHealth) } }

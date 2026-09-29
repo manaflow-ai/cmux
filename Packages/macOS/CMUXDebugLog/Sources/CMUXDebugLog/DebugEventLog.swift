@@ -19,6 +19,21 @@ import Foundation
 public final class DebugEventLog: @unchecked Sendable {
     public static let shared = DebugEventLog()
 
+    /// Opt-in lifecycle timing for terminal startup investigations. The flag is
+    /// intentionally off by default and is read only at probe boundaries, so
+    /// ordinary typing and rendering paths do not pay for instrumentation.
+    public static let terminalStartupProbeEnabledKey = "cmux.debug.terminalStartupProbeEnabled"
+
+    public static var terminalStartupProbeEnabled: Bool {
+        UserDefaults.standard.bool(forKey: terminalStartupProbeEnabledKey)
+    }
+
+    @inline(__always)
+    public static func logTerminalStartupProbe(_ message: @autoclosure () -> String) {
+        guard terminalStartupProbeEnabled else { return }
+        shared.log("terminal.startup.probe \(message())")
+    }
+
     private var entries: [String] = []
     private let capacity = 500
     private let queue = DispatchQueue(label: "cmux.debug-event-log")

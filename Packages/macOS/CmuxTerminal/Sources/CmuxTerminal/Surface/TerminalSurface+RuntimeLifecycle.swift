@@ -749,6 +749,12 @@ extension TerminalSurface {
             return
         }
         if parkRuntimeSurfaceCreationIfAwaitingPaneGeometry(view: view, source: source) { return }
+#if DEBUG
+        terminalStartupProbeStart = DebugEventLog.terminalStartupProbeEnabled
+            ? DispatchTime.now().uptimeNanoseconds
+            : nil
+        terminalStartupProbe("create.begin source=\(source)")
+#endif
         let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
@@ -782,6 +788,9 @@ extension TerminalSurface {
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
+#if DEBUG
+        terminalStartupProbe("ghostty.surface.created hasSurface=\(surface == nil ? 0 : 1) initialInput=\(runtimeInitialInput == nil ? 0 : 1)")
+#endif
 
         if surface == nil {
             invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: false)
@@ -905,12 +914,19 @@ extension TerminalSurface {
 
         flushPendingSocketInputIfNeeded()
         view.runtimeSurfaceDidBecomeReady()
+#if DEBUG
+        terminalStartupProbe("runtime.ready")
+#endif
 
         // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
         // miss the first vsync callback and sit on a blank frame until another focus/visibility
         // transition nudges the renderer.
         view.forceRefreshSurface()
         ghostty_surface_refresh(createdSurface)
+#if DEBUG
+        terminalStartupProbe("first.refresh")
+        terminalStartupProbeStart = nil
+#endif
         rendererRuntimeSurfaceDidCreate()
 
         NotificationCenter.default.post(
@@ -932,5 +948,16 @@ extension TerminalSurface {
         )
 #endif
     }
+
+#if DEBUG
+    @inline(__always)
+    private func terminalStartupProbe(_ stage: @autoclosure () -> String) {
+        guard let start = terminalStartupProbeStart else { return }
+        let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000.0
+        DebugEventLog.logTerminalStartupProbe(
+            "surface=\(id.uuidString.prefix(8)) stage=\(stage()) elapsedMs=\(String(format: "%.3f", elapsedMs))"
+        )
+    }
+#endif
 
 }

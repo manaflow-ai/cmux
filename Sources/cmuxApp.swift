@@ -15,6 +15,9 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
+#if DEBUG
+import CMUXDebugLog
+#endif
 
 struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
@@ -43,6 +46,10 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+#if DEBUG
+    @AppStorage(DebugEventLog.terminalStartupProbeEnabledKey)
+    private var terminalStartupProbeEnabled = false
+#endif
     @State private var browserFocusModeMenuRevision = 0
     @State var historyMenuCoordinator: HistoryMenuCoordinator
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -628,6 +635,8 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Debug") {
+                Toggle("Measure Terminal Startup", isOn: $terminalStartupProbeEnabled)
+
                 Button("New Tab With Lorem Search Text") {
                     appDelegate.openDebugLoremTab(nil)
                 }
