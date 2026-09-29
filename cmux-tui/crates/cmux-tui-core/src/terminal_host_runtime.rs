@@ -3797,7 +3797,7 @@ mod unix {
             let mut generation = self.parser_progress.0.lock().unwrap();
             loop {
                 let term = self.term.lock().unwrap();
-                if term.vt_stream_is_ground() {
+                if term.vt_replay_resumes_stream() {
                     drop(generation);
                     return Ok(term);
                 }
@@ -4429,9 +4429,11 @@ mod unix {
                 let has_legacy_clients = !self.taps.lock().unwrap().is_empty();
                 let publish_legacy_resize =
                     acknowledge_with_replay || (requested_change && has_legacy_clients);
-                let replay_is_safe = term.vt_stream_is_ground();
+                // A replay carries the parser's incomplete sequence, so only
+                // an oversized control string forces a resynchronization.
+                let replay_resumes = term.vt_replay_resumes_stream();
                 if let Some((previous_size, next_size)) = resize_sizes {
-                    if publish_legacy_resize && replay_is_safe {
+                    if publish_legacy_resize && replay_resumes {
                         term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
                             .context(
                                 "could not preflight terminal-host resize replay; geometry unchanged",
@@ -4445,10 +4447,10 @@ mod unix {
                         return Err(error.into());
                     }
                 }
-                let acknowledgement_queued = if publish_legacy_resize && !replay_is_safe {
-                    // A replay cannot serialize an in-progress decoder or escape
-                    // sequence. Force compatibility clients to take a new safe
-                    // snapshot instead of orphaning the sequence's later bytes.
+                let acknowledgement_queued = if publish_legacy_resize && !replay_resumes {
+                    // The incomplete sequence exceeds the replay budget. Force
+                    // compatibility clients to take a new snapshot at a later
+                    // boundary instead of orphaning the sequence's later bytes.
                     publish_host_frames_and_targeted(
                         &self.broadcast_lock,
                         &self.sequence,
@@ -8957,11 +8959,28 @@ mod unix {
         }
 
         #[test]
+        fn snapshot_boundary_admits_resumable_partial_sequences() {
+            let host = exited_host_fixture();
+            host.term.lock().unwrap().vt_write(b"\x1b[1;3");
+            let mut term = host.terminal_at_snapshot_boundary(Duration::from_millis(20)).unwrap();
+            let replay = term.vt_replay_bounded_theme_portable(1024 * 1024).unwrap();
+            drop(term);
+            let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            mirror.vt_write(&replay);
+            mirror.vt_write(b"1mred");
+            assert_eq!(mirror.viewport_text().unwrap().trim_end(), "red");
+        }
+
+        #[test]
         fn snapshot_boundary_waits_for_parser_progress_and_times_out() {
+            // Only a control string past the pending-sequence budget cannot
+            // be replayed; the snapshot waits for it to end.
+            let oversized = vec![b'A'; 2 * 1024 * 1024];
             let host = exited_host_fixture();
             let mut term = host.term.lock().unwrap();
-            term.vt_write(b"\xce");
-            assert!(!term.vt_stream_is_ground());
+            term.vt_write(b"\x1b]2;");
+            term.vt_write(&oversized);
+            assert!(!term.vt_replay_resumes_stream());
 
             let waiter_host = host.clone();
             let (result_sender, result_receiver) = std::sync::mpsc::channel();
@@ -8996,14 +9015,15 @@ mod unix {
                 assert!(Instant::now() < deadline, "snapshot waiter never entered its wait");
                 thread::yield_now();
             }
-            host.term.lock().unwrap().vt_write(b"\xbb");
+            host.term.lock().unwrap().vt_write(b"\x07\xce\xbb");
             host.note_parser_progress();
 
             assert!(result_receiver.recv().unwrap().unwrap().contains('λ'));
             waiter.join().unwrap();
 
             let timed_out = exited_host_fixture();
-            timed_out.term.lock().unwrap().vt_write(b"\x1b");
+            timed_out.term.lock().unwrap().vt_write(b"\x1b]2;");
+            timed_out.term.lock().unwrap().vt_write(&oversized);
             let started = Instant::now();
             let error = match timed_out.terminal_at_snapshot_boundary(Duration::from_millis(20)) {
                 Ok(_) => panic!("unterminated VT sequence was admitted for a snapshot"),
@@ -9067,9 +9087,8 @@ mod unix {
                 assert_eq!(hello.kind, MessageKind::HostHello);
                 assert_eq!(hello.flags & FLAG_SMART_RENDERER != 0, smart);
 
-                host.term.lock().unwrap().vt_write(b"\xbb after");
-                host.note_parser_progress();
-
+                // The snapshot does not wait for the code point to finish: its
+                // replay ends with the pending 0xce so the live 0xbb completes it.
                 let snapshot = read_required_frame(&mut client_stream, "snapshot").unwrap();
                 assert_eq!(snapshot.kind, MessageKind::Snapshot);
                 let snapshot = decode_host_snapshot_payload(&snapshot.payload).unwrap();
@@ -9084,6 +9103,7 @@ mod unix {
 
                 let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
                 mirror.vt_write(&snapshot.replay);
+                mirror.vt_write(b"\xbb after");
                 let text = mirror.viewport_text().unwrap();
                 assert!(text.contains("before λ after"), "smart={smart} snapshot={text:?}");
                 assert!(!text.contains('\u{fffd}'), "smart={smart} snapshot={text:?}");
@@ -9107,7 +9127,9 @@ mod unix {
         fn unterminated_snapshot_boundary_resyncs_legacy_and_smart_clients() {
             for smart in [false, true] {
                 let host = exited_host_fixture();
+                // Past the pending-sequence budget, so a replay cannot carry it.
                 host.term.lock().unwrap().vt_write(b"\x1b]0;unterminated");
+                host.term.lock().unwrap().vt_write(&vec![b'A'; 2 * 1024 * 1024]);
                 let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
                 client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
                 let server_host = host.clone();
@@ -9194,7 +9216,7 @@ mod unix {
         }
 
         #[test]
-        fn legacy_resize_resyncs_instead_of_replaying_partial_utf8() {
+        fn legacy_resize_replay_resumes_partial_utf8() {
             let host = exited_host_fixture();
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
             let (sender, receiver) = mpsc_channel();
@@ -9209,11 +9231,48 @@ mod unix {
                 },
             );
 
-            // A replay cannot serialize the decoder's pending 0xce byte. If
-            // the later 0xbb is delivered after that replay, a fresh mirror
-            // decodes it as U+FFFD instead of completing U+03BB.
+            // The replay ends with the decoder's pending 0xce byte, so the
+            // later 0xbb completes U+03BB in a fresh mirror too.
             host.term.lock().unwrap().vt_write(b"before \xce");
             assert!(!host.term.lock().unwrap().vt_stream_is_ground());
+
+            host.apply_parser_resize(100, 30, None, false, None, DEFAULT_CELL_PIXELS)
+                .acknowledgement_queued
+                .unwrap();
+
+            let frame = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(frame.kind, MessageKind::Resized);
+            let resize = decode_host_resize_payload(&frame.payload).unwrap();
+            let mut mirror =
+                Terminal::new(resize.cols, resize.rows, 0, Callbacks::default()).unwrap();
+            mirror.vt_write(&resize.replay);
+            mirror.vt_write(b"\xbb");
+            assert!(mirror.viewport_text().unwrap().contains("before λ"));
+        }
+
+        #[test]
+        fn legacy_resize_resyncs_inside_an_oversized_control_string() {
+            let host = exited_host_fixture();
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = mpsc_channel();
+            host.taps.lock().unwrap().insert(
+                1,
+                HostTap {
+                    sender,
+                    queued_bytes: Arc::new(AtomicUsize::new(0)),
+                    queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                    shutdown: Arc::new(host_socket),
+                    max_queued_bytes: usize::MAX,
+                },
+            );
+
+            // A control string past the pending-sequence budget cannot be
+            // carried in a replay, so compatibility clients must resync.
+            let mut term = host.term.lock().unwrap();
+            term.vt_write(b"\x1b]52;c;");
+            term.vt_write(&vec![b'A'; 2 * 1024 * 1024]);
+            assert!(!term.vt_replay_resumes_stream());
+            drop(term);
 
             host.apply_parser_resize(100, 30, None, false, None, DEFAULT_CELL_PIXELS)
                 .acknowledgement_queued
