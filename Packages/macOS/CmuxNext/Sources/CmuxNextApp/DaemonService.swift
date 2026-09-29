@@ -83,6 +83,27 @@ final class DaemonService {
         }
     }
 
+    /// Like `perform`, with a caller-chosen transaction (a drag commit keeps
+    /// one id from drop to settle). Returns the body's value, or nil when the
+    /// command threw (the patch is then reverted).
+    func commit<T: Sendable>(_ label: String, patch: OptimisticPatch, transaction: ClientTransactionID, expectEcho: Bool,
+                             _ body: @Sendable (DaemonConnection) async throws -> T) async -> T? {
+        guard let connection else {
+            logger.error("\(label, privacy: .public): not connected")
+            return nil
+        }
+        store.applyOptimistic(patch, transaction: transaction)
+        do {
+            let value = try await body(connection)
+            if !expectEcho { store.settleOptimistic(transaction) }
+            return value
+        } catch {
+            store.rejectOptimistic(transaction)
+            logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
     /// Asks for a fresh snapshot (after commands whose effect has no delta).
     func refresh() {
         guard let connection else { return }

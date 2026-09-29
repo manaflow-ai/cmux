@@ -73,6 +73,19 @@ extension PaneController {
         }
     }
 
+    /// After a drag moved `tab` into this pane: joins `group` (or leaves its
+    /// group when nil) if membership differs. Needs tab-groups-v1.
+    func syncGroupMembership(of tab: TabModel, to group: String?) {
+        guard tab.tabGroup?.rawValue != group, services.daemon.supports(DaemonCapabilities.tabGroups) else { return }
+        let surface = tab.surface
+        if let group {
+            let id = CmuxNextDaemon.TabGroupID(rawValue: group)
+            groupCommand("add-tabs-to-group") { c, t in _ = try await c.addTabs([surface], toGroup: id, transaction: t) }
+        } else {
+            groupCommand("remove-tabs-from-group") { c, t in _ = try await c.removeTabsFromGroup([surface], transaction: t) }
+        }
+    }
+
     private func groupCommand(_ label: String, patch: OptimisticPatch = .custom { _ in },
                               _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         Task {
