@@ -3,10 +3,10 @@
 // Installed by `cmux hooks setup` or `cmux hooks opencode install`.
 // DO NOT EDIT MANUALLY - cmux upgrades this file in place.
 
-const net = require("node:net");
-const os = require("node:os");
-const fs = require("node:fs");
-const path = require("node:path");
+import net from "node:net";
+import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 
 const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
 const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
