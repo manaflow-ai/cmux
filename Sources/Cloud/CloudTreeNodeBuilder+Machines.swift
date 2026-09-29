@@ -16,6 +16,7 @@ extension CloudTreeNodeBuilder {
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         source: CloudTreeMachineSource = .cloud,
         devicesSection: CloudTreeDevicesSection = .init(),
+        showsCloudVPNWarning: Bool = false,
         canCreateCloudMachine: Bool = false,
         cloudMachinesUsage: CloudMachinesUsage? = nil,
         now: Date = .now,
@@ -63,7 +64,8 @@ extension CloudTreeNodeBuilder {
                     snapshot: snapshot,
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: .init(section: { _, _ in section }),
-                    now: now
+                    now: now,
+                    showsCloudVPNWarning: showsCloudVPNWarning
                 ),
                 // A machine pin is explicit sidebar priority, stamped by the panel;
                 // organization only pins the organizable rows below a machine.
@@ -96,7 +98,8 @@ extension CloudTreeNodeBuilder {
                     snapshot: snapshot,
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: .init(section: { _, _ in section }),
-                    now: now
+                    now: now,
+                    showsCloudVPNWarning: showsCloudVPNWarning
                 ),
                 isPinned: pinnedMachineIDs.contains(id)
             ))

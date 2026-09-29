@@ -168,9 +168,21 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
     #[cfg(unix)]
     {
         const MAX_LISTING_BYTES: usize = 512 * 1024;
-        let candidates: [(&str, &[&str]); 2] = [("ss", &["-H", "-ltn"]), ("netstat", &["-ltn"])];
+        // The Cloud daemon runs as cmux while containerd runs as root. Use the
+        // guest's existing noninteractive sudo permission for this fixed read-only
+        // inventory when available; otherwise preserve the unprivileged inventory.
+        #[cfg(target_os = "linux")]
+        let candidates: &[(&str, &[&str])] = &[
+            ("sudo", &["-n", "ss", "-H", "-ltnp"]),
+            ("sudo", &["-n", "netstat", "-ltnp"]),
+            ("ss", &["-H", "-ltnp"]),
+            ("netstat", &["-ltnp"]),
+        ];
+        // netstat's -p means protocol on BSD/macOS.
+        #[cfg(not(target_os = "linux"))]
+        let candidates: &[(&str, &[&str])] = &[("ss", &["-H", "-ltnp"]), ("netstat", &["-ltn"])];
         let mut failures = Vec::new();
-        for (program, arguments) in candidates {
+        for &(program, arguments) in candidates {
             let output = match std::process::Command::new(program).args(arguments).output() {
                 Ok(output) => output,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
@@ -23199,6 +23211,25 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(command, Command::MachineListeningTcp));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn private_link_port_discovery_reports_listener_process() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = listener.local_addr().unwrap().to_string();
+        let inventory = machine_listening_tcp_json().unwrap();
+        let stdout = inventory["stdout"].as_str().unwrap();
+        let row = stdout
+            .lines()
+            .find(|line| line.split_whitespace().nth(3) == Some(endpoint.as_str()))
+            .expect("the inventory must contain the test's listening socket");
+        let pid = std::process::id();
+        assert!(
+            row.contains(&format!("pid={pid},"))
+                || row.split_whitespace().any(|field| field.starts_with(&format!("{pid}/"))),
+            "listener ownership is needed to distinguish application ports from internal services: {row}"
+        );
     }
 
     #[test]

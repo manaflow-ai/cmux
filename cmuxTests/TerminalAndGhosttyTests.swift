@@ -5076,7 +5076,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+        guard let scrollView = hostedView.subviews.first(where: { $0 is GhosttyScrollView }) as? GhosttyScrollView else {
             XCTFail("Expected hosted terminal scroll view")
             return
         }
@@ -5101,13 +5101,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             )
         }
 
-        // Start from the overlay style so the test is independent of the
-        // machine running it. The legacy transition below models the system
+        // Start from Automatic so the test is independent of the machine
+        // running it. The legacy transition below models the system
         // preference changing to "Always".
+        scrollView.showScrollBarsPreference = { "Automatic" }
         XCTAssertEqual(
             scrollView.scrollerStyle,
-            NSScroller.preferredScrollerStyle,
-            "The terminal scroll view should start with AppKit's preferred system style"
+            .overlay,
+            "The terminal scroll view should start with the overlay style for Automatic"
         )
         scrollView.scrollerStyle = .overlay
         scrollView.layoutSubtreeIfNeeded()
@@ -5119,6 +5120,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let initialContentWidth = scrollView.contentSize.width
         XCTAssertEqual(initialSurfaceSize.width, initialContentWidth, accuracy: 0.5)
 
+        scrollView.showScrollBarsPreference = { "Always" }
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
         XCTAssertEqual(scrollView.scrollerStyle, .legacy)
@@ -5167,6 +5169,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             "Preferred scroller style changes should resize the terminal grid for a legacy scrollbar"
         )
 
+        scrollView.showScrollBarsPreference = { "Automatic" }
         scrollView.scrollerStyle = .overlay
         scrollView.layoutSubtreeIfNeeded()
         let overlayContentWidth = scrollView.contentSize.width

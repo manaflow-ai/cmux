@@ -10483,6 +10483,7 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
+        scrollView.resolveScrollerStyle()
         wantsLayer = true
         layer?.masksToBounds = true
 
@@ -10807,8 +10808,9 @@ final class GhosttySurfaceScrollView: NSView {
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScroller.preferredScrollerStyleDidChangeNotification,
             object: nil,
-            // Match AppKit's geometry change immediately so the terminal width
-            // does not stay stuck behind a legacy scrollbar gutter.
+            // Re-read "Show scroll bars" and match the geometry change
+            // immediately so the terminal width does not stay stuck behind a
+            // legacy scrollbar gutter.
             queue: nil
         ) { [weak self] _ in
             self?.handlePreferredScrollerStyleChange()
@@ -10867,6 +10869,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
+        // Deliberately the system's resolved style, as in upstream Ghostty:
+        // when AppKit would pick legacy (a mouse without a trackpad) the
+        // overlay scroller flashes on hover so it can be grabbed with the mouse.
         guard scrollView.hasVerticalScroller,
               NSScroller.preferredScrollerStyle == .legacy else { return }
         scrollView.flashScrollers()
@@ -13746,6 +13751,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        scrollView.resolveScrollerStyle()
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current

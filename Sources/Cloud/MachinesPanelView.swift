@@ -488,6 +488,7 @@ struct MachinesPanelView: View {
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged
             ),
+            showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest,
