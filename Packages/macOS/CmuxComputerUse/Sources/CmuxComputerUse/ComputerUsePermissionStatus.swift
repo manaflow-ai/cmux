@@ -31,6 +31,18 @@ public struct ComputerUsePermissionStatus: Equatable, Sendable {
         return Self.helperAttributions.contains(sourceAttribution)
     }
 
+    /// Whether the answering helper itself holds both grants; this is the
+    /// admission condition for its daemon profile.
+    public var grantsHeld: Bool {
+        isKnown && helperOwnsPermissions && accessibility && screenRecording
+    }
+
+    /// Whether the helper answered and denied a grant. An unanswered probe is
+    /// not evidence of revocation.
+    public var confirmsRevocation: Bool {
+        isKnown && !(accessibility && screenRecording)
+    }
+
     public init?(structuredContent: [String: Any]) {
         guard
             let accessibility = structuredContent["accessibility"] as? Bool,

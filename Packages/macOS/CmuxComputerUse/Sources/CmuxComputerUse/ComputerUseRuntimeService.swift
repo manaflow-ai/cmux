@@ -55,6 +55,9 @@ public final class ComputerUseRuntimeService {
     private let uptime: @MainActor () -> TimeInterval
     private var recoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.unknown
+    /// Grant state from the last status the native helper actually answered.
+    /// Unanswered probes leave it unchanged so they cannot mask a revocation.
+    private var lastAnsweredGrantsHeld: Bool?
     private var permissionRefreshGeneration = 0
     /// Durable setup evidence shared by Settings, onboarding, and daemon admission.
     public let onboarding: ComputerUseOnboardingStore
@@ -230,13 +233,14 @@ public final class ComputerUseRuntimeService {
         scheduleReadinessPublication()
     }
 
-    /// Whether setup evidence is still required before functional tools can run.
+    /// Whether the explicit setup milestone is incomplete. This drives
+    /// presentation only; daemon admission follows the helper's own grants.
     public var onboardingRequired: Bool { !permissionPhase.isReady }
 
     /// Whether organization policy disables Computer Use for this host.
     public var computerUseDisabledByPolicy: Bool { isDisabledByPolicy() }
 
-    /// Whether durable setup completion and both daemon publications are ready.
+    /// Whether durable setup completion is recorded for the enabled helper.
     public var onboardingIsComplete: Bool {
         onboarding.completionCommitted && desiredEnabled && onboarding.phase.isReady
     }
@@ -301,6 +305,7 @@ public final class ComputerUseRuntimeService {
                 _ = await self.stopDaemon()
             }
             cachedStatus = .unknown
+            lastAnsweredGrantsHeld = nil
         }
     }
 
@@ -362,11 +367,19 @@ public final class ComputerUseRuntimeService {
         if cachedStatus != previousStatus {
             onboarding.statusChanged()
         }
-        if cachedStatus.isKnown,
-           (!cachedStatus.accessibility || !cachedStatus.screenRecording),
+        // Only an answered status changes durable state or admission. An
+        // unanswered probe keeps both until the helper answers again.
+        if cachedStatus.confirmsRevocation,
            onboarding.completionCommitted || onboarding.phase.isReady
         {
             onboarding.invalidateCompletion()
+        }
+        if cachedStatus.isKnown,
+           cachedStatus.grantsHeld != lastAnsweredGrantsHeld
+        {
+            lastAnsweredGrantsHeld = cachedStatus.grantsHeld
+            // Granting or revoking in System Settings changes admission for
+            // the running generation; republish instead of waiting for setup.
             scheduleReadinessPublication()
         }
         return status()
@@ -1025,15 +1038,8 @@ public final class ComputerUseRuntimeService {
                 _ = await stopDaemon()
                 return
             }
-            guard await configureHostAuthority(for: profile) else {
-                _ = await stopDaemon()
-                return
-            }
-        }
-        // The first profile was configured while the second was still being
-        // launched. Revalidate both profiles together before opening either
-        // daemon's functional admission.
-        for profile in ComputerUseDaemonProfile.allCases {
+            // Each profile's admission depends only on its own grants, so it
+            // is published as soon as that profile is configured.
             guard await configureHostAuthority(for: profile) else {
                 _ = await stopDaemon()
                 return
@@ -1214,52 +1220,47 @@ public final class ComputerUseRuntimeService {
         guard await configureStateAuthentication(for: profile) else {
             return false
         }
-        let validation = await validateHelperProfilesForAdmission()
-        guard validation.listening else {
-            return await publishExternalPermissionReadiness(
-                for: profile, readyOverride: false
-            )
-        }
-        guard validation.permissions else {
-            if onboarding.completionCommitted || onboarding.phase.isReady {
-                onboarding.invalidateCompletion()
-            }
-            return await publishExternalPermissionReadiness(
-                for: profile, readyOverride: false
-            )
-        }
-        onboarding.statusChanged()
         return await publishExternalPermissionReadiness(for: profile)
     }
 
-    private func validateHelperProfilesForAdmission() async -> (
-        listening: Bool,
-        permissions: Bool
-    ) {
-        for profile in ComputerUseDaemonProfile.allCases {
-            guard await Self.isDaemonListening(
-                paths: paths,
-                transport: transport,
-                socketURL: socketURL(for: profile)
-            ), let peer = processIdentity(for: profile),
-                let status = await daemonAdmission.permissionStatus(
-                    at: socketURL(for: profile), peer: peer
-                ) else {
-                return (false, false)
-            }
-            guard status.helperOwnsPermissions,
-                  status.accessibility,
-                  status.screenRecording else {
-                return (true, false)
-            }
-            if profile == .native { cachedStatus = status }
+    /// Publishes one profile's admission from that profile's own helper-owned
+    /// grants. Neither the other profile nor the durable onboarding record is
+    /// an input, so a new helper generation is admitted without any UI step.
+    func publishExternalPermissionReadiness(
+        for profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        let outcome = await profileAdmission.admit(profile)
+        if profile == .native, let status = outcome.status {
+            cachedStatus = status
+            lastAnsweredGrantsHeld = status.grantsHeld
         }
-        return (true, true)
+        onboarding.statusChanged()
+        return outcome.acknowledged
     }
 
-    func publishExternalPermissionReadiness(
-        for profile: ComputerUseDaemonProfile,
-        readyOverride: Bool? = nil
+    /// Per-profile admission over this runtime's authenticated daemon sockets.
+    var profileAdmission: ComputerUseProfileAdmissionCoordinator {
+        ComputerUseProfileAdmissionCoordinator(
+            store: onboarding,
+            isEnabled: {
+                self.desiredEnabled && self.acceptsNewLaunches && !self.isDisabledByPolicy()
+            },
+            probe: { profile in
+                guard let peer = self.processIdentity(for: profile),
+                      AgentPIDProcessIdentity(pid: peer.pid) == peer else { return nil }
+                return await self.daemonAdmission.permissionStatus(
+                    at: self.socketURL(for: profile), peer: peer
+                )
+            },
+            publish: { profile, ready in
+                await self.sendExternalPermissionReadiness(ready, for: profile)
+            }
+        )
+    }
+
+    private func sendExternalPermissionReadiness(
+        _ ready: Bool,
+        for profile: ComputerUseDaemonProfile
     ) async -> Bool {
         guard
             let runningIdentity = processIdentity(for: profile),
@@ -1268,7 +1269,6 @@ public final class ComputerUseRuntimeService {
         else {
             return false
         }
-        let ready = readyOverride ?? (desiredEnabled && onboarding.phase.isReady && onboarding.completionCommitted)
         guard let response = await Self.sendDaemonRequest(
             [
                 "method": "set_external_permission_ready",
@@ -1422,6 +1422,7 @@ public final class ComputerUseRuntimeService {
         try? FileManager.default.removeItem(at: paths.daemonSocketURL)
         try? FileManager.default.removeItem(at: paths.codexDaemonSocketURL)
         cachedStatus = .unknown
+        lastAnsweredGrantsHeld = nil
     }
 
     @discardableResult

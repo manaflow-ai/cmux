@@ -1,4 +1,7 @@
-/// The host-authoritative permission phase for the standalone Computer Use helper.
+/// The host-owned setup presentation phase for the standalone Computer Use helper.
+///
+/// Daemon admission does not read this phase; it follows the helper's own
+/// grants per profile (see `ComputerUseProfileAdmissionCoordinator`).
 public enum ComputerUseRuntimePermissionPhase: Equatable, Sendable {
     /// Computer Use is disabled; the associated value preserves verified setup.
     case disabled(onboardingComplete: Bool)
