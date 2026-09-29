@@ -550,15 +550,18 @@ mod tests {
         let mut state = mux.state.lock().unwrap().clone();
         let projection =
             mux.resource_effect_projection_locked(&registry, &mut state, json!({})).unwrap();
-        // The journal's pruned public changes, folded, state exactly the
-        // values a full projection publishes now.
+        // Every value the journal states (its pruned public changes, folded)
+        // equals what a full projection publishes now; a pruned upsert is
+        // therefore a no-op for every consumer. An unstated resource is
+        // simply published again.
         for change in projection.changes.as_array().unwrap() {
             if change["kind"] != "upsert" {
                 continue;
             }
-            let (resource, id) = (change["resource"].as_str().unwrap(), change["id"].as_str().unwrap());
-            if let Some(stated) = registry.stated_topology_value_for_test(resource, id) {
-                assert_eq!(stated.as_ref(), Some(&change["value"]), "journal states a stale {resource} {id}");
+            let resource = change["resource"].as_str().unwrap();
+            let id = change["id"].as_str().unwrap();
+            if let Some(Some(stated)) = registry.stated_topology_value_for_test(resource, id) {
+                assert_eq!(stated, change["value"], "journal states a stale {resource} {id}");
             }
         }
         let snapshot = registry.resource_topology_snapshot().unwrap();
