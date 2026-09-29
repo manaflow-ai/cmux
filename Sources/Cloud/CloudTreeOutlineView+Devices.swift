@@ -14,11 +14,7 @@ struct CloudTreeRevealRequest: Equatable {
     }
 
     func path(in nodes: [CloudTreeNode]) -> [CloudTreeNode]? {
-        for node in nodes {
-            if node.id == nodeID { return [node] }
-            if let descendants = path(in: node.children) { return [node] + descendants }
-        }
-        return nil
+        CloudTreeNode.path(to: nodeID, in: nodes)
     }
 }
 
