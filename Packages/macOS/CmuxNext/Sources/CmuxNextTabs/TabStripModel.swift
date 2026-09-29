@@ -17,6 +17,8 @@ public final class TabStripModel {
     /// Identifies this strip in cross-strip drags.
     public let stripID: UUID
     public var tabs: [TabItem]
+    /// Groups of this strip. Members reference them through `TabItem.groupID`.
+    public var groups: [TabGroupItem]
     public var selectedID: TabID?
     public var style: TabStripStyle
     public var showsNewTabButton: Bool
@@ -27,24 +29,37 @@ public final class TabStripModel {
     public init(
         stripID: UUID = UUID(),
         tabs: [TabItem] = [],
+        groups: [TabGroupItem] = [],
         selectedID: TabID? = nil,
         style: TabStripStyle = .chrome,
         showsNewTabButton: Bool = true
     ) {
         self.stripID = stripID
         self.tabs = tabs
+        self.groups = groups
         self.selectedID = selectedID
         self.style = style
         self.showsNewTabButton = showsNewTabButton
     }
 
-    /// Display order: pinned tabs first, each group in `tabs` order.
+    /// Display order: pinned tabs first, then unpinned tabs in `tabs` order
+    /// with each group's members gathered at its first member. `groupID` is
+    /// cleared on pinned tabs and on tabs whose group is unknown.
     public var orderedTabs: [TabItem] {
-        Self.pinnedFirst(tabs)
+        TabGroupOrdering.normalized(tabs, groups: Set(groups.map(\.id)))
     }
 
     public func tab(_ id: TabID) -> TabItem? {
         tabs.first { $0.id == id }
+    }
+
+    public func group(_ id: TabGroupID) -> TabGroupItem? {
+        groups.first { $0.id == id }
+    }
+
+    /// Members of `group` in display order.
+    public func members(of group: TabGroupID) -> [TabItem] {
+        orderedTabs.filter { $0.groupID == group }
     }
 
     public func send(_ intent: TabStripIntent) {

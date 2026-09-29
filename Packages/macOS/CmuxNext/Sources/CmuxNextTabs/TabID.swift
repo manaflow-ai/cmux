@@ -1,7 +1,7 @@
 import Foundation
 
 /// Stable identity of one tab. The App layer uses the daemon's tab id.
-public struct TabID: Hashable, Sendable, Codable, CustomStringConvertible, ExpressibleByStringLiteral {
+public nonisolated struct TabID: Hashable, Sendable, Codable, CustomStringConvertible, ExpressibleByStringLiteral {
     public var rawValue: String
 
     public init(_ rawValue: String) {

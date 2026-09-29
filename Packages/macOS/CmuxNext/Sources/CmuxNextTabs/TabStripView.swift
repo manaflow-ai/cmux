@@ -44,6 +44,11 @@ public final class TabStripView: NSView {
     /// Dragging empty strip space moves the window (titlebar strips).
     public var dragsWindowFromEmptySpace = true
 
+    /// Builds right-click menus from the App's action registry. With no
+    /// provider (or a nil menu for a chip), right-clicking a chip opens the
+    /// group editor bubble, as in Chrome.
+    public var contextMenuProvider: TabContextMenuProvider?
+
     // MARK: Views
 
     var glassView: NSGlassEffectView?
@@ -52,6 +57,7 @@ public final class TabStripView: NSView {
     let fadeMask = CAGradientLayer()
     let newTabButton = NewTabButtonView()
     let hoverCard = TabHoverCardController()
+    let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
 
     // MARK: Layout and animation state
@@ -76,7 +82,10 @@ public final class TabStripView: NSView {
         }
     }
 
-    var tabViews: [TabID: TabView] = [:]
+    /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
+    var cells: [TabID: TabCell] = [:]
+    /// Group chips, bands, drag, and optimistic membership.
+    var groups = TabStripGroupState()
     var motion: [TabID: Motion] = [:]
     var dying: Set<TabID> = []
     /// Tabs in visual order, excluding dying and torn-out tabs.
@@ -115,6 +124,8 @@ public final class TabStripView: NSView {
         var currentIndex: Int
         var isPinned: Bool
         var lastPoint: CGPoint
+        var originalGroup: TabGroupID?
+        var targetGroup: TabGroupID?
     }
 
     var press: Press?
@@ -131,6 +142,8 @@ public final class TabStripView: NSView {
     var escapeMonitor: Any?
     /// A dropped tab keeps the placeholder's geometry when it arrives.
     var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?
+    /// Group the phantom gap belongs to (a dropped tab would join it).
+    var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
 
     // MARK: - Init
@@ -160,6 +173,7 @@ public final class TabStripView: NSView {
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
+        groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
 
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
@@ -186,7 +200,16 @@ public final class TabStripView: NSView {
     }
 
     public override func accessibilityChildren() -> [Any]? {
-        displayed.compactMap { tabViews[$0.id] } + (newTabButton.isHidden ? [] : [newTabButton])
+        var children: [Any] = []
+        for slot in result.slots where !slot.isCollapsed {
+            if let group = slot.id.chipGroupID, let chip = groups.chips[group] {
+                children.append(chip.accessibility)
+            } else if let cell = cells[slot.id] {
+                children.append(cell.accessibility)
+            }
+        }
+        if !newTabButton.isHidden { children.append(newTabButton) }
+        return children
     }
 
     // MARK: - Lifecycle
@@ -207,8 +230,36 @@ public final class TabStripView: NSView {
             displayLink = nil
             lastFrameTime = nil
             hoverCard.hide(allowsQuickReshow: false)
+            groupEditor.hide()
+            groups.holdTask?.cancel()
             removeEscapeMonitor()
         }
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyAppearance()
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        applyAppearance()
+        applyFrames()
+    }
+
+    /// Layers do not inherit the view's appearance or scale; push both.
+    func applyAppearance() {
+        let appearance = effectiveAppearance
+        let scale = window?.backingScaleFactor ?? 2
+        for cell in cells.values {
+            cell.appearance = appearance
+            cell.scale = scale
+        }
+        for chip in groups.chips.values {
+            chip.appearance = appearance
+            chip.scale = scale
+        }
+        for band in groups.bands.values { band.appearance = appearance }
     }
 
     func startObserving() {
@@ -216,7 +267,13 @@ public final class TabStripView: NSView {
         let model = model
         observationTask = Task { [weak self] in
             let changes = Observations {
-                ModelSnapshot(tabs: model.tabs, selectedID: model.selectedID, style: model.style, showsNewTabButton: model.showsNewTabButton)
+                ModelSnapshot(
+                    tabs: model.tabs,
+                    groups: model.groups,
+                    selectedID: model.selectedID,
+                    style: model.style,
+                    showsNewTabButton: model.showsNewTabButton
+                )
             }
             for await _ in changes {
                 guard let self else { return }
@@ -247,17 +304,22 @@ public final class TabStripView: NSView {
     }
 
     /// Current tab title font size, for change detection.
-    var tabTitleFontSize: CGFloat { tabViews.values.first?.titleFont.pointSize ?? Typography.body.pointSize }
+    var tabTitleFontSize: CGFloat { cells.values.first?.titleFont.pointSize ?? Typography.body.pointSize }
 
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
         hoverCard.metrics = metrics
         hoverCard.tokensChanged()
         let font = Typography.body
-        for view in tabViews.values {
-            view.metrics = metrics
-            view.titleFont = font
+        for cell in cells.values {
+            cell.metrics = metrics
+            cell.titleFont = font
         }
+        for chip in groups.chips.values {
+            chip.metrics = metrics
+            chip.font = Typography.caption
+        }
+        groupEditor.hide()
         newTabButton.needsLayout = true
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
@@ -269,6 +331,7 @@ public final class TabStripView: NSView {
 
     struct ModelSnapshot: Sendable {
         var tabs: [TabItem]
+        var groups: [TabGroupItem]
         var selectedID: TabID?
         var style: TabStripStyle
         var showsNewTabButton: Bool

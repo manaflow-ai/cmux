@@ -11,6 +11,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// Replaces the icon with a spinner (process running, page loading).
     public var isBusy: Bool
     public var status: TabStatus
+    /// Group this tab belongs to. Ignored for pinned tabs (Chrome rule) and
+    /// for ids missing from `TabStripModel.groups`.
+    public var groupID: TabGroupID?
 
     public init(
         id: TabID,
@@ -20,7 +23,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         isPinned: Bool = false,
         isUnread: Bool = false,
         isBusy: Bool = false,
-        status: TabStatus = .none
+        status: TabStatus = .none,
+        groupID: TabGroupID? = nil
     ) {
         self.id = id
         self.title = title
@@ -30,5 +34,6 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         self.isUnread = isUnread
         self.isBusy = isBusy
         self.status = status
+        self.groupID = groupID
     }
 }

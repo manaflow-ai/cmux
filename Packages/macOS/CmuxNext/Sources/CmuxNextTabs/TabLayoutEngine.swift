@@ -18,11 +18,14 @@ public enum TabLayoutEngine {
         let available = max(0, min(availableWidth, closingModeWidth ?? .infinity))
         let pinnedCount = items.count(where: \.isPinned)
         let unpinned = items.filter { !$0.isPinned }
+        // Chips and collapsed members have their own widths; the rest share.
+        let flexible = unpinned.filter { $0.fixedWidth == nil && !$0.isCollapsed }
+        let fixedTotal = unpinned.reduce(CGFloat(0)) { $0 + ($1.isCollapsed ? 0 : ($1.fixedWidth ?? 0)) }
         let gap = (pinnedCount > 0 && !unpinned.isEmpty) ? metrics.pinnedGroupGap : 0
         let pinnedTotal = CGFloat(pinnedCount) * metrics.pinnedTabWidth + gap
-        let unpinnedWidths = unpinnedTabWidths(
-            unpinned,
-            available: max(0, available - pinnedTotal),
+        let flexibleWidths = unpinnedTabWidths(
+            flexible,
+            available: max(0, available - pinnedTotal - fixedTotal),
             style: style,
             metrics: metrics
         )
@@ -30,25 +33,37 @@ public enum TabLayoutEngine {
         var slots: [TabLayoutSlot] = []
         slots.reserveCapacity(items.count)
         var x: CGFloat = 0
-        var unpinnedIndex = 0
+        var flexibleIndex = 0
         var previousWasPinned = false
         for item in items {
             if !item.isPinned, previousWasPinned { x += metrics.pinnedGroupGap }
             let width: CGFloat
             if item.isPinned {
                 width = metrics.pinnedTabWidth
+            } else if item.isCollapsed {
+                width = 0
+            } else if let fixed = item.fixedWidth {
+                width = fixed
             } else {
-                width = unpinnedWidths.widths[unpinnedIndex]
-                unpinnedIndex += 1
+                width = flexibleWidths.widths[flexibleIndex]
+                flexibleIndex += 1
             }
-            slots.append(TabLayoutSlot(id: item.id, x: x, width: width, isPinned: item.isPinned))
+            slots.append(TabLayoutSlot(
+                id: item.id,
+                x: x,
+                width: width,
+                isPinned: item.isPinned,
+                groupID: item.groupID,
+                isGroupChip: item.isGroupChip,
+                isCollapsed: item.isCollapsed
+            ))
             x += width
             previousWasPinned = item.isPinned
         }
         return TabLayoutResult(
             slots: slots,
             contentWidth: x,
-            standardWidth: unpinnedWidths.standard,
+            standardWidth: flexibleWidths.standard,
             availableWidth: available
         )
     }

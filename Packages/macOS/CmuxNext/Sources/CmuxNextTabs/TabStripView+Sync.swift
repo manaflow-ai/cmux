@@ -1,27 +1,39 @@
 import AppKit
 import CmuxNextDesign
 import QuartzCore
-// Model sync: diffs `TabStripModel` into tab views and spring targets.
+// Model sync: diffs `TabStripModel` into tab cells and spring targets.
 extension TabStripView {
     // MARK: - Model sync
 
     func sync(fromModel: Bool) {
         let modelOrdered = model.orderedTabs
+        groups.byID = Dictionary(model.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if fromModel {
             let order = modelOrdered.map(\.id)
-            if order != lastModelOrder {
-                // The App applied (or overrode) our reorder, or tabs came and went.
+            let membership = modelOrdered.map(\.groupID)
+            if order != lastModelOrder || membership != groups.lastMembership {
+                // The App applied (or overrode) our change, or tabs came and went.
                 orderOverride = nil
+                groups.membershipOverride = [:]
                 if let detachedID, !order.contains(detachedID) { self.detachedID = nil }
+                if let detached = groups.detachedGroupID, !membership.contains(detached) { groups.detachedGroupID = nil }
                 if let pendingDrop, !order.contains(pendingDrop.id) {
                     self.pendingDrop = nil
                     dropPlaceholderIndex = nil
                 }
                 lastModelOrder = order
+                groups.lastMembership = membership
             }
         }
 
-        var ordered = modelOrdered.filter { $0.id != detachedID }
+        var ordered = modelOrdered.filter { tab in
+            tab.id != detachedID && (tab.groupID == nil || tab.groupID != groups.detachedGroupID)
+        }
+        if !groups.membershipOverride.isEmpty {
+            for index in ordered.indices {
+                if let group = groups.membershipOverride[ordered[index].id] { ordered[index].groupID = group }
+            }
+        }
         if let override = orderOverride {
             if Set(override) == Set(ordered.map(\.id)) {
                 let byID = Dictionary(uniqueKeysWithValues: ordered.map { ($0.id, $0) })
@@ -33,13 +45,13 @@ extension TabStripView {
 
         let animated = hasSynced && !reduceMotion
         let ids = Set(ordered.map(\.id))
-        for (id, view) in tabViews where !ids.contains(id) && !dying.contains(id) {
+        for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) {
             if animated {
                 dying.insert(id)
                 motion[id]?.width.target = 0
                 motion[id]?.alpha.target = 0
-                view.showsSeparator = false
-                view.isHovered = false
+                cell.showsSeparator = false
+                cell.isHovered = false
             } else {
                 removeTab(id)
             }
@@ -47,38 +59,30 @@ extension TabStripView {
 
         var added: Set<TabID> = []
         for item in ordered {
-            if let view = tabViews[item.id] {
+            if let cell = cells[item.id] {
                 dying.remove(item.id)
-                view.update(item: item)
+                cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
             } else {
-                let view = TabView(item: item)
-                view.style = model.style
-                view.metrics = metrics
-                view.titleFont = Typography.body
-                let id = item.id
-                view.onAccessibilityPress = { [weak self] in self?.model.send(.select(id)) }
-                view.onAccessibilityClose = { [weak self] in self?.close(id, source: .accessibility) }
-                tabsClip.addSubview(view)
-                tabViews[id] = view
-                motion[id] = Motion(x: 0, width: 0, alpha: animated ? 0 : 1)
-                added.insert(id)
+                added.insert(makeCell(item, animated: animated))
             }
         }
+        added.formUnion(syncChips(ordered, animated: animated))
         if hasSynced, !added.isEmpty { closingModeWidth = nil }
 
         if pendingDrop.map({ ids.contains($0.id) }) == true {
             dropPlaceholderIndex = nil
+            dropPlaceholderGroup = nil
         }
 
         displayed = ordered
         let styleChanged = lastStyle != nil && lastStyle != model.style
         lastStyle = model.style
         for item in displayed {
-            let view = tabViews[item.id]
-            view?.isSelected = item.id == model.selectedID
-            view?.style = model.style
+            let cell = cells[item.id]
+            cell?.isSelected = item.id == model.selectedID
+            cell?.style = model.style
         }
         if newTabButton.isHidden == model.showsNewTabButton {
             newTabButton.isHidden = !model.showsNewTabButton
@@ -92,21 +96,57 @@ extension TabStripView {
             reveal(selected, animated: animated)
         }
         lastSelectedID = selected
+        refreshHoverCard()
+        hasSynced = true
+    }
 
+    /// Creates the layers for a new tab and returns its id.
+    func makeCell(_ item: TabItem, animated: Bool) -> TabID {
+        let cell = TabCell(item: item)
+        cell.style = model.style
+        cell.metrics = metrics
+        cell.titleFont = Typography.body
+        cell.appearance = effectiveAppearance
+        cell.scale = window?.backingScaleFactor ?? 2
+        let id = item.id
+        cell.accessibility.setAccessibilityParent(self)
+        cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }
+        cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
+        tabsClip.layer?.addSublayer(cell.layer)
+        cells[id] = cell
+        motion[id] = Motion(x: 0, width: 0, alpha: animated ? 0 : 1)
+        return id
+    }
+
+    func refreshHoverCard() {
         if let hoveredID {
             if let item = model.tab(hoveredID) {
-                hoverCard.refresh(item)
+                hoverCard.refresh(.tab(item))
             } else {
                 setHovered(nil)
                 hoverCard.hide()
             }
         }
-        hasSynced = true
+        if let chip = groups.hoveredChip {
+            if let group = groups.byID[chip] {
+                hoverCard.refresh(groupHoverContent(group))
+            } else {
+                setHoveredChip(nil)
+                hoverCard.hide()
+            }
+        }
+        if let shown = groupEditor.shownGroupID {
+            if let group = groups.byID[shown] { groupEditor.update(group: group) } else { groupEditor.hide() }
+        }
     }
 
     func removeTab(_ id: TabID) {
-        tabViews[id]?.removeFromSuperview()
-        tabViews[id] = nil
+        if let group = id.chipGroupID {
+            removeChip(group)
+            return
+        }
+        cells[id]?.layer.removeFromSuperlayer()
+        cells[id] = nil
         motion[id] = nil
         dying.remove(id)
         if hoveredID == id { hoveredID = nil }

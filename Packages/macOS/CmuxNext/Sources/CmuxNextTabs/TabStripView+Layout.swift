@@ -6,16 +6,42 @@ extension TabStripView {
     // MARK: - Layout
 
     func layoutItems() -> [TabLayoutItem] {
-        var items = displayed.map { TabLayoutItem(id: $0.id, isPinned: $0.isPinned, isSelected: $0.id == model.selectedID) }
-        if let drag, let from = items.firstIndex(where: { $0.id == drag.id }) {
-            let item = items.remove(at: from)
-            items.insert(item, at: min(max(drag.currentIndex, 0), items.count))
+        var tabs = displayed
+        if let drag, let from = tabs.firstIndex(where: { $0.id == drag.id }) {
+            var item = tabs.remove(at: from)
+            item.groupID = drag.targetGroup
+            tabs.insert(item, at: min(max(drag.currentIndex, 0), tabs.count))
         }
+        if let groupDrag = groups.drag {
+            let members = tabs.filter { groupDrag.memberIDs.contains($0.id) }
+            tabs.removeAll { groupDrag.memberIDs.contains($0.id) }
+            tabs.insert(contentsOf: members, at: min(max(groupDrag.currentTabIndex, 0), tabs.count))
+        }
+        var items = TabGroupOrdering.layoutItems(tabs, groups: groups.byID, selectedID: model.selectedID, chipWidths: groups.chipWidths())
         if let index = dropPlaceholderIndex {
-            let pinnedCount = items.count(where: \.isPinned)
-            items.insert(TabLayoutItem(id: Self.placeholderID), at: min(max(index, pinnedCount), items.count))
+            let pinnedCount = tabs.count(where: \.isPinned)
+            let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: dropPlaceholderGroup, fixedWidth: groups.phantomWidth)
+            Self.insertPlaceholder(placeholder, atTabIndex: max(index, pinnedCount), into: &items)
         }
         return items
+    }
+
+    /// Inserts a drop gap before the `tabIndex`-th tab of `items`. The gap
+    /// goes before that tab's chip unless it joins that tab's group.
+    static func insertPlaceholder(_ placeholder: TabLayoutItem, atTabIndex tabIndex: Int, into items: inout [TabLayoutItem]) {
+        var seen = 0
+        var position = items.count
+        for (offset, item) in items.enumerated() where !item.isGroupChip {
+            if seen == tabIndex {
+                position = offset
+                break
+            }
+            seen += 1
+        }
+        if position > 0, items[position - 1].isGroupChip, items[position - 1].groupID != placeholder.groupID {
+            position -= 1
+        }
+        items.insert(placeholder, at: position)
     }
 
     func relayout(animated: Bool, added: Set<TabID> = []) {
@@ -37,9 +63,11 @@ extension TabStripView {
                     m = Motion(x: slot.x, width: animated ? 0 : slot.width, alpha: animated ? 0 : 1)
                 }
             }
-            if drag?.id != slot.id { m.x.target = slot.x }
+            if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
+            if groups.isDragged(slot.id) { m.x.snap() }
             m.width.target = slot.width
-            m.alpha.target = 1
+            // Members of a collapsed group shrink into the chip and fade.
+            m.alpha.target = slot.isCollapsed ? 0 : 1
             if !animated { m.snap() }
             motion[slot.id] = m
         }
@@ -67,19 +95,21 @@ extension TabStripView {
     }
 
     func updateSeparators() {
-        let slots = result.slots
+        let slots = result.slots.filter { $0.width > 0.5 || !$0.isCollapsed }
         let selected = model.selectedID
-        func emphasized(_ id: TabID) -> Bool {
-            id == selected || id == hoveredID || id == drag?.id || id == Self.placeholderID
+        func emphasized(_ slot: TabLayoutSlot) -> Bool {
+            let id = slot.id
+            return id == selected || id == hoveredID || id == drag?.id || id == Self.placeholderID || slot.isGroupChip || slot.isCollapsed
         }
         for (index, slot) in slots.enumerated() {
-            guard let view = tabViews[slot.id] else { continue }
+            guard let cell = cells[slot.id] else { continue }
             guard index + 1 < slots.count else {
-                view.showsSeparator = false
+                cell.showsSeparator = false
                 continue
             }
             let next = slots[index + 1]
-            view.showsSeparator = !emphasized(slot.id) && !emphasized(next.id) && slot.isPinned == next.isPinned
+            cell.showsSeparator = !emphasized(slot) && !emphasized(next) && slot.isPinned == next.isPinned
+                && slot.groupID == next.groupID
         }
     }
 
@@ -93,19 +123,20 @@ extension TabStripView {
         let scale = window?.backingScaleFactor ?? 2
         func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
         var trailing: CGFloat = 0
-        for (id, view) in tabViews {
+        for (id, cell) in cells {
             guard let m = motion[id] else { continue }
             let width = max(0, m.width.value)
             let minX = pixel(m.x.value - offset)
-            let frame = CGRect(x: minX, y: tabY, width: pixel(m.x.value - offset + width) - minX, height: tabHeight)
-            if view.frame != frame {
-                let resized = view.frame.size != frame.size
-                view.frame = frame
-                if resized { view.layoutLayers() }
-            }
-            view.layer?.opacity = Float(min(max(m.alpha.value, 0), 1))
+            cell.frame = CGRect(x: minX, y: tabY, width: pixel(m.x.value - offset + width) - minX, height: tabHeight)
+            cell.layer.opacity = Float(min(max(m.alpha.value, 0), 1))
+            cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self))
             trailing = max(trailing, m.x.value + width)
         }
+        for group in groups.chips.keys {
+            guard let m = motion[.groupChip(group)] else { continue }
+            trailing = max(trailing, m.x.value + max(0, m.width.value))
+        }
+        applyGroupFrames(offset: offset, tabY: tabY, tabHeight: tabHeight, pixel: pixel)
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         newTabButton.frame = CGRect(x: pixel(buttonX), y: tabY, width: buttonWidth, height: tabHeight)
@@ -151,7 +182,7 @@ extension TabStripView {
         var active = false
         for id in Array(motion.keys) {
             guard var m = motion[id] else { continue }
-            if drag?.id == id { m.x.snap() }
+            if drag?.id == id || groups.isDragged(id) { m.x.snap() }
             m.x.step(dt)
             m.width.step(dt)
             m.alpha.step(dt)
@@ -166,7 +197,7 @@ extension TabStripView {
         scroll.step(dt)
         if !scroll.isSettled { active = true }
         applyFrames()
-        if drag == nil, pressedCloseID == nil, let window {
+        if drag == nil, groups.drag == nil, pressedCloseID == nil, let window {
             // Tabs sliding under a still pointer update hover, as in Chrome.
             let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
             if bounds.contains(point) { updateHover(at: point) }
