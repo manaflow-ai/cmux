@@ -1940,12 +1940,26 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func shortcutHintPillAppearsWithoutFadeIn() {
+    func shortcutHintPillFadesIn() {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
 
         pill.configure(text: "⌘1", fontSize: 9, emphasis: 1, colorScheme: .dark)
 
         #expect(!pill.isHidden)
+        #expect(pill.layer?.opacity == 1)
+        let fadeIn = (pill.layer?.animationKeys() ?? []).compactMap {
+            pill.layer?.animation(forKey: $0) as? CABasicAnimation
+        }.first { $0.keyPath == "opacity" }
+        #expect((fadeIn?.fromValue as? Float) == 0)
+        #expect((fadeIn?.toValue as? Float) == 1)
+    }
+
+    @Test
+    func shortcutHintPillAppearsAtOnceUnderReduceMotion() {
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { true })
+
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1, colorScheme: .dark)
+
         #expect(pill.layer?.opacity == 1)
         #expect((pill.layer?.animationKeys() ?? []).isEmpty)
     }
