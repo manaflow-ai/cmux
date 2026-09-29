@@ -33,6 +33,15 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         didAccept: { [weak self] in self?.publish() }
     )
     private var restoreTasks: [UUID: Task<Void, Never>] = [:]
+    /// This device's notification sync: feed rows in, local notifications and
+    /// `notification.feed.mark_read` round trips out.
+    var notificationSync: CloudNotificationSync?
+    /// The last accepted `notification.feed.list` reply.
+    var notificationFeed = DeviceNotificationFeed()
+    var notificationFeedTask: Task<Void, Never>?
+    /// A feed change arrived while a fetch was in flight; fetch once more.
+    var notificationFeedRefetch = false
+    var notificationPlacementObserver: (any NSObjectProtocol)?
 
     var machine: SurfaceMachineID { .device(instance) }
     var supportsPortPreviews: Bool { false }
@@ -44,6 +53,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         self.catalog = catalog
         link.onChange = { [weak self] in self?.publish() }
         link.onLayoutChange = { [weak self] snapshot in self?.layoutSync.accept(snapshot) }
+        link.onNotificationFeedChange = { [weak self] in self?.notificationFeedDidChange() }
+        installNotificationSync()
     }
 
     func update(record: DeviceDirectoryRecord) {
@@ -72,6 +83,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         for session in sessions.values { session.stop() }
         sessions.removeAll()
         layoutSync.stop()
+        stopNotificationSync()
         link.stop()
     }
 

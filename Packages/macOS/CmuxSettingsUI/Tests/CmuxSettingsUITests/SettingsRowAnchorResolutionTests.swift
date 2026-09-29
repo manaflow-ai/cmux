@@ -188,7 +188,6 @@ struct SettingsRowAnchorResolutionTests {
         "setting:computers:incoming-access",
         "setting:computers:discovery",
         "setting:betaFeatures:feed",
-        "setting:betaFeatures:dock",
         "setting:betaFeatures:cloudMachines",
         "setting:betaFeatures:customSidebars",
         "setting:betaFeatures:remoteTmux",
