@@ -16,6 +16,18 @@ struct AgentFeedRowModel: Identifiable, Equatable, Sendable {
 
     var id: MobileAgentFeedItemID { item.id }
 
+    /// Whether the row has content or an inline control beyond its metadata.
+    /// Metadata-only events are not useful Feed entries and render as empty
+    /// rows when an older Mac sends a sparse event.
+    var hasVisibleContent: Bool {
+        presentation.quotedUserMessage != nil
+            || presentation.outputText != nil
+            || presentation.toolLine != nil
+            || presentation.resolutionLabel != nil
+            || item.needsInput
+            || item.supportsTerminalReply
+    }
+
     /// `presentation` is a pure derivation of `item`.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.item == rhs.item

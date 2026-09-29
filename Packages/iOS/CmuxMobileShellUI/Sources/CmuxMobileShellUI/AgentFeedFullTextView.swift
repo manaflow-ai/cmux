@@ -16,7 +16,7 @@ struct AgentFeedFullTextView: View {
         NavigationStack {
             Group {
                 if let text {
-                    ChatArtifactEmbeddedMarkdown(markdown: text)
+                    ChatArtifactEmbeddedMarkdown(markdown: text, rendering: .native)
                         .accessibilityIdentifier("MobileAgentFeedFullTextBody")
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 } else {

@@ -115,48 +115,43 @@ struct AgentFeedReplyComposer: View {
                     }
                 }
                 if let output = model.presentation.outputText {
-                    AgentFeedMarkdownText(
-                        markdown: expandedFullText ?? output,
-                        font: .subheadline,
-                        color: .secondary,
-                        lineLimit: expandedFullText == nil ? 6 : nil
-                    )
-                    .fixedSize(horizontal: false, vertical: true)
-                    if expandedFullText == nil, model.item.fullTextTruncated || fullTextLoadFailed {
+                    if let expandedFullText {
+                        AgentFeedMarkdownText(
+                            markdown: expandedFullText,
+                            font: .subheadline,
+                            color: .secondary,
+                            lineLimit: nil
+                        )
+                        .fixedSize(horizontal: false, vertical: true)
+                    } else if isLoadingFullText {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
+                    } else if fullTextLoadFailed {
                         Button {
-                            guard !isLoadingFullText else { return }
-                            isLoadingFullText = true
-                            fullTextLoadFailed = false
-                            let item = context.item
-                            Task {
-                                defer { isLoadingFullText = false }
-                                do {
-                                    expandedFullText = try await actions.loadFullText(item)
-                                } catch {
-                                    fullTextLoadFailed = true
-                                }
-                            }
+                            startFullTextLoad()
                         } label: {
-                            if isLoadingFullText {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Text(fullTextLoadFailed
-                                    ? String(
-                                        localized: "mobile.agentFeed.compose.fullTextRetry",
-                                        defaultValue: "Couldn't load the full message. Try again",
-                                        bundle: .module
-                                    )
-                                    : String(
-                                        localized: "mobile.agentFeed.fullText.seeMore",
-                                        defaultValue: "See more",
-                                        bundle: .module
-                                    ))
-                                    .font(.footnote.weight(.medium))
-                            }
+                            Text(String(
+                                localized: "mobile.agentFeed.compose.fullTextRetry",
+                                defaultValue: "Couldn't load the full message. Try again",
+                                bundle: .module
+                            ))
+                            .font(.footnote.weight(.medium))
                         }
                         .buttonStyle(.borderless)
                         .accessibilityIdentifier("MobileAgentFeedComposeSeeMore")
                         .padding(.top, 2)
+                    } else {
+                        AgentFeedInlineText(
+                            text: output,
+                            hasMoreText: model.item.fullTextTruncated,
+                            lineLimit: 6,
+                            itemID: "compose-\(model.item.itemID)",
+                            moreButtonAccessibilityIdentifier: "MobileAgentFeedComposeSeeMore",
+                            textStyle: .subheadline,
+                            color: .secondaryLabel,
+                            open: startFullTextLoad
+                        )
                     }
                 }
                 Text(replyingToLine)
@@ -234,6 +229,21 @@ struct AgentFeedReplyComposer: View {
                 defaultValue: "What should change?",
                 bundle: .module
             )
+        }
+    }
+
+    private func startFullTextLoad() {
+        guard !isLoadingFullText else { return }
+        isLoadingFullText = true
+        fullTextLoadFailed = false
+        let item = context.item
+        Task {
+            defer { isLoadingFullText = false }
+            do {
+                expandedFullText = try await actions.loadFullText(item)
+            } catch {
+                fullTextLoadFailed = true
+            }
         }
     }
 

@@ -12,6 +12,7 @@ struct AgentFeedInlineText: UIViewRepresentable {
     let hasMoreText: Bool
     let lineLimit: Int
     let itemID: String
+    var moreButtonAccessibilityIdentifier: String? = nil
     var textStyle: UIFont.TextStyle = .subheadline
     var monospaced = false
     var color: UIColor = .label
@@ -27,7 +28,8 @@ struct AgentFeedInlineText: UIViewRepresentable {
         _ = dynamicTypeSize
         view.configure(text: text, hasMoreText: hasMoreText, lineLimit: lineLimit,
                        itemID: itemID, textStyle: textStyle, monospaced: monospaced,
-                       color: color, open: open, openURL: { openURL($0) })
+                       color: color, moreButtonAccessibilityIdentifier: moreButtonAccessibilityIdentifier,
+                       open: open, openURL: { openURL($0) })
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: AgentFeedInlineTextView,
@@ -75,6 +77,7 @@ final class AgentFeedInlineTextView: UIView {
 
     func configure(text: String, hasMoreText: Bool, lineLimit: Int, itemID: String,
                    textStyle: UIFont.TextStyle, monospaced: Bool, color: UIColor,
+                   moreButtonAccessibilityIdentifier: String? = nil,
                    open: @escaping @MainActor () -> Void,
                    openURL: @escaping @MainActor (URL) -> Void = { _ in }) {
         let preferred = UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: traitCollection)
@@ -83,7 +86,8 @@ final class AgentFeedInlineTextView: UIView {
             : preferred
         self.open = open
         self.openURL = openURL
-        moreButton.accessibilityIdentifier = "MobileAgentFeedFullText-\(itemID)"
+        moreButton.accessibilityIdentifier = moreButtonAccessibilityIdentifier
+            ?? "MobileAgentFeedFullText-\(itemID)"
         guard source != text || self.hasMoreText != hasMoreText || self.lineLimit != lineLimit
                 || font != nextFont || textColor != color else { return }
         source = text

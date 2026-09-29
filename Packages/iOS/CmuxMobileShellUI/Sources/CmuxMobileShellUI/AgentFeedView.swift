@@ -39,29 +39,31 @@ struct AgentFeedView: View {
         return rowActions
     }
 
-    private var visibleItems: [MobileAgentFeedItem] {
+    private var visibleRows: [AgentFeedRowModel] {
         // The Feed is a decision surface: routine tool churn and the user's
         // own prompts stay out even when an older Mac still sends them (a
         // prompt shows as the quoted context line under agent rows instead);
         // failed tool results are notable and stay visible.
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let notable = items.filter { item in
-            guard query.isEmpty || item.matchesFeedSearch(query) else { return false }
+        let notable = items.compactMap { item -> AgentFeedRowModel? in
+            guard query.isEmpty || item.matchesFeedSearch(query) else { return nil }
             switch item.kind {
             case .toolUse, .userPrompt:
-                return false
+                return nil
             case .toolResult:
-                return item.toolResultIsError
+                guard item.toolResultIsError else { return nil }
             case .permissionRequest, .exitPlan, .question,
                  .assistantMessage, .stop, .todos, .unsupported:
-                return true
+                break
             }
+            let model = AgentFeedRowModel(item: item)
+            return model.hasVisibleContent ? model : nil
         }
         switch filter {
         case .all:
             return notable
         case .needsInput:
-            return notable.filter(\.effectiveNeedsInput)
+            return notable.filter { $0.item.effectiveNeedsInput }
         }
     }
 
@@ -118,7 +120,7 @@ struct AgentFeedView: View {
                 }
             }
             Section {
-                if visibleItems.isEmpty {
+                if visibleRows.isEmpty {
                     if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ContentUnavailableView.search(text: searchText)
                             .listRowSeparator(.hidden)
@@ -127,9 +129,10 @@ struct AgentFeedView: View {
                             .listRowSeparator(.hidden)
                     }
                 } else {
-                    ForEach(visibleItems, id: \.id) { item in
+                    ForEach(visibleRows) { model in
+                        let item = model.item
                         AgentFeedRow(
-                            model: AgentFeedRowModel(item: item),
+                            model: model,
                             isReplyPending: pendingTerminalReplyItemIDs.contains(item.id)
                                 || item.requestID.map { pendingReplyRequestIDs.contains($0) } ?? false,
                             now: now,
