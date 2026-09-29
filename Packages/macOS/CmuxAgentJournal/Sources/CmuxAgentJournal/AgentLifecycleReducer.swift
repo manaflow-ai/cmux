@@ -99,11 +99,11 @@ public struct AgentLifecycleReducer: Sendable {
         case .sessionStarted:
             return (.unknown, false)
         case .turnStarted:
-            return (.running, false)
+            return (draft.pendingWork ? .backgroundWorkPending : .running, false)
         case .attentionResolved:
-            return (draft.declaredPhase ?? (draft.pendingWork ? .running : .idle), false)
+            return (draft.declaredPhase ?? (draft.pendingWork ? .backgroundWorkPending : .idle), false)
         case .turnCompleted, .idleObserved:
-            return (draft.pendingWork ? .running : .idle, false)
+            return (draft.pendingWork ? .backgroundWorkPending : .idle, false)
         case .approvalRequested, .questionRequested, .planReviewRequested:
             return (.needsInput, false)
         case .errorReported:

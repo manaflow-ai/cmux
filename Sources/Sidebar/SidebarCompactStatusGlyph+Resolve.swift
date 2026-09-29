@@ -43,7 +43,7 @@ extension SidebarCompactStatusGlyph {
             kind = .error
         } else if input.lifecycleStates.contains(.needsInput) {
             kind = .needsInput
-        } else if input.hasActiveAgent || input.lifecycleStates.contains(.running) {
+        } else if input.hasActiveAgent || input.lifecycleStates.contains(.running) || input.lifecycleStates.contains(.backgroundWorkPending) {
             kind = .running
         } else if input.lifecycleStates.contains(.unknown) {
             kind = .pending
@@ -100,6 +100,9 @@ extension SidebarCompactStatusGlyph {
         }
         if states.contains(.running) {
             return String(localized: "agent.generic.status.running", defaultValue: "Running")
+        }
+        if states.contains(.backgroundWorkPending) {
+            return String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting")
         }
         if states.contains(.idle) {
             return String(localized: "agentSession.web.status.idle", defaultValue: "Idle")

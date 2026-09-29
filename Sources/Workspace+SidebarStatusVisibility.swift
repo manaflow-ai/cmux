@@ -93,6 +93,7 @@ extension Workspace {
         switch lifecycle {
         case .needsInput: 3
         case .running: 2
+        case .backgroundWorkPending: 2
         case .unknown, nil: 1
         case .idle: 0
         }
