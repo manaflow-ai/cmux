@@ -273,6 +273,12 @@ class FailSafe(unittest.TestCase):
         self.assertTrue(not choice.runner or choice.runner.startswith("glaeda-"), choice)
         self.assertTrue(not choice.retry_runner or choice.retry_runner.startswith("glaeda-"), choice)
 
+    def test_cloud_overflow_replaces_a_blacksmith_only_order(self):
+        record = json.dumps({"changed": {"MACOS_RUNNER_PR": {"before": SMALL, "after": MINI}}})
+        choice = owned_choice(fleet(busy=0), default=MINI, order=f"{LARGE},{SMALL}",
+                              cloud_overflow=record)
+        self.assertEqual(choice.runner, MINI)
+
     def test_unrelated_or_malformed_cloud_record_does_not_enable_picker(self):
         unrelated = json.dumps({"changed": {"LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404",
                                                                "after": "ubuntu-24.04"}}})

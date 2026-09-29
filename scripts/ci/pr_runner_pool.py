@@ -1835,7 +1835,13 @@ def choose(
             # Blacksmith is unavailable while the record exists. Keep the
             # normal owned split/root/GUI placement, but never emit an
             # ephemeral candidate or a retry target back onto the dead pool.
-            limits = dataclasses.replace(limits, order=tuple(label for label in limits.order if persistent(label)))
+            owned_order = tuple(label for label in limits.order if persistent(label))
+            if not owned_order:
+                # A hand-set Blacksmith-only order must not turn the failover
+                # into a direct, unmeasured MACOS_RUNNER_PR route. Rebuild the
+                # owned default for the pinned Xcode instead.
+                owned_order = owned_pools(xcode_pins.get(PR_XCODE_VARIABLE))
+            limits = dataclasses.replace(limits, order=owned_order)
             if not limits.order:
                 return Choice("", "", "cloud overflow is off; no owned pool is in the picker order"), None
     else:
