@@ -48,15 +48,34 @@ export default defineConfig({
         // names do not collide.
         chunkFileNames: "chunks/[name].mjs",
         assetFileNames: "assets/[name][extname]",
-        // Collapse the diff syntax-highlighting vendor (`@pierre/diffs` +
-        // shiki, including its ~300 dynamically-imported TextMate grammars)
-        // into one lazy chunk loaded only by the diff surface. Left split,
-        // shiki emits hundreds of grammar files that both duplicate the
-        // vendored diff worker grammars and push the diff viewer custom
-        // scheme's per-token allowlist toward its 1024-file cap. Per-grammar
-        // lazy loading (and de-duplicating against the worker copy) is a
-        // follow-up once the allowlist cap is revisited.
+        // The diff surface statically imports `@pierre/diffs` (renderer,
+        // worker pool manager, shiki core), which lands in one `diff-vendor`
+        // chunk. Everything shiki resolves on demand (TextMate grammars,
+        // bundled themes, the Oniguruma WASM blob, Pierre's own themes) stays
+        // a dynamic import so each becomes its own stably named lazy chunk
+        // that the diff viewer custom scheme registers per token and the page
+        // fetches only for the languages present in the diff. Collapsing them
+        // into `diff-vendor` evaluates every grammar on open (~10MB). The
+        // eager set is budgeted by `scripts/check-webviews-diff-budget.mjs`.
+        // The worker keeps its own vendored copy of shiki under
+        // `Resources/markdown-viewer/diff-viewer/worker-pool`; main-thread
+        // grammars are resolved here and posted to it.
         manualChunks(id) {
+          const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
+          if (shikiLanguage) {
+            return `shiki-lang-${shikiLanguage[1]}`;
+          }
+          const shikiTheme = id.match(/\/@shikijs\/themes\/dist\/([^/]+)\.mjs$/);
+          if (shikiTheme) {
+            return `shiki-theme-${shikiTheme[1]}`;
+          }
+          if (id.includes("/shiki/dist/wasm.mjs") || id.includes("/@shikijs/engine-oniguruma/dist/wasm-inlined.mjs")) {
+            return "shiki-wasm";
+          }
+          const pierreTheme = id.match(/\/@pierre\/theme\/dist\/(pierre-[^/]+)\.mjs$/);
+          if (pierreTheme) {
+            return `pierre-theme-${pierreTheme[1]}`;
+          }
           // Vite's dynamic-import preload helper is the one module the slim
           // entry statically imports. Pin it to the always-shared `vendor`
           // chunk so Rollup never co-locates it with a surface vendor chunk,

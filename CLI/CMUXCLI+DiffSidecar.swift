@@ -172,8 +172,7 @@ extension CMUXCLI {
                   isDirectory.boolValue else {
                 return
             }
-            guard (try? diffViewerBundledAssetFileURL(relativePath: "diffs.mjs", in: standardized)) != nil,
-                  (try? diffViewerBundledAssetFileURL(relativePath: "trees.mjs", in: standardized)) != nil else {
+            guard (try? diffViewerBundledAssetFileURL(relativePath: "worker-pool/worker-portable.js", in: standardized)) != nil else {
                 return
             }
             candidates.append(standardized)

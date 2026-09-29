@@ -738,9 +738,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             .deletingLastPathComponent()
         XCTAssertFalse(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs.deflate").path))
-        XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
-        XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/trees.mjs")
-        XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
+        XCTAssertEqual(viewerAssets.keys.sorted(), ["workerModuleURL"])
         XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js")
         let appearance = try XCTUnwrap(viewerPayload["appearance"] as? [String: Any])
         XCTAssertEqual(appearance["backgroundOpacity"] as? Double, 0.42)
@@ -3078,18 +3076,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let workerPoolURL = diffViewerURL.appendingPathComponent("worker-pool", isDirectory: true)
         try FileManager.default.createDirectory(at: workerPoolURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: appURL, withIntermediateDirectories: true)
-        try DeflatedAssetTestSupport.writeText("export const diffsFixture = true;\n",
-            to: diffViewerURL.appendingPathComponent("diffs.mjs", isDirectory: false),
-            addingDeflateExtension: true
-        )
-        try DeflatedAssetTestSupport.writeText("export const treesFixture = true;\n",
-            to: diffViewerURL.appendingPathComponent("trees.mjs", isDirectory: false),
-            addingDeflateExtension: true
-        )
-        try DeflatedAssetTestSupport.writeText("export const workerPoolFixture = true;\n",
-            to: workerPoolURL.appendingPathComponent("worker-pool.mjs", isDirectory: false),
-            addingDeflateExtension: true
-        )
         try DeflatedAssetTestSupport.writeText("self.cmuxWorkerFixture = true;\n",
             to: workerPoolURL.appendingPathComponent("worker-portable.js", isDirectory: false),
             addingDeflateExtension: true

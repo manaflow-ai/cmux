@@ -297,9 +297,6 @@ extension CMUXCLI {
 
     struct DiffViewerAssets {
         var appModuleURL: String
-        var diffsModuleURL: String
-        var treesModuleURL: String
-        var workerPoolModuleURL: String
         var workerModuleURL: String
         var files: [URL]
     }
@@ -7518,9 +7515,6 @@ extension CMUXCLI {
         let config: [String: Any] = [
             "payload": payload,
             "assets": [
-                "diffsModuleURL": assets.diffsModuleURL,
-                "treesModuleURL": assets.treesModuleURL,
-                "workerPoolModuleURL": assets.workerPoolModuleURL,
                 "workerModuleURL": assets.workerModuleURL
             ]
         ]
@@ -7628,12 +7622,12 @@ extension CMUXCLI {
             .appendingPathComponent(appAssetDirectoryName, isDirectory: true)
         try FileManager.default.createDirectory(at: targetAppDirectory, withIntermediateDirectories: true)
 
+        // The webviews app bundles `@pierre/diffs` and `@pierre/trees` for the
+        // main thread; only the highlight worker (plus its WASM engine) is
+        // still served from this vendored directory.
         let assetPaths = try diffViewerBundledAssetRelativePaths(in: sourceDirectory)
-        guard assetPaths.contains("diffs.mjs"),
-              assetPaths.contains("trees.mjs"),
-              assetPaths.contains("worker-pool/worker-pool.mjs"),
-              assetPaths.contains("worker-pool/worker-portable.js") else {
-            throw CLIError(message: "Bundled diff viewer entry assets not found")
+        guard assetPaths.contains("worker-pool/worker-portable.js") else {
+            throw CLIError(message: "Bundled diff viewer worker asset not found")
         }
         let copiedAssetURLs = try assetPaths.map {
             try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
@@ -7649,9 +7643,6 @@ extension CMUXCLI {
 
         return DiffViewerAssets(
             appModuleURL: "./assets/\(appAssetDirectoryName)/main.mjs",
-            diffsModuleURL: "./assets/\(assetDirectoryName)/diffs.mjs",
-            treesModuleURL: "./assets/\(assetDirectoryName)/trees.mjs",
-            workerPoolModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-pool.mjs",
             workerModuleURL: "./assets/\(assetDirectoryName)/worker-pool/worker-portable.js",
             files: copiedAssetURLs + copiedAppAssetURLs
         )
