@@ -4384,7 +4384,10 @@
     "emailUnavailable": "البريد الإلكتروني غير متاح",
     "organization": "المؤسسة",
     "personalAccount": "حساب شخصي",
-    "switchAccountButton": "استخدام حساب مختلف"
+    "switchAccountButton": "استخدام حساب مختلف",
+    "signedOutTitle": "سجّل الدخول لتفويض coderouter",
+    "signedOutBody": "ينتظر تطبيق سطر الأوامر تسجيل دخولك. سجّل الدخول بحساب cmux لإكمال ربط هذه الطرفية. إذا لم تبدأ هذا الطلب، فأغلق هذه الصفحة.",
+    "signInButton": "تسجيل الدخول"
   },
   "MobileRelease106": {
     "title": "الجديد في 1.0.6",

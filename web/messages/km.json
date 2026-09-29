@@ -4385,7 +4385,10 @@
     "emailUnavailable": "មិនមានអ៊ីមែល",
     "organization": "ស្ថាប័ន",
     "personalAccount": "គណនីផ្ទាល់ខ្លួន",
-    "switchAccountButton": "ប្រើគណនីផ្សេងទៀត"
+    "switchAccountButton": "ប្រើគណនីផ្សេងទៀត",
+    "signedOutTitle": "ចូលគណនី ដើម្បីអនុញ្ញាត coderouter",
+    "signedOutBody": "កម្មវិធីបន្ទាត់ពាក្យបញ្ជាកំពុងរង់ចាំអ្នកចូលគណនី។ ចូលដោយប្រើគណនី cmux របស់អ្នក ដើម្បីបញ្ចប់ការភ្ជាប់ terminal នេះ។ ប្រសិនបើអ្នកមិនបានចាប់ផ្តើមសំណើនេះទេ សូមបិទទំព័រនេះ។",
+    "signInButton": "ចូលគណនី"
   },
   "MobileRelease106": {
     "title": "អ្វីដែលថ្មីក្នុង 1.0.6",
