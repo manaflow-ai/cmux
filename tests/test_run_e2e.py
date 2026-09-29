@@ -478,9 +478,9 @@ class FocusedLauncherTests(unittest.TestCase):
     def test_e2e_follows_the_pull_request_headroom_rule(self):
         cases = [
             (queue(large_running=4), LARGE),               # a machine free on 12vcpu (5)
-            (queue(large_running=5), SMALL),               # 12vcpu full: roll over
-            (queue(large=1, large_running=0), SMALL),      # anything queued is full: roll over
-            (queue(large=5, small=4, large_running=5), SMALL),  # both full: shorter queue in rounds
+            (queue(large_running=5), LARGE),               # account-wide load still favors 12vcpu
+            (queue(large=1, large_running=0), LARGE),      # shared account queue is still below its limit
+            (queue(large=5, small=4, large_running=5), LARGE),  # shared load favors 12vcpu's shorter jobs
             (queue(large=1, small=9, large_running=5), LARGE),
         ]
         for state, expected in cases:
@@ -503,14 +503,14 @@ class FocusedLauncherTests(unittest.TestCase):
         # Both macOS 26 pools backed up and macOS 15 idle: a pull request
         # would spill there; E2E takes the macOS 26 pool with fewer queued.
         state = queue(large=30, small=20, old=0, old_running=0)
-        self.assertEqual(self.routed(state)[0], SMALL)
+        self.assertEqual(self.routed(state)[0], LARGE)
 
     def test_runs_since_the_snapshot_fill_the_12vcpu_pool_first(self):
         # 2 running leaves 3 of 12vcpu's 5 machines free; a fourth run rolls over.
         base = dict(large_running=2)
         self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 2))[0], LARGE)
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 3))[0], SMALL)
+        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 3))[0], LARGE)
         # E2E runs on another pool do not count against 12vcpu.
         self.setUp()
         self.assertEqual(self.routed(queue(**base, e2e_since=[SMALL] * 9))[0], LARGE)
