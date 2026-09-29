@@ -844,6 +844,7 @@ function TurnGroupView({
   fileDiffs,
   onFileDiff,
   thinkingDefaultOpen,
+  compactActivity,
   expandedTurns,
   setExpandedTurns,
   expandedItems,
@@ -859,6 +860,7 @@ function TurnGroupView({
   fileDiffs: Record<string, string>;
   onFileDiff: (path: string) => void;
   thinkingDefaultOpen: boolean;
+  compactActivity: boolean;
   expandedTurns: Record<string, boolean>;
   setExpandedTurns: (next: Record<string, boolean>) => void;
   expandedItems: Record<string, boolean>;
@@ -868,7 +870,7 @@ function TurnGroupView({
   return (
     <div className="turn-group">
       {group.user ? <div className="msg user"><div className="body selectable">{group.user.text}</div></div> : null}
-      {live
+      {live && !compactActivity
         ? group.activity.map((block, i) => (
           block.kind === "thinking" || block.kind === "assistant"
             ? (
@@ -907,6 +909,7 @@ export function Blocks({
   fileDiffs = {},
   onFileDiff = () => {},
   thinkingDefaultOpen = false,
+  compactActivity = true,
   initialExpandedTurns = {},
   initialExpandedItems = {},
 }: {
@@ -920,6 +923,7 @@ export function Blocks({
   fileDiffs?: Record<string, string>;
   onFileDiff?: (path: string) => void;
   thinkingDefaultOpen?: boolean;
+  compactActivity?: boolean;
   initialExpandedTurns?: Record<string, boolean>;
   initialExpandedItems?: Record<string, boolean>;
 }) {
@@ -952,6 +956,7 @@ export function Blocks({
               fileDiffs={fileDiffs}
               onFileDiff={onFileDiff}
               thinkingDefaultOpen={thinkingDefaultOpen}
+              compactActivity={compactActivity}
               expandedTurns={expandedTurns}
               setExpandedTurns={setExpandedTurns}
               expandedItems={expandedItems}

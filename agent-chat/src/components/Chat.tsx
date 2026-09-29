@@ -59,6 +59,7 @@ export function Chat() {
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [compactActivity, setCompactActivity] = useState(() => localStorage.getItem("agentui.compactActivity") !== "false");
   const taRef = useAutoGrow(text, 200);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
@@ -110,6 +111,10 @@ export function Chat() {
     reply(t);
     setText("");
   };
+  const setActivityDisplay = (compact: boolean) => {
+    setCompactActivity(compact);
+    localStorage.setItem("agentui.compactActivity", String(compact));
+  };
   const switchHarnessModel = (provider: string, model: string) => {
     if (!session) return;
     if (provider === session.provider) {
@@ -150,6 +155,7 @@ export function Chat() {
           handoffPending={handoffPending}
           fileDiffs={fileDiffs}
           onFileDiff={(path) => { if (session) requestFileDiff(session.id, path); }}
+          compactActivity={compactActivity}
         />
       </div>
       <div id="chat-input-row">
@@ -208,6 +214,8 @@ export function Chat() {
               setOpenOptionId={setOpenOptionId}
               running={running}
               trailing={chatActions}
+              compactActivity={compactActivity}
+              onCompactActivityChange={setActivityDisplay}
             />
           )}
         </div>

@@ -5,6 +5,7 @@ import type { OptionValue, Provider, SessionOption } from "../session";
 import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, PinwheelSpinner, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
 import { CmdkMenu, type CmdkGroup } from "./CmdkMenu";
 import { HintTooltip } from "./Tooltips";
+import { agentChatText } from "../i18n";
 import { currentChoice, cycleSelect, effortFill, isOffLikeValue, optionAction, optionTooltip, optionsForSelectedModel, prettyValue, visibleChoices } from "./options";
 
 function CwdPopover({ cwd, onChange, onCommit }: { cwd: string; onChange: (v: string) => void; onCommit: (v: string) => void }) {
@@ -99,9 +100,18 @@ function isInlineOption(option: SessionOption): boolean {
   return INLINE_OPTION_IDS.has(option.id) || option.role === "effort" || option.role === "approval";
 }
 
-export function OverflowMenu({ options, onChange }: { options: SessionOption[]; onChange: (id: string, value: OptionValue) => void }) {
-  if (!options.length) return null;
-  const groups: CmdkGroup[] = options.map((option) => ({
+export function OverflowMenu({ options, onChange, compactActivity, onCompactActivityChange }: { options: SessionOption[]; onChange: (id: string, value: OptionValue) => void; compactActivity: boolean; onCompactActivityChange: (value: boolean) => void }) {
+  const groups: CmdkGroup[] = [{
+    id: "activity-display",
+    label: agentChatText("activityDisplay"),
+    items: [{
+      id: "activity-display:compact",
+      label: agentChatText("compactActivity"),
+      description: compactActivity ? agentChatText("currentlyOn") : agentChatText("currentlyOff"),
+      selected: compactActivity,
+      onSelect: () => onCompactActivityChange(!compactActivity),
+    }],
+  }, ...options.map((option) => ({
     id: option.id,
     label: option.label,
     items: option.kind === "toggle"
@@ -121,7 +131,7 @@ export function OverflowMenu({ options, onChange }: { options: SessionOption[]; 
           disabled: option.disabled || choice.disabled,
           onSelect: () => onChange(option.id, choice.value),
         })),
-  }));
+  }))];
   return (
     <Popover.Root>
       <HintTooltip label="More options">
@@ -563,6 +573,8 @@ export function StatusRow({
   setOpenOptionId,
   trailing,
   running = false,
+  compactActivity = true,
+  onCompactActivityChange = () => {},
 }: {
   provider: string;
   providers?: Provider[];
@@ -578,6 +590,8 @@ export function StatusRow({
   setOpenOptionId: (id: string | null) => void;
   trailing?: ReactNode;
   running?: boolean;
+  compactActivity?: boolean;
+  onCompactActivityChange?: (value: boolean) => void;
 }) {
   const resolvedOptions = optionsForSelectedModel(options);
   const effortLike = resolvedOptions.filter((o) => o.role === "effort" && o.kind === "select" && !isOffLikeValue(String(o.value)));
@@ -668,7 +682,7 @@ export function StatusRow({
           </button>
         </HintTooltip>
       ) : null}
-      <OverflowMenu options={overflow} onChange={onChange} />
+      <OverflowMenu options={overflow} onChange={onChange} compactActivity={compactActivity} onCompactActivityChange={onCompactActivityChange} />
       <div className="status-row-spacer" />
       {trailing}
     </div>

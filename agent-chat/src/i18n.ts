@@ -29,7 +29,11 @@ export type AgentChatTextKey =
   | "continueElsewhere"
   | "transcriptViewRunning"
   | "transcriptViewIdle"
-  | "answerInTerminal";
+  | "answerInTerminal"
+  | "activityDisplay"
+  | "compactActivity"
+  | "currentlyOn"
+  | "currentlyOff";
 
 const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
   en: {
@@ -40,6 +44,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Working in the terminal · Esc to interrupt",
     transcriptViewIdle: "Sends to the agent in this terminal",
     answerInTerminal: "Answer in terminal",
+    activityDisplay: "Activity display",
+    compactActivity: "Compact activity",
+    currentlyOn: "Currently on",
+    currentlyOff: "Currently off",
   },
   ja: {
     continuedNewChat: "新しいチャットで続行しました。以前のコンテキストはリンクされています。",
@@ -49,6 +57,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "ターミナルで作業中 · Esc で中断",
     transcriptViewIdle: "このターミナルのエージェントに送信します",
     answerInTerminal: "ターミナルで回答",
+    activityDisplay: "表示",
+    compactActivity: "アクティビティをコンパクトにする",
+    currentlyOn: "オン",
+    currentlyOff: "オフ",
   },
   "zh-CN": {
     continuedNewChat: "已在新聊天中继续。之前的上下文已关联。",
@@ -58,6 +70,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "正在终端中工作 · 按 Esc 中断",
     transcriptViewIdle: "发送给此终端中的代理",
     answerInTerminal: "在终端中回答",
+    activityDisplay: "Activity display",
+    compactActivity: "Compact activity",
+    currentlyOn: "Currently on",
+    currentlyOff: "Currently off",
   },
   "zh-TW": {
     continuedNewChat: "已在新聊天中繼續。先前的內容已連結。",
@@ -67,6 +83,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "正在終端機中工作 · 按 Esc 中斷",
     transcriptViewIdle: "傳送給此終端機中的代理程式",
     answerInTerminal: "在終端機中回答",
+    activityDisplay: "Activity display",
+    compactActivity: "Compact activity",
+    currentlyOn: "Currently on",
+    currentlyOff: "Currently off",
   },
   ko: {
     continuedNewChat: "새 채팅에서 계속합니다. 이전 컨텍스트가 연결되어 있습니다.",
@@ -76,6 +96,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "터미널에서 작업 중 · Esc로 중단",
     transcriptViewIdle: "이 터미널의 에이전트에게 보냅니다",
     answerInTerminal: "터미널에서 답변",
+    activityDisplay: "활동 표시",
+    compactActivity: "활동 간소화",
+    currentlyOn: "켜짐",
+    currentlyOff: "꺼짐",
   },
   de: {
     continuedNewChat: "In einem neuen Chat fortgesetzt. Der vorherige Kontext ist verknüpft.",
@@ -85,6 +109,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Arbeitet im Terminal · Esc zum Unterbrechen",
     transcriptViewIdle: "Wird an den Agenten in diesem Terminal gesendet",
     answerInTerminal: "Im Terminal antworten",
+    activityDisplay: "Aktivitätsanzeige",
+    compactActivity: "Aktivitäten kompakt",
+    currentlyOn: "Aktiv",
+    currentlyOff: "Inaktiv",
   },
   es: {
     continuedNewChat: "Se continuó en un chat nuevo. El contexto anterior está vinculado.",
@@ -94,6 +122,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Trabajando en la terminal · Esc para interrumpir",
     transcriptViewIdle: "Se envía al agente de esta terminal",
     answerInTerminal: "Responder en la terminal",
+    activityDisplay: "Visualización de actividad",
+    compactActivity: "Actividad compacta",
+    currentlyOn: "Activado",
+    currentlyOff: "Desactivado",
   },
   fr: {
     continuedNewChat: "La conversation continue dans un nouveau chat. Le contexte précédent est lié.",
@@ -103,6 +135,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Travaille dans le terminal · Échap pour interrompre",
     transcriptViewIdle: "Envoyé à l’agent de ce terminal",
     answerInTerminal: "Répondre dans le terminal",
+    activityDisplay: "Affichage de l’activité",
+    compactActivity: "Activité compacte",
+    currentlyOn: "Activé",
+    currentlyOff: "Désactivé",
   },
   it: {
     continuedNewChat: "Continuazione in una nuova chat. Il contesto precedente è collegato.",
@@ -112,6 +148,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Al lavoro nel terminale · Esc per interrompere",
     transcriptViewIdle: "Inviato all’agente di questo terminale",
     answerInTerminal: "Rispondi nel terminale",
+    activityDisplay: "Visualizzazione attività",
+    compactActivity: "Attività compatta",
+    currentlyOn: "Attivo",
+    currentlyOff: "Disattivo",
   },
   da: {
     continuedNewChat: "Fortsat i en ny chat. Den tidligere kontekst er knyttet til.",
@@ -121,6 +161,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Arbejder i terminalen · Esc for at afbryde",
     transcriptViewIdle: "Sendes til agenten i denne terminal",
     answerInTerminal: "Svar i terminalen",
+    activityDisplay: "Aktivitetsvisning",
+    compactActivity: "Kompakte aktiviteter",
+    currentlyOn: "Til",
+    currentlyOff: "Fra",
   },
   pl: {
     continuedNewChat: "Kontynuowano w nowym czacie. Poprzedni kontekst jest połączony.",
@@ -130,6 +174,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Pracuje w terminalu · Esc, aby przerwać",
     transcriptViewIdle: "Wysyłane do agenta w tym terminalu",
     answerInTerminal: "Odpowiedz w terminalu",
+    activityDisplay: "Wyświetlanie aktywności",
+    compactActivity: "Kompaktowa aktywność",
+    currentlyOn: "Włączone",
+    currentlyOff: "Wyłączone",
   },
   ru: {
     continuedNewChat: "Продолжено в новом чате. Предыдущий контекст связан.",
@@ -139,6 +187,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Работает в терминале · Esc для прерывания",
     transcriptViewIdle: "Отправляется агенту в этом терминале",
     answerInTerminal: "Ответить в терминале",
+    activityDisplay: "Отображение активности",
+    compactActivity: "Компактная активность",
+    currentlyOn: "Включено",
+    currentlyOff: "Выключено",
   },
   bs: {
     continuedNewChat: "Nastavljeno u novom chatu. Prethodni kontekst je povezan.",
@@ -148,6 +200,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Radi u terminalu · Esc za prekid",
     transcriptViewIdle: "Šalje se agentu u ovom terminalu",
     answerInTerminal: "Odgovori u terminalu",
+    activityDisplay: "Prikaz aktivnosti",
+    compactActivity: "Kompaktne aktivnosti",
+    currentlyOn: "Uključeno",
+    currentlyOff: "Isključeno",
   },
   ar: {
     continuedNewChat: "تمت المتابعة في محادثة جديدة. السياق السابق مرتبط.",
@@ -157,6 +213,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "يعمل في الطرفية · Esc للمقاطعة",
     transcriptViewIdle: "يُرسل إلى الوكيل في هذه الطرفية",
     answerInTerminal: "أجب في الطرفية",
+    activityDisplay: "عرض النشاط",
+    compactActivity: "نشاط مضغوط",
+    currentlyOn: "مفعّل",
+    currentlyOff: "متوقف",
   },
   no: {
     continuedNewChat: "Fortsatt i en ny chat. Tidligere kontekst er koblet til.",
@@ -166,6 +226,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Jobber i terminalen · Esc for å avbryte",
     transcriptViewIdle: "Sendes til agenten i denne terminalen",
     answerInTerminal: "Svar i terminalen",
+    activityDisplay: "Aktivitetsvisning",
+    compactActivity: "Kompakte aktiviteter",
+    currentlyOn: "På",
+    currentlyOff: "Av",
   },
   "pt-BR": {
     continuedNewChat: "Continuado em um novo chat. O contexto anterior está vinculado.",
@@ -175,6 +239,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Trabalhando no terminal · Esc para interromper",
     transcriptViewIdle: "Enviado ao agente deste terminal",
     answerInTerminal: "Responder no terminal",
+    activityDisplay: "Activity display",
+    compactActivity: "Compact activity",
+    currentlyOn: "Currently on",
+    currentlyOff: "Currently off",
   },
   th: {
     continuedNewChat: "ดำเนินการต่อในแชทใหม่แล้ว โดยเชื่อมโยงบริบทก่อนหน้าไว้",
@@ -184,6 +252,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "กำลังทำงานในเทอร์มินัล · กด Esc เพื่อขัดจังหวะ",
     transcriptViewIdle: "ส่งถึงเอเจนต์ในเทอร์มินัลนี้",
     answerInTerminal: "ตอบในเทอร์มินัล",
+    activityDisplay: "การแสดงกิจกรรม",
+    compactActivity: "กิจกรรมแบบย่อ",
+    currentlyOn: "เปิด",
+    currentlyOff: "ปิด",
   },
   tr: {
     continuedNewChat: "Yeni bir sohbette devam edildi. Önceki bağlam bağlantılı.",
@@ -193,6 +265,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Terminalde çalışıyor · Kesmek için Esc",
     transcriptViewIdle: "Bu terminaldeki ajana gönderilir",
     answerInTerminal: "Terminalde yanıtla",
+    activityDisplay: "Etkinlik görünümü",
+    compactActivity: "Kompakt etkinlik",
+    currentlyOn: "Açık",
+    currentlyOff: "Kapalı",
   },
   km: {
     continuedNewChat: "បានបន្តនៅក្នុងការជជែកថ្មី។ បរិបទមុនត្រូវបានភ្ជាប់។",
@@ -202,6 +278,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "កំពុងធ្វើការនៅក្នុងទែមីណាល់ · Esc ដើម្បីរំខាន",
     transcriptViewIdle: "ផ្ញើទៅភ្នាក់ងារនៅក្នុងទែមីណាល់នេះ",
     answerInTerminal: "ឆ្លើយនៅក្នុងទែមីណាល់",
+    activityDisplay: "ការបង្ហាញសកម្មភាព",
+    compactActivity: "សកម្មភាពបង្រួម",
+    currentlyOn: "បើក",
+    currentlyOff: "បិទ",
   },
   uk: {
     continuedNewChat: "Продовжено в новому чаті. Попередній контекст пов’язано.",
@@ -211,6 +291,10 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewRunning: "Працює в терміналі · Esc, щоб перервати",
     transcriptViewIdle: "Надсилається агентові в цьому терміналі",
     answerInTerminal: "Відповісти в терміналі",
+    activityDisplay: "Відображення активності",
+    compactActivity: "Компактна активність",
+    currentlyOn: "Увімкнено",
+    currentlyOff: "Вимкнено",
   },
 };
 
@@ -242,7 +326,7 @@ export function resolveAgentChatLocale(languages: readonly string[]): AgentChatL
 
 function browserLanguages(): readonly string[] {
   if (typeof navigator === "undefined") return ["en"];
-  return navigator.languages.length ? navigator.languages : [navigator.language];
+  return navigator.languages?.length ? navigator.languages : (navigator.language ? [navigator.language] : ["en"]);
 }
 
 export function agentChatText(key: AgentChatTextKey, languages = browserLanguages()): string {
