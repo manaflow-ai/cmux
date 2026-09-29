@@ -604,6 +604,7 @@ def test_codex_monitor_survives_transient_owner_absence_while_pending(cli_path: 
         encoding="utf-8",
     )
     session_id = f"codex-monitor-owner-grace-session-{os.getpid()}"
+    moved_workspace_id = "44444444-4444-4444-4444-444444444444"
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
@@ -613,7 +614,12 @@ def test_codex_monitor_survives_transient_owner_absence_while_pending(cli_path: 
         with transcript_path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps({"type": "event_msg", "payload": {"type": "turn_complete", "turn_id": turn_id, "last_agent_message": "Done"}}) + "\n")
 
-    with FakeCmuxSocket(socket_path, None, empty_surface_list_count=1) as fake:
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        empty_surface_list_count=1,
+        surface_delivery_target=(moved_workspace_id, FAKE_SURFACE_ID),
+    ) as fake:
         threading.Thread(target=complete_transcript, daemon=True).start()
         result = subprocess.run(
             [
@@ -626,7 +632,11 @@ def test_codex_monitor_survives_transient_owner_absence_while_pending(cli_path: 
         if result.returncode != 0:
             raise AssertionError(f"owner grace monitor failed: {result.stdout}\n{result.stderr}")
         raw_commands = [frame.get("raw", "") for frame in fake.frames]
-        if not any(command.startswith("set_status codex Idle ") for command in raw_commands):
+        if not any(
+            command.startswith("set_status codex Idle ")
+            and f"--tab={moved_workspace_id}" in command
+            for command in raw_commands
+        ):
             raise AssertionError(f"monitor exited during transient owner absence: {raw_commands!r}")
 
 
