@@ -16,7 +16,10 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
 
     func testSettingsConfirmsOnlyIncomingEnableAndPersistsBothChoices() {
         let app = launchDevicesApp()
-        defer { app.terminate() }
+        defer {
+            app.terminate()
+            _ = app.wait(for: .notRunning, timeout: 10)
+        }
         let window = openSettings(app)
         navigate(window, to: "Devices")
         let incoming = toggle(window, id: "SettingsComputersIncomingAccessToggle")
@@ -55,7 +58,10 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
 
     func testSidebarKeepsBothActionsAtRestAndAgreesWithSettings() {
         let app = launchDevicesApp()
-        defer { app.terminate() }
+        defer {
+            app.terminate()
+            _ = app.wait(for: .notRunning, timeout: 10)
+        }
         let mode = app.buttons["RightSidebarModeButton.machines"]
         XCTAssertTrue(mode.waitForExistence(timeout: 10))
         mode.click()
