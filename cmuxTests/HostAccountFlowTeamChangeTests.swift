@@ -150,6 +150,36 @@ struct HostAccountFlowTeamChangeTests {
         #expect(!flow.isSelectingTeam)
     }
 
+    /// The coordinator clears its busy flag before the first caller resumes
+    /// and clears its optimistic projection. A second accepted create can
+    /// therefore overlap that continuation; the first cleanup must not clear
+    /// the second request's projection.
+    @Test func overlappingAcceptedCreatesKeepTheLatestProjectionOwned() async throws {
+        let client = TeamChangeAuthClient()
+        let flow = try await makeFlow(client: client)
+        await client.holdNextCreate()
+        let first = Task { try await flow.createTeam(displayName: "First Team") }
+        try await waitUntil { await client.isHoldingCreate }
+
+        let second = Task { @MainActor in
+            while flow.isCreatingTeam { await Task.yield() }
+            return try await flow.createTeam(displayName: "Second Team")
+        }
+        await client.holdNextCreate()
+        await client.releaseCreate()
+        try await waitUntil { await client.isHoldingCreate }
+
+        let firstResult = try await first.value
+        #expect(firstResult.id == "team-new-1")
+        #expect(flow.pendingTeamCreate?.displayName == "Second Team")
+        #expect(flow.isCreatingTeam)
+
+        await client.releaseCreate()
+        let secondResult = try await second.value
+        #expect(secondResult.id == "team-new-2")
+        #expect(flow.pendingTeamCreate == nil)
+    }
+
     private func makeFlow(client: TeamChangeAuthClient) async throws -> HostAccountFlow {
         try await HostAccountFlow.makeForTeamChangeTests(client: client)
     }
