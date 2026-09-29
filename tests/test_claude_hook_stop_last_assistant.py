@@ -161,7 +161,7 @@ def main() -> int:
     }
 
     with CapturingSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
-        env = os.environ.copy()
+        env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
@@ -264,7 +264,7 @@ def main() -> int:
             print(f"FAIL: incorrect semantic completion: {notifications[0]!r}")
             return 1
         if not any(
-            f"set_status claude Idle" in command
+            command.startswith("set_status claude_code Idle ")
             and f"--tab={workspace_id}" in command
             and f"--panel={surface_id}" in command
             for command in server.commands
