@@ -871,13 +871,9 @@ class GhosttyApp {
     private static func initLog(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"
-        if let handle = FileHandle(forWritingAtPath: initLogPath) {
-            defer { try? handle.close() }
-            guard (try? handle.seekToEnd()) != nil else { return }
-            try? handle.write(contentsOf: Data(line.utf8))
-        } else {
-            FileManager.default.createFile(atPath: initLogPath, contents: line.data(using: .utf8))
-        }
+        guard let handle = OwnedLogFile(path: initLogPath).openForAppending() else { return }
+        defer { try? handle.close() }
+        try? handle.write(contentsOf: Data(line.utf8))
     }
 
     private static func dumpConfigDiagnostics(_ config: ghostty_config_t, label: String) {
@@ -1012,8 +1008,14 @@ class GhosttyApp {
                 )
             }
         }
-        runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
-            guard let content = content, len > 0 else { return }
+        runtimeConfig.write_clipboard_cb = { userdata, location, content, len, _ in
+            // Manual-I/O surfaces are remote terminal projections (SSH/tmux/Cloud).
+            // OSC 52 from them is remote-origin input and must never overwrite this
+            // Mac's clipboard without a user gesture or confirmation.
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
+                  let terminalSurface = callbackContext.terminalSurface,
+                  terminalSurface.allowsAutomaticClipboardWrite,
+                  let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
             let decoder = TerminalClipboardRepresentationDecoder()
 
@@ -3769,18 +3771,22 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
-            let isTerminalLink = openUrl.kind == GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+            let isLocalExport = TerminalLinkOpenRequest.isLocalExportActionKind(openUrl.kind)
+            let isTerminalLink = !isLocalExport
             guard let cstr = openUrl.url else { return false }
             let urlString = String(
                 data: Data(bytes: cstr, count: Int(openUrl.len)),
                 encoding: .utf8
             ) ?? ""
-            let request = TerminalLinkOpenRequest(
+            var request = TerminalLinkOpenRequest(
                 rawValue: urlString,
                 sourceWorkspaceId: callbackTabId ?? surfaceView.tabId,
                 sourcePanelId: callbackSurfaceId ?? surfaceView.terminalSurface?.id,
                 workingDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
             )
+            // Text/HTML exports are files Ghostty wrote on this Mac, even for
+            // a remote terminal.
+            request.isLocalExport = isLocalExport
             return performOnMain {
                 if isTerminalLink, !surfaceView.consumeTerminalLinkOpenAuthorization() {
                     return true
