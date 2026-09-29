@@ -6,6 +6,31 @@ import UIKit
 
 @MainActor
 @Suite struct MobileConnectionLifecycleTests {
+    @Test func eachForegroundPeriodRequiresActivation() async {
+        let center = NotificationCenter()
+        var state = UIApplication.State.active
+        let readiness = MobileConnectionLifecycle(notificationCenter: center,
+            applicationState: { state }, protectedDataAvailable: { true })
+        var updates = readiness.changes().makeAsyncIterator()
+        #expect(await updates.next() == true)
+
+        state = .background
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        #expect(await updates.next() == false)
+        state = .inactive
+        center.post(name: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil)
+        #expect(await updates.next() == false,
+                "an earlier foreground period must not authorize a dial before new activation")
+        #expect(!readiness.permitsConnection)
+
+        state = .active
+        center.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        #expect(await updates.next() == true)
+        state = .inactive
+        #expect(readiness.permitsConnection,
+                "transient inactivity within this activated period still permits connections")
+    }
+
     @Test func backgroundLaunchWaitsForForegroundAndProtectedData() async throws {
         let center = NotificationCenter()
         var state = UIApplication.State.background
