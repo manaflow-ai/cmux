@@ -283,7 +283,7 @@ public final class TerminalSurfaceView: NSView {
     /// Runs a Ghostty binding action such as `copy_to_clipboard` or
     /// `search:foo` (ghostty.h:1665).
     @discardableResult
-    func performBindingAction(_ action: String) -> Bool {
+    public func performBindingAction(_ action: String) -> Bool {
         guard let surface else { return false }
         return action.withCString { pointer in
             ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
