@@ -217,8 +217,8 @@ extension TerminalSurface {
         rendererPresentationState.inFlightToken = nil
         rendererPresentationState.recoveryAttempted = false
         rendererPresentationState.didPresentFrame = false
-        rendererPresentationState.readinessSize = committedPaneGeometry?.size
-        rendererPresentationState.readinessBackingScale = committedPaneGeometry?.backingScale
+        rendererPresentationState.readinessGeometry =
+            TerminalRendererPresentationGeometry(committedPaneGeometry)
         renderHealth = .notStarted
         let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
         callbackContext?.cancelRendererPresentationRepair()

@@ -1,5 +1,5 @@
-import AppKit
 import CmuxTerminalCore
+import CoreGraphics
 import Testing
 @testable import CmuxTerminal
 
@@ -8,27 +8,41 @@ import Testing
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererReadinessTests {
     @Test func geometryCommitStartsANewPresentationEpisodeAfterFailure() {
-        let fixture = PresentedSurfaceFixture()
-        defer { fixture.tearDown() }
-        let surface = fixture.surface
-
-        surface.committedPaneGeometry = TerminalPaneGeometry(
+        let previous = TerminalRendererPresentationGeometry(TerminalPaneGeometry(
             size: CGSize(width: 800, height: 600),
             backingScale: 2,
             phase: .settled
-        )
-        surface.noteRendererPresentationReadinessGeometry(surface.committedPaneGeometry)
-        surface.rendererPresentationState.recoveryAttempted = true
-        surface.renderHealth = .notRendering
-
-        surface.committedPaneGeometry = TerminalPaneGeometry(
+        ))
+        let current = TerminalRendererPresentationGeometry(TerminalPaneGeometry(
             size: CGSize(width: 640, height: 480),
             backingScale: 2,
             phase: .settled
+        ))
+        let decision = TerminalRendererPresentationReadinessDecision(
+            previous: previous,
+            current: current,
+            renderHealth: .notRendering,
+            hasInFlightToken: false
         )
-        surface.noteRendererPresentationReadinessGeometry(surface.committedPaneGeometry)
 
-        #expect(surface.renderHealth == .awaitingFrame)
-        #expect(!surface.rendererPresentationState.recoveryAttempted)
+        #expect(decision.geometryChanged)
+        #expect(decision.shouldAwaitFrame)
+    }
+
+    @Test func unchangedGeometryDoesNotReopenAnExhaustedEpisode() {
+        let geometry = TerminalRendererPresentationGeometry(TerminalPaneGeometry(
+            size: CGSize(width: 800, height: 600),
+            backingScale: 2,
+            phase: .settled
+        ))
+        let decision = TerminalRendererPresentationReadinessDecision(
+            previous: geometry,
+            current: geometry,
+            renderHealth: .notRendering,
+            hasInFlightToken: false
+        )
+
+        #expect(!decision.geometryChanged)
+        #expect(!decision.shouldAwaitFrame)
     }
 }
