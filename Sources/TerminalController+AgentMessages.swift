@@ -337,11 +337,23 @@ extension TerminalController {
 
     private nonisolated static func agentMessageMainHopFailure(_ error: Error) -> V2CallResult {
         if let timeout = error as? SocketMainActorHopTimeout {
+            let message = timeout.retryable
+                ? String(
+                    localized: "socket.mainActorHop.timeout.notRun",
+                    defaultValue: "cmux did not respond within 10 seconds, so the command was not run. Retry in a moment."
+                )
+                : String(
+                    localized: "socket.mainActorHop.timeout.mayHaveRun",
+                    defaultValue: "cmux did not respond within 10 seconds after the command started, so its result is unknown. Check the effect before retrying."
+                )
             return .err(
                 code: "timeout",
-                message: socketMainHopTimeoutMessage(retryable: timeout.retryable),
-                data: socketMainHopTimeoutData(retryable: timeout.retryable)
-                    .mapValues(\.foundationObject)
+                message: message,
+                data: [
+                    "retryable": timeout.retryable,
+                    "deadline_ms": Self.socketMainActorHopDeadlineMilliseconds,
+                    "stage": "main_actor",
+                ]
             )
         }
         if error is CancellationError {
