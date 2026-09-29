@@ -156,14 +156,20 @@ extension TerminalController {
             )
         }
 
-        let (recipient, senderTitle) = await v2MainAsync { () -> (AgentMessageRecipient?, String?) in
-            (
-                self.agentMessageResolveRecipient(targetString),
-                senderName.trimmingCharacters(in: .whitespaces).isEmpty
-                    ? self.agentMessageWorkspaceTitle(surfaceId: senderSurfaceId, workspaceId: senderWorkspaceId)
-                    : nil
-            )
+        let recipientAndTitle: (AgentMessageRecipient?, String?)
+        do {
+            recipientAndTitle = try await v2MainAsync { () -> (AgentMessageRecipient?, String?) in
+                (
+                    self.agentMessageResolveRecipient(targetString),
+                    senderName.trimmingCharacters(in: .whitespaces).isEmpty
+                        ? self.agentMessageWorkspaceTitle(surfaceId: senderSurfaceId, workspaceId: senderWorkspaceId)
+                        : nil
+                )
+            }
+        } catch {
+            return Self.agentMessageMainHopFailure(error)
         }
+        let (recipient, senderTitle) = recipientAndTitle
         guard let recipient else {
             return .err(
                 code: "not_found",
@@ -212,8 +218,13 @@ extension TerminalController {
     private nonisolated func agentMessageList(params: [String: Any]) async -> V2CallResult {
         var surfaceId: String?
         if let target = Self.agentMessageTrimmed(params["surface"]) {
-            let recipient = await v2MainAsync { () -> AgentMessageRecipient? in
-                self.agentMessageResolveRecipient(target)
+            let recipient: AgentMessageRecipient?
+            do {
+                recipient = try await v2MainAsync { () -> AgentMessageRecipient? in
+                    self.agentMessageResolveRecipient(target)
+                }
+            } catch {
+                return Self.agentMessageMainHopFailure(error)
             }
             guard let recipient else {
                 return .err(
@@ -310,11 +321,37 @@ extension TerminalController {
             if register, params["mark_delivered_read"] as? Bool == true {
                 store.markDeliveredRead(recipientSurfaceId: surfaceId)
             }
-            let held = queued > 0
-                ? await v2MainAsync { self.agentMessageDeliveryHeld(surfaceId: surfaceUUID) }
-                : false
+            let held: Bool
+            if queued > 0 {
+                do {
+                    held = try await v2MainAsync { self.agentMessageDeliveryHeld(surfaceId: surfaceUUID) }
+                } catch {
+                    return Self.agentMessageMainHopFailure(error)
+                }
+            } else {
+                held = false
+            }
             return .ok(["status": "current", "queued": queued, "held": held])
         }
+    }
+
+    private nonisolated static func agentMessageMainHopFailure(_ error: Error) -> V2CallResult {
+        if let timeout = error as? SocketMainActorHopTimeout {
+            return .err(
+                code: "timeout",
+                message: socketMainHopTimeoutMessage(retryable: timeout.retryable),
+                data: socketMainHopTimeoutData(retryable: timeout.retryable)
+                    .mapValues(\.foundationObject)
+            )
+        }
+        if error is CancellationError {
+            return .err(
+                code: "cancelled",
+                message: String(localized: "socket.request.cancelled", defaultValue: "Request was cancelled"),
+                data: nil
+            )
+        }
+        return .err(code: "internal_error", message: String(describing: error), data: nil)
     }
 
     // MARK: - Resolution
