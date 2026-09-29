@@ -36,7 +36,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let portForwards: CloudHubPortForwarder?
     let portAccessStore: CloudPortAccessStore
     let displayCoordinator: CloudDisplayCoordinator
-    let browserPolicy: @MainActor () -> BrowserURLAllowlistPolicy; let onMachineNotFound: (@MainActor (String, CloudVMHTTPError) -> Void)?
+    let browserPolicy: @MainActor () -> BrowserURLAllowlistPolicy
+    let onMachineNotFound: (@MainActor (String, CloudVMHTTPError) -> Void)?
     /// Invalidates suspended work when this provider is stopped or replaced.
     var isFeatureSuspended = false
     private(set) var lifecycleGeneration: UInt64 = 0
@@ -137,7 +138,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil,
         displayCoordinator: CloudDisplayCoordinator? = nil,
-        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }, onMachineNotFound: (@MainActor (String, CloudVMHTTPError) -> Void)? = nil
+        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() },
+        onMachineNotFound: (@MainActor (String, CloudVMHTTPError) -> Void)? = nil
     ) {
         self.fileAccessTeamScope = fileAccessTeamScope
         machineID = summary.id
@@ -151,7 +153,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard summary.cloudSummary != nil, let client = VMClient.shared else { throw ProviderError.notSignedIn }
             return try await client.exec(id: summary.id, command: command, timeoutMs: timeout)
         }
-        self.browserPolicy = browserPolicy; self.onMachineNotFound = onMachineNotFound
+        self.browserPolicy = browserPolicy
+        self.onMachineNotFound = onMachineNotFound
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
     }
@@ -781,13 +784,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             closeManualMirrorPane(panelID: panelID, terminalID: terminalID)
         }
     }
-
     static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
         state.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
     }
-
     private func recordPendingRemoteRename(
         workspaceID: String,
         name: String,
@@ -799,7 +800,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
         publishPendingMutationMetadata()
     }
-
     func recordPendingRemoteRename(
         tabID: String,
         name: String,
