@@ -130,12 +130,17 @@ public final class CloudSystemVPNController {
             previousScope != nil || newScope == nil || cleanupPending
         cleanupPending = removesExistingConfiguration
         enqueue { [self] generation in
+            var remoteCleanupError: (any Error)?
             do {
                 if let newScope {
                     await loadPersistedBrowserTunnelRevocations(scope: newScope)
                 }
                 if !pendingBrowserTunnelRevocations.isEmpty {
-                    try await revokePendingBrowserTunnel()
+                    do {
+                        try await revokePendingBrowserTunnel()
+                    } catch {
+                        remoteCleanupError = error
+                    }
                     guard self.isCurrent(generation) else { return }
                     browserTunnel = nil
                 }
@@ -150,6 +155,9 @@ public final class CloudSystemVPNController {
                     }
                     guard self.isCurrent(generation) else { return }
                     needsPlatformReconciliation = false
+                }
+                if let remoteCleanupError {
+                    throw remoteCleanupError
                 }
                 publish(manager.phase)
             } catch {
@@ -345,23 +353,11 @@ public final class CloudSystemVPNController {
             try await manager.installAndStart(configuration: configuration.text, scope: scope)
         } catch {
             guard enrollment.created || enrollment.rotated else { throw error }
-            do {
-                if let credentials {
-                    try await service.revokeTunnel(
-                        deviceFingerprint: enrollment.deviceFingerprint,
-                        tunnelPurpose: .browser,
-                        accessToken: credentials.accessToken,
-                        refreshToken: credentials.refreshToken
-                    )
-                } else {
-                    try await service.revokeTunnel(
-                        deviceFingerprint: enrollment.deviceFingerprint,
-                        tunnelPurpose: .browser
-                    )
-                }
-            } catch {
-                throw CloudSystemVPNError.configuration
-            }
+            await revokeEnrollmentIfOwned(
+                enrollment,
+                scope: scope,
+                credentials: credentials
+            )
             throw error
         }
     }
@@ -372,12 +368,13 @@ public final class CloudSystemVPNController {
         let controller = self
         let identityResolver = self.identityResolver
         let attempts = cleanupRetryCount
-        let fallbackScope = scope
+        let creationScope = scope
         return { accessToken, refreshToken in
             guard let accessToken, let refreshToken else { return }
             await controller.waitForPendingOperationAndGate()
             let enrolled = await controller.browserTunnelsForTeardown()
             if enrolled.isEmpty {
+                let fallbackScope = await controller.currentScopeForTeardown() ?? creationScope
                 guard let scope = fallbackScope,
                       let fingerprint = try? await identityResolver.stored()?.fingerprint
                 else { return }
@@ -442,6 +439,10 @@ public final class CloudSystemVPNController {
     /// operation that still owns the serialized gate, with a bounded wait.
     public func waitForPendingOperationAndGate() async {
         await waitForPendingOperation()
+        _ = await waitForOperationGate()
+    }
+
+    private func waitForOperationGate() async -> Bool {
         let idle = Task<Void, any Error> { [operationGate] in
             await operationGate.waitForIdle()
         }
@@ -449,8 +450,10 @@ public final class CloudSystemVPNController {
             try await CloudSystemVPNTaskTimeout(
                 timeout: max(operationTimeout, .seconds(1))
             ).value(idle)
+            return true
         } catch {
             idle.cancel()
+            return false
         }
     }
 
@@ -556,6 +559,10 @@ public final class CloudSystemVPNController {
         }
     }
 
+    private func currentScopeForTeardown() -> String? {
+        scope
+    }
+
     private func persistPendingBrowserTunnelRevocation(
         _ tunnel: (
             scope: String,
@@ -613,6 +620,7 @@ public final class CloudSystemVPNController {
                 }
             }
             if let lastError {
+                await persistPendingBrowserTunnelRevocation(tunnel)
                 throw lastError
             }
         }
@@ -657,6 +665,7 @@ public final class CloudSystemVPNController {
             credentials: credentials
         )
         rememberPendingBrowserTunnelRevocation(tunnel)
+        await persistPendingBrowserTunnelRevocation(tunnel)
         let service = self.service
         let timeout = self.timeout
         let fingerprint = enrollment.deviceFingerprint
@@ -675,6 +684,7 @@ public final class CloudSystemVPNController {
         }.value
         if revoked {
             removePendingBrowserTunnelRevocation(tunnel)
+            await clearPersistedBrowserTunnelRevocation(tunnel)
         }
     }
 
@@ -778,7 +788,15 @@ public final class CloudSystemVPNController {
         guard cleanupRetryTask == nil else { return }
         cleanupRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.operationGate.waitForIdle()
+            guard await self.waitForOperationGate() else {
+                self.cleanupRetryTask = nil
+                self.cleanupRetryRequested = false
+                guard self.cleanupPending || !self.pendingBrowserTunnelRevocations.isEmpty else {
+                    return
+                }
+                self.publish(.failed(.configuration))
+                return
+            }
             guard self.cleanupPending || !self.pendingBrowserTunnelRevocations.isEmpty,
                   self.cleanupRetryRequested else { return }
             self.cleanupRetryTask = nil
@@ -792,7 +810,13 @@ public final class CloudSystemVPNController {
         guard enableRetryTask == nil else { return }
         enableRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.operationGate.waitForIdle()
+            guard await self.waitForOperationGate() else {
+                self.enableRetryTask = nil
+                self.enableRetryRequested = false
+                guard self.scope != nil else { return }
+                self.publish(.failed(.configuration))
+                return
+            }
             guard self.scope != nil, self.enableRetryRequested else { return }
             self.enableRetryTask = nil
             self.enableRetryRequested = false

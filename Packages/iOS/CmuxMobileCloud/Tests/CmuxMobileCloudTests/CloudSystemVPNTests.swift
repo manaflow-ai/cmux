@@ -119,6 +119,22 @@ import Testing
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
+    @Test func failedInstallRevocationIsStoredForLaterRetry() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let rig = Rig(
+            pendingRevocationStore: pendingStore
+        )
+        rig.manager.installFailure = .permissionRequired
+        rig.service.revocationFailure = StubError(message: "offline")
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.controller.phase == .failed(.permissionRequired))
+        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
+    }
+
     @Test func aStalledInstallTimesOutAndLeavesTheSwitchRecoverable() async {
         let rig = Rig(operationTimeout: .milliseconds(100))
         rig.manager.installDelay = .milliseconds(500)
@@ -486,6 +502,25 @@ import Testing
         #expect(rig.manager.stopAttempts == [true, true])
         #expect(rig.manager.stops == [true])
         #expect(rig.controller.phase == .off)
+    }
+
+    @Test func failedSignOutRevocationStillRemovesTheLocalVPN() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let rig = Rig(
+            cleanupRetryCount: 1,
+            pendingRevocationStore: pendingStore
+        )
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        rig.service.revocationFailure = StubError(message: "offline")
+
+        rig.controller.setScope(nil)
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.stops == [true])
+        #expect(rig.controller.phase == .failed(.configuration))
+        #expect(await pendingStore.load(scope: "user-1/team-1") == ["ios-abc"])
     }
 
     @Test func failedAccountSwitchCleanupCanBeRetriedFromTheRecoveryAction() async {
