@@ -302,6 +302,7 @@ MAC_APP="$(cmux_attach_mac_app_path "$TAG")"
 IOS_APP="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$SLUG/Build/Products/Debug-iphonesimulator/cmux.app"
 SIMULATOR_NAME="cmux Iroh gate $SLUG"
 SIMULATOR_ID=""
+DATA_CONTAINER=""
 REPORT_FILENAME="cmux-iroh-release-gate.json"
 REPORT_READY_NOTIFICATION="dev.cmux.ios.iroh-release-gate.report-ready"
 REPORT_WAITER_PID=""
@@ -343,6 +344,45 @@ PY
   )
 }
 
+# Preserve the simulator's v2 startup journal and durable debug-log generations
+# alongside the release-gate report. The journal records the exact startup
+# boundaries that UI latency alone cannot distinguish. Every source is
+# redacted before it leaves the simulator container.
+capture_ios_release_gate_diagnostics() {
+  local prefix="$1"
+  local label="${2:-success}"
+  [[ -n "$SIMULATOR_ID" ]] || return 0
+  local support_root=""
+  if [[ -n "$DATA_CONTAINER" && -d "$DATA_CONTAINER/Library/Application Support" ]]; then
+    support_root="$DATA_CONTAINER/Library/Application Support"
+  else
+    support_root="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data 2>/dev/null)/Library/Application Support"
+  fi
+  if [[ -d "$support_root" ]]; then
+    local index=0
+    while IFS= read -r source; do
+      [[ -f "$source" ]] || continue
+      local destination
+      case "$(basename "$source")" in
+        iroh-v2-journal.jsonl) destination="${prefix}-ios-iroh-v2-journal-${label}-${index}.jsonl" ;;
+        cmux-debug.log) destination="${prefix}-ios-debug-${label}-${index}.log" ;;
+        cmux-debug.log.1) destination="${prefix}-ios-debug-rotated-${label}-${index}.log" ;;
+        *) continue ;;
+      esac
+      sed -E \
+        -e 's/[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]+/<redacted-email>/g' \
+        -e 's/[A-Za-z0-9_-]{24,}/<redacted-token>/g' \
+        -e 's/[[:xdigit:]]{64}/<redacted-endpoint>/g' \
+        "$source" > "$destination" || true
+      index=$((index + 1))
+    done < <(find "$support_root" -type f \( \
+      -name 'iroh-v2-journal.jsonl' -o \
+      -name 'cmux-debug.log' -o \
+      -name 'cmux-debug.log.1' \
+    \) -print 2>/dev/null)
+  fi
+}
+
 cleanup() {
   local exit_code=$?
   local cleanup_code=0
@@ -369,7 +409,8 @@ cleanup() {
     failure_prefix="${REPORT_OUTPUT%.json}"
     if [[ -n "$SIMULATOR_ID" ]]; then
       xcrun simctl io "$SIMULATOR_ID" screenshot "${failure_prefix}-ios-failure.png" >/dev/null 2>&1 || true
-      xcrun simctl spawn "$SIMULATOR_ID" log show --style compact --last 10m \
+      capture_ios_release_gate_diagnostics "$failure_prefix" "failure"
+      xcrun simctl spawn "$SIMULATOR_ID" log show --style compact --last 30m \
         --predicate 'subsystem == "dev.cmux.ios"' 2>/dev/null \
         | sed -E 's/[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]+/<redacted-email>/g; s/[A-Za-z0-9_-]{24,}/<redacted-token>/g' \
         > "${failure_prefix}-ios-failure.log" || true
@@ -1047,6 +1088,7 @@ if [[ -n "$REPORT_OUTPUT" ]]; then
     cp "$UI_CAPTURE_DIR/terminal.png" "${REPORT_OUTPUT%.json}-ui-terminal.png"
   fi
   xcrun simctl io "$SIMULATOR_ID" screenshot "${REPORT_OUTPUT%.json}-ios.png" >/dev/null 2>&1 || true
+  capture_ios_release_gate_diagnostics "${REPORT_OUTPUT%.json}" "success"
 
   # Preserve the Mac's privacy-safe transport ring beside the iOS verdict.
   # The host owns admission and stream lifetime, so an iOS-only report cannot
