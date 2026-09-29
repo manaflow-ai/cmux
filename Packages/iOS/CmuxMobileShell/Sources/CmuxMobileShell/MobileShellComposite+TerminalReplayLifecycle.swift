@@ -390,11 +390,19 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "CMUX_REPLAY retry_exhausted surface=\(surfaceID) attempts=\(retryCount)"
             )
+            let wasBaselineReplay = terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken
+                || terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken
             failOpenTerminalReplayBarrier(
                 surfaceID: surfaceID,
                 token: replayBarrierToken,
                 reason: "retry_exhausted"
             )
+            if wasBaselineReplay, deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil {
+                // Fail-open removes the barrier's identity before the failure
+                // resolver can recognize it. Keep this baseline episode spent
+                // so partial live frames cannot start another replay cycle.
+                terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] = Self.maxTerminalReplayFailureRetries
+            }
             return nil
         }
         terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = retryCount + 1
