@@ -79,7 +79,7 @@ enum TabHandlers {
             return
         }
         guard let window = ctx.services.windows.active ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
-        let workspace = ctx.services.daemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === paneModel } } }
+        let workspace = ctx.services.activeDaemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === paneModel } } }
         guard let workspace else { return }
         window.state.selection.select(tabID, in: paneModel.id)
         window.state.focusedPane[workspace.id] = LayoutPaneID(paneModel.id)
@@ -156,7 +156,7 @@ enum TabHandlers {
     /// Optimistic rename; an empty name clears it on the daemon.
     static func rename(_ surface: SurfaceID, to name: String?, ctx: AppActionContext, pane: PaneController) {
         ctx.registry.track(Task {
-            let ok = await ctx.services.daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+            let ok = await ctx.services.activeDaemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
                 try await connection.renameTab(surface, to: name ?? "")
             }
             if !ok { pane.resyncStrip() }

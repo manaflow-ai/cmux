@@ -123,7 +123,7 @@ extension TabDragSession {
     }
 
     func paneModel(id: String) -> PaneModel? {
-        for workspace in services.daemon.store.workspaces {
+        for (workspace, _) in services.machines.allWorkspaces {
             for screen in workspace.screens {
                 if let pane = screen.panes.first(where: { $0.id == id }) { return pane }
             }
@@ -138,7 +138,7 @@ extension TabDragSession {
               let screen = content.layoutModel.screens.first(where: { $0.id.rawValue == screenID }),
               let column = screen.layout.columns.first(where: { $0.id.rawValue == after }),
               let anchor = column.root.panes.last, let handle = content.handles.panes[anchor],
-              let pane = services.daemon.store.pane(handle) else { return nil }
+              let pane = content.daemon.store.pane(handle) else { return nil }
         return (pane, content.handles.columns[column.id])
     }
 }

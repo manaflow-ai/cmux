@@ -74,7 +74,7 @@ extension TabHandlers {
     private static func bindIdentifiers(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("palette.copyIdentifiers", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            let workspace = ctx.services.daemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
+            let workspace = ctx.services.activeDaemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
             var lines: [String] = []
             if let workspace { lines.append("workspace_id=\(workspace.id)") }
             lines.append("pane_id=\(pane.id)")

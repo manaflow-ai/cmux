@@ -23,7 +23,7 @@ final class ClosedTabTracker {
 
     init(services: AppServices) {
         self.services = services
-        let store = services.daemon.store
+        let store = services.activeDaemon.store
         observation = Task { [weak self] in
             for await structure in Observations({ Self.structure(of: store) }) {
                 self?.apply(structure)
@@ -78,7 +78,7 @@ final class ClosedTabTracker {
 
     /// Reopens `record` at its old position in its old pane, else in `fallback`.
     func reopen(_ record: ClosedTabHistory.Record, fallback: PaneController?) {
-        let panes = services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
+        let panes = services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
         let paneModel = panes.first { $0.id == record.paneID } ?? fallback?.pane
         guard let paneModel else {
             services.registry.refuse(RefusalStrings.closedTabPaneGone)
@@ -93,7 +93,7 @@ final class ClosedTabTracker {
             }
             controller.newBrowserTab(url: record.url.flatMap(URL.init(string:)))
         case .terminal:
-            guard let connection = services.daemon.connection else {
+            guard let connection = services.activeDaemon.connection else {
                 services.registry.refuse(MiscHandlerStrings.daemonOffline)
                 return
             }

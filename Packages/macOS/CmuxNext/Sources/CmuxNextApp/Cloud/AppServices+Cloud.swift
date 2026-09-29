@@ -1,7 +1,15 @@
 import CmuxNextActions
+import CmuxNextDaemon
 import Observation
 
 extension AppServices {
+    /// The daemon of the active window's workspace: the local daemon, or its
+    /// Cloud machine. Focus-scoped handlers (tab, pane, workspace verbs)
+    /// command this daemon, so they act on a Cloud workspace the same way.
+    var activeDaemon: DaemonService {
+        windows?.active.flatMap { machines.daemon(machine: $0.state.machineID) } ?? daemon
+    }
+
     /// Publishes `signedIn` / `signedOut` / `cloudWorkspace` to the action
     /// registry. `cloudWorkspace` means "a Cloud machine exists", so the
     /// palette offers machine actions; each handler still resolves its

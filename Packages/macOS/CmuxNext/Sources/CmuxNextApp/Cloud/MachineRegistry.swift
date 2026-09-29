@@ -49,6 +49,12 @@ final class MachineRegistry {
         return local
     }
 
+    /// The daemon holding `tab` (by object identity).
+    func daemon(forTab tab: TabModel) -> DaemonService {
+        for daemon in cloud.map(\.daemon) where daemon.store.tab(surface: tab.surface) === tab { return daemon }
+        return local
+    }
+
     /// Every workspace on every machine, local first.
     var allWorkspaces: [(WorkspaceModel, DaemonService)] {
         daemons.flatMap { daemon in daemon.store.workspaces.map { ($0, daemon) } }

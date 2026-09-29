@@ -5,12 +5,12 @@ import CmuxNextDaemon
 /// Target resolution for workspace, group, window, and sidebar handlers.
 /// Each throws an `ActionFailure` instead of silently doing nothing.
 extension AppActionContext {
-    var store: DaemonStore { services.daemon.store }
+    var store: DaemonStore { services.activeDaemon.store }
     var activeWindow: WindowController? { services.windows.active }
 
     /// Throws unless the daemon serves `capability`.
     func require(_ capability: String) throws {
-        guard services.daemon.supports(capability) else { throw ActionFailure.needsDaemonCapability(capability) }
+        guard services.activeDaemon.supports(capability) else { throw ActionFailure.needsDaemonCapability(capability) }
     }
 
     /// The targeted workspace (target, `workspace` argument) or the one the

@@ -56,7 +56,7 @@ enum ScreenHandlers {
     /// The targeted screen (`screen:<id>`), else the focused view's active screen.
     private static func screen(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> (WorkspaceModel, ScreenModel)? {
         if let target = invocation.target, target.kind == .screen {
-            for workspace in ctx.services.daemon.store.workspaces {
+            for workspace in ctx.services.activeDaemon.store.workspaces {
                 if let screen = workspace.screens.first(where: { $0.id == target.id }) { return (workspace, screen) }
             }
             return ctx.refuse(RefusalStrings.noScreen(target.id))
