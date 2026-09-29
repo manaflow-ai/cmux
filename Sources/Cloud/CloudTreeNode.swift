@@ -126,7 +126,8 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         case .device: return "device"
         case .devicesSection: return "devicesSection"
-        case .cloudMachinesSection: return "cloudMachinesSection"; case .createAction: return "createAction"
+        case .cloudMachinesSection: return "cloudMachinesSection"
+        case .createAction: return "createAction"
         case .devicesEmpty: return "devicesEmpty"
         }
     }
@@ -201,7 +202,8 @@ final class CloudTreeNode: NSObject {
         case .placeholder(_, let placeholder): return placeholder.text
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
-        case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"); case .createAction(let action): return action.title
+        case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
+        case .createAction(let action): return action.title
         case .devicesEmpty(let section):
             return section.count == 0
                 ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
@@ -242,7 +244,6 @@ final class CloudTreeNode: NSObject {
         }
         return dragResource.map { SurfaceResourceGroup(single: $0) }
     }
-
     /// Whether a native drag may export a pane projection. Only terminals and
     /// displays leave the tree; machine and descendant ordering admit internal-only row
     /// drags without granting an external projection capability.
