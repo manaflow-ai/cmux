@@ -221,7 +221,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let wasReady = dataCache?.readyData != nil
 #endif
         // The cache is warmed at sign-in, so this returns at once; only a
-        // cold cache (the first seconds after sign-in) waits for the fetch.
+        // cold cache waits, for at most a second.
         let data = await dataCache?.data()
         guard !Task.isCancelled, !isPresenting else {
             finishSelection(selectionID, request: nil)

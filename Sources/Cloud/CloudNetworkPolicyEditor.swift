@@ -13,7 +13,7 @@ struct CloudNetworkPolicyEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                CloudNetworkModeMenu(model: model)
+                CloudNetworkModePicker(model: model)
                     .frame(width: modeMenuWidth)
                 CloudSecurityExplainer()
             }
@@ -25,14 +25,33 @@ struct CloudNetworkPolicyEditor: View {
     }
 }
 
-/// Full internet / Allowlist / No internet as one pull-down. What each mode
-/// allows is the tooltip, not a caption.
-struct CloudNetworkModeMenu: View {
+/// Full internet / Allowlist / No internet as a pop-up that fills the
+/// width it is given. What each mode allows is the tooltip, not a caption.
+struct CloudNetworkModePicker: View {
     @Bindable var model: CloudNetworkPolicyEditorModel
-    var borderless = false
 
     var body: some View {
-        let menu = Menu {
+        Picker(selection: $model.mode) {
+            ForEach(CloudNetworkPolicyMode.allCases, id: \.self) { mode in
+                Text(mode.title).tag(mode)
+            }
+        } label: {
+            Text(String(localized: "cloud.network.mode.label", defaultValue: "Outbound access"))
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .help(model.mode.explanation)
+        .accessibilityHint(model.mode.explanation)
+        .accessibilityIdentifier("CloudNetworkPolicyEditor.mode")
+    }
+}
+
+/// The same choice as a borderless menu, for the sentence layout.
+struct CloudNetworkModeMenu: View {
+    @Bindable var model: CloudNetworkPolicyEditorModel
+
+    var body: some View {
+        Menu {
             ForEach(CloudNetworkPolicyMode.allCases, id: \.self) { mode in
                 Button {
                     model.mode = mode
@@ -53,11 +72,8 @@ struct CloudNetworkModeMenu: View {
         .accessibilityValue(model.mode.title)
         .accessibilityHint(model.mode.explanation)
         .accessibilityIdentifier("CloudNetworkPolicyEditor.mode")
-        if borderless {
-            menu.menuStyle(.borderlessButton).fixedSize()
-        } else {
-            menu
-        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 }
 

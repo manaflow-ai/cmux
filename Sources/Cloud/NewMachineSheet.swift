@@ -31,10 +31,10 @@ enum NewMachineSheetLayout: String, CaseIterable {
 
     var width: CGFloat {
         switch self {
-        case .grid: return 400
-        case .stacked: return 360
-        case .sentence: return 460
-        case .grouped: return 420
+        case .grid: return 440
+        case .stacked: return 400
+        case .sentence: return 480
+        case .grouped: return 440
         }
     }
 }
@@ -48,6 +48,9 @@ struct NewMachineSheet: View {
     @Bindable var model: NewMachineModel
     let layout: NewMachineSheetLayout
     @State private var allowlistExpanded: Bool
+    /// Bumped when a locked size is picked: the selection stays put, so the
+    /// pop-up is rebuilt to show the real selection again.
+    @State private var sizePickerRevision = 0
 
     init(model: NewMachineModel, layout: NewMachineSheetLayout = .current, allowlistInitiallyExpanded: Bool = false) {
         self.model = model
@@ -140,7 +143,7 @@ struct NewMachineSheet: View {
 
     // MARK: A. Grid
 
-    private static let gridControlWidth: CGFloat = 220
+    private static let gridControlWidth: CGFloat = 230
 
     private var gridLayout: some View {
         Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 10, verticalSpacing: 12) {
@@ -356,7 +359,7 @@ struct NewMachineSheet: View {
 
     private var sizeMenu: some View { makeSizeMenu(borderless: false) }
 
-    /// The size pull-down: allowed sizes, then the locked ones with the plan
+    /// The size pop-up: allowed sizes, then the locked ones with the plan
     /// that unlocks them. Picking a locked size asks to upgrade instead.
     @ViewBuilder
     private func makeSizeMenu(borderless: Bool) -> some View {
@@ -370,8 +373,41 @@ struct NewMachineSheet: View {
             .lineLimit(1)
             .help(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
             .accessibilityIdentifier("NewMachineSheet.size.noneAllowed")
+        } else if let selectedSize = model.selectedSize, !borderless {
+            Picker(selection: Binding(
+                get: { model.memoryMb },
+                set: { requested in
+                    model.selectSize(requested)
+                    if model.memoryMb != requested { sizePickerRevision &+= 1 }
+                }
+            )) {
+                ForEach(model.memoryOptions, id: \.self) { memoryMb in
+                    if let size = MachineSizeOption(memoryMb: memoryMb) {
+                        Text(size.menuTitle).tag(memoryMb)
+                    }
+                }
+                if !model.lockedMemoryOptions.isEmpty {
+                    Divider()
+                }
+                ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
+                    if let size = MachineSizeOption(memoryMb: memoryMb) {
+                        Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
+                            .tag(memoryMb)
+                            .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
+                    }
+                }
+            } label: {
+                Text(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .id(sizePickerRevision)
+            .help(String(localized: "machines.new.size.help", defaultValue: "Choose the memory and disk profile for this machine."))
+            .accessibilityIdentifier("NewMachineSheet.size")
+            .accessibilityValue(selectedSize.menuTitle)
         } else if let selectedSize = model.selectedSize {
-            let menu = Menu {
+            // The sentence layout's token: a borderless menu with checkmarks.
+            Menu {
                 ForEach(model.memoryOptions, id: \.self) { memoryMb in
                     if let size = MachineSizeOption(memoryMb: memoryMb) {
                         Button { model.selectSize(memoryMb) } label: {
@@ -396,17 +432,14 @@ struct NewMachineSheet: View {
                     }
                 }
             } label: {
-                Text(borderless ? selectedSize.title : selectedSize.menuTitle)
+                Text(selectedSize.title)
             }
             .help(String(localized: "machines.new.size.help", defaultValue: "Choose the memory and disk profile for this machine."))
             .accessibilityIdentifier("NewMachineSheet.size")
             .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
             .accessibilityValue(selectedSize.menuTitle)
-            if borderless {
-                menu.menuStyle(.borderlessButton).fixedSize()
-            } else {
-                menu
-            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
     }
 
@@ -437,8 +470,13 @@ struct NewMachineSheet: View {
             ))
             .accessibilityIdentifier("NewMachineSheet.network")
         case .available:
-            CloudNetworkModeMenu(model: model.network, borderless: borderless)
-                .accessibilityIdentifier("NewMachineSheet.network")
+            if borderless {
+                CloudNetworkModeMenu(model: model.network)
+                    .accessibilityIdentifier("NewMachineSheet.network")
+            } else {
+                CloudNetworkModePicker(model: model.network)
+                    .accessibilityIdentifier("NewMachineSheet.network")
+            }
         }
     }
 

@@ -69,6 +69,8 @@ final class NewMachineSheetDataCache {
     private var scopeTask: Task<Void, Never>?
     private var activationObserver: NSObjectProtocol?
     private var listeners: [UUID: @MainActor (NewMachineSheetData) -> Void] = [:]
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var waiterDeadlines: [UUID: Task<Void, Never>] = [:]
 
     init(
         currentScope: @escaping @MainActor () -> AuthenticatedTeamScope?,
@@ -144,13 +146,33 @@ final class NewMachineSheetDataCache {
         )
     }
 
-    /// Returns the ready data at once; only a cold cache (the first seconds
-    /// after sign-in, or a failed warm-up) waits for a fetch.
-    func data() async -> NewMachineSheetData? {
+    /// Returns the ready data at once. Only a cold cache (the first seconds
+    /// after sign-in, or a failed warm-up) waits, and never longer than
+    /// `limit`: a slow control plane then gets a sheet with what is known,
+    /// and the listener fills in the rest.
+    func data(waitingAtMost limit: Duration = .seconds(1)) async -> NewMachineSheetData? {
         if let readyData { return readyData }
-        refresh()
-        await refreshTask?.value
+        guard refresh() else { return currentData }
+        let id = UUID()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            waiters[id] = continuation
+            let clock = clock
+            waiterDeadlines[id] = Task { @MainActor [weak self] in
+                // Cancelled when the fetch answers first.
+                guard (try? await clock.sleep(for: limit)) != nil else { return }
+                self?.resumeWaiter(id)
+            }
+        }
         return currentData
+    }
+
+    private func resumeWaiter(_ id: UUID) {
+        waiterDeadlines.removeValue(forKey: id)?.cancel()
+        waiters.removeValue(forKey: id)?.resume()
+    }
+
+    private func resumeAllWaiters() {
+        for id in Array(waiters.keys) { resumeWaiter(id) }
     }
 
     /// Calls `handler` with every update installed for the current scope.
@@ -192,6 +214,7 @@ final class NewMachineSheetDataCache {
             guard let self, self.refreshID == id else { return }
             self.refreshTask = nil
             self.refreshID = nil
+            defer { self.resumeAllWaiters() }
             guard !Task.isCancelled, self.isCurrent(scope) else { return }
             if case .success(let page) = fetchedPage {
                 self.page = (page.limits, page.vms.count)
@@ -236,6 +259,7 @@ final class NewMachineSheetDataCache {
         refreshTask?.cancel()
         refreshTask = nil
         refreshID = nil
+        resumeAllWaiters()
         self.scope = scope
         page = nil
         catalog = nil
