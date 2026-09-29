@@ -54,4 +54,34 @@ import Testing
             ) == nil
         )
     }
+
+    @Test func primaryActionRoutesToTheOnlyConnectedComputer() {
+        let target = WorkspaceListNewWorkspaceMenuValue.ComputerTarget(
+            id: "cloud-1",
+            kind: .cloud(hostID: "cloud-1"),
+            name: "Cloud",
+            isConnected: true,
+            systemImage: "cloud"
+        )
+        let value = WorkspaceListNewWorkspaceMenuValue(
+            canCreate: false,
+            canCreateGroup: false,
+            computerTargets: [target]
+        )
+        var genericActionCalled = false
+        var selectedTarget: WorkspaceListNewWorkspaceMenuValue.ComputerTarget?
+        let actions = WorkspaceListNewWorkspaceMenuActions(
+            createWorkspace: { genericActionCalled = true },
+            createWorkspaceGroup: nil,
+            createWorkspaceOnComputer: { selectedTarget = $0 }
+        )
+
+        WorkspaceListNewWorkspaceMenu.performPrimaryAction(
+            value: value,
+            actions: actions
+        )
+
+        #expect(!genericActionCalled)
+        #expect(selectedTarget == target)
+    }
 }
