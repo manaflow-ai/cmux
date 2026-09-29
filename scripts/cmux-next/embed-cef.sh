@@ -9,24 +9,54 @@
 # then signs them inside out with the build's identity (ad hoc for dev
 # builds). Xcode signs the outer app afterwards.
 #
+# The artifact ships CEF's flat framework (binary, Libraries/, Resources/ at
+# the top). Xcode's product validation rejects that layout ("did not contain
+# an Info.plist"), so the framework is embedded as a standard versioned
+# bundle: Versions/A/{binary,Libraries,Resources}, Versions/Current -> A, and
+# top-level symlinks. CEF and the helpers keep using the top-level paths.
+#
 # Idempotent: copies only what changed and skips signing when the embedded
-# stamp (artifact, shim, product name, identity) matches and the framework
-# signature still verifies. When the artifact is unavailable (no network, no
-# access to the private manaflow-ai/cef release) or CMUX_NEXT_SKIP_CEF=1, it
-# removes nothing, embeds nothing, and exits 0: the app then reports the
-# Chromium engine as unavailable. CMUX_NEXT_REQUIRE_CEF=1 turns that into a
-# build failure (release and CEF verification builds).
+# stamp (artifact, layout, shim, product name, identity) matches and the
+# framework signature still verifies. When the artifact is unavailable (no
+# network, no access to the private manaflow-ai/cef release) or
+# CMUX_NEXT_SKIP_CEF=1, it embeds nothing and exits 0: the app then reports
+# the Chromium engine as unavailable. A CEF embedded by an earlier build is
+# kept when its layout is valid and removed when it is the old flat layout,
+# which would fail validation. CMUX_NEXT_REQUIRE_CEF=1 turns a missing
+# artifact into a build failure (release and CEF verification builds).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FW_NAME="Chromium Embedded Framework.framework"
+FW_BINARY="Chromium Embedded Framework"
+# Bump when the embedded layout changes so existing app bundles are redone.
+LAYOUT="versioned-1"
+
+app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
+frameworks="$app/Contents/Frameworks"
+
+# Removes a framework left by a build that used the flat layout, with the
+# shim and helpers that belong to it. Used when nothing will replace it.
+remove_invalid_embed() {
+  local fw="$frameworks/$FW_NAME"
+  [[ -e "$fw" ]] || return 0
+  [[ -L "$fw/Versions/Current" ]] && return 0
+  echo "note: removing a flat-layout CEF framework left by an earlier build"
+  rm -rf "$fw" "$frameworks/libcmux_cef_shim.dylib"
+  for helper in "$frameworks"/*" Helper"*.app; do
+    [[ -e "$helper" ]] && rm -rf "$helper"
+  done
+  return 0
+}
 
 if [[ "${CMUX_NEXT_SKIP_CEF:-0}" == "1" ]]; then
   echo "note: CMUX_NEXT_SKIP_CEF=1, not embedding CEF"
+  remove_invalid_embed
   exit 0
 fi
 if [[ " ${ARCHS:-arm64} " != *" arm64 "* ]]; then
   echo "warning: CEF artifact is arm64 only; ARCHS=${ARCHS:-}, not embedding CEF"
+  remove_invalid_embed
   exit 0
 fi
 
@@ -34,11 +64,10 @@ ensure_args=(--optional)
 [[ "${CMUX_NEXT_REQUIRE_CEF:-0}" == "1" ]] && ensure_args=()
 cef_dir="$("$SCRIPT_DIR/ensure-cef.sh" "${ensure_args[@]}")"
 if [[ -z "$cef_dir" ]]; then
+  remove_invalid_embed
   exit 0
 fi
 
-app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
-frameworks="$app/Contents/Frameworks"
 product="${PRODUCT_NAME:?}"
 bundle_id="${PRODUCT_BUNDLE_IDENTIFIER:?}"
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
@@ -68,10 +97,19 @@ mkdir -p "$frameworks"
 stamp_dir="${DERIVED_FILE_DIR:-${TMPDIR:-/tmp}}/cmux-cef-embed"
 mkdir -p "$stamp_dir"
 source_stamp="$stamp_dir/source"
-if [[ ! -f "$source_stamp" || ! -d "$frameworks/$FW_NAME" || "$(cat "$source_stamp")" != "$cef_dir" ]]; then
-  rm -rf "$frameworks/$FW_NAME"
-  ditto "$cef_dir/$FW_NAME" "$frameworks/$FW_NAME"
-  printf '%s' "$cef_dir" > "$source_stamp"
+source_value="$cef_dir $LAYOUT"
+if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$(cat "$source_stamp")" != "$source_value" ]]; then
+  fw="$frameworks/$FW_NAME"
+  rm -rf "$fw"
+  mkdir -p "$fw/Versions/A"
+  for item in "$FW_BINARY" Libraries Resources; do
+    ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
+  done
+  ln -s A "$fw/Versions/Current"
+  for item in "$FW_BINARY" Libraries Resources; do
+    ln -s "Versions/Current/$item" "$fw/$item"
+  done
+  printf '%s' "$source_value" > "$source_stamp"
 fi
 # Signing also rewrites the shim and helper binaries, so compare against the
 # shim build key, not the bytes.
@@ -138,7 +176,7 @@ printf '%s' "$shim_key $product" > "$binary_stamp"
 
 # 4. Sign inside out, unless nothing changed since the last signature.
 stamp="$stamp_dir/signed"
-stamp_value="$(basename "$cef_dir") $shim_key $product $identity"
+stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key $product $identity"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   codesign --verify "$frameworks/$FW_NAME" >/dev/null 2>&1 &&
   codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1; then
@@ -161,7 +199,7 @@ cat > "$jit_entitlements" <<'ENT'
 </plist>
 ENT
 
-for lib in "$frameworks/$FW_NAME/Libraries/"*.dylib; do
+for lib in "$frameworks/$FW_NAME/Versions/A/Libraries/"*.dylib; do
   codesign "${sign_flags[@]}" "$lib"
 done
 codesign "${sign_flags[@]}" "$frameworks/$FW_NAME"
