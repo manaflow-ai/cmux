@@ -9,7 +9,6 @@ Greptile is configured to publish a GitHub status check and inline findings. Cod
 Current rules:
 
 - `algorithmic-complexity.md`
-- `browser-automation-webkit-waits-off-main.md`
 - `cache-substitution-correctness.md`
 - `cloud-persistent-session-and-early-input.md`
 - `full-internationalization.md`

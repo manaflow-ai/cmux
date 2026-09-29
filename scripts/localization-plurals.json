@@ -60,18 +60,6 @@
       1
     ]
   },
-  "cli.ios.error.ambiguousTargets": {
-    "source": "Found %lld iOS Simulator panes; pass --surface <ref> or --all",
-    "arguments": [
-      1
-    ]
-  },
-  "cli.ios.error.screenshotBatchLimit": {
-    "source": "Found %lld iOS Simulator panes; screenshot --all supports at most 8",
-    "arguments": [
-      1
-    ]
-  },
   "cli.localTmux.output.foundStale": {
     "source": "Found %lld stale local tmux sessions; pass --prune to remove them",
     "arguments": [
@@ -96,35 +84,8 @@
       1
     ]
   },
-  "cli.sidebar.report.reloadSummary": {
-    "source": "Reloaded %1$d valid sidebars. %2$d valid, %3$d invalid.",
-    "arguments": [
-      1,
-      2,
-      3
-    ]
-  },
-  "cli.sidebar.report.summary": {
-    "source": "%1$d valid, %2$d invalid.",
-    "arguments": [
-      1,
-      2
-    ]
-  },
-  "cli.simulator.error.inputTooLarge": {
-    "source": "simulator input exceeds the %lld-byte UTF-8 limit",
-    "arguments": [
-      1
-    ]
-  },
   "cli.simulator.error.textTooLong": {
     "source": "Text exceeds the %lld-byte UTF-8 limit",
-    "arguments": [
-      1
-    ]
-  },
-  "cli.simulator.output.typed": {
-    "source": "Typed %lld characters",
     "arguments": [
       1
     ]

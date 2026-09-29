@@ -22,19 +22,6 @@ on:
         required: false
         default: ""
         type: string
-      # "layered" also uploads the product as four layer artifacts plus an
-      # index, and consumers try those before the aggregate. Off by default:
-      # measured 2026-09-27 on the owned minis, the layer uploads added 100 to
-      # 255 s to compile admission (which every shard waits on), and a shard's
-      # layer restore took 68 to 231 s (median about 115 s) against 34 to 90 s
-      # (median about 70 s) for the aggregate over parallel range requests.
-      # No caller passes this input today; a canary passes
-      # `product_artifacts: layered` from ci.yml's macos call
-      # (docs/ci/app-host-layer-transport.md).
-      product_artifacts:
-        required: false
-        default: "aggregate"
-        type: string
       compile_admitted:
         required: true
         type: string
@@ -67,18 +54,10 @@ on:
         required: false
         default: ""
         type: string
-      # Set only for a full suite on a Blacksmith pool (pr_runner_pool.py
-      # spread_shards): another pool on the same Xcode, with more room than
-      # compile admission's for the app-host shards. The product runs on any
-      # pool on its Xcode, since every one reproduces the canonical root.
-      pr_shard_runner:
-        required: false
-        default: ""
-        type: string
       # Set only when pr_runner is persistent and has a root count: the root
       # label (glaeda-root-<class>-xcode-<version>). glaeda runs a
-      # canonical-root job (admission, the shards, tests-build-and-lag,
-      # cli-product-tests) only on a mini whose root is free, so each of them
+      # canonical-root job (admission, cli-product-tests) only on a mini
+      # whose root is free, so each of them
       # in pr_owned_jobs takes this label, on attempt 1 and after a refusal,
       # and waits for a free root instead of being refused.
       pr_root_runner:
@@ -89,7 +68,7 @@ on:
       # gui label a count: glaeda-gui-<class>-xcode-<version>. Each mini has
       # one gui token and one runner carrying this label, whose listener
       # stops while the token or every root is taken. The jobs that hold the
-      # token (the shards, tests-build-and-lag, cli-product-tests) take it
+      # token (cli-product-tests) take it
       # wherever they would take the root label, so a second one waits in
       # GitHub's queue for another mini instead of on a root runner here,
       # where glaeda refuses it.
@@ -158,10 +137,9 @@ env:
   # needs the cmux-cli product and its test bundle -- not the app, and not the
   # app-host or numeric-locale bundles.
   #
-  # macOS routing keeps the full product while anything needs it: the app-host
-  # shards consume it, and admission is also the check that proves the app
-  # itself still compiles. Once an earlier run has admitted these inputs and
-  # no app-host shard is routed, a CLI route only needs the cli product.
+  # macOS routing keeps the full product: admission is the check that proves
+  # the app itself still compiles. Once an earlier run has admitted these
+  # inputs, a CLI route only needs the cli product.
   # Producer and consumer must agree here, so it is declared once for every job
   # -- a consumer recomputing a different profile's identity simply declines
   # the artifact, which would silently cost a compile instead of reusing one.
@@ -228,11 +206,9 @@ jobs:
 
   macos-compile-admission:
     name: macOS compile admission
-    # Spend one macOS slot proving that the app-host test product compiles
-    # before starting the six test shards. The shards download this run's
-    # build products and run test-without-building, so a compiler failure
-    # cannot fan out across every macOS worker and a successful build is not
-    # repeated six times.
+    # Spend one macOS slot proving that the product compiles before
+    # cli-product-tests starts. That job downloads this run's build products
+    # and runs test-without-building, so a successful build is not repeated.
     # admission-placement may pin attempt 1 to one root runner; a skipped or
     # failed placement never holds admission back (!cancelled()).
     needs:
@@ -257,8 +233,6 @@ jobs:
     outputs:
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-products.outputs.artifact-digest }}
-      layer_index_artifact_id: ${{ steps.upload-layer-index.outputs.artifact-id }}
-      layer_index_digest: ${{ steps.upload-layer-index.outputs.artifact-digest }}
       sha256: ${{ steps.package-products.outputs.sha256 }}
       product_contract: ${{ steps.product-key.outputs.key }}
       source_revision: ${{ github.sha }}
@@ -701,7 +675,7 @@ jobs:
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
 
       # No test compilation cache restore. Swift keys each compile job on its
-      # whole module, so `cmux` and cmuxUITests missed on every file even with
+      # whole module, so the app modules missed on every file even with
       # the key, paths and Xcode matching the nightly seed (581/581 and 566/566
       # in sampled admission logs, 2026-09-24). Only modules unchanged since the
       # six-hourly seed hit, and the DerivedData seed below already leaves those
@@ -926,7 +900,7 @@ jobs:
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 
       # These no-socket probes take seconds and need only the compiled CLI.
-      # Fail admission before allocating app-host shards or the runtime job.
+      # Fail admission before allocating cli-product-tests.
       # They run after a compile and after a product reuse alike: both leave
       # the Debug CLI at the same path, and both product profiles build it.
       # This is the CLI lane's only Debug CLI build; the closed-consumer,
@@ -1026,116 +1000,6 @@ jobs:
         with:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/app-host-products.tar.gz
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-
-      - name: Package app-host product layers
-        id: package-layers
-        if: ${{ steps.upload-products.outcome == 'success' && inputs.full_suite == 'true' && inputs.product_artifacts == 'layered' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          normalized="$(mktemp -d "$RUNNER_TEMP/cmux-layer-normalized.XXXXXX")"
-          trap 'rm -rf "$normalized"' EXIT
-          tar -xzf "$RUNNER_TEMP/app-host-products.tar.gz" -C "$normalized"
-          python3 scripts/ci/app_host_layer_transport.py identity "$normalized/identity.json"
-          python3 scripts/ci/app_host_layered_products.py pack             "$normalized" "$RUNNER_TEMP/app-host-layers"             --identity "$normalized/identity.json"
-
-      - name: Upload app-host app-cli layer
-        id: upload-layer-app-cli
-        if: steps.package-layers.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: app-host-layer-app-cli-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/app-host-layers/app-cli.aar
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-
-      - name: Upload app-host runtime layer
-        id: upload-layer-runtime
-        if: steps.package-layers.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: app-host-layer-runtime-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/app-host-layers/runtime.aar
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-
-      - name: Upload app-host tests layer
-        id: upload-layer-tests
-        if: steps.package-layers.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: app-host-layer-tests-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/app-host-layers/tests.aar
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-
-      - name: Upload app-host diagnostics layer
-        id: upload-layer-diagnostics
-        if: steps.package-layers.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: app-host-layer-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/app-host-layers/diagnostics.aar
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-
-      - name: Pin app-host layer provider identities
-        id: pin-layer-index
-        if: ${{ steps.upload-layer-app-cli.outcome == 'success' && steps.upload-layer-runtime.outcome == 'success' && steps.upload-layer-tests.outcome == 'success' && steps.upload-layer-diagnostics.outcome == 'success' }}
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          APP_CLI_ID: ${{ steps.upload-layer-app-cli.outputs.artifact-id }}
-          APP_CLI_DIGEST: ${{ steps.upload-layer-app-cli.outputs.artifact-digest }}
-          RUNTIME_ID: ${{ steps.upload-layer-runtime.outputs.artifact-id }}
-          RUNTIME_DIGEST: ${{ steps.upload-layer-runtime.outputs.artifact-digest }}
-          TESTS_ID: ${{ steps.upload-layer-tests.outputs.artifact-id }}
-          TESTS_DIGEST: ${{ steps.upload-layer-tests.outputs.artifact-digest }}
-          DIAGNOSTICS_ID: ${{ steps.upload-layer-diagnostics.outputs.artifact-id }}
-          DIAGNOSTICS_DIGEST: ${{ steps.upload-layer-diagnostics.outputs.artifact-digest }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          rows = []
-          for name in ("app-cli", "runtime", "tests", "diagnostics"):
-              key = name.replace("-", "_").upper()
-              rows.append({
-                  "name": name,
-                  "artifact_id": os.environ[key + "_ID"],
-                  "artifact_digest": os.environ[key + "_DIGEST"],
-              })
-          (Path(os.environ["RUNNER_TEMP"]) / "app-host-layer-receipts.json").write_text(
-              json.dumps(rows)
-          )
-          PY
-          python3 scripts/ci/app_host_layer_transport.py publish-index             "$RUNNER_TEMP/app-host-layers"             --receipts "$RUNNER_TEMP/app-host-layer-receipts.json"
-
-      - name: Upload pinned app-host layer index
-        id: upload-layer-index
-        if: steps.pin-layer-index.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: app-host-layer-index-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/app-host-layers/app-host-layer-index.json
-            ${{ runner.temp }}/app-host-layers/app-host-layers.json
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
@@ -1339,9 +1203,8 @@ jobs:
       # median 99 s after the static stage, long before a compile does. So a
       # single read of its result, with no wait, decides whether the product's
       # consumers start: a first-attempt decline fails this job, which skips
-      # every job that needs it, after the product is already published and
-      # after a changed-suites run has tested it, so a declined job still
-      # proves everything a passed one does.
+      # every job that needs it, after the product is already published, so a
+      # declined job still proves everything a passed one does.
       # reuse_app_host_products.py and find_admitted_build.py accept a job that
       # failed at this step, so a rerun or a later push reuses that product
       # instead of compiling again. A gate that is still running, skipped, or
@@ -1399,8 +1262,8 @@ jobs:
 
   late-placement:
     # The picker (pr_runner_pool.py) places every job when the run starts, but
-    # the shards, tests-build-and-lag and cli-product-tests start only after
-    # compile admission, often ten minutes later. When the owned pool was full
+    # cli-product-tests starts only after compile admission, often ten minutes
+    # later. When the owned pool was full
     # at the start they are committed to Blacksmith and queue there even after
     # root runners drain. This re-reads the idle root runners live once
     # admission succeeds and moves the jobs that are not already owned onto
@@ -1468,7 +1331,6 @@ jobs:
           CLI: ${{ inputs.cli }}
           FULL_SUITE: ${{ inputs.full_suite }}
           OWNED_JOBS: ${{ inputs.pr_owned_jobs }}
-          POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           ADMISSION_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
           ADMISSION_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
@@ -1519,19 +1381,19 @@ jobs:
       - late-placement
     # Targeted CLI routing consumes the shared compiled product even when prior
     # compile admission exists; it does not enable the app-host/full-suite lanes.
-    # Same !cancelled() reasoning as app-host-unit-tests: the implicit success()
+    # !cancelled(): the implicit success()
     # gate would count a legitimately skipped linux job in the transitive needs
     # chain as a reason to skip every macOS job.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && (inputs.cli == 'true' || (inputs.macos == 'true' && inputs.full_suite == 'true')) }}
     name: CLI product tests
     # cmuxCLITests has no app host, so it needs no GUI console session. It
-    # still needs the compiled product, so it reuses macos-compile-admission's artifact like the app-host shards do,
+    # still needs the compiled product, so it reuses macos-compile-admission's artifact,
     # on the pool and Xcode that built it: the test bundle only loads under
     # the Xcode that linked it. On an owned-pool run it may take
-    # pr_retry_runner instead, as the shards do. glaeda runs its XCTest under
-    # the mini's one gui token (one testmanagerd), so like the shards it takes
-    # pr_gui_runner where there is one: on the root label it waited 240 s
-    # behind a shard's token and was refused.
+    # pr_retry_runner instead. glaeda runs its XCTest under the mini's one gui
+    # token (one testmanagerd), so it takes pr_gui_runner where there is one:
+    # on the root label it waited 240 s behind another job's token and was
+    # refused.
     runs-on: ${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')['cli-product'] || (github.run_attempt > 1 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 40
     env:
@@ -1769,8 +1631,7 @@ jobs:
             python3 scripts/ci/run_python_test_lane.py --lane macos-cli-product
 
       # The shell and CLI no-socket lanes run wrapper regressions through
-      # `node` and the Pi extension regressions through `bun`. They moved here
-      # from app-host shard 4, where they were that shard's tail: they need the
+      # `node` and the Pi extension regressions through `bun`. They need the
       # CLI product and no app host. Each runs after an earlier failure, so
       # one failing lane does not hide the others.
       - name: Ensure node for the CLI no-socket regressions

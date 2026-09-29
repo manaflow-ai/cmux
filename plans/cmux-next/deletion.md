@@ -4,6 +4,12 @@ Computed 2026-09-29 on `feat-cmux-next` at a68b915c3be. Closure = local SwiftPM 
 
 Goal (REWRITE.md 1, 9): no bonsplit, and delete every line that the new app and the surviving consumers do not link.
 
+## Status 2026-09-29 (after B0-B2, PR 15681 and the B3-B5 follow-up)
+
+Done in the B3-B5 follow-up: unlinked X1 packages deleted (CmuxGit, CmuxSidebarGit, CmuxNotifications, CmuxComputerUse, CmuxFeedback, CmuxUpdaterUI; CmuxUpdater stays, CmuxNextUpdater links it); dead Resources and Info.plist keys; legacy-only docs, skills, dogfood tours, UI fuzzer and 47 tests_v2 files; leftover app-host CI tooling; dead scripts; legacy-only CLI verbs (typed "unsupported in cmux-next" stubs remain, see cli-compat.md); CmuxControlSocket, CmuxTerminalCore and CmuxSurfaceCatalogModel shrunk to the client types the CLI uses; unreferenced files in the CLI's shared packages; CLI string table 1,977 -> 1,820 keys.
+
+Still open, each needs a decision: CmuxSimulator (kept, cloud-ios.md Q3), CLI `import` + CmuxTerminalImport and `sudo` + CmuxSudoBroker (cmux-next reads neither output), `themes`, the Dock docs and `cmux docs dock`, CmuxSyncStore (iOS owner), `webviews/src/agent-session` (the legacy agent-session surface inside the diff viewer app; needs a webviews rebuild), `daemon/` and the `test_ssh_remote_*` files (B6), CFBundleDocumentTypes in Info.plist (cmux-next opens no documents).
+
 ## 1. Dependency closure
 
 ### 1.1 What `cmux-next` links today

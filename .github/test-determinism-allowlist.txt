@@ -36,7 +36,6 @@ Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileTaskModelCatalogCl
 Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalLaneReplayBarrierTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalRawInputOrderingTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/iOS/CmuxMobileToast/Tests/CmuxMobileToastTests/ToastCenterTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlPlaneConcurrencyTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/Concurrency/MainActorCoalescingDeadlineTimerTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorCameraCleanupDeadlineTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorTests/SimulatorWorkerClientCameraCleanupTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
@@ -60,4 +59,3 @@ Packages/macOS/CmuxSimulator/Tests/CmuxSimulatorWorkerTests/SimulatorWebInspecto
 Packages/macOS/CmuxSudoBroker/Tests/CmuxSudoBrokerTests/SudoReviewRegressionTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCIndependentEventTests.swift	yield-count-poll	polls bounded by a named Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/TerminalSurfaceMountOwnershipTests.swift	yield-count-poll	polls bounded by a named Task.yield() count; convert to a deadline-bounded poll (#13903)
-Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/SocketControlServerAcceptRearmStressTests.swift	yield-count-poll	polls bounded by a named Task.yield() count; convert to a deadline-bounded poll (#13903)

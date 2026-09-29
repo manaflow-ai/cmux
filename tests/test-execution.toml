@@ -45,11 +45,6 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
-path = "tests/test_cli_right_sidebar_aliases.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
 path = "tests/test_cli_socket_operation_deadline.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -58,11 +53,6 @@ serial = true
 
 [[test]]
 path = "tests/test_cli_hook_enqueue_wall_clock.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_simulator_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -206,11 +196,6 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
-path = "tests/test_cli_tmux_compat_targeted_read_budget.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
 path = "tests/test_cli_claude_teams_trust_optin.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -278,10 +263,6 @@ path = "tests/test_nushell_shim_path_refront.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
-path = "tests/test_nushell_resume_command_dialect.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
 path = "tests/test_nushell_integration_hooks.py"
 lane = "macos-cli-no-socket"
 
@@ -299,10 +280,6 @@ lane = "macos-shell"
 
 [[test]]
 path = "tests/test_shell_no_git_watch.py"
-lane = "macos-shell"
-
-[[test]]
-path = "tests/test_workspace_initial_command_shim_root_owner.py"
 lane = "macos-shell"
 
 [[test]]
@@ -502,10 +479,6 @@ path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ui_fuzzer_engine.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
@@ -686,10 +659,6 @@ path = "tests/test_pr_media.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_perf_activation_scrollback_sizing.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
 
@@ -750,14 +719,6 @@ path = "tests/test_amp_wrapper_hooks.py"
 lane = "legacy"
 
 [[test]]
-path = "tests/test_app_host_layer_transport.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_app_host_layered_products.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_relocate_package_framework_rpaths.py"
 lane = "linux-guard"
 
@@ -799,10 +760,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_checks_are_bounded.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_selective_layer_wiring.py"
 lane = "linux-guard"
 
 [[test]]
@@ -895,10 +852,6 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_cloud_display_catalog.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cloud_task_local_lifecycle.py"
 lane = "legacy"
 
 [[test]]
@@ -1002,15 +955,7 @@ path = "tests/test_mobile_attach_prefers_iroh.py"
 lane = "legacy"
 
 [[test]]
-path = "tests/test_mobile_host_identity_cold_start.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_mobile_stability_soak_attach_contract.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_multi_workspace_focus.py"
 lane = "legacy"
 
 [[test]]
@@ -1036,10 +981,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_pairing_scheme_lint.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_plain_text_paste_worker.py"
-lane = "legacy"
 
 [[test]]
 path = "tests/test_prune_nightly_release_assets.py"
@@ -1102,10 +1043,6 @@ path = "tests/test_shell_zsh_prefers_bundled_ghostty_integration.py"
 lane = "legacy"
 
 [[test]]
-path = "tests/test_sidebar_copy_ssh_error_context_menu.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_ssh_relay_report_tty_retry.py"
 lane = "legacy"
 
@@ -1152,10 +1089,6 @@ lane = "legacy"
 [[test]]
 path = "tests/test_web_validation.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_workspace_churn_up_arrow_lag.py"
-lane = "legacy"
 
 [[test]]
 path = "tests/test_ci_canonical_build_root.py"
@@ -1243,10 +1176,6 @@ path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_macos_info_plist.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
 path = "tests/test_ci_git_seed.py"
 lane = "linux-guard"
 
@@ -1318,10 +1247,6 @@ lane = "linux-guard"
 path = "tests/test_claude_hook_spool.py"
 lane = "macos-cli-product"
 requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_ci_machine_failure.py"
-lane = "linux-guard"
 
 [[test]]
 path = "tests/test_release_media.py"

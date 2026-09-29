@@ -147,7 +147,6 @@ CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
 
 CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
-    "scripts/ci/app_host_layer_transport.py",
     "scripts/ci/parallel_artifact_download.py",
     "scripts/ci/apfs_clone.py",
     "scripts/ci/canonical-build-root.sh",
@@ -1057,8 +1056,6 @@ def is_web_change(path: str) -> bool:
         (
             "web/",
             "webviews/",
-            "Resources/agent-session-react/",
-            "Resources/agent-session-solid/",
             "Resources/markdown-viewer/",
             "config/",
             "workers/",
@@ -1079,7 +1076,6 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/web_validation.py",
         "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
-        "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
         "scripts/check-webviews-react-compiler.mjs",
     }
@@ -1089,8 +1085,6 @@ def is_agent_session_web_change(path: str) -> bool:
     if path.startswith(
         (
             "webviews/src/agent-session/",
-            "Resources/agent-session-react/",
-            "Resources/agent-session-solid/",
         )
     ):
         return True
@@ -1099,8 +1093,6 @@ def is_agent_session_web_change(path: str) -> bool:
         "bun.lock",
         "webviews/package.json",
         "webviews/bun.lock",
-        "scripts/build-agent-session-web.sh",
-        "Resources/markdown-viewer/marked.min.js",
     }
 
 
@@ -1739,8 +1731,6 @@ def is_macos_change(
     if path == "docs/cli-contract.md":
         return True
     if path in {"package.json", "bun.lock", "biome.json"}:
-        return True
-    if path.startswith(("Resources/agent-session-react/", "Resources/agent-session-solid/")):
         return True
     return not is_macos_neutral(path, macos_ios_packages)
 

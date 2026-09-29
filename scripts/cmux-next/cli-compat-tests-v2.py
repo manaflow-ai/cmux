@@ -29,7 +29,6 @@ TESTS = ROOT / "tests_v2"
 # release app by process name, or need SSH hosts / Cloud VMs.
 EXCLUDED = {
     "test_ctrl_interactive.py": "interactive; the upstream runner skips it too",
-    "test_cpu_notifications.py": "falls back to osascript keystrokes",
     "test_ctrl_enter_keybind.py": "drives the app through osascript",
     "test_cpu_usage.py": "measures the running cmux by process name, not the tagged socket",
 }

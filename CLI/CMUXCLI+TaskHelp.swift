@@ -239,7 +239,6 @@ extension CMUXCLI {
         tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
         rename-tab [--workspace <id|ref|index>] [--tab <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <title>
         drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
-        refresh-surfaces
         list-panels [--workspace <id|ref|index>] [--window <id|ref|index>]
         focus-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
         close-workspace --workspace <id|ref|index> [--window <id|ref|index>]
@@ -285,7 +284,7 @@ extension CMUXCLI {
         return """
         guide | --skill
         welcome
-        docs [settings|shortcuts|api|browser|agents|dock|sidebars]
+        docs [settings|shortcuts|api|browser|agents|dock]
         settings [open [target]|path|docs|<target>]
         config <doctor|check|validate|path|paths|docs|documentation|reload>
         shortcuts
@@ -294,8 +293,6 @@ extension CMUXCLI {
         themes [list|set|clear]
         import [<terminal>] [--dry-run] [--yes] [--path <file>] [--json]
         reload-config
-        right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-        sidebar <validate|reload|select|open> [name]
         help
         """
     }
@@ -388,8 +385,6 @@ extension CMUXCLI {
         login | logout                                      (aliases for auth login/logout)
         vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
         remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
-        \(simulatorCommandUsageLine)
-        \(iosCommandUsageLine)
         ssh <destination> [--transport <ssh|mosh>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
         mosh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
         mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
@@ -405,7 +400,6 @@ extension CMUXCLI {
     private var diagnosticsCommandsHelp: String {
         return """
         ping
-        iroh-diag
         version
         \(String(localized: "sudo.cli.global_usage.run", defaultValue: "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)", bundle: .cmuxCLI))
         \(String(localized: "sudo.cli.global_usage.pending", defaultValue: "sudo pending", bundle: .cmuxCLI))
@@ -413,11 +407,7 @@ extension CMUXCLI {
         \(String(localized: "cli.socketControlStatus.command", defaultValue: "socket-status [--json]", bundle: .cmuxCLI))
         capabilities
         rpc <method> [json-params]
-        debug-terminals
         trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-        set-app-focus <active|inactive|clear>
-        simulate-app-active
-        simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [--duration-ms <n>] [--steps <n>]
         # tmux compatibility commands
         capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
         resize-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] (-L|-R|-U|-D) [--amount <n>]

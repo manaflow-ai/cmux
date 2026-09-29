@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Late placement: jobs after compile admission move onto idle root runners."""
+"""Late placement: the job after compile admission moves onto an idle owned runner."""
 from __future__ import annotations
 
 import importlib.util
@@ -14,8 +14,7 @@ SCRIPT = ROOT / "scripts/ci/late_placement.py"
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
 XCODE = "/Applications/Xcode_26.6.app"
 ROOT_STD = "glaeda-root-std-xcode-26.6"
-FULL = {"MACOS": "true", "CLI": "false", "FULL_SUITE": "true", "UNIT_SUITE": "false",
-        "UNIT_IN_ADMISSION": "false", "UNIT_SELECTORS": "", "ADMISSION_XCODE_APP": XCODE,
+FULL = {"MACOS": "true", "CLI": "false", "FULL_SUITE": "true", "ADMISSION_XCODE_APP": XCODE,
         "ADMISSION_RUNNER": "blacksmith-12vcpu-macos-26", "OWNED_JOBS": ""}
 
 
@@ -40,40 +39,37 @@ def roots(idle: int, busy: int = 0) -> list[dict]:
 
 
 class Decide(unittest.TestCase):
-    def test_a_full_suite_off_blacksmith_takes_the_idle_roots_shards_first(self):
+    def test_a_full_suite_off_blacksmith_takes_an_idle_root(self):
         placed, why = late.decide(FULL, roots(idle=3, busy=5))
-        self.assertEqual(placed, {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
+        self.assertEqual(placed, {"cli-product": ROOT_STD})
         self.assertIn("3 idle", why)
 
-    def test_enough_idle_roots_move_every_job_after_admission(self):
-        placed, _ = late.decide(FULL, roots(idle=16))
-        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
+    def test_a_cli_only_run_moves_cli_product(self):
+        env = dict(FULL, MACOS="false", CLI="true", FULL_SUITE="false")
+        self.assertEqual(late.decide(env, roots(idle=1))[0], {"cli-product": ROOT_STD})
 
-    def test_jobs_the_picker_already_owned_stay_put(self):
-        env = dict(FULL, OWNED_JOBS=" admission shard-1 shard-2 ")
-        placed, _ = late.decide(env, roots(idle=2))
-        self.assertEqual(placed, {"shard-3": ROOT_STD, "shard-4": ROOT_STD})
+    def test_a_job_the_picker_already_owned_stays_put(self):
+        env = dict(FULL, OWNED_JOBS=" admission cli-product ")
+        placed, why = late.decide(env, roots(idle=2))
+        self.assertEqual(placed, {})
+        self.assertIn("nothing to move", why)
 
-    def test_gui_jobs_take_idle_gui_runners_and_the_rest_idle_roots(self):
+    def test_the_gui_token_job_takes_an_idle_gui_runner(self):
         gui = "glaeda-gui-std-xcode-26.6"
         runners = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(2)),
                    runner("gui-busy", gui, busy=True)]
         slots = '{"std": 40, "root-std": 19, "gui-std": 10}'
-        # Admission ran on Blacksmith (the picker named no gui runner): the slots still route GUI jobs.
+        # Admission ran on Blacksmith (the picker named no gui runner): the slots still route it.
         placed, why = late.decide(dict(FULL, OWNED_SLOTS=slots), runners)
-        # cli-product-tests holds the gui token too, so it queues behind the shards for a gui runner.
-        self.assertEqual(placed, {"shard-1": gui, "shard-2": gui})
+        # cli-product-tests holds the gui token, so it takes a gui runner, never the root label.
+        self.assertEqual(placed, {"cli-product": gui})
         self.assertIn(f"2 idle `{gui}`", why)
-        # No gui count yet: the GUI jobs take the root label as before.
+        # No gui count yet: it takes the root label as before.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS='{"std": 40, "root-std": 19}'), runners)[0],
-                         {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
-        self.assertEqual(late.decide(FULL, runners)[0],
-                         {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
-        # No idle gui runner: the gui-token jobs stay where the picker put them.
+                         {"cli-product": ROOT_STD})
+        self.assertEqual(late.decide(FULL, runners)[0], {"cli-product": ROOT_STD})
+        # No idle gui runner: it stays where the picker put it.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0], {})
-        # Enough gui runners: cli-product-tests takes one, never the root label.
-        many = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(10))]
-        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), many)[0]["cli-product"], gui)
 
     def test_no_idle_root_changes_nothing(self):
         self.assertEqual(late.decide(FULL, roots(idle=0, busy=16))[0], {})
@@ -91,14 +87,6 @@ class Decide(unittest.TestCase):
         self.assertEqual(placed, {})
         self.assertIn("could not be read", why)
 
-    def test_gui_off_moves_only_cli_product(self):
-        env = dict(FULL, POOL_OWNED_GUI="0")
-        self.assertEqual(late.decide(env, roots(idle=8))[0], {"cli-product": ROOT_STD})
-
-    def test_a_changed_suites_run_moves_its_one_worker(self):
-        env = dict(FULL, FULL_SUITE="false", UNIT_SUITE="true", UNIT_SELECTORS="cmuxTests/FooTests")
-        self.assertEqual(late.decide(env, roots(idle=4))[0], {"shard-8": ROOT_STD})
-
     def test_a_compile_only_run_has_nothing_after_admission(self):
         env = dict(FULL, FULL_SUITE="false")
         self.assertEqual(late.decide(env, roots(idle=4))[0], {})
@@ -107,9 +95,9 @@ class Decide(unittest.TestCase):
 GUI = "glaeda-gui-std-xcode-26.6"
 SLOTS = '{"std": 40, "root-std": 19, "gui-std": 10}'
 RETRY = "blacksmith-12vcpu-macos-26"
-# An owned full suite: the picker gave admission, the shards, lag and cli-product the minis.
+# An owned full suite: the picker gave admission and cli-product the minis.
 OWNED = dict(FULL, OWNED_SLOTS=SLOTS, RETRY_RUNNER=RETRY, ADMISSION_RUNNER="glaeda-root-std-xcode-26.6",
-             OWNED_JOBS=" admission " + " ".join(f"shard-{i}" for i in range(1, 8)) + " lag cli-product ")
+             OWNED_JOBS=" admission cli-product ")
 
 
 def guis(idle: int, busy: int) -> list[dict]:
@@ -126,67 +114,35 @@ class GuiOverflow(unittest.TestCase):
             return {label: queued if label == GUI else retry_queued for label in labels}
         return count, calls
 
-    def test_a_full_gui_pool_sends_the_jobs_past_one_round_to_blacksmith(self):
-        count, calls = self.backlog(queued=6)
+    def test_a_full_gui_pool_sends_the_job_past_one_round_to_blacksmith(self):
+        count, calls = self.backlog(queued=12)
         placed, why = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
-        # Ten online gui runners and six jobs queued ahead: four more places within one round.
-        self.assertEqual(placed, {"shard-5": RETRY, "shard-6": RETRY, "shard-7": RETRY,
-                                  "lag": RETRY, "cli-product": RETRY})
+        # Ten online gui runners and twelve jobs queued ahead: past a round, and 12vcpu is idle.
+        self.assertEqual(placed, {"cli-product": RETRY})
         self.assertEqual(calls, [[GUI, RETRY]])
-        self.assertIn(f"6 gui job(s) queued ahead on 10 online and 0 on `{RETRY}`", why)
+        self.assertIn(f"12 gui job(s) queued ahead on 10 online and 0 on `{RETRY}`", why)
 
-    def test_a_longer_blacksmith_queue_keeps_the_owned_gui_jobs_on_the_minis(self):
-        # Six gui jobs ahead on ten gui runners is under two rounds; fifty on 12vcpu's five machines is ten.
-        count, _ = self.backlog(queued=6, retry_queued=50)
+    def test_a_backlog_within_a_round_keeps_the_job_on_the_minis(self):
+        count, _ = self.backlog(queued=6)
+        self.assertEqual(late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)[0], {})
+
+    def test_a_longer_blacksmith_queue_keeps_the_owned_job_on_the_minis(self):
+        # Twelve gui jobs ahead on ten gui runners is 1.3 rounds; fifty on 12vcpu's five machines is ten.
+        count, _ = self.backlog(queued=12, retry_queued=50)
         placed, why = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
         self.assertEqual(placed, {})
         self.assertIn(f"and 50 on `{RETRY}`", why)
 
-    def test_jobs_move_only_while_blacksmith_would_start_them_sooner(self):
-        # 25 ahead on ten gui runners: a job starts in 2.6 rounds there, 1.8 behind 8 on 12vcpu's five.
-        # A move lengthens Blacksmith's queue by a fifth of a round, a job that stays the gui one by a
-        # tenth: 1st to 4th move (1.8 to 2.4), 5th stays (2.6 against 2.6), 6th moves (2.6 against 2.7),
-        # 7th and 8th stay, 9th moves (2.8 against 2.9).
-        count, _ = self.backlog(queued=25, retry_queued=8)
-        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
-        mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
-        self.assertEqual(placed, {mine[i]: RETRY for i in (0, 1, 2, 3, 5, 8)})
-
-    def test_an_empty_blacksmith_pool_takes_its_machines_at_once(self):
-        # Twenty gui runners, twenty jobs ahead: each job waits over a round there, none on an idle 12vcpu.
-        count, _ = self.backlog(queued=20, retry_queued=0)
-        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=20)], count)
-        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
-
-    def test_no_gui_runner_online_moves_every_owned_gui_job_without_a_read(self):
+    def test_no_gui_runner_online_moves_the_owned_job_without_a_read(self):
         count, calls = self.backlog(queued=0, retry_queued=99)
         placed, _ = late.decide(OWNED, roots(idle=2), count)
-        self.assertEqual(set(placed.values()), {RETRY})
-        self.assertEqual(len(placed), 9)
+        self.assertEqual(placed, {"cli-product": RETRY})
         self.assertEqual(calls, [])
 
-    def test_the_kill_switch_reads_only_the_gui_backlog(self):
-        count, calls = self.backlog(queued=1, retry_queued=99)
-        placed, _ = late.decide(dict(OWNED, POOL_QUEUE_ROUNDS="0"), [*roots(idle=2), *guis(idle=3, busy=7)], count)
-        self.assertEqual(calls, [[GUI]])
-        # The one queued ahead takes an idle runner: two of the nine stay, whatever Blacksmith's queue.
-        self.assertEqual(len(placed), 7)
-
-    def test_a_backlog_past_a_round_moves_every_owned_gui_job(self):
-        count, _ = self.backlog(queued=25)
-        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
-        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
-        self.assertEqual(set(placed.values()), {RETRY})
-
-    def test_enough_idle_gui_runners_look_up_nothing_and_move_nothing(self):
+    def test_an_idle_gui_runner_looks_up_nothing_and_moves_nothing(self):
         count, calls = self.backlog(queued=99)
-        self.assertEqual(late.decide(OWNED, [*roots(idle=2), *guis(idle=9, busy=1)], count)[0], {})
+        self.assertEqual(late.decide(OWNED, [*roots(idle=2), *guis(idle=1, busy=9)], count)[0], {})
         self.assertEqual(calls, [])
-
-    def test_the_idle_gui_runners_start_the_first_jobs_and_the_rest_queue_within_a_round(self):
-        count, _ = self.backlog(queued=0)
-        # Three idle now, and a round of the ten online: all nine stay on the gui label.
-        self.assertEqual(late.decide(OWNED, [*roots(idle=2), *guis(idle=3, busy=7)], count)[0], {})
 
     def test_an_unreadable_backlog_moves_nothing(self):
         def broken(labels):
@@ -194,53 +150,30 @@ class GuiOverflow(unittest.TestCase):
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], broken)
         self.assertEqual(placed, {})
 
-    def test_the_kill_switch_queues_nothing_on_purpose(self):
-        count, _ = self.backlog(queued=0)
-        placed, _ = late.decide(dict(OWNED, POOL_QUEUE_ROUNDS="0"), [*roots(idle=2), *guis(idle=2, busy=8)], count)
-        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(3, 8)), "lag", "cli-product"})
+    def test_the_kill_switch_with_nothing_idle_moves_the_owned_job_without_a_read(self):
+        count, calls = self.backlog(queued=0)
+        placed, _ = late.decide(dict(OWNED, POOL_QUEUE_ROUNDS="0"), [*roots(idle=2), *guis(idle=0, busy=10)], count)
+        self.assertEqual(placed, {"cli-product": RETRY})
+        self.assertEqual(calls, [])
 
-    def test_no_blacksmith_retry_pool_keeps_the_jobs(self):
+    def test_no_blacksmith_retry_pool_keeps_the_job(self):
         count, _ = self.backlog(queued=40)
         for retry in ("", "glaeda-std-xcode-26.6"):
             with self.subTest(retry=retry):
                 env = dict(OWNED, RETRY_RUNNER=retry)
                 self.assertEqual(late.decide(env, [*roots(idle=2), *guis(idle=0, busy=10)], count)[0], {})
 
-    def test_gui_off_or_no_gui_label_moves_no_owned_job(self):
+    def test_no_gui_label_moves_no_owned_job(self):
         count, _ = self.backlog(queued=40)
         busy = [*roots(idle=0, busy=16), *guis(idle=0, busy=10)]
-        self.assertEqual(late.decide(dict(OWNED, POOL_OWNED_GUI="0"), busy, count)[0], {})
         self.assertEqual(late.decide(dict(OWNED, OWNED_SLOTS='{"std": 40, "root-std": 19}'), busy, count)[0], {})
 
-    def test_owned_jobs_that_stay_take_the_idle_gui_runners_before_unowned_ones(self):
+    def test_an_unowned_job_takes_only_an_idle_gui_runner(self):
         count, _ = self.backlog(queued=0)
-        env = dict(OWNED, OWNED_JOBS=" admission shard-1 shard-2 shard-3 ")
-        # Three owned shards and two idle gui runners: the owned ones keep both, so none is free
-        # for shard-4 and up, which stay on Blacksmith where the picker put them.
-        self.assertEqual(late.decide(env, [*roots(idle=0, busy=16), *guis(idle=2, busy=8)], count)[0], {})
-
-    def test_the_backlog_takes_the_idle_runners_first(self):
-        count, _ = self.backlog(queued=12)
-        # Two idle, ten online, twelve queued before this run: nothing of it starts within a round.
-        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=2, busy=8)], count)
-        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
-        count, calls = self.backlog(queued=8)
-        placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=2, busy=8)], count)
-        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(5, 8)), "lag", "cli-product"})
-        self.assertEqual(calls, [[GUI, RETRY]])
-
-    def test_the_kill_switch_with_nothing_idle_moves_every_owned_gui_job_without_a_read(self):
-        count, calls = self.backlog(queued=0)
-        placed, _ = late.decide(dict(OWNED, POOL_QUEUE_ROUNDS="0"), [*roots(idle=2), *guis(idle=0, busy=10)], count)
-        self.assertEqual(len(placed), 9)
-        self.assertEqual(calls, [])
-
-    def test_unowned_gui_jobs_still_take_only_idle_runners_the_owned_ones_left(self):
-        count, _ = self.backlog(queued=0)
-        env = dict(OWNED, OWNED_JOBS=" admission shard-1 shard-2 ")
-        placed, _ = late.decide(env, [*roots(idle=0, busy=16), *guis(idle=4, busy=6)], count)
-        # shard-1 and shard-2 keep two idle runners; the other two take shard-3 and shard-4 off Blacksmith.
-        self.assertEqual(placed, {"shard-3": GUI, "shard-4": GUI})
+        env = dict(OWNED, OWNED_JOBS=" admission ")
+        self.assertEqual(late.decide(env, [*roots(idle=0, busy=16), *guis(idle=1, busy=9)], count)[0],
+                         {"cli-product": GUI})
+        self.assertEqual(late.decide(env, [*roots(idle=0, busy=16), *guis(idle=0, busy=10)], count)[0], {})
 
     def test_backlog_reads_queued_and_running_runs_and_counts_each_label(self):
         import datetime as dt
@@ -362,7 +295,7 @@ class Output(unittest.TestCase):
             self.assertEqual(late.main(env), 0)
             text = Path(out.name).read_text()
         self.assertEqual(seen["exclude"], 77)
-        self.assertIn(f'"shard-1": "{RETRY}"', text)
+        self.assertIn(f'"cli-product": "{RETRY}"', text)
         self.assertTrue(text.endswith("onto_owned=false\n"), text)
 
 
@@ -380,7 +313,7 @@ class Workflow(unittest.TestCase):
                 self.assertIn("late-placement", spec["needs"])
                 late = (prefix % key).removeprefix("${{ ")
                 owner = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                # tests-build-and-lag keeps the fork-owner branch and then the fork
+                # A consumer may keep the fork-owner branch and then the fork
                 # pull-request branch first (test_ci_fork_runner_routing). Late
                 # placement skips fork heads, so its output is {} there anyway.
                 fork_pr = (

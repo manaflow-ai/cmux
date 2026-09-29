@@ -107,9 +107,6 @@ Environment:
 | `focus-window` | Focus a window by handle. |
 | `close-window` | Close a window by handle. |
 | `resize-window` | Resize a window by handle, keeping its top-left corner fixed; prints the resulting frame size. With no `--width`/`--height`, reads the size without changing it. Does not steal focus. |
-| `window displays` | List connected displays (name, index, main flag). |
-| `window display <name\|index>` | Move the instance's window(s) onto a display by name (exact, substring) or index, preserving size. Does not steal focus. With `--window`, targets that window; otherwise moves all main windows. `--list` aliases `window displays`. |
-| `window default-display [<name>\|--clear]` | Set, show (no arg), or clear (`--clear`) the shared, cross-tag default display that DEBUG dev builds open new windows on, stored in `~/.config/cmux/cmux.json` under `app.devWindowDisplay`. No running app required; applied at window creation. Also settable in Debug > Debug Windows > Dev Window Display. |
 | `move-workspace-to-window` | Move a workspace into a target window. |
 | `reorder-workspace` | Reorder a workspace inside a window. |
 | `reorder-workspaces` | Atomically reorder workspaces inside pinned and unpinned groups. |
@@ -144,10 +141,8 @@ Environment:
 | `tab-action` | Run horizontal tab context-menu actions. |
 | `rename-tab` | Rename a tab. Compatibility wrapper for `tab-action rename`. |
 | `drag-surface-to-split` | Move a surface into a split direction. |
-| `refresh-surfaces` | Ask the app to refresh terminal surfaces. |
 | `reload-config` | Ask cmux to reload configuration. |
 | `surface-health` | Print terminal surface health information. |
-| `debug-terminals` | Print debug terminal state. |
 | `trigger-flash` | Trigger a visual flash on a workspace or surface. |
 | `list-panels` | List panels. Compatibility alias over pane/surface data. |
 | `focus-panel` | Focus a panel. Compatibility alias over surface focus. |
@@ -169,7 +164,6 @@ Environment:
 | `open-notification` | Focus the notification's workspace/surface and mark it read. |
 | `jump-to-unread` | Focus the latest unread notification. |
 | `clear-notifications` | Clear queued notifications, optionally scoped to a workspace, surface, and `--window` context. |
-| `right-sidebar` | Control right sidebar visibility, mode, focus, and state reads. |
 | `set-status` | Set a sidebar status pill. |
 | `clear-status` | Remove a sidebar status pill. |
 | `list-status` | List sidebar status pills. |
@@ -180,8 +174,6 @@ Environment:
 | `list-log` | List sidebar log entries. |
 | `sidebar-state` | Dump sidebar metadata state. |
 | `claude-hook` | Compatibility alias for Claude Code hook events from stdin JSON. |
-| `set-app-focus` | Override app focus state for tests. |
-| `simulate-app-active` | Trigger app-active handling for tests. |
 | `browser` | Run browser automation commands. |
 | `open-browser` | Legacy alias for `browser open`. |
 | `navigate` | Legacy alias for `browser navigate`. |
@@ -622,28 +614,6 @@ Hook subcommands:
 
 Kimi hook setup targets the config file `kimi doctor` reports. Without a reported path, it takes the first of `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` (Kimi Code CLI) and `${KIMI_SHARE_DIR:-~/.kimi}/config.toml` (Kimi CLI 1.49 and earlier) that already exists as a file, then the first whose directory exists, and the Kimi Code CLI path when neither directory exists. Setup refreshes, but never removes, a cmux marker block already present in the other location; `hooks kimi uninstall` removes the block from both.
 
-Right sidebar commands:
-
-| Command | Contract |
-| --- | --- |
-| `right-sidebar toggle`, `right-sidebar show`, `right-sidebar hide` | Change right-sidebar visibility without printing on success. |
-| `right-sidebar focus` | Focus the current right-sidebar mode. |
-| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock\|cloud\|devices>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
-| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock`, `right-sidebar cloud`, `right-sidebar devices` | Short aliases for `right-sidebar set <mode>` with focus. `cloud` (aliases `machines`, `vms`) is the Cloud machines panel; `mode` reports it as `machines`. `devices` (aliases `device`, `macs`) opens the same Cloud panel and reports `machines`. While Cloud Machines is enabled, the My Devices menu independently controls `devices.discovery.enabled` (Discover other Macs) and `devices.incomingAccess.enabled` (Make this Mac discoverable). |
-| `right-sidebar mode` | Print JSON with `visible` and `mode`. |
-| `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
-| `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
-| `--no-focus` | Only valid with `set`; switches mode without moving focus. |
-
-Custom sidebar commands:
-
-| Command | Contract |
-| --- | --- |
-| `sidebar validate [name]` | Validate all custom sidebars, or one named sidebar, under `~/.config/cmux/sidebars`. |
-| `sidebar reload [name]` | Validate all custom sidebars, then request a reload for every valid one. |
-| `sidebar select <name>` | Validate and activate one custom sidebar in the sidebar picker. |
-| `sidebar open <name>` | Validate and open one custom sidebar as a normal Bonsplit pane tab, preferring the right-side split from the focused surface. |
-
 Docs topics:
 
 | Command | Contract |
@@ -939,10 +909,8 @@ the expected text without connecting to a cmux socket.
 - `cmux new-surface --help` -> `--command <text>`
 - `cmux close-surface --help` -> `Usage: cmux close-surface`
 - `cmux drag-surface-to-split --help` -> `Usage: cmux drag-surface-to-split`
-- `cmux refresh-surfaces --help` -> `Usage: cmux refresh-surfaces`
 - `cmux reload-config --help` -> `Usage: cmux reload-config`
 - `cmux surface-health --help` -> `Usage: cmux surface-health`
-- `cmux debug-terminals --help` -> `Usage: cmux debug-terminals`
 - `cmux trigger-flash --help` -> `Usage: cmux trigger-flash`
 - `cmux list-panels --help` -> `Usage: cmux list-panels`
 - `cmux focus-panel --help` -> `Usage: cmux focus-panel`
@@ -987,7 +955,6 @@ the expected text without connecting to a cmux socket.
 - `cmux open-notification --help` -> `Usage: cmux open-notification`
 - `cmux jump-to-unread --help` -> `Usage: cmux jump-to-unread`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
-- `cmux right-sidebar --help` -> `Usage: cmux right-sidebar <command> [flags]`
 - `cmux set-status --help` -> `Usage: cmux set-status`
 - `cmux clear-status --help` -> `Usage: cmux clear-status`
 - `cmux list-status --help` -> `Usage: cmux list-status`
@@ -997,8 +964,6 @@ the expected text without connecting to a cmux socket.
 - `cmux clear-log --help` -> `Usage: cmux clear-log`
 - `cmux list-log --help` -> `Usage: cmux list-log`
 - `cmux sidebar-state --help` -> `Usage: cmux sidebar-state`
-- `cmux set-app-focus --help` -> `Usage: cmux set-app-focus`
-- `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`
 - `cmux browser --help` -> `Usage: cmux browser`
 - `cmux browser --help` -> `download list [--limit <1...25>]`

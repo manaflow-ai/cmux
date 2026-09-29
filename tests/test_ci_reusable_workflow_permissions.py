@@ -519,16 +519,6 @@ def test_manual_macos_workflows_resolve_before_checkout() -> None:
             assert resolved_ref in block, (filename, job)
         assert "ref: ${{ inputs.ref || github.ref }}" not in workflow, filename
 
-    perf = (WORKFLOWS_DIR / "perf-activation.yml").read_text(encoding="utf-8")
-    activation_changes = _workflow_job_block(perf, "activation_changes")
-    benchmark = _workflow_job_block(perf, "activation-session-benchmark")
-    assert resolver_call in perf
-    assert "needs: resolve-ref" in activation_changes
-    assert "target_sha: ${{ needs.resolve-ref.outputs.sha }}" in activation_changes
-    assert "needs: activation_changes" in benchmark
-    assert "ref: ${{ needs.activation_changes.outputs.target_sha }}" in benchmark
-    assert "ref: ${{ inputs.ref || github.ref }}" not in perf
-
 
 def test_repository_workflows_stay_within_their_callers_grants() -> None:
     result = run_cli(WORKFLOWS_DIR, default=REPOSITORY_DEFAULT_WORKFLOW_PERMISSIONS)

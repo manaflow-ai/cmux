@@ -1996,11 +1996,7 @@ fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
 
-# Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
-CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
-if [[ -d "$PWD/cmuxd" ]]; then
-  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
-fi
+# Ensure helper binaries are present (needed for both launch and no-launch).
 if [[ -d "$PWD/ghostty" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   GHOSTTY_HELPER_DEST="$BIN_DIR/ghostty"
@@ -2020,12 +2016,6 @@ if [[ -x "$CMUX_CUA_DEST" ]]; then
 else
   mkdir -p "$BIN_DIR"
   "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
-fi
-if [[ -x "$CMUXD_SRC" ]]; then
-  BIN_DIR="$APP_PATH/Contents/Resources/bin"
-  mkdir -p "$BIN_DIR"
-  cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
-  chmod +x "$BIN_DIR/cmuxd"
 fi
 # The Bundle cmux-tui phase already placed the pinned cmux-tui; refuse anything else.
 cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"

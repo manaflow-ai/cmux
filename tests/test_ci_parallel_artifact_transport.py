@@ -128,12 +128,6 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertEqual(jobs["cli-product-tests"]["permissions"],
                          {"contents": "read", "actions": "read", "id-token": "write"})
 
-    def test_layer_transport_prefers_parallel_reads_and_keeps_the_stream_fallback(self):
-        source = (ROOT / "scripts/ci/app_host_layer_transport.py").read_text(encoding="utf-8")
-        self.assertIn("import parallel_artifact_download", source)
-        self.assertIn("parallel_artifact_download.download_zip(", source)
-        self.assertIn("self.download_stream(artifact_id, target, limit)", source)
-
 
 class RangeAssemblyTests(unittest.TestCase):
     def setUp(self):

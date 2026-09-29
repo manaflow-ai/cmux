@@ -225,6 +225,12 @@ History: first build 18 pass (compat daemon code) (daemon reads, own snapshot); 
 | workspace_create_layout | fail | workspace.create layout unsupported |
 | workspace_relative | fail | stale test: the current CLI keeps workspace ids in default --json output |
 
+## Removed legacy verbs (B5, 2026-09-29)
+
+These CLI verbs only drove old-app features and are gone from the dispatcher, help and contract. Each still answers with a typed `unsupported in cmux-next: <reason>` error (`CMUXCLI.removedCommandReasons`), so scripts learn why: `canvas`, `simulator`, `ios`, `right-sidebar`, `refresh-surfaces`, `project`, `set-app-focus`, `simulate-app-active`, `simulate-sidebar-drag`, `debug-terminals`, `iroh-diag`. `sidebar` and `window` now go straight to the cmux-next action verbs. `__internal_flags`, `__sidebar_footer_icon_balance`, `window display(s)` and `window default-display` were removed outright. The CLI no longer links CmuxSimulator; the package stays for the iOS simulator stream (cloud-ios.md Q3).
+
+tests_v2 files whose oracles are old-app `debug.*` methods, `app.focus_override` or deleted `Sources/` files were deleted (47 files, among them the command-palette, nested-split, visual-screenshot and notification-focus groups, and `simulator_capabilities`). The table above predates that and still lists them.
+
 ## Decisions and follow-ups
 
 - Shared path: compat mutations run the registry actions the keyboard, menu, and palette run (`splitRight/Down/Left/Up`, `newSurface`, `openBrowser`, `tab.moveToNewSplit`, `newTab`, `closeWorkspace`, `renameWorkspace`, `closeTab`, `renameTab`, `palette.clearTabName`, `palette.toggleTabPin`, `palette.moveTabToNewWorkspace`, `tab.moveToWorkspace`, `palette.toggleTabUnread`) on the main actor through the work queue. Handlers report the daemon tasks they start (`ActionRegistry.track`); compat and `action.run {wait: true}` answer after those tasks finish (the daemon replied), and new refs come from a before/after tree diff. Still compat daemon calls because no targeted action exists: terminal input/reads, `notify`, `surface.move` to a pane index, `pane.swap` with a target pane, `workspace.reorder` to an index, group placement on create. Workspace select, pane focus, and tab select stay App intents over the same `WindowManager.show` / `PaneController.select` the sidebar and strip use.

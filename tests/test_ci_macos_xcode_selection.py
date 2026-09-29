@@ -14,8 +14,7 @@ refuses anything below the .xcode-version major. This guard keeps jobs on it:
 1. Every macOS job runs select-ci-xcode.sh, before any step that uses the
    toolchain, unless EXEMPT names it with a reason. The rule is "every macOS
    job", not "every job that visibly runs swift", because test scripts compile
-   Swift out of sight (tests/run_cloud_command_deadline_tests.sh runs
-   `swift test`).
+   Swift out of sight (scripts/ci/package-test-lane.sh runs `swift test`).
 2. No macOS job chooses an Xcode itself (DEVELOPER_DIR into GITHUB_ENV,
    xcode-select --switch, a literal CMUX_CI_XCODE_APP path) outside EXEMPT.
 3. Only the SDK 15 Ghostty CLI helper step lifts the pool pin and the floor.

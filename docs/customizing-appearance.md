@@ -198,10 +198,6 @@ The Ghostty keys `sidebar-background` (a hex color, or
 `light:#hex,dark:#hex`) and `sidebar-tint-opacity` set the same tint. Use one
 place or the other.
 
-To replace the sidebar entirely, write a [custom sidebar](custom-sidebars.md)
-in `~/.config/cmux/sidebars/`. [`Examples/CustomSidebars`](../Examples/CustomSidebars)
-has ready-to-copy ones.
-
 ## Workspace and notification colors
 
 - `workspaceColors.indicatorStyle`: `leftRail` (default) or `solidFill` for the

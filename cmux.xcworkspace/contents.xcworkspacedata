@@ -133,9 +133,6 @@
          location = "group:CMUXAgentLaunch">
       </FileRef>
       <FileRef
-         location = "group:CmuxComputerUse">
-      </FileRef>
-      <FileRef
          location = "group:CmuxControlSocket">
       </FileRef>
       <FileRef
@@ -145,28 +142,16 @@
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef
-         location = "group:CmuxFeedback">
-      </FileRef>
-      <FileRef
          location = "group:CmuxFoundation">
       </FileRef>
       <FileRef
-         location = "group:CmuxGit">
-      </FileRef>
-      <FileRef
          location = "group:CmuxNext">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxNotifications">
       </FileRef>
       <FileRef
          location = "group:CmuxPhonePush">
       </FileRef>
       <FileRef
          location = "group:CmuxSettings">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxSidebarGit">
       </FileRef>
       <FileRef
          location = "group:CmuxSimulator">
@@ -185,9 +170,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxUpdater">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxUpdaterUI">
       </FileRef>
    </Group>
 </Workspace>

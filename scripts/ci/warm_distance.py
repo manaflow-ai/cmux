@@ -501,8 +501,8 @@ def compile_factor(mini: str, others_busy: int) -> float:
 
 
 def job_key(name: str) -> str:
-    """A GitHub job display name as glaeda's job telemetry keys it: `macOS / app-host unit tests (3)` ->
-    `app-host-unit-tests`."""
+    """A GitHub job display name as glaeda's job telemetry keys it: `macOS / CLI product tests (3)` ->
+    `cli-product-tests`."""
     name = name.rsplit(" / ", 1)[-1]
     name = re.sub(r"\s*\([^)]*\)\s*$", "", name)
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")

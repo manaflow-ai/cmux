@@ -1,6 +1,27 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Verbs that only drove features of the deleted legacy app. They keep a
+    /// typed error, so scripts learn why instead of seeing "Unknown command".
+    static let removedCommandReasons: [String: String] = [
+        "canvas": "canvas layout was removed",
+        "debug-terminals": "debug methods of the old app are not part of cmux-next",
+        "iroh-diag": "Iroh diagnostics of the old app are not part of cmux-next",
+        "ios": "the simulator pane is not part of cmux-next",
+        "project": "the project pane is not part of cmux-next",
+        "refresh-surfaces": "there is nothing to refresh",
+        "right-sidebar": "the right sidebar is not part of cmux-next",
+        "set-app-focus": "focus overrides were a debug feature of the old app",
+        "simulate-app-active": "focus overrides were a debug feature of the old app",
+        "simulate-sidebar-drag": "debug methods of the old app are not part of cmux-next",
+        "simulator": "the simulator pane is not part of cmux-next",
+    ]
+
+    func removedCommandError(_ command: String) -> CLIError? {
+        guard let reason = Self.removedCommandReasons[command] else { return nil }
+        return CLIError(message: "unsupported in cmux-next: \(reason) (cmux \(command))")
+    }
+
     func unknownCommandError(_ command: String) -> CLIError {
         var message = "Unknown command '\(command)'."
         if let suggestion = suggestedCommandName(for: command) {
@@ -52,8 +73,6 @@ extension CMUXCLI {
 
     static let topLevelCommandNames: Set<String> = [
         "__codex-teams-watch",
-        "__internal_flags",
-        "__sidebar_footer_icon_balance",
         "__tmux-compat",
         "action",
         "agent",
@@ -92,7 +111,6 @@ extension CMUXCLI {
         "current",
         "current-window",
         "current-workspace",
-        "debug-terminals",
         "detach-tab",
         "diff",
         "disable-browser",
@@ -118,7 +136,6 @@ extension CMUXCLI {
         "identify",
         "import",
         "is-webview-focused",
-        "ios",
         "join-pane",
         "jump-to-unread",
         "last-pane",
@@ -167,7 +184,6 @@ extension CMUXCLI {
         "previous-window",
         "read-screen",
         "read-selection",
-        "refresh-surfaces",
         "reload-config",
         "remote-daemon-status",
         "rename-tab",
@@ -181,7 +197,6 @@ extension CMUXCLI {
         "respawn-pane",
         "restore-session",
         "restore",
-        "right-sidebar",
         "rpc",
         "select-workspace",
         "send",
@@ -190,7 +205,6 @@ extension CMUXCLI {
         "send-panel",
         "session",
         "sessions",
-        "set-app-focus",
         "set-buffer",
         "set-hook",
         "set-progress",
@@ -199,9 +213,6 @@ extension CMUXCLI {
         "setup-hooks",
         "shortcuts",
         "socket-status",
-        "simulate-app-active",
-        "simulator",
-        "sidebar",
         "sidebar-state",
         "split-off",
         "ssh",

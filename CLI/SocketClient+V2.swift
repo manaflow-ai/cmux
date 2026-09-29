@@ -118,7 +118,7 @@ extension SocketClient {
         case "overloaded":
             return true
         case "rate_limited":
-            return ControlCommandExecutionPolicy.pollingMethods.contains(method)
+            return SocketPollingMethods.names.contains(method)
         default:
             return false
         }

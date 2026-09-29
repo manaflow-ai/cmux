@@ -94,8 +94,6 @@ SIGNATURES = (
         "the owned runner refused the job (host busy or out of capacity)"),
     sig("product-restore-failed", MACHINE, r'^CMUX_TEST_PRODUCT_RESTORE \{.*"outcome": "failure"',
         "the compiled app-host products did not restore on this runner"),
-    sig("app-host-preparation", MACHINE, r"Unexpected app-host preparation outcome",
-        "the isolated app-host home was not prepared"),
     # The CLI and the package framework it links came from different builds:
     # the runner staged products from another job. Compiled together, they match.
     sig("mixed-products", MACHINE, r"dyld\[\d+\]: Symbol not found: ",
@@ -107,7 +105,6 @@ SIGNATURES = (
     sig("disk-full", MACHINE, r"No space left on device", "the runner's disk is full"),
     sig("swift-testing-issue", CODE, r"^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)", "a test failed"),
     sig("xctest-failure", CODE, r"\.swift:\d+: error: -\[", "a test failed"),
-    sig("ratchet-new-failure", CODE, r"^RATCHET_NEW_FAILURE ", "a test failed that passes on main"),
     sig("compile-error", CODE, r"\S+\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\d+:\d+: error: ",
         "a compile error"),
     sig("guard-failed", CODE, r"^\s*FAIL\s+[\d.]+s\s", "a guard step failed"),

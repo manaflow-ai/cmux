@@ -69,7 +69,7 @@ def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, s
 
 def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL,
            overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0, attempt=1, owned="",
-           owned_slots="", jobs=pool.MAX_RUN_JOBS, split="", live_owned=None, root_jobs=0, shards=0, light_retry="",
+           owned_slots="", jobs=pool.MAX_RUN_JOBS, split="", live_owned=None, root_jobs=0, light_retry="",
            actor="", queue_rounds=None, **extra):
     def count_routed(since):
         if isinstance(routed, Exception):
@@ -79,7 +79,7 @@ def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL
         event=event, repo="manaflow-ai/cmux", head_repo=head, default_runner=default,
         overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins, owned=owned,
         owned_slots=owned_slots, jobs=jobs, split=split, live_owned=live_owned, root_jobs=root_jobs,
-        shards=shards, light_retry=light_retry, triggering_actor=actor, queue_rounds=queue_rounds,
+        light_retry=light_retry, triggering_actor=actor, queue_rounds=queue_rounds,
         fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW, run_attempt=attempt, **extra,
     )[0]
 
@@ -298,7 +298,7 @@ class FailSafe(unittest.TestCase):
             finally:
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
-                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nplaced=0\nshard_runner=\n"
+                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nplaced=0\n"
                                               f"root_runner=\nside_runner=\nlight_side_runner=\nlight_side_jobs=\ngui_runner=\n"
                                               "admission_runner=\nadmission_route=\nadmission_warm=\nowned_jobs=\n")
             text = summary.read_text()
@@ -422,8 +422,8 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertEqual(snap["pools"][mini]["committed"], 4)
 
     def test_owned_pool_marker_holds_until_every_placed_job_finished(self):
-        # Admission and one shard placed on one machine (jobs=1, placed=2):
-        # admission finishing before its shard exists does not release it.
+        # Admission and cli-product-tests placed on one machine (jobs=1, placed=2):
+        # admission finishing before cli-product-tests exists does not release it.
         mini = "glaeda-std-xcode-26.6"
         run = {"id": 1, "status": "in_progress", "path": ".github/workflows/ci.yml"}
         marker = janitor.owned_marker({"id": 1, "run_attempt": 1}, [f"macos-pool-persistent-1-1-1p2-{mini}"])
@@ -436,11 +436,11 @@ class JanitorSnapshot(unittest.TestCase):
 
     def test_owned_marker_names_this_attempts_pool_and_peak(self):
         run = {"id": 42, "run_attempt": 1}
-        name = "macos-pool-persistent-42-1-5-glaeda-std-xcode-26.6"
-        self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-26.6", 5, 5))
+        name = "macos-pool-persistent-42-1-3-glaeda-std-xcode-26.6"
+        self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-26.6", 3, 3))
         # A re-run of failed jobs uploads no marker: it holds the pool of the attempt that last picked.
-        self.assertEqual(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]), ("glaeda-std-xcode-26.6", 5, 5))
-        self.assertEqual(pool.run_marker([{"name": name}], {"id": 42, "run_attempt": 2}), ("glaeda-std-xcode-26.6", 5))
+        self.assertEqual(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]), ("glaeda-std-xcode-26.6", 3, 3))
+        self.assertEqual(pool.run_marker([{"name": name}], {"id": 42, "run_attempt": 2}), ("glaeda-std-xcode-26.6", 3))
         self.assertIsNone(pool.run_marker([{"name": name.replace("-42-1-", "-42-3-")}], {"id": 42, "run_attempt": 2}))
         self.assertIsNone(janitor.owned_marker({"id": 4, "run_attempt": 1}, [name]))
         self.assertIsNone(janitor.owned_marker(run, ["macos-pool-persistent-42-1-5-blacksmith-6vcpu-macos-26"]))
@@ -545,62 +545,6 @@ def owned_choice(snap, *, owned="1", machines=11, **kwargs):
     # A compile-only run: admission beside the Claude wrapper and remote daemon lanes.
     kwargs.setdefault("jobs", 3)
     return choose(snap, pins=OWNED_PINS, owned=owned, **kwargs)
-
-
-class ShardSpread(unittest.TestCase):
-    """A full suite's shards may leave admission's pool for another on its Xcode."""
-
-    def decide(self, snap, shards=pool.APP_HOST_SHARDS, **kwargs):
-        return pool.decide(snap, pool.Settings(), now=NOW, xcode_pins=PINS, shards=shards, **kwargs)
-
-    def test_shards_leave_a_small_12vcpu_pool_with_no_room_for_them(self):
-        # 12vcpu idle takes admission; its 5 machines cannot hold 7 shards
-        # beside it, while 6vcpu macOS 26 has 10 idle.
-        snap = backlog(small=0, large=0, old=0)
-        snap["pools"][SMALL]["running"] = 0
-        snap["pools"][LARGE]["running"] = 0
-        choice = self.decide(snap)
-        self.assertEqual((choice.runner, choice.shard_runner), (LARGE, SMALL))
-        self.assertIn("shards take", choice.reason)
-
-    def test_shards_stay_when_admissions_pool_has_the_shorter_queue(self):
-        snap = backlog(small=30, large=0, old=0)
-        snap["pools"][LARGE]["running"] = 0
-        self.assertEqual(self.decide(snap).shard_runner, "")
-
-    def test_never_to_another_xcode_or_an_owned_pool_and_not_without_shards(self):
-        snap = backlog(small=40, large=40, old=0)
-        snap["pools"][OLD]["running"] = 0
-        choice = self.decide(snap)
-        self.assertEqual(choice.runner, OLD)
-        self.assertEqual(choice.shard_runner, "")  # macOS 15 is on another Xcode
-        idle = backlog(small=0, large=0, old=0)
-        idle["pools"][SMALL]["running"] = 0
-        self.assertEqual(self.decide(idle, shards=1).shard_runner, "")
-        self.assertEqual(self.decide(idle, shards=0).shard_runner, "")
-        self.assertEqual(self.decide(idle, choose_from=(LARGE,)).shard_runner, SMALL)
-        mini = fleet(busy=0)
-        owned = pool.decide(mini, pool.Settings(order=(MINI, LARGE, SMALL, OLD)), now=NOW, xcode_pins=OWNED_PINS,
-                            owned_slots={MINI: 11}, jobs=3, shards=pool.APP_HOST_SHARDS)
-        self.assertEqual((owned.runner, owned.shard_runner), (MINI, ""))
-
-    def test_main_writes_the_shard_runner(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            snap = backlog(small=0, large=0, old=0)
-            snap["pools"][SMALL]["running"] = 0
-            snap["pools"][LARGE]["running"] = 0
-            snap["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            path, out = Path(tmp, "snap.json"), Path(tmp, "out")
-            path.write_text(json.dumps(snap))
-            base = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-                    "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "GITHUB_OUTPUT": str(out),
-                    "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15, "RUN_MACOS": "true"}
-            for full, expected in (("true", SMALL), ("false", "")):
-                out.write_text("")
-                with unittest.mock.patch("sys.stdout", io.StringIO()):
-                    pool.main(["--snapshot", str(path)], {**base, "RUN_FULL_SUITE": full})
-                values = dict(line.split("=", 1) for line in out.read_text().splitlines())
-                self.assertEqual((values["runner"], values["shard_runner"]), (LARGE, expected), full)
 
 
 # The picker's token: the org-permission mint's, else the repository-only fallback's.
@@ -894,23 +838,20 @@ class OwnedPools(unittest.TestCase):
 
     def test_a_runs_peak_comes_from_its_routing(self):
         def jobs(**flags):
-            base = dict(macos="true", full_suite="false", unit_suite="false", unit_in_admission="false",
-                        claude_wrapper="false", cli="false", remote_daemon="false")
+            base = dict(macos="true", full_suite="false", claude_wrapper="false", cli="false",
+                        remote_daemon="false")
             return pool.run_jobs(**{**base, **flags})
         self.assertEqual(jobs(), 1)
         self.assertEqual(jobs(cli="true", remote_daemon="true"), 2)
-        self.assertEqual(jobs(unit_suite="true"), 1)
-        # A CLI change adds cli-product-tests after admission, on its machine;
-        # admission itself runs the CLI smoke checks.
-        self.assertEqual(jobs(unit_suite="true", unit_in_admission="true", cli="true"), 1)
-        self.assertEqual(jobs(unit_suite="true", cli="true"), 2)
-        # Full suite: seven shards, tests-build-and-lag and cli-product-tests after
-        # admission, beside the two side lanes; the package lane joins them only
-        # when the suite builds no Release helper, and MAX_RUN_JOBS counts it.
-        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), 11)
+        # A CLI change adds cli-product-tests after admission, on its machine.
+        self.assertEqual(jobs(cli="true"), 1)
+        # Full suite: cli-product-tests after admission, beside the two side
+        # lanes; the package lane joins them only when the suite builds no
+        # Release helper, and MAX_RUN_JOBS counts it.
+        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), 3)
         self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true", swift_packages="true",
                               release_build="false"), pool.MAX_RUN_JOBS)
-        self.assertEqual(pool.MAX_RUN_JOBS, 12)
+        self.assertEqual(pool.MAX_RUN_JOBS, 4)
         # A CLI-only run still compiles, then tests the bundled CLI.
         self.assertEqual(jobs(macos="false", cli="true"), 1)
         self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 2)
@@ -1001,7 +942,7 @@ class OwnedPools(unittest.TestCase):
             # (attempt 2) is looked up only with CI_OWNED_LIGHT_RETRY on, when
             # it may hold the light tier; its lookup fails, so it is replayed.
             "/actions/runs/10/artifacts?per_page=100": {"artifacts": [
-                {"name": f"macos-pool-persistent-10-1-9-{MINI}", "expired": False}]},
+                {"name": f"macos-pool-persistent-10-1-3-{MINI}", "expired": False}]},
         }
 
         def get(path):
@@ -1014,8 +955,8 @@ class OwnedPools(unittest.TestCase):
                 unittest.mock.patch.object(client, "get", side_effect=get):
             routed = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9)
             light = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9, light_retry=True)
-        self.assertEqual(routed, pool.Routed(unknown=3, owned={MINI: pool.MAX_RUN_JOBS + 9}, ephemeral=3))
-        self.assertEqual(light, pool.Routed(unknown=4, owned={MINI: pool.MAX_RUN_JOBS + 9}, ephemeral=2))
+        self.assertEqual(routed, pool.Routed(unknown=3, owned={MINI: pool.MAX_RUN_JOBS + 3}, ephemeral=3))
+        self.assertEqual(light, pool.Routed(unknown=4, owned={MINI: pool.MAX_RUN_JOBS + 3}, ephemeral=2))
         # One unfiltered page per lookup: main's dispatches cost no extra request.
         runs_since.assert_called_with(pool.CI_WORKFLOW, "2026-09-24T00:00:00Z")
 
@@ -1163,8 +1104,7 @@ class OwnedPools(unittest.TestCase):
 
 
 def routing(**flags):
-    base = dict(macos="true", full_suite="false", unit_suite="false", unit_in_admission="false",
-                claude_wrapper="false", cli="false", remote_daemon="false", unit_selectors="")
+    base = dict(macos="true", full_suite="false", claude_wrapper="false", cli="false", remote_daemon="false")
     return pool.run_plan(**{**base, **flags})
 
 
@@ -1177,15 +1117,13 @@ class PerJobPlacement(unittest.TestCase):
     def test_the_plan_names_each_job(self):
         plan = routing(**FULL)
         self.assertTrue(plan.admission)
-        self.assertEqual(plan.after, (*(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+        self.assertEqual(plan.after, ("cli-product",))
         self.assertEqual(plan.side, ("claude-wrapper", "remote-daemon"))
-        self.assertEqual(plan.peak, 11)
+        self.assertEqual(plan.peak, 3)
         # With no Release helper the package lane is a third side lane: the most any run holds.
         self.assertEqual(routing(**FULL, release_build="false").peak, pool.MAX_RUN_JOBS)
-        # The unit-ci label runs all seven shards; selected suites one worker, shard 8.
-        self.assertEqual(routing(unit_suite="true").after, tuple(f"shard-{index}" for index in range(1, 8)))
-        self.assertEqual(routing(unit_suite="true", unit_selectors="Suite").after, ("shard-8",))
-        self.assertEqual(routing(unit_suite="true", unit_in_admission="true", unit_selectors="Suite").after, ())
+        # A macOS change without the full suite or a CLI change runs nothing after admission.
+        self.assertEqual(routing().after, ())
         # A CLI-only run compiles, then runs cli-product-tests; nothing beside it.
         cli_only = routing(macos="false", cli="true")
         self.assertEqual((cli_only.admission, cli_only.after, cli_only.side), (True, ("cli-product",), ()))
@@ -1220,27 +1158,16 @@ class PerJobPlacement(unittest.TestCase):
                            RUN_RELEASE_BUILD="true")
         self.assertNotIn(" swift-package ", full["owned_jobs"])
 
-    def test_admission_then_gui_jobs_then_light_jobs(self):
+    def test_admission_then_light_jobs(self):
         plan = routing(**FULL)
-        shards = tuple(f"shard-{index}" for index in range(1, 8))
         self.assertEqual(pool.place(plan, 0), ((), 0))
-        # Shards reuse admission's machine once it finishes.
-        self.assertEqual(pool.place(plan, 1), (("admission", "shard-1"), 1))
-        self.assertEqual(pool.place(plan, 3), (("admission", "shard-1", "shard-2", "shard-3"), 3))
-        self.assertEqual(pool.place(plan, 9), (("admission", *shards, "lag", "cli-product"), 9))
-        self.assertEqual(pool.place(plan, 11), (("admission", *shards, "lag", "cli-product",
-                                                 "remote-daemon", "claude-wrapper"), 11))
-        self.assertEqual(pool.owned_peak(plan), 11)
-        self.assertEqual(pool.place(routing(unit_suite="true", unit_selectors="Suite"), 1),
-                         (("admission", "shard-8"), 1))
-
-    def test_gui_jobs_stay_off_when_switched_off(self):
-        plan = routing(**FULL)
-        self.assertEqual(pool.place(plan, 1, gui=False), (("admission", "cli-product"), 1))
-        self.assertEqual(pool.place(plan, 2, gui=False), (("admission", "cli-product", "remote-daemon"), 2))
+        # cli-product-tests reuses admission's machine once it finishes.
+        self.assertEqual(pool.place(plan, 1), (("admission", "cli-product"), 1))
+        self.assertEqual(pool.place(plan, 2), (("admission", "cli-product", "remote-daemon"), 2))
         everything = ("admission", "cli-product", "remote-daemon", "claude-wrapper")
-        self.assertEqual(pool.place(plan, 12, gui=False), (everything, 3))
-        self.assertEqual(pool.owned_peak(plan, gui=False), 3)
+        self.assertEqual(pool.place(plan, 3), (everything, 3))
+        self.assertEqual(pool.place(plan, 12), (everything, 3))
+        self.assertEqual(pool.owned_peak(plan), 3)
         # A run without admission places its side lanes alone.
         self.assertEqual(pool.place(routing(macos="false", remote_daemon="true"), 1), (("remote-daemon",), 1))
 
@@ -1297,7 +1224,7 @@ class PerJobPlacement(unittest.TestCase):
         for value in ("", "0", "true"):
             self.assertEqual(owned_choice(fleet(busy=9), split=value).runner, LARGE, value)
 
-    def output(self, *, busy, split="1", gui="", rounds="0", **routing_env):
+    def output(self, *, busy, split="1", rounds="0", **routing_env):
         with tempfile.TemporaryDirectory() as tmp:
             snapshot = Path(tmp, "snap.json")
             fresh = fleet(busy=busy)
@@ -1306,7 +1233,7 @@ class PerJobPlacement(unittest.TestCase):
             out = Path(tmp, "out")
             env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                    "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": "1",
-                   "POOL_OWNED_SPLIT": split, "POOL_OWNED_GUI": gui, "OWNED_SLOTS": json.dumps({MINI: 11}),
+                   "POOL_OWNED_SPLIT": split, "OWNED_SLOTS": json.dumps({MINI: 11}),
                    "POOL_QUEUE_ROUNDS": rounds,
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true",
@@ -1317,25 +1244,17 @@ class PerJobPlacement(unittest.TestCase):
 
     def test_main_names_the_owned_jobs_and_marks_their_peak(self):
         full = {"RUN_FULL_SUITE": "true", "RUN_CLI": "true", "RUN_REMOTE_DAEMON": "true"}
-        partial = self.output(busy=8, **full)
+        partial = self.output(busy=9, **full)
         self.assertEqual((partial["runner"], partial["retry_runner"]), (MINI, LARGE))
-        self.assertEqual(partial["owned_jobs"], " admission shard-1 shard-2 shard-3 ")
+        self.assertEqual(partial["owned_jobs"], " admission cli-product remote-daemon ")
         # The marker (and so the janitor) counts the owned machines placed.
-        self.assertEqual(partial["jobs"], "3")
-        # 10 free machines for an 11-machine run: the last light job overflows.
-        most = self.output(busy=1, **full)
-        self.assertEqual(most["owned_jobs"].split()[-3:], ["lag", "cli-product", "remote-daemon"])
-        self.assertEqual(most["jobs"], "10")
-        # GUI jobs off: only admission and the light jobs.
-        light = self.output(busy=9, gui="0", **full)
-        self.assertEqual((light["owned_jobs"], light["jobs"]), (" admission cli-product remote-daemon ", "2"))
-        # Selected suites a compile admission would run itself move to shard 8.
-        suites = self.output(busy=0, RUN_UNIT_SUITE="true", RUN_UNIT_IN_ADMISSION="true",
-                             RUN_UNIT_SELECTORS="cmuxTests/SomeSuite")
-        self.assertEqual(suites["owned_jobs"], " admission shard-8 ")
+        self.assertEqual(partial["jobs"], "2")
+        # 1 free machine for a 3-machine run: admission and the job after it on its machine.
+        least = self.output(busy=10, **full)
+        self.assertEqual((least["owned_jobs"], least["jobs"]), (" admission cli-product ", "1"))
         # Split off: the whole-run rule over the owned-eligible jobs only.
-        self.assertEqual(self.output(busy=8, split="", gui="0", **full)["runner"], MINI)
-        off = self.output(busy=9, split="", gui="0", **full)
+        self.assertEqual(self.output(busy=8, split="", **full)["runner"], MINI)
+        off = self.output(busy=9, split="", **full)
         self.assertEqual((off["runner"], off["owned_jobs"]), (LARGE, ""))
 
 
@@ -1459,9 +1378,9 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertEqual(second.runner, MINI)
 
     def test_nothing_is_reserved_so_a_later_run_takes_idle_machines(self):
-        # Run A took 3 of 11 minis for a full suite that peaks at 11; its shards
-        # do not exist yet. Run B finds 8 idle minis and takes them: A's shards
-        # queue behind B's jobs on the label when they appear.
+        # Run A took 3 of 11 minis for a run that peaks at 11; its later jobs
+        # do not exist yet. Run B finds 8 idle minis and takes them: A's later
+        # jobs queue behind B's on the label when they appear.
         snap = fleet(busy=3, small=21, large=6, old=4)
         snap["pools"][MINI]["committed"] = 11
         choice = owned_choice(snap, jobs=8, queue_rounds="")
@@ -1502,7 +1421,7 @@ class QueueBehindBusyRunners(unittest.TestCase):
     def test_back_to_back_runs_keep_the_owned_queue_bounded(self):
         # 12 minis, rounds 1, Blacksmith jammed: full suites (peak 11) arrive one
         # after another, each seeing the earlier ones as young marker runs
-        # (admission and side lanes only, their shards not created yet). What
+        # (admission and side lanes only, their later jobs not created yet). What
         # the owned pool takes never passes machines x (1 + rounds) = 24.
         for rounds, young in (("", True), ("", False), ("2", True), ("3", True)):
             limit = 12 * (1 + int(rounds or 1))
@@ -1621,51 +1540,52 @@ class QueueBehindBusyRunners(unittest.TestCase):
 
 # What upstream main's picker (2d844cb43f8, with CI_PR_POOL_QUEUE_ROUNDS unset,
 # so 0 rounds) chose over KillSwitchMatchesUpstream's grid, one code per
-# case: runner, owned budget, root runner, root budget, retry runner, shard
-# runner (M/R owned std and its root label, L/S/O 12vcpu/6vcpu/macOS 15, - none).
+# case: runner, owned budget, root runner, root budget, retry runner (M/R
+# owned std and its root label, L/S/O 12vcpu/6vcpu/macOS 15, - none). The
+# shard runner code each case ended with is gone with the app-host shards.
 UPSTREAM_ROUNDS_0 = (
-    'M3-0L- M3R2L- M3-0L- M3R2L- M3-0L- M3R2L- M3-0L- M3R2L- M11-0L- M11R2L- M11-0L- M11R2L- M11-0L- '
-    'M11R2L- M11-0L- M11R2L- M3-0L- L0-0-- M3-0L- L0-0-- M3-0L- M3R0L- M3-0L- M3R0L- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- M5-0L- M5R0L- M5-0L- M5R0L- M3-0L- L0-0-- M3-0L- L0-0-- M3-0L- M3R0L- M3-0L- M3R0L- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- M6-0L- M6R0L- M6-0L- M6R0L- L0-0-- L0-0-- L0-0-- L0-0-- M2-0L- M2R2L- M2-0L- '
-    'M2R2L- L0-0-- L0-0-- L0-0-- L0-0-- M2-0L- M2R2L- M2-0L- M2R2L- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- '
-    'L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- M3-0L- '
-    'M3R2L- M3-0L- M3R2L- M3-0L- M3R2L- M3-0L- M3R2L- L0-0-- L0-0-- L0-0-- L0-0-- M9-0L- M9R2L- M9-0L- '
-    'M9R2L- M3-0L- L0-0-- M3-0L- L0-0-- M3-0L- M3R0L- M3-0L- M3R0L- L0-0-- L0-0-- L0-0-- L0-0-- M3-0L- '
-    'M3R0L- M3-0L- M3R0L- M3-0L- L0-0-- M3-0L- L0-0-- M3-0L- M3R0L- M3-0L- M3R0L- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- M4-0L- M4R0L- M4-0L- M4R0L- L0-0-- L0-0-- L0-0-- L0-0-- M2-0L- M2R2L- M2-0L- M2R2L- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- M2-0L- M2R2L- M2-0L- M2R2L- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- '
-    'O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- M3-0L- M3R2L- M3-0L- '
-    'M3R2L- M3-0L- M3R2L- M3-0L- M3R2L- L0-0-- L0-0-- L0-0-- L0-0-- M3-0L- M3R2L- M3-0L- M3R2L- L0-0-- '
-    'L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- '
-    'O0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- M2-0L- M2R2L- M2-0L- M2R2L- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- M2-0L- M2R2L- M2-0L- M2R2L- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- '
-    'L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- M1-0L- '
-    'M1R2L- M1-0L- M1R2L- L0-0-- L0-0-- L0-0-- L0-0-- M1-0L- M1R2L- M1-0L- M1R2L- L0-0-- L0-0-- O0-0-- '
-    'O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- M1-0L- M1R2L- M1-0L- M1R2L- L0-0-- L0-0-- L0-0-- L0-0-- M1-0L- '
-    'M1R2L- M1-0L- M1R2L- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- O0-0-- '
-    'O0-0-- L0-0-- L0-0-- O0-0-- O0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- L0-0-- '
-    'L0-0-- L0-0-- L0-0-- '
+    'M3-0L M3R2L M3-0L M3R2L M3-0L M3R2L M3-0L M3R2L M11-0L M11R2L M11-0L M11R2L M11-0L '
+    'M11R2L M11-0L M11R2L M3-0L L0-0- M3-0L L0-0- M3-0L M3R0L M3-0L M3R0L L0-0- L0-0- L0-0- '
+    'L0-0- M5-0L M5R0L M5-0L M5R0L M3-0L L0-0- M3-0L L0-0- M3-0L M3R0L M3-0L M3R0L L0-0- '
+    'L0-0- L0-0- L0-0- M6-0L M6R0L M6-0L M6R0L L0-0- L0-0- L0-0- L0-0- M2-0L M2R2L M2-0L '
+    'M2R2L L0-0- L0-0- L0-0- L0-0- M2-0L M2R2L M2-0L M2R2L L0-0- L0-0- O0-0- O0-0- L0-0- '
+    'L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- M3-0L '
+    'M3R2L M3-0L M3R2L M3-0L M3R2L M3-0L M3R2L L0-0- L0-0- L0-0- L0-0- M9-0L M9R2L M9-0L '
+    'M9R2L M3-0L L0-0- M3-0L L0-0- M3-0L M3R0L M3-0L M3R0L L0-0- L0-0- L0-0- L0-0- M3-0L '
+    'M3R0L M3-0L M3R0L M3-0L L0-0- M3-0L L0-0- M3-0L M3R0L M3-0L M3R0L L0-0- L0-0- L0-0- '
+    'L0-0- M4-0L M4R0L M4-0L M4R0L L0-0- L0-0- L0-0- L0-0- M2-0L M2R2L M2-0L M2R2L L0-0- '
+    'L0-0- L0-0- L0-0- M2-0L M2R2L M2-0L M2R2L L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- '
+    'O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- M3-0L M3R2L M3-0L '
+    'M3R2L M3-0L M3R2L M3-0L M3R2L L0-0- L0-0- L0-0- L0-0- M3-0L M3R2L M3-0L M3R2L L0-0- '
+    'L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- '
+    'O0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- M2-0L M2R2L M2-0L M2R2L L0-0- L0-0- L0-0- '
+    'L0-0- M2-0L M2R2L M2-0L M2R2L L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- '
+    'L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- M1-0L '
+    'M1R2L M1-0L M1R2L L0-0- L0-0- L0-0- L0-0- M1-0L M1R2L M1-0L M1R2L L0-0- L0-0- O0-0- '
+    'O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- M1-0L M1R2L M1-0L M1R2L L0-0- L0-0- L0-0- L0-0- M1-0L '
+    'M1R2L M1-0L M1R2L L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- O0-0- '
+    'O0-0- L0-0- L0-0- O0-0- O0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- L0-0- '
+    'L0-0- L0-0- L0-0- '
 ).split()
 
 
@@ -1673,17 +1593,17 @@ UPSTREAM_ROUNDS_0 = (
 # machines, busy root runners, committed peaks, CI_OWNED_MAIN_RESERVE, split
 # and a newer run, on 16 machines and 10 root runners.
 UPSTREAM_MAIN_ROUNDS_0 = (
-    'M9R10L- -0-0-- M9R10L- M9R5L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- M9R8L- M9R3L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M9R5L- M9R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- '
-    'M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- M9R10L- -0-0-- M9R10L- M7R5L- -0-0-- -0-0-- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M9R8L- M7R3L- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M9R5L- M7R0L- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- '
-    'M5R10L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M5R1L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- M5R8L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M5R1L- -0-0-- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- M5R5L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M5R1L- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- '
+    'M9R10L -0-0- M9R10L M9R5L -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- M7R1L M2R0L -0-0- -0-0- '
+    '-0-0- -0-0- -0-0- -0-0- M9R8L M9R3L -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- M7R1L M2R0L '
+    '-0-0- -0-0- -0-0- -0-0- -0-0- -0-0- M9R5L M9R0L -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- '
+    'M7R1L M2R0L -0-0- -0-0- -0-0- -0-0- M9R10L -0-0- M9R10L M7R5L -0-0- -0-0- -0-0- -0-0- '
+    '-0-0- -0-0- M7R1L M2R0L -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- M9R8L M7R3L -0-0- -0-0- '
+    '-0-0- -0-0- -0-0- -0-0- M7R1L M2R0L -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- M9R5L M7R0L '
+    '-0-0- -0-0- -0-0- -0-0- -0-0- -0-0- M7R1L M2R0L -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- '
+    'M5R10L -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- M5R1L -0-0- -0-0- -0-0- -0-0- -0-0- '
+    '-0-0- -0-0- M5R8L -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- M5R1L -0-0- -0-0- -0-0- '
+    '-0-0- -0-0- -0-0- -0-0- M5R5L -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- -0-0- M5R1L -0-0- '
+    '-0-0- -0-0- -0-0- -0-0- '
 ).split()
 
 class KillSwitchMatchesUpstream(unittest.TestCase):
@@ -1709,10 +1629,13 @@ class KillSwitchMatchesUpstream(unittest.TestCase):
                               routed={"0": 0, "u2": 2, "o5": pool.Routed(owned={MINI: 5})}[routed])
         code = self.CODES
         return (f"{code[choice.runner]}{choice.owned_budget}{code[choice.root_runner]}{choice.root_budget}"
-                f"{code[choice.retry_runner]}{code[choice.shard_runner]}")
+                f"{code[choice.retry_runner]}")
 
     def test_rounds_0_decides_main_dispatch_as_upstream_main_did(self):
-        plan = dataclasses.replace(pool.FULL_RUN, side=())
+        # The grid was recorded for a run of 9 machines and 9 root runners
+        # (admission and the nine jobs after it, since removed); the rule
+        # under test only reads those counts.
+        jobs = root_jobs = 9
         cases = list(itertools.product((0, 4, 11), (0, 2, 5), (0, 9), ("", "2"), ("", "1"), ("0", "o5")))
         self.assertEqual(len(cases), len(UPSTREAM_MAIN_ROUNDS_0))
         for (busy, roots_busy, committed, reserve, split, routed), expected in zip(cases, UPSTREAM_MAIN_ROUNDS_0):
@@ -1720,13 +1643,13 @@ class KillSwitchMatchesUpstream(unittest.TestCase):
             snap["pools"][MINI] = {"queued": 0, "running": busy, "committed": committed}
             snap["pools"][ROOT_MINI] = {"queued": 0, "running": roots_busy, "committed": committed}
             choice = choose(snap, event="workflow_dispatch", head="", pins=OWNED_PINS, owned="1",
-                            owned_slots=json.dumps({MINI: 16, ROOT_MINI: 10}), jobs=pool.owned_peak(plan),
-                            root_jobs=pool.root_peak(plan), split=split, queue_rounds="0",
+                            owned_slots=json.dumps({MINI: 16, ROOT_MINI: 10}), jobs=jobs,
+                            root_jobs=root_jobs, split=split, queue_rounds="0",
                             routed={"0": 0, "o5": pool.Routed(owned={MINI: 5})}[routed],
                             ref=pool.MAIN_REF, main_reserve=reserve)
             code = self.CODES
             got = (f"{code[choice.runner]}{choice.owned_budget}{code[choice.root_runner]}{choice.root_budget}"
-                   f"{code[choice.retry_runner]}{code[choice.shard_runner]}")
+                   f"{code[choice.retry_runner]}")
             self.assertEqual(got, expected, (busy, roots_busy, committed, reserve, split, routed))
 
     def test_rounds_0_decides_as_upstream_main_did(self):
@@ -1757,11 +1680,10 @@ class RootRunners(unittest.TestCase):
 
     def test_place_holds_root_jobs_within_the_root_budget(self):
         plan = routing(**FULL)
-        # Admission then shards hold root runners; the side lanes do not.
-        self.assertEqual(pool.root_peak(plan), 9)
-        self.assertEqual(pool.place(plan, 12, root_budget=3),
-                         (("admission", "shard-1", "shard-2", "shard-3", "remote-daemon",
-                           "claude-wrapper"), 5))
+        # Admission then cli-product-tests hold a root runner; the side lanes do not.
+        self.assertEqual(pool.root_peak(plan), 1)
+        self.assertEqual(pool.place(plan, 12, root_budget=1),
+                         (("admission", "cli-product", "remote-daemon", "claude-wrapper"), 3))
         # No root runner free: only the side lanes take the pool.
         self.assertEqual(pool.place(plan, 12, root_budget=0), (("remote-daemon", "claude-wrapper"), 2))
         self.assertEqual(pool.place(plan, 12, root_budget=None), pool.place(plan, 12))
@@ -1774,11 +1696,6 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(owned_choice(snap, owned_slots=slots, jobs=4, root_jobs=2).runner, LARGE)
         fits = owned_choice(snap, owned_slots=slots, jobs=4, root_jobs=1)
         self.assertEqual((fits.runner, fits.root_runner, fits.root_budget), (MINI, ROOT_MINI, 1))
-        # shard_runner is Choice's 6th field: a persistent pick leaves it empty
-        # and never gets the root label there.
-        self.assertEqual(fits.shard_runner, "")
-        full = owned_choice(snap, owned_slots=slots, jobs=4, root_jobs=1, shards=pool.APP_HOST_SHARDS)
-        self.assertEqual((full.shard_runner, full.root_runner), ("", ROOT_MINI))
         self.assertIn("1 of 10 root runners free", fits.reason)
         # With the split it takes the pool, and place() keeps to one root runner.
         split = owned_choice(snap, owned_slots=slots, jobs=4, root_jobs=2, split="1")
@@ -1848,19 +1765,16 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(owned_choice(fleet(busy=40), owned_slots=slots, root_jobs=1).root_runner, "")
 
     def test_gui_runners_take_the_gui_jobs_off_the_root_budget(self):
-        plan = pool.run_plan(macos="true", full_suite="true", unit_suite=None, unit_in_admission=None,
-                             claude_wrapper=None, cli="true", remote_daemon=None)
+        plan = pool.run_plan(macos="true", full_suite="true", claude_wrapper=None, cli="true", remote_daemon=None)
         keys = ("admission", *plan.after)
         self.assertEqual(pool.root_held(plan, keys), len(plan.after))
         self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 1,
                          "every job after admission, cli-product too, takes a gui runner")
         self.assertEqual(pool.root_held(plan, ("admission", "cli-product"), gui_runners=True), 1)
         self.assertEqual(pool.root_held(plan, ("cli-product",), gui_runners=True), 0)
-        # Three root runners free: on the root label three shards fit (admission hands its runner on); with gui runners every job does.
-        root_only, _ = pool.place(plan, 20, root_budget=3)
-        with_gui, _ = pool.place(plan, 20, root_budget=3, gui_runners=True)
-        self.assertEqual(sum(pool.gui_job(k) for k in root_only), 3)
-        self.assertLessEqual(set(keys), set(with_gui))
+        # No root runner free: only the side lane fits; with gui runners admission still needs one.
+        self.assertEqual(pool.place(plan, 20, root_budget=0), (("claude-wrapper",), 1))
+        self.assertLessEqual(set(keys), set(pool.place(plan, 20, root_budget=1, gui_runners=True)[0]))
 
     def test_main_writes_the_root_runner(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1882,13 +1796,12 @@ class RootRunners(unittest.TestCase):
         self.assertEqual((outputs["runner"], outputs["root_runner"]), (MINI, ROOT_MINI))
         # The side lanes take the side runners: 30 of the 40 machines.
         self.assertEqual(outputs["side_runner"], SIDE_MINI)
-        self.assertEqual(outputs["gui_runner"], "", "no gui count: the GUI jobs keep the root label")
-        # Three root runners free: admission and two shards, beside every side lane.
-        self.assertEqual(outputs["owned_jobs"],
-                         " admission shard-1 shard-2 shard-3 remote-daemon claude-wrapper ")
-        self.assertEqual(outputs["jobs"], "5")
-        # Six owned jobs on five machines: the shards after admission reuse its machine.
-        self.assertEqual(outputs["placed"], "6")
+        self.assertEqual(outputs["gui_runner"], "", "no gui count: the gui-token jobs keep the root label")
+        # Three root runners free: the whole run, admission and cli-product-tests beside every side lane.
+        self.assertEqual(outputs["owned_jobs"], " admission cli-product remote-daemon claude-wrapper ")
+        self.assertEqual(outputs["jobs"], "3")
+        # Four owned jobs on three machines: cli-product-tests after admission reuses its machine.
+        self.assertEqual(outputs["placed"], "4")
 
     def test_the_janitor_counts_root_jobs_toward_both_labels(self):
         def job(label, status):
@@ -1910,13 +1823,13 @@ class RootRunners(unittest.TestCase):
         self.assertEqual({key: snap["pools"][MINI][key] for key in ("queued", "running", "committed")},
                          {"queued": 1, "running": 2, "committed": 7})
         # An E2E marker names the root label: one root runner, one machine.
-        e2e = {"id": 2, "name": "E2E", "path": ".github/workflows/test-e2e.yml", "status": "in_progress"}
+        e2e = {"id": 2, "name": "E2E", "path": ".github/workflows/iroh-release-gate.yml", "status": "in_progress"}
         snap = janitor.pool_load_snapshot([e2e], {2: []}, now=NOW, markers={2: (ROOT_MINI, 1, 1)})
         self.assertEqual((snap["pools"][ROOT_MINI]["committed"], snap["pools"][MINI]["committed"]), (1, 1))
 
     def test_e2e_takes_the_root_label(self):
         snap = fleet(busy=0)
-        load = e2e_pool.PoolLoad(snap, {ROOT_MINI: 1})
+        load = e2e_pool.PoolLoad(snap)
         limits = e2e_pool.settings("", "", "1", PR_XCODE)
         choice = e2e_pool.decide(load, limits, now=NOW, owned_slots={MINI: 40, ROOT_MINI: 10})
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI))
@@ -2604,7 +2517,7 @@ class Wiring(unittest.TestCase):
                          f"${{{{ {owned} && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) "
                          "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}")
         block = yaml.safe_dump(job)
-        for lane in ("pr_retry_runner", "pr_root_runner", "pr_shard_runner", "MACOS_RUNNER_PR"):
+        for lane in ("pr_retry_runner", "pr_root_runner", "MACOS_RUNNER_PR"):
             self.assertNotIn(lane, block, lane)
         # The key the job tests is the one the picker names.
         self.assertEqual(pool.SWIFT_PACKAGE_JOB, "swift-package")
@@ -2636,8 +2549,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(pool.RELEASE_BUILD_JOB, "release-build")
 
     def test_release_build_is_a_side_lane_of_a_full_suite_with_release_build(self):
-        full = dict(macos="true", full_suite="true", unit_suite="false", unit_in_admission="false",
-                    claude_wrapper="true", cli="true", remote_daemon="false")
+        full = dict(macos="true", full_suite="true", claude_wrapper="true", cli="true", remote_daemon="false")
         plan = pool.run_plan(**full, swift_packages="true", release_build="true")
         # The helper build keeps swift-package-tests on Blacksmith; release-build takes its place.
         self.assertEqual(plan.side, ("claude-wrapper", "release-build"))
@@ -2652,8 +2564,9 @@ class Wiring(unittest.TestCase):
         self.assertIn("release-build", keys)
         self.assertEqual(held, plan.peak)
         # Behind the root jobs and cli-product, ahead of the light side lanes.
-        order = sorted(("claude-wrapper", "remote-daemon", "release-build", "cli-product", "lag"), key=pool.priority)
-        self.assertEqual(order, ["lag", "cli-product", "release-build", "remote-daemon", "claude-wrapper"])
+        order = sorted(("claude-wrapper", "remote-daemon", "release-build", "cli-product", "admission"),
+                       key=pool.priority)
+        self.assertEqual(order, ["admission", "cli-product", "release-build", "remote-daemon", "claude-wrapper"])
         self.assertIn("release-build", pool.SIDE_LANE_JOBS)
 
     def test_the_picker_reads_the_package_lane_routing(self):
@@ -2682,7 +2595,7 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         calls.append(1)
         if measure is not None:
             return measure()
-        return ios_pool.IOSLoad(e2e_pool.PoolLoad(snap, {}, pull_requests_since), ios_since)
+        return ios_pool.IOSLoad(e2e_pool.PoolLoad(snap, pull_requests_since), ios_since)
 
     route = ios_pool.resolve(
         lane, requested, variable, ios_owned=ios_owned, owned=owned,
@@ -2705,6 +2618,10 @@ class MainFullSuite(unittest.TestCase):
 
     SLOTS = json.dumps({MINI: 36, ROOT_MINI: 14})
     PLAN = dataclasses.replace(pool.FULL_RUN, side=())
+    # The reserve and queue arithmetic is exercised on a run of 9 machines and
+    # 9 root runners (the size main's full suite had with the app-host shards),
+    # where splitting and queueing whole differ; the rule reads only the counts.
+    JOBS = 9
 
     def snap(self, busy=0, roots_busy=0):
         snap = fleet(busy=busy)
@@ -2713,14 +2630,14 @@ class MainFullSuite(unittest.TestCase):
 
     def main_choice(self, snap, **kwargs):
         kwargs = {"event": "workflow_dispatch", "head": "", "pins": OWNED_PINS, "owned": "1",
-                  "owned_slots": self.SLOTS, "jobs": pool.owned_peak(self.PLAN),
-                  "root_jobs": pool.root_peak(self.PLAN), **kwargs}
+                  "owned_slots": self.SLOTS, "jobs": self.JOBS, "root_jobs": self.JOBS, **kwargs}
         ref = kwargs.pop("ref", pool.MAIN_REF)
         reserve = kwargs.pop("reserve", None)
         return choose(snap, **kwargs, ref=ref, main_reserve=reserve)
 
-    def test_its_run_holds_nine_machines_and_nine_root_runners(self):
-        self.assertEqual((pool.owned_peak(self.PLAN), pool.root_peak(self.PLAN)), (9, 9))
+    def test_its_run_holds_one_machine_and_one_root_runner_beside_its_side_lanes(self):
+        # Admission, then cli-product-tests on its machine and root runner.
+        self.assertEqual((pool.owned_peak(self.PLAN), pool.root_peak(self.PLAN)), (1, 1))
         # By default main holds nothing back: it takes the minis like a pull request.
         self.assertEqual(pool.DEFAULT_MAIN_RESERVE, 0)
 
@@ -2728,8 +2645,8 @@ class MainFullSuite(unittest.TestCase):
         choice = self.main_choice(self.snap())
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI))
         self.assertIn("main's full-suite dispatch", choice.reason)
-        self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
-                         ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+        self.assertEqual(choice.owned_budget, self.JOBS)
+        self.assertGreaterEqual(choice.root_budget, self.JOBS)
 
     def test_the_reserve_holds_root_runners_and_machines_back_for_pull_requests(self):
         # 14 - 2 busy = 12 root runners free: 9 for main leaves 3, under a reserve of 4.
@@ -2759,8 +2676,8 @@ class MainFullSuite(unittest.TestCase):
         snap["pools"][ROOT_MINI]["queued"] = 22
         choice = self.main_choice(snap, split="1", queue_rounds="2")
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI))
-        self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
-                         ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
+        self.assertEqual(choice.owned_budget, self.JOBS)
+        self.assertGreaterEqual(choice.root_budget, self.JOBS)
         self.assertIn("0 of 14 root runners free and 6 queue places", choice.reason)
         self.assertIn("the whole run queues there", choice.reason)
         self.assertNotIn("the rest on the retry runner", choice.reason)
@@ -2778,7 +2695,7 @@ class MainFullSuite(unittest.TestCase):
                                  owned_slots=json.dumps({MINI: 36, ROOT_MINI: 14, LIGHT: 4, light_root: 2}))
         self.assertEqual(small.runner, LIGHT, small.reason)
         self.assertNotIn("the whole run queues there", small.reason)
-        self.assertLess(small.root_budget, pool.root_peak(self.PLAN))
+        self.assertLess(small.root_budget, self.JOBS)
         # With the rounds at 0 (no queueing) main splits as before.
         self.assertIn("the rest on the retry runner",
                       self.main_choice(self.snap(roots_busy=6), split="1", queue_rounds="0").reason)
@@ -2795,8 +2712,8 @@ class MainFullSuite(unittest.TestCase):
         choice = self.main_choice(full, queue_rounds="1")
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI), choice.reason)
         self.assertIn("queue places", choice.reason)
-        owned_jobs = pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0]
-        self.assertEqual(len(owned_jobs), len(pool.FULL_RUN.after) + 1)  # admission and all after it
+        self.assertEqual(choice.owned_budget, self.JOBS)  # the whole run
+        self.assertGreaterEqual(choice.root_budget, self.JOBS)
         # Rounds 0 is the old rule for both: the run's peak must be free now.
         self.assertEqual(self.main_choice(full, queue_rounds="0").runner, "")
         # A reserve keeps main off the queue: it takes the pool only while its
@@ -2838,11 +2755,10 @@ class MainFullSuite(unittest.TestCase):
             with unittest.mock.patch("sys.stdout", io.StringIO()):
                 self.assertEqual(pool.main(["--snapshot", str(snapshot)], env), 0)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
-            # The nine root jobs at their peak, plus the Claude wrapper and the remote daemon beside them.
+            # Admission and cli-product-tests on one machine, plus the Claude wrapper and the remote daemon.
             self.assertEqual((values["runner"], values["persistent"], values["root_runner"], values["jobs"]),
-                             (MINI, "true", ROOT_MINI, "11"))
-            self.assertEqual(values["owned_jobs"], " admission " + " ".join(f"shard-{index}" for index in range(1, 8))
-                             + " lag cli-product remote-daemon claude-wrapper ")
+                             (MINI, "true", ROOT_MINI, "3"))
+            self.assertEqual(values["owned_jobs"], " admission cli-product remote-daemon claude-wrapper ")
             self.assertTrue(values["retry_runner"].startswith("blacksmith-"))
             # A dispatch on another branch writes the default route.
             env.update(GITHUB_REF="refs/heads/topic")
@@ -2888,11 +2804,11 @@ class PullRequestAdmissionRootQueue(unittest.TestCase):
     def test_admission_queues_for_a_root_runner_when_blacksmith_is_longer(self):
         # 30 queued behind 14 busy root runners is past two rounds' bound, so before this admission and
         # every job after it took the retry runner. Its root wait (31 on 14, 22 min) is under 12vcpu's
-        # (41 on 5 at 5 min a job, 41 min), so it queues for a root runner and hands it on to one shard.
+        # (41 on 5 at 5 min a job, 41 min), so it queues for a root runner and hands it on to cli-product-tests.
         choice = self.choice(roots_queued=30, blacksmith={"small": 60, "large": 40, "old": 40})
         self.assertEqual((choice.runner, choice.root_runner, choice.root_budget), (MINI, ROOT_MINI, 1))
         self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
-                         ("admission", "shard-1"))
+                         ("admission", "cli-product"))
         self.assertIn("admission queues for a root runner, about 22 min against 41 min on Blacksmith",
                       choice.reason)
 
@@ -3574,7 +3490,7 @@ class E2EQueueRounds(unittest.TestCase):
 
     def choice(self, queue_rounds, pull_requests_since, snap=None):
         limits = e2e_pool.settings("", "", "1", PR_XCODE, queue_rounds)
-        return e2e_pool.decide(e2e_pool.PoolLoad(snap or self.snapshot(), {}, pull_requests_since), limits,
+        return e2e_pool.decide(e2e_pool.PoolLoad(snap or self.snapshot(), pull_requests_since), limits,
                                now=NOW, owned_slots=self.SLOTS)
 
     def test_the_incident_snapshot_queues_for_a_mini_with_the_rounds(self):
@@ -3609,7 +3525,7 @@ class E2EQueueRounds(unittest.TestCase):
             snap["pools"][label] = {"queued": 60, "running": 40, "committed": 99}
         self.assertEqual(self.choice("2", 0, snap).runner, LARGE)
         # With owned pools off the reason names no owned pool.
-        choice = e2e_pool.decide(e2e_pool.PoolLoad(snap, {}, 0), e2e_pool.settings("", "", "", PR_XCODE, "2"),
+        choice = e2e_pool.decide(e2e_pool.PoolLoad(snap, 0), e2e_pool.settings("", "", "", PR_XCODE, "2"),
                                  now=NOW, owned_slots=self.SLOTS)
         self.assertEqual(choice.runner, LARGE)
         self.assertNotIn("owned", choice.reason)
@@ -3819,7 +3735,7 @@ class LiveIdleRunners(unittest.TestCase):
         self.assertIn("admission", pool.place(pool.FULL_RUN, fixed.owned_budget, root_budget=fixed.root_budget,
                                               gui_runners=True)[0])
         # Without gui runners on std (another pool's gui count does not count), a newer
-        # run's shards take root runners too: its whole peak is charged.
+        # run's jobs after admission take root runners too: its whole peak is charged.
         whole = owned_choice(fleet(busy=26), owned_slots=json.dumps({MINI: 29, ROOT_MINI: 19, LIGHT: 4,
                                                                      "glaeda-gui-light-xcode-26.6": 4}), **kwargs)
         self.assertEqual((whole.runner, whole.root_runner, whole.root_budget), (MINI, ROOT_MINI, 0))
