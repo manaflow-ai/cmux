@@ -193,6 +193,22 @@ struct CLILocalZellijLifecycleTests {
         #expect(fixture.invocations().contains { $0.hasSuffix("|delete-session --force \(zellijName)") })
     }
 
+    @Test func attachNeverResurrectsAnExitedSession() throws {
+        // Resurrecting from a client would start a zellij server that
+        // inherits that client's environment, so only live sessions attach.
+        let fixture = try makeFixture("attach-exited", createdSessionsExit: true)
+        defer { try? FileManager.default.removeItem(at: fixture.base) }
+        _ = try runCLI(["local-zellij", "start", "work", "--detached", "--cwd", fixture.base.path], fixture)
+        let before = fixture.invocations().count
+
+        let attach = try runCLI(["local-zellij", "attach", "work", "--headless"], fixture)
+
+        #expect(attach.status != 0)
+        #expect(attach.stderr.contains("has exited"), Comment(rawValue: attach.stderr))
+        let attaches = fixture.invocations().dropFirst(before).filter { $0.contains("|attach work-") }
+        #expect(attaches.isEmpty, Comment(rawValue: attaches.joined(separator: "\n")))
+    }
+
     @Test func attachFinishingAfterTheRecordChangedKeepsTheRegistryValid() throws {
         let fixture = try makeFixture("attach-renamed")
         defer { try? FileManager.default.removeItem(at: fixture.base) }
