@@ -36641,6 +36641,7 @@ export default CMUXSessionRestore;
                 case nil:
                     switch latest.agentLifecycle {
                     case .running?: correctedPhase = .running
+                    case .backgroundWorkPending?: correctedPhase = .backgroundWorkPending
                     case .idle?: correctedPhase = .idle
                     case .needsInput?: correctedPhase = .needsInput
                     case .unknown?: correctedPhase = .unknown
