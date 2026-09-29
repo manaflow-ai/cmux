@@ -6,6 +6,25 @@ import Testing
 
 @MainActor
 extension ReconnectRouteSelectionTests {
+    @Test(.timeLimit(.minutes(1)))
+    func shellTeardownCancelsItsReadinessSubscription() async {
+        let readiness = TestMobileConnectionReadiness(permitsConnection: false)
+        let runtime = LivenessTestRuntime(connectionReadiness: readiness,
+            transportFactory: KindRecordingTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+            now: Date.init)
+        var shell: MobileShellComposite? = MobileShellComposite(runtime: runtime,
+            pairingHintDefaults: UserDefaults(suiteName: "readiness-teardown-\(UUID())")!)
+        weak var releasedShell = shell
+        shell?.startObservingConnectionReadiness()
+        shell = nil
+        #expect(releasedShell == nil)
+        let terminated = Task<Bool, any Error> { await readiness.waitUntilTerminated(); return true }
+        let result = try? await RPCTaskTimeout().value(terminated, timeoutNanoseconds: 2_000_000_000)
+        #expect(result == true, "teardown must release the observer without waiting for another lifecycle event")
+        terminated.cancel()
+        readiness.publish(true)
+    }
+
     @Test func readinessLossPreservesExplicitRecoveryIntent() {
         let shell = MobileShellComposite(pairingHintDefaults: UserDefaults(suiteName: "intent-\(UUID())")!)
         shell.pendingInactiveRecoveryTrigger = .connectionMethodChanged
