@@ -50,25 +50,28 @@ public enum ContextMenuCatalog {
         + actions("renameTab", "palette.clearTabName", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute")
         + [.separator] + actions("tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab") + [.separator]
         + actions("moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-                  "palette.moveTabToNewWorkspace", "palette.toggleFullWidthTab")
+                  "tab.moveToNewSplit", "tab.moveToNewColumn", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow",
+                  "palette.toggleFullWidthTab")
         + [.separator] + actions("palette.copySurfaceID", "palette.copySurfaceLink", "palette.copyIdentifiers")
         + [.separator] + actions("disconnectRemoteTab", "closeTabsToLeft", "closeTabsToRight", "closeOtherTabsInPane", "closeTab")
 
     static let tabGroup: [ContextMenuEntry] =
         actions("tabGroup.newTab", "tabGroup.rename") + [.submenu("tabGroup.setColor", colors("tabGroup"))]
         + actions("tabGroup.toggleCollapsed") + [.separator] + actions("tabGroup.save", "tabGroup.unsave") + [.separator]
-        + actions("tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn", "tabGroup.moveToNewWorkspace",
+        + actions("tabGroup.moveLeft", "tabGroup.moveRight", "tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn", "tabGroup.moveToNewWorkspace",
                   "tabGroup.moveToWorkspace", "tabGroup.moveToNewWindow")
         + [.separator] + actions("tabGroup.ungroup", "tabGroup.close")
 
     static let pane: [ContextMenuEntry] =
-        actions("splitRight", "splitDown", "newColumn", "splitBrowserRight", "splitBrowserDown") + [.separator]
-        + actions("toggleSplitZoom", "equalizeSplits", "triggerFlash") + [.separator]
+        actions("splitRight", "splitDown", "splitLeft", "splitUp", "newColumn", "splitBrowserRight", "splitBrowserDown")
+        + [.separator] + actions("toggleSplitZoom", "equalizeSplits", "triggerFlash", "renamePane") + [.separator]
         + actions("palette.swapWithSession", "reconnectPane") + [.separator]
-        + actions("palette.copyPaneID", "palette.copyPaneLink")
+        + actions("palette.copyPaneID", "palette.copyPaneLink") + [.separator] + actions("closePane")
 
     static let column: [ContextMenuEntry] =
-        actions("newColumn", "newPaneAutoLayout", "splitDown") + [.separator] + actions("equalizeSplits", "toggleSplitZoom")
+        actions("newColumn", "newPaneAutoLayout", "splitDown") + [.separator]
+        + actions("column.widthOneThird", "column.widthHalf", "column.widthTwoThirds", "column.widthFull") + [.separator]
+        + actions("column.moveLeft", "column.moveRight", "equalizeSplits", "toggleSplitZoom")
 
     static let workspaceRow: [ContextMenuEntry] =
         actions("renameWorkspace", "editWorkspaceDescription", "palette.workspaceStatus", "markWorkspaceDone",
