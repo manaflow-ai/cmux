@@ -15,6 +15,7 @@ struct TmuxWorkspacePaneOverlayInputs: Hashable {
     var isZoomed = false
     var panelIdentities: [UUID: ObjectIdentifier] = [:]
     var focusedPanelId: UUID?
+    var selectionRevision: UInt64 = 0
     var unreadPanelIds: Set<UUID> = []
     var notificationPanelIds: Set<UUID> = []
     var isWorkspaceManuallyUnread = false
@@ -47,6 +48,7 @@ struct TmuxWorkspacePaneOverlayInputs: Hashable {
             && lhs.isZoomed == rhs.isZoomed
             && lhs.panelIdentities == rhs.panelIdentities
             && lhs.focusedPanelId == rhs.focusedPanelId
+            && lhs.selectionRevision == rhs.selectionRevision
             && lhs.unreadPanelIds == rhs.unreadPanelIds
             && lhs.notificationPanelIds == rhs.notificationPanelIds
             && lhs.isWorkspaceManuallyUnread == rhs.isWorkspaceManuallyUnread

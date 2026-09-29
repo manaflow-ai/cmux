@@ -3024,6 +3024,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var tmuxWorkspaceFlashPanelId: UUID? { tmuxWorkspaceFlash.panelId }
     var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason? { tmuxWorkspaceFlash.reason }
     var tmuxWorkspaceFlashToken: UInt64 { tmuxWorkspaceFlash.token }
+    /// Monotonic selection/focus revision for overlay input admission.
+    var tmuxOverlaySelectionRevision: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
     /// The sidebar-metadata sub-model (CmuxSidebar): owns the
     /// sidebar status entries, metadata blocks, log entries, progress, and
@@ -13548,6 +13550,7 @@ extension Workspace: BonsplitDelegate {
         previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        tmuxOverlaySelectionRevision &+= 1
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         pendingTabSelection = PendingTabSelectionRequest(
             tabId: tabId,

@@ -24,6 +24,7 @@ struct TmuxWorkspacePaneOverlayStateBuilder {
         result.workspaceId = workspace.id
         result.workspaceIdentity = ObjectIdentifier(workspace)
         result.isCanvas = workspace.layoutMode == .canvas
+        result.selectionRevision = workspace.tmuxOverlaySelectionRevision
         guard result.target.usesWorkspacePaneOverlay || shouldShowActivePaneBorder(for: workspace) else {
             return result
         }
