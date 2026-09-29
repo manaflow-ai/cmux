@@ -4499,6 +4499,33 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testNotificationTabSwitchKeepsSharedRootToolbarMounted() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileNotificationFeedMarkAllRead"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["MobileNotificationFeedFilterMenu"].waitForExistence(timeout: 3))
+
+        tap(app.tabBars.buttons["Workspaces"], in: app)
+        XCTAssertTrue(app.staticTexts["Workspaces"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["MobileWorkspaceDevicesButton"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["MobileWorkspaceMacPicker"].waitForExistence(timeout: 3))
+
+        tap(app.tabBars.buttons["Notifications"], in: app)
+        XCTAssertTrue(waitForHittable(feed, timeout: 3))
+        XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["MobileWorkspaceDevicesButton"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["MobileWorkspaceMacPicker"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["MobileNotificationFeedMarkAllRead"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["MobileNotificationFeedFilterMenu"].waitForExistence(timeout: 3))
+    }
+
     /// Drives the production push coordinator through its three user-visible
     /// states: a parked tap while the Mac is disconnected, selection after the
     /// connection recovers, and an alert when the target tab is gone.
