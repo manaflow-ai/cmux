@@ -200,7 +200,7 @@ cask "cmux" do
     strategy :github_latest
   end
 
-  depends_on macos: :sonoma
+  depends_on macos: :tahoe
 
   app "cmux.app"
   binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
