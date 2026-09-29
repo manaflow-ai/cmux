@@ -35,10 +35,10 @@ function SidebarLink({
       contentLocales={item.contentLocales}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
-      className={`block rounded-xl px-3 py-1.5 text-[14px] leading-snug transition-colors ${
+      className={`mb-px block rounded-xl py-1.5 pl-4 pr-3 text-[14px] leading-5 transition-colors ${
         active
-          ? "bg-docs-primary/10 font-medium text-docs-primary"
-          : "text-muted hover:bg-foreground/[0.04] hover:text-foreground"
+          ? "bg-foreground/[0.06] font-medium text-foreground dark:bg-foreground/[0.09]"
+          : "text-foreground/70 hover:bg-foreground/[0.03] hover:text-foreground"
       }`}
     >
       {t(item.titleKey)}
@@ -64,15 +64,15 @@ export function DocsSidebar({
 
   return (
     <>
-      <div className="pb-5">
+      <div className="pb-6">
         <DocsSearchTrigger onOpen={onOpenSearch} />
       </div>
-      <nav className="space-y-0.5" data-pagefind-ignore="all">
+      <nav data-pagefind-ignore="all">
         {navItems.map((entry) => {
           if (isSection(entry)) {
             return (
-              <div key={entry.sectionKey} className="pt-6 pb-1 first:pt-0">
-                <div className="px-3 pb-2 text-[13px] font-semibold text-foreground">
+              <div key={entry.sectionKey} className="pt-8 first:pt-0">
+                <div className="pb-2.5 pl-4 text-[12px] font-semibold leading-4 text-foreground">
                   {t(entry.sectionKey)}
                 </div>
                 {entry.children.map((child) => (

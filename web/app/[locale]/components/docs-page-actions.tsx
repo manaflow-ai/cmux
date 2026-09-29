@@ -79,12 +79,12 @@ export function DocsPageActions() {
   return (
     <div
       data-pagefind-ignore="all"
-      className="inline-flex h-8 shrink-0 items-stretch overflow-hidden rounded-xl border border-border text-[13px] text-foreground"
+      className="inline-flex h-[34px] shrink-0 items-stretch overflow-hidden rounded-xl border border-border bg-background text-[14px] text-foreground/80"
     >
       <button
         type="button"
         onClick={copyPage}
-        className="flex items-center gap-1.5 px-2.5 transition-colors hover:bg-code-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex items-center gap-2 px-3 transition-colors hover:bg-code-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <CopyIcon />
         {copied ? t("copied") : t("copyPage")}
@@ -92,7 +92,7 @@ export function DocsPageActions() {
       <Menu.Root>
         <Menu.Trigger
           aria-label={t("pageActions")}
-          className="flex w-7 items-center justify-center border-l border-border text-muted transition-colors hover:bg-code-bg hover:text-foreground data-[popup-open]:bg-code-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="flex w-8 items-center justify-center border-l border-border text-muted transition-colors hover:bg-code-bg hover:text-foreground data-[popup-open]:bg-code-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <svg {...iconProps} width={13} height={13}>
             <path d="m6 9 6 6 6-6" />

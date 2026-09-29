@@ -27,9 +27,9 @@ export async function CodeBlock({
   "use cache";
 
   const plainLineHeightClass =
-    variant === "ascii" ? "leading-[1.15]" : "leading-[1.6]";
+    variant === "ascii" ? "leading-[1.15]" : "leading-6";
   const shikiLineHeightClass =
-    variant === "ascii" ? "[&_pre]:leading-[1.15]" : "[&_pre]:leading-[1.6]";
+    variant === "ascii" ? "[&_pre]:leading-[1.15]" : "[&_pre]:leading-6";
   const headerLabel = title ?? (variant === "ascii" ? undefined : lang);
   // Without a header the copy button floats over the code and appears on hover.
   const floatingCopy = headerLabel ? null : (
@@ -47,7 +47,7 @@ export async function CodeBlock({
       <div className={frameClass} data-code-block>
         {headerLabel && <CodeHeader label={headerLabel} />}
         <div
-          className={`[&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:px-4 [&_pre]:py-3.5 [&_pre]:overflow-x-auto [&_pre]:text-[13px] ${shikiLineHeightClass} [&_pre]:font-mono [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[1em]`}
+          className={`[&_pre]:m-0 [&_pre]:bg-transparent [&_pre]:px-4 [&_pre]:py-3.5 [&_pre]:overflow-x-auto [&_pre]:text-[14px] ${shikiLineHeightClass} [&_pre]:font-mono [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[1em]`}
           dangerouslySetInnerHTML={{ __html: html }}
         />
         {floatingCopy}
@@ -59,7 +59,7 @@ export async function CodeBlock({
     <div className={frameClass} data-code-block>
       {headerLabel && <CodeHeader label={headerLabel} />}
       <pre
-        className={`m-0 px-4 py-3.5 overflow-x-auto text-[13px] ${plainLineHeightClass} ${
+        className={`m-0 px-4 py-3.5 overflow-x-auto text-[14px] ${plainLineHeightClass} ${
           variant === "ascii" ? "" : "font-mono"
         }`}
         style={

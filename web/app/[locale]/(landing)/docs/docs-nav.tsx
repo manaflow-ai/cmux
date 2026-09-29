@@ -42,9 +42,12 @@ function currentPage(entries: NavEntry[], path: string) {
 export function DocsNav({
   children,
   channel,
+  footer,
 }: {
   children: React.ReactNode;
   channel: "release" | "nightly";
+  /** Site footer, rendered in the content column beside the fixed sidebar. */
+  footer?: React.ReactNode;
 }) {
   const { open, toggle, close, drawerRef, buttonRef } = useMobileDrawer();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -67,7 +70,7 @@ export function DocsNav({
 
       {/* Mobile bar: menu, breadcrumb, search */}
       <div
-        className={`sticky ${HEADER_OFFSET} z-20 flex h-11 items-center gap-3 border-b border-border/70 bg-background/90 px-4 backdrop-blur md:hidden`}
+        className={`sticky ${HEADER_OFFSET} z-20 flex h-11 items-center gap-3 border-b border-border/70 bg-background/90 px-4 backdrop-blur lg:hidden`}
         data-pagefind-ignore="all"
       >
         <button
@@ -96,38 +99,36 @@ export function DocsNav({
 
       <MobileDrawerOverlay open={open} onClose={close} />
 
-      <div className="mx-auto flex w-full max-w-[90rem] md:px-6">
-        {/* Sidebar */}
-        <aside
-          ref={drawerRef}
-          id="docs-sidebar"
-          role="navigation"
-          aria-label="Documentation"
-          data-pagefind-ignore="all"
-          className={`fixed inset-y-0 left-0 z-50 h-dvh w-72 overflow-y-auto border-r border-border bg-background px-4 py-5 transition-transform md:sticky md:top-[49px] md:z-10 md:h-[calc(100dvh-49px)] md:w-64 md:shrink-0 md:translate-x-0 md:border-r-0 md:px-0 md:py-6 md:pr-4 ${
-            open ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
-          <DocsSidebar onNavigate={close} onOpenSearch={openSearch} channel={channel} />
-        </aside>
+      {/* Sidebar: fixed to the left edge from the header to the window bottom */}
+      <aside
+        ref={drawerRef}
+        id="docs-sidebar"
+        role="navigation"
+        aria-label="Documentation"
+        data-pagefind-ignore="all"
+        className={`fixed bottom-0 left-0 top-0 z-50 w-72 overflow-y-auto overscroll-contain border-r border-border bg-background px-5 pb-8 pt-5 transition-transform lg:top-[49px] lg:z-20 lg:translate-x-0 lg:border-r-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <DocsSidebar onNavigate={close} onOpenSearch={openSearch} channel={channel} />
+      </aside>
 
+      <div className="flex w-full lg:pl-72">
         {/* Content */}
         <main className="min-w-0 flex-1">
-          <div className="mx-auto w-full max-w-3xl px-5 pb-16 pt-8 md:px-10 md:pt-10">
-            <div
-              className="mb-2 flex min-h-8 items-center justify-between gap-4"
-              data-pagefind-ignore="all"
-            >
-              <span className="truncate text-[14px] font-semibold text-docs-primary">
+          <div className="mx-auto w-full max-w-[44rem] px-6 pb-16 pt-8 lg:pt-10">
+            <div className="relative" data-pagefind-ignore="all">
+              <div className="mb-2.5 h-5 truncate text-[13px] font-medium text-muted">
                 {eyebrow}
-              </span>
-              <div className="hidden sm:block">
+              </div>
+              {/* Sits on the title line, like Mintlify; the title reserves room for it. */}
+              <div className="absolute right-0 top-[33px] hidden sm:block">
                 <DocsPageActions />
               </div>
             </div>
             <div
               ref={contentRef}
-              className="docs-content text-[15px]"
+              className="docs-content text-[16px] leading-7 tracking-[-0.2px]"
               data-docs-page-body
               data-pagefind-body
               data-pagefind-meta="section:Docs"
@@ -138,14 +139,16 @@ export function DocsNav({
               <DocsPager />
             </div>
           </div>
+          {footer && (
+            <div className="border-t border-border/70" data-pagefind-ignore="all">
+              {footer}
+            </div>
+          )}
         </main>
 
-        {/* On this page */}
-        <aside
-          className="hidden w-60 shrink-0 xl:block"
-          data-pagefind-ignore="all"
-        >
-          <div className={`sticky ${HEADER_OFFSET} max-h-[calc(100dvh-49px)] overflow-y-auto py-10 pl-6`}>
+        {/* On this page: pinned to the right edge */}
+        <aside className="hidden w-[18rem] shrink-0 pr-8 xl:block" data-pagefind-ignore="all">
+          <div className="sticky top-[49px] max-h-[calc(100dvh-49px)] overflow-y-auto pb-10 pl-4 pt-10">
             <DocsToc headings={headings} activeId={activeId} onSelect={setActiveId} />
           </div>
         </aside>

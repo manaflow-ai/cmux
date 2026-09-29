@@ -280,14 +280,14 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                   onMouseEnter={() => setActiveIndex(index)}
                   className={`flex gap-3 rounded-xl px-3 py-2.5 transition-colors ${
                     index === activeIndex
-                      ? "bg-docs-primary/10 text-foreground"
+                      ? "bg-foreground/[0.05] text-foreground"
                       : "text-foreground"
                   }`}
                 >
                   <span
                     className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${
                       index === activeIndex
-                        ? "border-docs-primary/30 text-docs-primary"
+                        ? "border-foreground/20 text-foreground"
                         : "border-border text-muted"
                     }`}
                     aria-hidden="true"

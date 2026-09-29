@@ -38,7 +38,7 @@ export function SiteHeader({
           wide ? "border-b border-border/70 bg-background/90 backdrop-blur" : ""
         }`}
       >
-        <div className={`w-full ${wide ? "max-w-[90rem]" : "max-w-6xl"} mx-auto flex h-12 items-center px-6 min-[940px]:grid min-[940px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] min-[940px]:gap-4`}>
+        <div className={`w-full ${wide ? "" : "max-w-6xl"} mx-auto flex h-12 items-center px-6 min-[940px]:grid min-[940px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] min-[940px]:gap-4`}>
           {/* Left: logo + section */}
           <div className="flex min-w-0 items-center gap-3">
             {!hideLogo && (

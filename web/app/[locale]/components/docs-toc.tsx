@@ -94,14 +94,14 @@ export function DocsToc({
   if (headings.length === 0) return null;
 
   return (
-    <nav aria-label={t("onThisPage")} data-pagefind-ignore="all" className="text-[13px]">
+    <nav aria-label={t("onThisPage")} data-pagefind-ignore="all" className="text-[14px] leading-6">
       <div className="mb-3 flex items-center gap-2 font-medium text-foreground">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M3 6h18M3 12h12M3 18h15" />
         </svg>
         {t("onThisPage")}
       </div>
-      <ul className="space-y-0.5 border-l border-border">
+      <ul className="border-l border-border">
         {headings.map((heading) => {
           const active = heading.id === activeId;
           return (
@@ -110,11 +110,11 @@ export function DocsToc({
                 href={`#${heading.id}`}
                 onClick={() => onSelect(heading.id)}
                 aria-current={active ? "location" : undefined}
-                className={`-ml-px block border-l py-1 leading-snug transition-colors ${
-                  heading.level === 3 ? "pl-6" : "pl-3"
+                className={`-ml-px block border-l py-1 transition-colors ${
+                  heading.level === 3 ? "pl-7" : "pl-4"
                 } ${
                   active
-                    ? "border-docs-primary font-medium text-docs-primary"
+                    ? "border-foreground font-medium text-foreground"
                     : "border-transparent text-muted hover:border-muted/50 hover:text-foreground"
                 }`}
               >

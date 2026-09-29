@@ -414,9 +414,8 @@ export function buildAlternates(
   path: string,
   hreflangLocales: readonly string[] = locales,
 ) {
-  const origin = path === "/docs" || path.startsWith("/docs/")
-    ? docsCanonicalOrigin()
-    : BASE;
+  const isDocs = path === "/docs" || path.startsWith("/docs/");
+  const origin = isDocs ? docsCanonicalOrigin() : BASE;
   const urlFor = (target: string) =>
     target === "en" ? `${origin}${path}` : `${origin}/${target}${path}`;
 
@@ -427,7 +426,10 @@ export function buildAlternates(
   );
   languages["x-default"] = urlFor("en");
 
-  return { canonical: urlFor(locale), languages };
+  const canonical = urlFor(locale);
+  if (!isDocs) return { canonical, languages };
+  // Docs pages also serve an agent-readable Markdown copy at `<page>.md`.
+  return { canonical, languages, types: { "text/markdown": `${canonical}.md` } };
 }
 
 /** HTTP `Link` header value advertising the same hreflang set as `buildAlternates`. */

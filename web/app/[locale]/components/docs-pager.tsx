@@ -107,12 +107,12 @@ function PagerCard({
       href={docsChannelUrl(channel, item.href)}
       currentLocale={locale}
       contentLocales={item.contentLocales}
-      className={`group flex flex-1 flex-col gap-1 rounded-2xl border border-border px-4 py-3 transition-colors hover:border-docs-primary/50 ${
+      className={`group flex flex-1 flex-col gap-0.5 rounded-xl border border-border px-4 py-3 transition-colors hover:border-foreground/25 hover:bg-foreground/[0.02] ${
         next ? "items-end text-right" : "items-start"
       }`}
     >
-      <span className="text-[12px] text-muted">{tu(direction)}</span>
-      <span className="flex items-center gap-1.5 text-[14px] font-medium text-foreground group-hover:text-docs-primary">
+      <span className="text-[13px] text-muted">{tu(direction)}</span>
+      <span className="flex items-center gap-1.5 text-[15px] font-medium text-foreground">
         {!next && <span aria-hidden>&larr;</span>}
         {t(item.titleKey)}
         {next && <span aria-hidden>&rarr;</span>}
@@ -133,7 +133,7 @@ export function DocsPager() {
     <div className="mt-14 space-y-8">
       <DocsFeedback pathname={releasePathname} />
       {(prev || next) && (
-        <nav className="flex flex-col gap-3 sm:flex-row">
+        <nav className="flex flex-col gap-4 sm:flex-row">
           {prev ? <PagerCard item={prev} direction="previous" /> : <span className="hidden flex-1 sm:block" />}
           {next ? <PagerCard item={next} direction="next" /> : <span className="hidden flex-1 sm:block" />}
         </nav>
