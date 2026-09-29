@@ -1598,10 +1598,10 @@ jobs:
     # them, one per idle runner (scripts/ci/late_placement.py). They reuse
     # admission's uploaded products there, as after an owned admission. Any
     # failure outputs {} and leaves every job where the picker put it.
-    # It also moves owned gui-token jobs to pr_retry_runner (Blacksmith) when
-    # the gui runners' queue is more than a round long and Blacksmith's queue
-    # would start them sooner (late_placement.py "Overflow off a full gui
-    # pool"), so it runs after an owned admission too.
+    # It also moves owned gui-token jobs no idle gui runner takes to
+    # pr_retry_runner (Blacksmith) when Blacksmith's queue would start them
+    # sooner (late_placement.py "Overflow off a full gui pool"), so it runs
+    # after an owned admission too.
     # Pull requests only: main's full-suite dispatch already runs on the owned
     # pools and keeps CI_OWNED_MAIN_RESERVE's machines for pull requests.
     needs:
