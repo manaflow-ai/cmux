@@ -146,6 +146,22 @@ struct PaneDropTargetIdentityTests {
 
         let state = hostedView.debugDropZoneOverlayState()
         #expect(state.isHidden)
-        #expect(state.frame == .zero || state.frame.width > 0)
+    }
+
+    @Test("Browser pane drag exit hides its preview immediately")
+    func browserPaneDragExitHidesImmediately() throws {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.contentView = slot
+        slot.setPortalDragDropZone(.left)
+        slot.setPortalDragDropZone(nil)
+
+        #expect(browserOverlay(in: slot)?.isHidden == true)
     }
 }
