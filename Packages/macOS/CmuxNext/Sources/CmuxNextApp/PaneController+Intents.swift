@@ -115,9 +115,14 @@ extension PaneController {
         if url == nil { services.cache.existingBrowser(local.id)?.chrome.perform(.focusAddressBar) }
     }
 
+    /// Several tabs (close others, to the left, to the right) close in one
+    /// daemon commit with `batch-close-v1`: `close-tabs` ends each terminal
+    /// left with no tab unless it is kept. One tab, or an older daemon, takes
+    /// one command per tab.
     func close(_ ids: [StripTabID]) {
         guard !ids.isEmpty else { return }
         var commands: [(label: String, run: @Sendable (DaemonConnection) async throws -> Void)] = []
+        var surfaces: [SurfaceID] = []
         for id in ids {
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state.localBrowserTabs[paneKey]?.removeAll { $0.id == id.rawValue }
@@ -126,6 +131,7 @@ extension PaneController {
             }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
+            surfaces.append(tab.surface)
             if tab.kind == .pty, let terminal = tab.terminalID {
                 let incarnation = tab.terminalIncarnation
                 commands.append(("close-terminal", { try await $0.closeTerminal(terminal, incarnation: incarnation) }))
@@ -137,11 +143,15 @@ extension PaneController {
         apply(snapshot())
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
+        let batchSurfaces = surfaces
         services.registry.track(Task {
             var failed = false
             var unknown = false
-            for command in commands {
-                switch await daemon.runReportingTimeout(command.label, command.run) {
+            var batch = false
+            if batchSurfaces.count > 1, let connection = daemon.connection { batch = await connection.supportsBatchClose }
+            let runs = batch ? [("close-tabs", { @Sendable connection in _ = try await connection.closeTabs(batchSurfaces) })] : commands
+            for command in runs {
+                switch await daemon.runReportingTimeout(command.0, command.1) {
                 case .succeeded: break
                 case .failed: failed = true
                 case .unknown: unknown = true

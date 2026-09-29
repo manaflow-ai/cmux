@@ -33,7 +33,8 @@ enum PaletteSourcesBridge {
 
         func closeWorkspace(id: String) {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
-            daemon.send("close-workspace") { connection in _ = try await connection.closeWorkspace(key) }
+            let terminals = WorkspaceClose.terminals(of: workspace)
+            daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection) }
         }
     }
 

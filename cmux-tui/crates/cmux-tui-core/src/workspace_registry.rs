@@ -38,6 +38,7 @@ mod public_projection_store;
 mod resource_store;
 mod session_journal;
 mod terminal_exit_store;
+mod public_fold;
 mod terminal_keep_store;
 mod topology_close_store;
 
@@ -699,6 +700,8 @@ pub struct WorkspaceRegistry {
     machine_id: MachinePublicId,
     session_id: SessionPublicId,
     resource_effect_pepper: ResourceEffectPepper,
+    /// The topology state the resource journal states (see `public_fold`).
+    public_fold: Option<public_fold::PublicTopologyFold>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     #[cfg(test)]
@@ -2732,6 +2735,7 @@ impl WorkspaceRegistry {
             machine_id,
             session_id,
             resource_effect_pepper,
+            public_fold: None,
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
             #[cfg(test)]
@@ -3130,6 +3134,7 @@ impl WorkspaceRegistry {
         resource_store::validate_resource_patch(patch)?;
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let resource_result_json = canonical_json(resource_result)?;
+        let resource_deltas = &self.prune_stated_topology_deltas(resource_deltas)?;
         let tx = self.connection.transaction()?;
         let terminal_batch = [(terminal_id.to_string(), expected_incarnation.map(str::to_string))];
         let (patch, resource_deltas) =
@@ -3215,6 +3220,7 @@ impl WorkspaceRegistry {
         let resource =
             ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
         tx.commit()?;
+        self.record_public_fold(previous_revision, revision, &resource_deltas, true);
         Ok(TerminalResourceCloseCommit::Committed { terminal, resource })
     }
 

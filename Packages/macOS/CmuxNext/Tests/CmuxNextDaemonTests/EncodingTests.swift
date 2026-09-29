@@ -44,6 +44,36 @@ import Testing
         #expect(json["size"] == nil)
     }
 
+    @Test func closeTabsAndEndTerminalsEncodeOnlyWhenSet() throws {
+        let tabs = try object(CloseTabsRequest(surfaces: [3, 5], endTerminals: true, transaction: "t1",
+                                               mutation: MutationIdentity(origin: "o", mutationID: "m")))
+        #expect(tabs["cmd"] == .string("close-tabs"))
+        #expect(tabs["surfaces"] == .array([.number(3), .number(5)]))
+        #expect(tabs["end_terminals"] == .bool(true))
+        #expect(tabs["transaction"] == .string("t1"))
+        #expect(tabs["mutation_id"] == .string("m"))
+        let plain = try object(CloseTabsRequest(surfaces: [3], endTerminals: false, mutation: nil))
+        #expect(plain["end_terminals"] == nil)
+
+        let workspace = try object(CloseWorkspaceRequest(workspace: .key("k1"), endTerminals: true, mutation: nil))
+        #expect(workspace["key"] == .string("k1"))
+        #expect(workspace["end_terminals"] == .bool(true))
+        #expect(try object(CloseWorkspaceRequest(workspace: .key("k1"), mutation: nil))["end_terminals"] == nil)
+        #expect(try object(ClosePaneRequest(pane: 4, endTerminals: true))["end_terminals"] == .bool(true))
+        #expect(try object(ClosePaneRequest(pane: 4))["end_terminals"] == nil)
+        #expect(try object(CloseScreenRequest(screen: 2, endTerminals: true))["screen"] == .number(2))
+        #expect(try object(CloseTabGroupRequest(group: "g", endTerminals: true))["end_terminals"] == .bool(true))
+    }
+
+    @Test func closeTabsResultDecodes() throws {
+        let line = Data(#"{"id":1,"ok":true,"data":{"closed":[3,5],"terminals":[{"terminal_id":"ab","terminal_incarnation":null}],"resource_revision":9,"replayed":false,"transaction":"t1"}}"#.utf8)
+        let result = try WireCoding.decodeResponse(CloseTabsResult.self, from: line)
+        #expect(result.closed == [3, 5])
+        #expect(result.terminals.map(\.terminalID) == ["ab"])
+        #expect(result.terminals.first?.terminalIncarnation == nil)
+        #expect(result.resourceRevision == 9)
+    }
+
     @Test func sendInputUsesBase64() throws {
         let json = try object(SendInputRequest(surface: 3, bytes: Data("echo hi\r".utf8)))
         #expect(json["bytes"] == .string(Data("echo hi\r".utf8).base64EncodedString()))

@@ -40,8 +40,11 @@ public enum DaemonCapabilities {
     public static let savedTabGroups = "saved-tab-groups-v1"
     /// Per-terminal `env` on `new-tab`, `split`, `create-terminal`; `cwd` on `split`.
     public static let terminalEnv = "terminal-env-v1"
+    /// `close-tabs` and `end_terminals` on the container closes: many tabs and
+    /// the terminals they end close in one daemon commit.
+    public static let batchClose = "batch-close-v1"
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
-                                            notificationAck, tabGroups, savedTabGroups, terminalEnv]
+                                            notificationAck, tabGroups, savedTabGroups, terminalEnv, batchClose]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + [

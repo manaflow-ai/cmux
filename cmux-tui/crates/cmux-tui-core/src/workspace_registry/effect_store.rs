@@ -1053,6 +1053,7 @@ impl WorkspaceRegistry {
         let outcome = serde_json::to_value(&outcome)?;
         let outcome_json = canonical_json(&outcome)?;
         let generation = self.generation.clone();
+        let deltas = &self.prune_stated_topology_deltas(deltas)?;
         let tx = self.connection.transaction()?;
         let (patch, deltas) = complete_terminal_close_patch(&tx, terminals, patch, deltas)?;
 
@@ -1094,6 +1095,7 @@ impl WorkspaceRegistry {
             &deltas,
         )?;
         tx.commit()?;
+        self.record_public_fold(resource.revision.saturating_sub(1), resource.revision, &deltas, true);
         Ok(ResourceCloseCommit { resource, workspace_revision, terminal_batch })
     }
 
