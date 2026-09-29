@@ -55,6 +55,10 @@ When we change the fork, update this document and the parent submodule SHA.
   #241. Its carried `TrailingState.rows = 1` is required for page boundaries;
   duplicating the subtraction under-emits a row and shifts the composer in
   the opposite direction. The styled-row classification is independent.
+- This parent merge retains the documentation and checksum entry from main,
+  while this branch keeps the published ExternalHover integration artifact
+  pinned below; a combined GhosttyKit artifact is required before switching
+  the active submodule to this replay fix.
 
 ### Startup input keeps its bytes
 
