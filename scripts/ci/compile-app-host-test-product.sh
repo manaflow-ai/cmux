@@ -70,6 +70,11 @@ fingerprint() {
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+      # GhosttyKit is a binary input the seed was built against: its headers
+      # are copied into the seed's Build/Products and its module compiled
+      # from them. A seed built for another ghostty commit keeps serving the
+      # old ghostty.h, so a new C export does not exist for the compile.
+      printf 'ghostty=%s\n' "$(git rev-parse HEAD:ghostty 2>/dev/null || echo unknown)"
       # The default root adds nothing, so every existing seed and cache key
       # stays the same. Another root (an owned Mac's second compile slot)
       # compiles different absolute paths into every entry, so it gets keys

@@ -20,8 +20,9 @@ final class MobileTerminalRenderObserver {
     private var hasPendingThemeInvalidation = false
     private var pendingThemeSurfaceIDs = Set<UUID>()
     private var isEmitFlushScheduled = false
-    private var renderGridStatesBySurfaceID:
-        [UUID: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridEmissionState]] = [:]
+    /// Screen-anchored emission baseline per surface: the last state sent,
+    /// which the next capture diffs against.
+    private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
     /// Per-surface pacers bounding the render-grid frame rate shipped to
     /// phones (dynamic, floored at ~11fps, echo-bearing frames bypass).
     /// Entries for closed surfaces are dropped with the caches when the last
@@ -138,7 +139,8 @@ final class MobileTerminalRenderObserver {
     }
 
     func noteTerminalBytes(surfaceID: UUID) {
-        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid"),
+              MobileTerminalRenderInterestRegistry.shared.scope.contains(surfaceID) else { return }
         pendingSurfaceIDs.insert(surfaceID)
         // The byte tee runs before Ghostty's VT parser consumes the bytes, and
         // the hop back to the main actor can land after the current tick/frame
@@ -305,34 +307,27 @@ final class MobileTerminalRenderObserver {
             return
         }
         reconcileRenderGridCachesIfSurfaceTopologyChanged()
+        // Only surfaces some phone renders are captured; see
+        // MobileTerminalRenderInterestRegistry.
+        let scope = MobileTerminalRenderInterestRegistry.shared.scope
         let renderSurfaceIDs: Set<UUID>
         if shouldEmitAllThemes || (surfaceIDs.isEmpty && shouldEmitGlobal) {
-            renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+            switch scope {
+            case .all:
+                renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+            case .surfaces(let interested):
+                renderSurfaceIDs = interested
+            }
         } else {
-            renderSurfaceIDs = surfaceIDs.union(themeSurfaceIDs)
+            renderSurfaceIDs = surfaceIDs.union(themeSurfaceIDs).filter(scope.contains)
         }
-        // One registry scan per flush, not per surface: every surface in this
-        // flush sees the same subscriber set. Viewport (v1) mirrors the Mac's
-        // scroll position; screen (v2) anchors to the active area so the phone
-        // owns its local viewport/scrollback. An empty registry (subscribers
-        // predating anchor negotiation) means v1 only.
-        let anchors = currentRenderGridAnchors()
         for surfaceID in renderSurfaceIDs {
             pacedEmitRenderGrid(
                 surfaceID: surfaceID,
-                anchors: anchors,
                 forceIncludeTheme: shouldEmitAllThemes
                     || themeSurfaceIDs.contains(surfaceID)
             )
         }
-    }
-
-    private func currentRenderGridAnchors() -> [MobileTerminalRenderGridFrame.Anchor] {
-        let activeAnchors = MobileTerminalRenderGridAnchorRegistry.shared.activeAnchors()
-        var anchors: [MobileTerminalRenderGridFrame.Anchor] = []
-        if activeAnchors.contains(.viewport) || activeAnchors.isEmpty { anchors.append(.viewport) }
-        if activeAnchors.contains(.screen) { anchors.append(.screen) }
-        return anchors
     }
 
     /// Route one surface's update through its frame pacer so sustained TUI
@@ -343,7 +338,6 @@ final class MobileTerminalRenderObserver {
     /// keystroke echo is the thing pacing exists to protect.
     private func pacedEmitRenderGrid(
         surfaceID: UUID,
-        anchors: [MobileTerminalRenderGridFrame.Anchor],
         forceIncludeTheme: Bool
     ) {
         let now = ContinuousClock.now
@@ -352,13 +346,13 @@ final class MobileTerminalRenderObserver {
         if forceIncludeTheme || renderGridStatesBySurfaceID[surfaceID] == nil {
             pacer.noteUnpacedEmit(now: now, acceptedInputSequence: marker)
             framePacersBySurfaceID[surfaceID] = pacer
-            emitRenderGrid(surfaceID: surfaceID, anchors: anchors, forceIncludeTheme: forceIncludeTheme)
+            emitRenderGrid(surfaceID: surfaceID, forceIncludeTheme: forceIncludeTheme)
             return
         }
         switch pacer.updateArrived(now: now, acceptedInputSequence: marker) {
         case .emit:
             framePacersBySurfaceID[surfaceID] = pacer
-            emitRenderGrid(surfaceID: surfaceID, anchors: anchors, forceIncludeTheme: false)
+            emitRenderGrid(surfaceID: surfaceID, forceIncludeTheme: false)
         case .coalesce:
             framePacersBySurfaceID[surfaceID] = pacer
         case .coalesceAndSchedule(let deadline):
@@ -428,19 +422,14 @@ final class MobileTerminalRenderObserver {
             self.framePacersBySurfaceID[surfaceID] = pacer
             guard shouldEmit,
                   MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
-            self.emitRenderGrid(
-                surfaceID: surfaceID,
-                anchors: self.currentRenderGridAnchors(),
-                forceIncludeTheme: false
-            )
+            self.emitRenderGrid(surfaceID: surfaceID, forceIncludeTheme: false)
         }
     }
 
-    private func emitRenderGrid(
-        surfaceID: UUID,
-        anchors: [MobileTerminalRenderGridFrame.Anchor],
-        forceIncludeTheme: Bool
-    ) {
+    private func emitRenderGrid(surfaceID: UUID, forceIncludeTheme: Bool) {
+        // Pacer flushes arrive after a delay; the surface may have left every
+        // phone's view set since.
+        guard MobileTerminalRenderInterestRegistry.shared.scope.contains(surfaceID) else { return }
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
@@ -455,67 +444,52 @@ final class MobileTerminalRenderObserver {
             clearRenderGridCache(surfaceID: surfaceID)
         }
         let includeTheme = forceIncludeTheme
-            || renderGridStatesBySurfaceID[surfaceID]?.values
-                .contains { $0.terminalTheme != nil } != true
+            || renderGridStatesBySurfaceID[surfaceID]?.terminalTheme == nil
             || didReplaceRuntimeSurface
 
         runtimeSurfaceGenerationsBySurfaceID[surfaceID] = runtimeGeneration
-        // Both anchor variants describe the same terminal state at the same
-        // capture, so they share one theme decision and one theme revision.
         // Frames are pre-encoded here (issue #8842's fast path) and admitted
         // through the bounded per-connection queues, which may request a
         // full resync for shed frames via requestRenderGridFullResync.
         var sharedTheme: (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)?
-        var framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payloadJSON: Data, isFullFrame: Bool)] = [:]
-        var emittedByAnchor: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridFrame] = [:]
-        var surfaceIDString: String?
-
         var resolvedHostTiming: HostTimingResolution = .unresolved
-        for anchor in anchors {
-            #if DEBUG
-            let latencyExportStart = HostLatencyTrace.captureTime()
-            #endif
-            guard let capturedFrame = emitRenderGridFrame(
-                surface: surface,
-                surfaceID: surfaceID,
-                anchor: anchor,
-                stateSeq: stateSeq,
-                renderCapture: renderCapture,
-                includeTheme: includeTheme,
-                forceIncludeTheme: forceIncludeTheme || didReplaceRuntimeSurface,
-                sharedTheme: &sharedTheme
-            ) else { continue }
-            let emitted = attachHostTiming(to: capturedFrame, surfaceID: surfaceID, resolved: &resolvedHostTiming)
-            guard let payloadJSON = try? JSONEncoder().encode(emitted) else { continue }
-            #if DEBUG
-            HostLatencyTrace.stampElapsed(
-                "host.grid",
-                since: latencyExportStart
-            ) {
-                "s=\(surfaceID.uuidString.prefix(8).lowercased()) seq=\(emitted.stateSeq) " +
-                    "exp_us=\($0) bytes=\(payloadJSON.count) " +
-                    "kind=\(emitted.full ? "full" : "delta")"
-            }
-            #endif
-            framesByAnchor[anchor] = (payloadJSON, emitted.full)
-            emittedByAnchor[anchor] = emitted
-            surfaceIDString = emitted.surfaceID
+        #if DEBUG
+        let latencyExportStart = HostLatencyTrace.captureTime()
+        #endif
+        guard let capturedFrame = emitRenderGridFrame(
+            surface: surface,
+            surfaceID: surfaceID,
+            stateSeq: stateSeq,
+            renderCapture: renderCapture,
+            includeTheme: includeTheme,
+            forceIncludeTheme: forceIncludeTheme || didReplaceRuntimeSurface,
+            sharedTheme: &sharedTheme
+        ) else { return }
+        let emitted = attachHostTiming(to: capturedFrame, surfaceID: surfaceID, resolved: &resolvedHostTiming)
+        guard let payload = try? emitted.binaryEncoded() else { return }
+        #if DEBUG
+        HostLatencyTrace.stampElapsed(
+            "host.grid",
+            since: latencyExportStart
+        ) {
+            "s=\(surfaceID.uuidString.prefix(8).lowercased()) seq=\(emitted.stateSeq) " +
+                "exp_us=\($0) bytes=\(payload.count) " +
+                "kind=\(emitted.full ? "full" : "delta")"
         }
-        guard !framesByAnchor.isEmpty, let surfaceIDString else { return }
+        #endif
         MobileHostService.emitRenderGridEvent(
-            framesByAnchor: framesByAnchor,
-            surfaceID: surfaceIDString,
+            payload: payload,
+            isFullFrame: emitted.full,
+            surfaceID: emitted.surfaceID,
             stateSeq: stateSeq
         )
         #if DEBUG
-        for (anchor, frame) in emittedByAnchor {
-            cmuxDebugLog(
-                "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) anchor=\(anchor.rawValue) " +
-                    "full=\(frame.full) cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) " +
-                    "scrolled=\(frame.scrolledRows) sbRows=\(frame.scrollbackRows) " +
-                    "seq=\(frame.stateSeq) revision=\(frame.renderRevision)"
-            )
-        }
+        cmuxDebugLog(
+            "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) anchor=screen " +
+                "full=\(emitted.full) cleared=\(emitted.clearedRows.count) spans=\(emitted.rowSpans.count) " +
+                "scrolled=\(emitted.scrolledRows) sbRows=\(emitted.scrollbackRows) " +
+                "seq=\(emitted.stateSeq) revision=\(emitted.renderRevision) bytes=\(payload.count)"
+        )
         #endif
     }
 
@@ -527,7 +501,6 @@ final class MobileTerminalRenderObserver {
     private func emitRenderGridFrame(
         surface: TerminalSurface,
         surfaceID: UUID,
-        anchor: MobileTerminalRenderGridFrame.Anchor,
         stateSeq: UInt64,
         renderCapture: (epoch: String, revision: UInt64),
         includeTheme: Bool,
@@ -551,12 +524,12 @@ final class MobileTerminalRenderObserver {
                     full: true,
                     scrollbackLines: scrollbackLines,
                     includeTheme: includeTheme,
-                    anchor: anchor
+                    anchor: .screen
                   ) else {
                 clearRenderGridCache(surfaceID: surfaceID)
                 return nil
             }
-            var themedFrame = snapshot.frame
+            var themedFrame = snapshot
             let resolvedTheme: (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)
             if let sharedTheme {
                 resolvedTheme = sharedTheme
@@ -566,12 +539,12 @@ final class MobileTerminalRenderObserver {
                     cached: terminalConfigThemesBySurfaceID[surfaceID],
                     fallbackBoldColor: cachedTerminalTheme.boldColor
                 )
-                if snapshot.frame.terminalConfigTheme != nil, let configTheme {
+                if snapshot.terminalConfigTheme != nil, let configTheme {
                     terminalConfigThemesBySurfaceID[surfaceID] = configTheme
                 }
                 let candidateTheme = (themedFrame.terminalTheme
                     ?? terminalThemesBySurfaceID[surfaceID]
-                    ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot.frame)
+                    ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot)
                 let themeDecision = MobileTerminalThemeEmissionDecision.resolve(
                     candidate: candidateTheme,
                     cached: terminalThemesBySurfaceID[surfaceID],
@@ -593,7 +566,7 @@ final class MobileTerminalRenderObserver {
             themedFrame.terminalTheme = resolvedTheme.theme
             themedFrame.terminalThemeRevision = resolvedTheme.revision
 
-            let previousEmissionState = renderGridStatesBySurfaceID[surfaceID]?[anchor]
+            let previousEmissionState = renderGridStatesBySurfaceID[surfaceID]
             guard let emission = try? themedFrame.renderGridEmission(
                 comparedTo: previousEmissionState,
                 fullScrollbackTarget: fullScrollbackTarget,
@@ -601,7 +574,7 @@ final class MobileTerminalRenderObserver {
             ) else { return nil }
             switch emission {
             case .emit(let frame, let state):
-                renderGridStatesBySurfaceID[surfaceID, default: [:]][anchor] = state
+                renderGridStatesBySurfaceID[surfaceID] = state
                 var frame = frame
                 frame.appliedInputSequence = MobileTerminalByteTee.shared.currentInputSequence(
                     surfaceID: surfaceID
@@ -637,7 +610,7 @@ final class MobileTerminalRenderObserver {
     /// continuity check. Same-surface multi-phone viewing is rare.
     func adoptReplayBaseline(_ frame: MobileTerminalRenderGridFrame, surfaceID: UUID) {
         guard frame.anchor == .screen else { return }
-        renderGridStatesBySurfaceID[surfaceID, default: [:]][.screen] = frame.emissionState
+        renderGridStatesBySurfaceID[surfaceID] = frame.emissionState
         // Replay uses the same decorated theme/config state as the phone. Keep
         // the resolver caches in that state as well, otherwise the next live
         // capture resolves missing theme fields from a different source and
@@ -713,6 +686,40 @@ final class MobileTerminalRenderObserver {
             }
             shared.performRenderGridFullResync(surfaceIDStrings: drainedSurfaceIDStrings)
         }
+    }
+
+    /// Applies a view-set change. Surfaces that left every view set lose
+    /// their emission baseline, so re-entry starts from a full frame instead
+    /// of a delta against a state the phone never saw; surfaces that entered
+    /// are captured on the next flush. Callable from any thread.
+    nonisolated static func renderInterestDidChange(_ change: MobileTerminalRenderInterestRegistry.Change) {
+        guard change.previous != change.current else { return }
+        Task { @MainActor in
+            shared.applyRenderInterestChange(change)
+        }
+    }
+
+    private func applyRenderInterestChange(_ change: MobileTerminalRenderInterestRegistry.Change) {
+        let liveSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+        func covered(_ scope: MobileTerminalRenderInterestRegistry.Scope) -> Set<UUID> {
+            switch scope {
+            case .all: liveSurfaceIDs
+            case .surfaces(let surfaceIDs): surfaceIDs
+            }
+        }
+        let previous = covered(change.previous)
+        let current = covered(change.current)
+        for surfaceID in previous.subtracting(current) {
+            clearRenderGridCache(surfaceID: surfaceID)
+            pacerFlushTasksBySurfaceID.removeValue(forKey: surfaceID)?.cancel()
+            framePacersBySurfaceID.removeValue(forKey: surfaceID)
+            pendingSurfaceIDs.remove(surfaceID)
+        }
+        let added = current.subtracting(previous)
+        guard !added.isEmpty,
+              MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+        pendingSurfaceIDs.formUnion(added)
+        scheduleTerminalUpdateFlush()
     }
 
     nonisolated private static let pendingRenderGridResyncSurfaceIDs =

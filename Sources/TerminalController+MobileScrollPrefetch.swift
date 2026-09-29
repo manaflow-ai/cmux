@@ -44,7 +44,7 @@ extension TerminalController {
             renderRevision: renderCapture.revision,
             scrollbackLines: scrollbackLines,
             anchor: anchor
-        )?.frame else { return nil }
+        ) else { return nil }
         // The phone applies the decorated frame, so rebase the producer cache
         // with that same theme/config state. Rebasing the raw snapshot first
         // makes the next event look like a theme change and promotes every

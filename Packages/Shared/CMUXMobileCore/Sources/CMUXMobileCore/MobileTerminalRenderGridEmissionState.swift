@@ -23,7 +23,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     /// Raw terminal configuration theme represented by the source full frame.
     public let terminalConfigTheme: TerminalTheme?
     /// Per-row text/style signatures from ``MobileTerminalRenderGridFrame/rowSignatures()``.
-    public let rowSignatures: [String]
+    public let rowSignatures: [UInt64]
     /// Grid anchor of the frame that produced this state.
     public let anchor: MobileTerminalRenderGridFrame.Anchor
     /// Retained history rows above the producer's active area at capture time.
@@ -51,7 +51,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         activeScreen: MobileTerminalRenderGridFrame.Screen,
         terminalTheme: TerminalTheme? = nil,
         terminalConfigTheme: TerminalTheme? = nil,
-        rowSignatures: [String],
+        rowSignatures: [UInt64],
         anchor: MobileTerminalRenderGridFrame.Anchor = .viewport,
         historyRows: UInt64? = nil,
         rowSpaceRevision: UInt64? = nil

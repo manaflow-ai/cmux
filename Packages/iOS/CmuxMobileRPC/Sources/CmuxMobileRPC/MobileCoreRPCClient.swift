@@ -434,6 +434,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// `IrxSurfaceEventLaneProtocol` on the host).
     static let surfaceEventLanesParameterKey = "surface_event_lanes"
     static let surfaceEventLanesParameterValue = "v1"
+    /// Wire opt-in for compressed event lanes (see `IrxLaneEncoding`). The
+    /// irx lane hub decodes each lane by the encoding its descriptor names.
+    static let eventLaneEncodingsParameterKey = "event_lane_encodings"
+    static let eventLaneEncodingsParameterValue = "deflate"
 
     /// Adds the rolling-compatible opt-in only after the Iroh accept owner is
     /// installed. Older hosts ignore the field and continue control delivery.
@@ -464,6 +468,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // Older hosts ignore the field and keep render-grid output on the
             // shared events lane; newer hosts echo it when they granted lanes.
             params[Self.surfaceEventLanesParameterKey] = Self.surfaceEventLanesParameterValue
+            // Same gate: only the irx lane hub decodes lane encodings.
+            params[Self.eventLaneEncodingsParameterKey] = Self.eventLaneEncodingsParameterValue
         }
         request["params"] = params
         return (try? JSONSerialization.data(withJSONObject: request)) ?? requestData

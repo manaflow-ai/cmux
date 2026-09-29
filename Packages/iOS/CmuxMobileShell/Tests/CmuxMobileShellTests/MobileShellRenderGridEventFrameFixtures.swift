@@ -39,12 +39,7 @@ func renderGridEventFrame(
         historyRows: historyRows,
         deltaBaseHistoryRows: deltaBaseHistoryRows
     )
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
-    ]
-    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+    return try MobileSyncFrameCodec.encodeFrame(frame.binaryEncoded())
 }
 
 func terminalBytesEventFrame(surfaceID: String, seq: UInt64, text: String) throws -> Data {
@@ -75,10 +70,5 @@ func emptyRenderGridEventFrame(
         rowSpans: [],
         activeScreen: activeScreen
     )
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
-    ]
-    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+    return try MobileSyncFrameCodec.encodeFrame(frame.binaryEncoded())
 }

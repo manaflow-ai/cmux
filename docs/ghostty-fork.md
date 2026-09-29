@@ -856,7 +856,26 @@ anchor mode, every export carries `history_rows` + `row_space_revision`
 (scrollbar semantics; revision bumps on trim/eviction/reflow/erase), and the
 new C export `ghostty_surface_render_grid_json_v2` takes the anchor flag.
 Existing exports keep viewport anchoring byte-for-byte unchanged. Files:
-`src/apprt/embedded.zig`, `include/ghostty.h`. The line's earlier swap-chain
+`src/apprt/embedded.zig`, `include/ghostty.h`.
+
+`ghostty_surface_render_grid_binary` (branch `cmux-render-grid-binary`) writes
+the same captured grid in cmux's binary render-grid layout
+(`MobileTerminalRenderGridFrame+Binary.swift`, format version 2), so the
+mobile producer skips JSON on both sides. `buildRenderGridJson` now delegates
+to `buildRenderGrid` with an encoding flag, and theme JSON writing moved into
+`writeRenderGridConfigThemeObject` / `writeRenderGridEffectiveThemeObject`,
+shared by both encodings. If upstream changes the render-grid capture, keep
+`writeRenderGridBinary` field-for-field in step with the Swift decoder.
+Hosted [run 36424864550](https://github.com/manaflow-ai/cmux/actions/runs/36424864550)
+published
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-72ff13a93034eb47766a0f9f6555545457f53a0c-crashsubdir-cmux-crash-sentry-off-noi18n-v2;
+SHA-256 `6b09bb4a03058233bcd0da261a222379329d83793ff4fcf24c9f77c6c15332f7` is
+pinned in `scripts/ghosttykit-checksums.txt`.
+After merging main's `9961d09` and the styled-blank-row test fix (`9d8d403`),
+the branch is at `91c9b6d`; hosted
+[run 36522568247](https://github.com/manaflow-ai/cmux/actions/runs/36522568247)
+published it with SHA-256
+`6de1f1c76eeafe650227dd6b8a07d18c09a4a5f3baf2d2677a4c5b07a9bc32f5`. The line's earlier swap-chain
 rotation commit (`d2fc392de`, the iOS frozen-presents root-cause fix) was
 independently landed on `main` as the byte-identical serial frame-lease
 rotation (https://github.com/manaflow-ai/ghostty/pull/145); the merge keeps

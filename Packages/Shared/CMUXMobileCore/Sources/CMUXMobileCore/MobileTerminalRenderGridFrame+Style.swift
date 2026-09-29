@@ -95,6 +95,28 @@ extension MobileTerminalRenderGridFrame {
             self.overline = try container.decodeIfPresent(Bool.self, forKey: .overline) ?? false
         }
 
+        /// Writes nil colors and false flags as absent keys; the decoder
+        /// above restores them, so a style is a handful of bytes instead of
+        /// nine literal `false` values.
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encodeIfPresent(foreground, forKey: .foreground)
+            try container.encodeIfPresent(background, forKey: .background)
+            try container.encodeIfPresent(foregroundSource, forKey: .foregroundSource)
+            try container.encodeIfPresent(foregroundPaletteIndex, forKey: .foregroundPaletteIndex)
+            try container.encodeIfPresent(backgroundSource, forKey: .backgroundSource)
+            try container.encodeIfPresent(backgroundPaletteIndex, forKey: .backgroundPaletteIndex)
+            let flags: [(Bool, CodingKeys)] = [
+                (bold, .bold), (faint, .faint), (italic, .italic), (underline, .underline),
+                (blink, .blink), (inverse, .inverse), (invisible, .invisible),
+                (strikethrough, .strikethrough), (overline, .overline),
+            ]
+            for (isSet, key) in flags where isSet {
+                try container.encode(true, forKey: key)
+            }
+        }
+
         enum CodingKeys: String, CodingKey {
             case id
             case foreground
@@ -113,5 +135,23 @@ extension MobileTerminalRenderGridFrame {
             case strikethrough
             case overline
         }
+    }
+}
+
+extension MobileTerminalRenderGridFrame.Style {
+    /// Feeds everything that changes how a cell looks, and not ``id``, into
+    /// `hasher`. Row signatures use it so an id reassignment is invisible and
+    /// an attribute-only change is not.
+    func hashVisualAttributes(into hasher: inout Hasher) {
+        hasher.combine(foreground)
+        hasher.combine(foregroundSource)
+        hasher.combine(foregroundPaletteIndex)
+        hasher.combine(background)
+        hasher.combine(backgroundSource)
+        hasher.combine(backgroundPaletteIndex)
+        let flags = [bold, faint, italic, underline, blink, inverse, invisible, strikethrough, overline]
+        var bits = 0
+        for (index, isSet) in flags.enumerated() where isSet { bits |= 1 << index }
+        hasher.combine(bits)
     }
 }

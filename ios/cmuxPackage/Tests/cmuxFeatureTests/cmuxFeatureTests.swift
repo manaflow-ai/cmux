@@ -3191,13 +3191,8 @@ private func terminalRenderGridEventFrame(
             changedRows: changedRows
         )
     }
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
-    ]
-    let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
-    return try MobileSyncFrameCodec.encodeFrame(envelopeData)
+    // Render grids travel as binary frames, never inside a JSON envelope.
+    return try MobileSyncFrameCodec.encodeFrame(frame.binaryEncoded())
 }
 
 private func rpcTerminalReplayFrame(

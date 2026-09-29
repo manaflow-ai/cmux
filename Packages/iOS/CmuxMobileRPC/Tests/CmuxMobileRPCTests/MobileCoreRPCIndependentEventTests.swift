@@ -145,22 +145,21 @@ struct MobileCoreRPCIndependentEventTests {
 
         #expect(await client.prepareIndependentServerEvents())
 
-        let envelope = try JSONSerialization.data(withJSONObject: [
-            "kind": "event",
-            "topic": "terminal.render_grid",
-            "payload": ["surface_id": "terminal-1"],
-        ])
-        let frame = try MobileSyncFrameCodec.encodeFrame(envelope)
+        let renderGrid = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "terminal-1",
+            stateSeq: 4,
+            columns: 8,
+            rows: 1,
+            text: "binary"
+        )
+        let frame = try MobileSyncFrameCodec.encodeFrame(renderGrid.binaryEncoded())
         await source.yield(Data(frame.prefix(3)))
         await source.yield(Data(frame.dropFirst(3)))
 
         let event = await events.next()
         #expect(event?.topic == "terminal.render_grid")
-        let payload = try #require(event?.payloadJSON)
-        let object = try #require(
-            JSONSerialization.jsonObject(with: payload) as? [String: String]
-        )
-        #expect(object["surface_id"] == "terminal-1")
+        #expect(event?.payloadJSON == nil)
+        #expect(event?.renderGrid == renderGrid)
 
         await client.disconnect()
     }

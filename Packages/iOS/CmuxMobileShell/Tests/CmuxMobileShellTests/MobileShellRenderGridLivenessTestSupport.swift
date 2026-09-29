@@ -32,6 +32,7 @@ actor LivenessHostRouter {
         var title: String?
         var attachToken: String?
         var stackAccessToken: String?
+        var surfaceIDs: [String]? = nil
     }
 
     private var recorded: [RecordedRequest] = []
@@ -133,7 +134,8 @@ actor LivenessHostRouter {
         action: String? = nil,
         title: String? = nil,
         attachToken: String? = nil,
-        stackAccessToken: String? = nil
+        stackAccessToken: String? = nil,
+        surfaceIDs: [String]? = nil
     ) {
         recorded.append(RecordedRequest(
             method: method,
@@ -148,7 +150,8 @@ actor LivenessHostRouter {
             action: action,
             title: title,
             attachToken: attachToken,
-            stackAccessToken: stackAccessToken
+            stackAccessToken: stackAccessToken,
+            surfaceIDs: surfaceIDs
         ))
         resumeSatisfiedCountWaiters()
     }
@@ -747,6 +750,8 @@ actor LivenessHostRouter {
                 return try? Self.errorFrame(id: id, message: "scripted transient sync failure")
             }
             return try? Self.resultFrame(id: id, result: scripted)
+        case MobileTerminalViewSet.method:
+            return try? Self.resultFrame(id: id, result: [:])
         case "mobile.terminal.viewport":
             viewportRequestCount += 1
             if heldViewportRequestNumbers.contains(viewportRequestCount) {
@@ -890,7 +895,8 @@ actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
                 action: params?["action"] as? String,
                 title: params?["title"] as? String,
                 attachToken: auth?["attach_token"] as? String,
-                stackAccessToken: auth?["stack_access_token"] as? String
+                stackAccessToken: auth?["stack_access_token"] as? String,
+                surfaceIDs: params?[MobileTerminalViewSet.surfaceIDsParameterKey] as? [String]
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's

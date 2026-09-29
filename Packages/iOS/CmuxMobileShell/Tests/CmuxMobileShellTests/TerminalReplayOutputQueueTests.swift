@@ -29,13 +29,7 @@ import Testing
         changedRows: [0, 1, 2, 3]
     )
     #expect(frame.isReplaceableViewportPatchForMobileDelivery)
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
-    ]
-    let eventData = try JSONSerialization.data(withJSONObject: envelope)
-    await transport.deliver(try MobileSyncFrameCodec.encodeFrame(eventData))
+    await transport.deliver(try MobileSyncFrameCodec.encodeFrame(frame.binaryEncoded()))
 
     let patchDelivered = try await pollUntil {
         collector.lines.contains { $0.contains("baseline") }

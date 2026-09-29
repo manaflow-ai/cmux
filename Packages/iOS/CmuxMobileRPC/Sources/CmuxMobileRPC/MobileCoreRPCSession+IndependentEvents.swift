@@ -144,6 +144,16 @@ extension MobileCoreRPCSession {
     }
 
     func dispatch(frame: Data) {
+        if MobileTerminalRenderGridFrame.isBinaryFrame(frame) {
+            // A corrupt frame is dropped; the revision chain on the next
+            // frame reports the gap and recovers through replay.
+            guard let renderGrid = try? MobileTerminalRenderGridFrame.decodeBinary(frame) else { return }
+            let event = MobileEventEnvelope(renderGrid: renderGrid)
+            for (_, listener) in listeners where listener.topics.contains(event.topic) {
+                listener.continuation.yield(event)
+            }
+            return
+        }
         let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
         guard let envelope = parsed else { return }
         dispatch(envelope: envelope)

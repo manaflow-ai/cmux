@@ -58,7 +58,7 @@ extension RemoteTmuxWindowMirror {
         let colors: RemoteTmuxPaneColors?
         if let paneColorsSource {
             colors = paneColorsSource(panel)
-        } else if let frame = panel.surface.mobileRenderGridFrame(stateSeq: 0)?.frame,
+        } else if let frame = panel.surface.mobileRenderGridFrame(stateSeq: 0),
                   let foreground = frame.terminalForeground,
                   let background = frame.terminalBackground {
             colors = RemoteTmuxPaneColors(foreground: foreground, background: background)

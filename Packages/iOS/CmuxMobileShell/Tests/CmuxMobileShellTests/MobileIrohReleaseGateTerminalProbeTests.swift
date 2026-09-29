@@ -61,22 +61,14 @@ struct MobileIrohReleaseGateTerminalProbeTests {
                 .init(row: 0, column: 0, text: marker),
             ]
         )
-        let event = MobileEventEnvelope(
-            topic: "terminal.render_grid",
-            payloadJSON: try JSONEncoder().encode(frame),
-            streamID: nil
-        )
+        let event = MobileEventEnvelope(renderGrid: frame)
         let probe = MobileIrohReleaseGateRenderGridProbe(
             surfaceID: surfaceID,
             marker: marker
         )
 
         #expect(probe.consume(event))
-        #expect(!probe.consume(MobileEventEnvelope(
-            topic: "terminal.render_grid",
-            payloadJSON: try JSONEncoder().encode(frame.withSurfaceID("other-terminal")),
-            streamID: nil
-        )))
+        #expect(!probe.consume(MobileEventEnvelope(renderGrid: frame.withSurfaceID("other-terminal"))))
     }
 }
 

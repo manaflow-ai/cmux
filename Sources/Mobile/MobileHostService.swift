@@ -534,39 +534,35 @@ final class MobileHostService {
         )
     }
 
-    /// Render-grid fast path: frames arrive already JSON-encoded, so the event
-    /// envelope is spliced around them without parsing the grid into a
-    /// dictionary and re-serializing it — this is the hottest producer in the
-    /// app (issue #8842). Each connection receives the anchor variant it
-    /// negotiated at subscribe time (viewport = v1 Mac-scroll mirror, screen =
-    /// v2 active-area anchor for local scrollback), admitted through the same
-    /// synchronous bounded queues as every other event.
+    /// Render-grid fast path: the frame arrives already in its binary wire
+    /// form (`MobileTerminalRenderGridFrame.binaryEncoded()`) and is framed
+    /// once, with no JSON envelope; the phone recognizes it by its first byte.
+    /// This is the hottest producer in the app (issue #8842). Every frame is
+    /// screen-anchored, and only connections whose view set includes the
+    /// surface receive it, through the same synchronous bounded queues as
+    /// every other event.
     nonisolated static func emitRenderGridEvent(
-        framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payloadJSON: Data, isFullFrame: Bool)],
+        payload: Data,
+        isFullFrame: Bool,
         surfaceID: String,
         stateSeq: UInt64
     ) {
         let topic = MobileHostEventTopicPolicy().renderGridTopic
-        guard !framesByAnchor.isEmpty,
-              MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else { return }
+        guard let frame = try? MobileSyncFrameCodec.encodeFrame(payload) else {
+            mobileHostLog.error("mobile host dropped oversized render-grid event")
             return
         }
-        var encodedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
-        for (anchor, item) in framesByAnchor {
-            var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
-            envelope.append(item.payloadJSON)
-            envelope.append(UInt8(ascii: "}"))
-            guard let frame = try? MobileSyncFrameCodec.encodeFrame(envelope) else {
-                mobileHostLog.error("mobile host dropped oversized render-grid event")
-                continue
-            }
-            encodedByAnchor[anchor] = (frame, item.isFullFrame)
-        }
-        guard !encodedByAnchor.isEmpty else { return }
+        let surfaceUUID = UUID(uuidString: surfaceID)
         deliverEventFrames(topic: topic, coalesceKey: surfaceID, stateSeq: stateSeq) { connection in
-            encodedByAnchor[
-                MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
-            ]
+            if let surfaceUUID,
+               !MobileTerminalRenderInterestRegistry.shared.wants(
+                   connectionID: connection.connectionID,
+                   surfaceID: surfaceUUID
+               ) {
+                return nil
+            }
+            return (frame, isFullFrame)
         }
     }
 
@@ -1649,7 +1645,9 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
-        MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
+        MobileTerminalRenderObserver.renderInterestDidChange(
+            MobileTerminalRenderInterestRegistry.shared.remove(connectionID: id)
+        )
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         await independentEventWriter?.close()
         await transport.close()
@@ -1982,6 +1980,13 @@ actor MobileHostConnection {
             let existingSubscription = subscriptions[streamID]
             let alreadySubscribed = existingSubscription != nil
             let requestedTransport = request.params["event_transport"] as? String
+            // Must precede lane negotiation: the probe below opens the shared
+            // events lane, and a lane's encoding is fixed when it opens.
+            if let laneEncoding = IrxLaneEncoding.negotiated(
+                fromSubscribeParameter: request.params[IrxLaneEncoding.subscribeParameterKey]
+            ) {
+                independentEventWriter?.setLaneEncoding(laneEncoding)
+            }
             let selectedTransport: MobileHostEventTransport
             if let existingSubscription {
                 // An idempotent subscribe proves the authenticated control
@@ -2019,17 +2024,6 @@ actor MobileHostConnection {
                 clientID: request.params["client_id"] as? String,
                 surfaceEventLanes: grantsSurfaceEventLanes
             )
-            if topics.contains("terminal.render_grid") {
-                // Anchor negotiation: "screen" clients own their local
-                // viewport/scrollback and receive active-area-anchored frames;
-                // everything else keeps the v1 viewport-mirror contract.
-                let anchor: MobileTerminalRenderGridFrame.Anchor =
-                    (request.params["render_grid_anchor"] as? String)
-                        == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
-                    ? .screen
-                    : .viewport
-                MobileTerminalRenderGridAnchorRegistry.shared.set(anchor, connectionID: id)
-            }
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
@@ -2051,9 +2045,33 @@ actor MobileHostConnection {
                 "stream_id": streamID,
                 "removed": removed,
             ])
+        case MobileTerminalViewSet.method:
+            guard let surfaceIDs = MobileTerminalViewSet(params: request.params)?.surfaceIDs else {
+                return .failure(
+                    MobileHostRPCError(code: "invalid_params", message: "surface_ids must list terminal ids")
+                )
+            }
+            // A declaration without a render-grid subscription still binds:
+            // the phone may declare before its subscribe lands.
+            let change = MobileTerminalRenderInterestRegistry.shared.setViewSet(surfaceIDs, connectionID: id)
+            MobileTerminalRenderObserver.renderInterestDidChange(change)
+            return .ok(["count": surfaceIDs.count])
         default:
             return nil
         }
+    }
+
+    /// Mirrors whether this connection consumes render grids into the
+    /// interest registry, so an undeclared consumer keeps full coverage and a
+    /// connection that stopped consuming stops widening the producer's scope.
+    private func syncRenderInterestRegistration() {
+        let change: MobileTerminalRenderInterestRegistry.Change
+        if isSubscribed(to: MobileHostEventTopicPolicy().renderGridTopic) {
+            change = MobileTerminalRenderInterestRegistry.shared.registerSubscriber(connectionID: id)
+        } else {
+            change = MobileTerminalRenderInterestRegistry.shared.remove(connectionID: id)
+        }
+        MobileTerminalRenderObserver.renderInterestDidChange(change)
     }
 
     private static func readinessContribution(
@@ -2148,7 +2166,7 @@ actor MobileHostConnection {
              // counting that as interactive activity starves host work gated
              // on mobile quiet (e.g. TabManager background git/PR refresh).
              "mobile.events.subscribe", "mobile.events.unsubscribe",
-             "mobile.events.probe":
+             "mobile.events.probe", MobileTerminalViewSet.method:
             return false
         default:
             return true
@@ -2180,6 +2198,7 @@ actor MobileHostConnection {
             previousTopics: previousTopics,
             nextTopics: topics
         )
+        syncRenderInterestRegistration()
         await syncSurfaceEventLanes()
         if currentSubscribedTopics().contains(MobileHostEventTopicPolicy().simulatorFrameTopic) {
             await dispatchPendingSimulatorFrameReplay()
@@ -2201,6 +2220,7 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
+        syncRenderInterestRegistration()
         await syncSurfaceEventLanes()
         if !subscriptions.values.contains(where: {
             $0.transport == .irohServerEvents

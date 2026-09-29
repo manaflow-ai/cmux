@@ -96,8 +96,6 @@ import Testing
         )
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &encodedFrame)
         let payload = try #require(payloads.first)
-        let envelope = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
-        let renderGridObject = try #require(envelope["payload"])
-        return try MobileTerminalRenderGridFrame.decodeJSONObject(renderGridObject)
+        return try MobileTerminalRenderGridFrame.decodeBinary(payload)
     }
 }

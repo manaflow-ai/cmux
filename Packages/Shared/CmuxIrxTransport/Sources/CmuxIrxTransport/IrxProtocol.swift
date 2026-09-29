@@ -132,6 +132,10 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
     public var host: String?
     /// `tcpConnect` destination port.
     public var port: Int?
+    /// ``IrxLaneEncoding`` raw value applied to every byte after this
+    /// descriptor; nil for identity. A string so a reader that meets a newer
+    /// encoding can refuse that one lane instead of failing descriptor decode.
+    public var encoding: String?
 
     public init(
         lane: IrxLaneKind,
@@ -139,7 +143,8 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
         cursor: UInt64? = nil,
         offset: UInt64? = nil,
         host: String? = nil,
-        port: Int? = nil
+        port: Int? = nil,
+        encoding: IrxLaneEncoding? = nil
     ) {
         v = IrxProtocol().version
         self.lane = lane
@@ -148,6 +153,7 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
         self.offset = offset
         self.host = host
         self.port = port
+        self.encoding = encoding?.rawValue
     }
 }
 

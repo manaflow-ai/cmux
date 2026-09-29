@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAuthRuntime
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CmuxMobileTransport
 import CmuxSettings
 import CmuxTerminalCore
@@ -69,10 +70,15 @@ protocol MobileHostIndependentEventWriting: Sendable {
     func setSurfaceEventLanesEnabled(_ enabled: Bool) async
     /// Raises the stream priority of the surface the user is interacting with.
     func noteInteractiveSurface(_ surfaceID: String) async
+    /// Byte-stream encoding for lanes opened from now on; the phone listed it
+    /// on subscribe. Lanes that are already open keep their encoding.
+    func setLaneEncoding(_ encoding: IrxLaneEncoding?)
 }
 
 extension MobileHostIndependentEventWriting {
     var maximumSurfaceEventLaneCount: Int { 0 }
+
+    func setLaneEncoding(_: IrxLaneEncoding?) {}
 
     func sendSurfaceEvent(_ framedData: Data, surfaceID _: String, generation _: UInt64) async throws {
         try await send(framedData)

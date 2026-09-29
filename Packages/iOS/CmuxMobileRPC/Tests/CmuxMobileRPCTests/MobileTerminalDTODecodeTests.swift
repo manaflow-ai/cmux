@@ -267,37 +267,4 @@ import Testing
     @Test func bytesEventReturnsNilOnMissingFields() {
         #expect(MobileTerminalBytesEvent.decode(Data(#"{"surface_id":"x"}"#.utf8)) == nil)
     }
-
-    @Test func renderGridEventDecodesWrappedFrame() throws {
-        let json = """
-        {
-          "render_grid": {
-            "format": "cmux.render-grid.v1",
-            "surface_id": "surface-2",
-            "state_seq": 3,
-            "columns": 4,
-            "rows": 1,
-            "row_spans": []
-          }
-        }
-        """
-        let event = try MobileTerminalRenderGridEvent.decode(Data(json.utf8))
-        let frame = try #require(event.frame)
-        #expect(frame.surfaceID == "surface-2")
-    }
-
-    @Test func renderGridEventHasNilFrameWhenUnwrapped() throws {
-        let json = """
-        {
-          "format": "cmux.render-grid.v1",
-          "surface_id": "surface-3",
-          "state_seq": 5,
-          "columns": 4,
-          "rows": 1,
-          "row_spans": []
-        }
-        """
-        let event = try MobileTerminalRenderGridEvent.decode(Data(json.utf8))
-        #expect(event.frame == nil)
-    }
 }
