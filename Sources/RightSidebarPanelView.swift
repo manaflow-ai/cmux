@@ -82,6 +82,7 @@ struct RightSidebarPanelView: View {
         guard let responder = window.firstResponder else { return false }
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
@@ -162,6 +163,12 @@ struct RightSidebarPanelView: View {
     }
 
     var body: some View {
+        // Share the content clip and focus stroke without adding layout space.
+        let boundary = UnevenRoundedRectangle(
+            bottomTrailingRadius: 16,
+            topTrailingRadius: 16,
+            style: .continuous
+        )
         VStack(spacing: 0) {
             modeBar
                 .rightSidebarChromeBottomBorder(
@@ -169,6 +176,17 @@ struct RightSidebarPanelView: View {
                 )
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .clipShape(boundary)
+        .overlay {
+            boundary
+                .strokeBorder(
+                    Color(nsColor: cmuxAccent.nsColor(isDark: windowAppearance.resolvedColorScheme == .dark)),
+                    lineWidth: 1
+                )
+                .opacity(fileExplorerState.rightSidebarOwnsInputFocus ? 1 : 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .rightSidebarButtonBorderShape()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
