@@ -51,10 +51,13 @@ function boundedString(value: unknown, maxLength = MAX_STRING_LENGTH): string | 
   return value;
 }
 
-/** Validates one client-submitted journal event; null rejects the batch. */
-export function parseTransportJournalEvent(value: unknown): TransportJournalEvent | null {
-  if (typeof value !== "object" || value === null) return null;
-  const record = value as Record<string, unknown>;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseTransportJournalCore(
+  record: Record<string, unknown>,
+): Pick<TransportJournalEvent, "timestamp" | "monoMs" | "component" | "event" | "platform"> | null {
   const timestamp = boundedString(record.timestamp, 40);
   if (!timestamp || Number.isNaN(Date.parse(timestamp))) return null;
   if (typeof record.monoMs !== "number" || !Number.isFinite(record.monoMs) || record.monoMs < 0) return null;
@@ -64,45 +67,74 @@ export function parseTransportJournalEvent(value: unknown): TransportJournalEven
   if (!event || !EVENT_PATTERN.test(event)) return null;
   const platform = boundedString(record.platform, 8);
   if (!platform || !platforms.has(platform)) return null;
-  const result: {
-    -readonly [Key in keyof TransportJournalEvent]: TransportJournalEvent[Key];
-  } = {
+  return {
     timestamp,
     monoMs: Math.floor(record.monoMs),
     component,
     event,
     platform: platform as "mac" | "ios",
   };
+}
+
+type ParsedTransportJournalMetadata = {
+  clientChannel?: string;
+  appVersion?: string;
+  buildNumber?: string;
+  bundleIdentifier?: string;
+  osVersion?: string;
+  endpoint?: string;
+  deviceId?: string;
+  buildTag?: string;
+  attributes?: Readonly<Record<string, string>>;
+};
+
+function parseTransportJournalMetadata(record: Record<string, unknown>): ParsedTransportJournalMetadata | null {
+  const metadata: ParsedTransportJournalMetadata = {};
   if (record.clientChannel !== undefined) {
     const channel = boundedString(record.clientChannel, 16);
     if (!channel || !channels.has(channel)) return null;
-    result.clientChannel = channel;
+    metadata.clientChannel = channel;
   }
   for (const key of ["appVersion", "buildNumber", "bundleIdentifier", "osVersion", "deviceId", "buildTag"] as const) {
     if (record[key] === undefined) continue;
     const parsed = boundedString(record[key]);
     if (!parsed) return null;
-    result[key] = parsed;
+    metadata[key] = parsed;
   }
   if (record.endpoint !== undefined) {
     const endpoint = boundedString(record.endpoint, 12);
     if (!endpoint || !ENDPOINT_PATTERN.test(endpoint)) return null;
-    result.endpoint = endpoint;
+    metadata.endpoint = endpoint;
   }
   if (record.attributes !== undefined) {
-    if (typeof record.attributes !== "object" || record.attributes === null) return null;
-    const entries = Object.entries(record.attributes as Record<string, unknown>);
-    if (entries.length > MAX_ATTRIBUTES) return null;
-    const attributes: Record<string, string> = {};
-    for (const [key, item] of entries) {
-      if (!ATTRIBUTE_KEY_PATTERN.test(key)) return null;
-      const parsed = boundedString(item, MAX_ATTRIBUTE_VALUE_LENGTH);
-      if (parsed === null) return null;
-      attributes[key] = parsed;
-    }
-    result.attributes = attributes;
+    const attributes = parseTransportJournalAttributes(record.attributes);
+    if (!attributes) return null;
+    metadata.attributes = attributes;
   }
-  return result;
+  return metadata;
+}
+
+function parseTransportJournalAttributes(value: unknown): Readonly<Record<string, string>> | null {
+  if (!isRecord(value)) return null;
+  const entries = Object.entries(value);
+  if (entries.length > MAX_ATTRIBUTES) return null;
+  const attributes: Record<string, string> = {};
+  for (const [key, item] of entries) {
+    if (!ATTRIBUTE_KEY_PATTERN.test(key)) return null;
+    const parsed = boundedString(item, MAX_ATTRIBUTE_VALUE_LENGTH);
+    if (parsed === null) return null;
+    attributes[key] = parsed;
+  }
+  return attributes;
+}
+
+/** Validates one client-submitted journal event; null rejects the batch. */
+export function parseTransportJournalEvent(value: unknown): TransportJournalEvent | null {
+  if (!isRecord(value)) return null;
+  const core = parseTransportJournalCore(value);
+  if (!core) return null;
+  const metadata = parseTransportJournalMetadata(value);
+  return metadata ? { ...core, ...metadata } : null;
 }
 
 /**
