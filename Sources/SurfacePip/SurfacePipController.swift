@@ -91,7 +91,7 @@ final class SurfacePipController {
             return true
         case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession,
              .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading,
-             .simulator, .mobilePairing, .accountSignIn:
+             .simulator, .mobilePairing, .accountSignIn, .cloudVPNSetup:
             return false
         }
     }
