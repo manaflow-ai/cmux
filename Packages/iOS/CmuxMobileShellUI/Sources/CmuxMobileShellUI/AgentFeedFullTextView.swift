@@ -18,6 +18,7 @@ struct AgentFeedFullTextView: View {
                 if let text {
                     ChatArtifactEmbeddedMarkdown(markdown: text)
                         .accessibilityIdentifier("MobileAgentFeedFullTextBody")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
