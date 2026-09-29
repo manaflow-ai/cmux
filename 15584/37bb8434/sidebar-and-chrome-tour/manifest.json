@@ -1,0 +1,26 @@
+{
+  "tour": "sidebar-and-chrome-tour",
+  "head_sha": "37bb84340bc22f53c5c9742b6b6f6c1ef9284bba",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "01-failed",
+      "file": "01-failed.png"
+    },
+    {
+      "name": "02-failed",
+      "file": "02-failed.png"
+    },
+    {
+      "name": "04-three-workspaces",
+      "file": "04-three-workspaces.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "81bd073154c02fcca53b3eeba701151436cda817",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36584856133",
+  "failures": [
+    "DogfoodScenarioUITests.swift:169: Failed to get matching snapshot: No matches found for first query match sequence: `Descendants matching type Window`, given input App element pid: 52640"
+  ],
+  "frames": 4
+}
