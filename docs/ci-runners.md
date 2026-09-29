@@ -878,7 +878,12 @@ its `watch` job, on GitHub-hosted Linux, waits for the probe:
   or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
   nothing on 2026-09-29) and re-run, so they pick their runners again; merge
   queue, release and publish runs, and runs already on attempt 3, are only
-  listed. The run then force-cancels itself, since its probe will not start.
+  listed. If a variable write fails after the record is saved, the next
+  stalled probe retries entries still at their recorded before-value and
+  leaves hand edits alone. The run force-cancels itself whenever the watcher
+  did not observe a started probe, including a switch failure before it could
+  publish its outcome, since a queued probe would otherwise hold the
+  concurrency group.
 - **The probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. While the record exists the probe asks for the label it
