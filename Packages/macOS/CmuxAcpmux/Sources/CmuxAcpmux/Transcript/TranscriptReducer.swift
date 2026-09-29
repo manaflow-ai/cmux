@@ -488,7 +488,8 @@ public struct TranscriptReducer: Sendable {
 
     // MARK: - Payload helpers
 
-    static func userRowID(promptId: String?, seq: Int) -> String {
+    /// The row id a user message with `promptId` gets.
+    public static func userRowID(promptId: String?, seq: Int) -> String {
         if let promptId { return "user-\(promptId)" }
         return "user-\(seq)"
     }
