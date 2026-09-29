@@ -118,7 +118,7 @@ struct CloudDesktopOpenActionTests {
             defer { fixture.close() }
             let machine = MachineSnapshot(id: fixture.provider.machine.rawValue, provider: "freestyle",
                 image: "cmux-devbox", isDesktop: true, activity: .ready, createdAt: nil, label: "same machine label")
-            let item = try #require(fixture.coordinator.machineMenuItems(machine).first {
+            let item = try #require(fixture.coordinator.machineMenuItems(machine, info: nil).first {
                 $0.title == String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")
             })
             let action = try #require(item.action)
