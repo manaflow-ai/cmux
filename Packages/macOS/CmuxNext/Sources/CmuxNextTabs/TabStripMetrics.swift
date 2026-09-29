@@ -54,6 +54,21 @@ public struct TabStripMetrics: Equatable, Sendable {
 
     public var cornerRadius: CGFloat
 
+    // MARK: Groups
+
+    /// Space between a chip's pill and its slot edges.
+    public var groupChipOuterInset: CGFloat
+    /// Horizontal padding inside the pill.
+    public var groupChipPadding: CGFloat
+    public var groupChipHeight: CGFloat
+    /// Diameter of the chip of an unnamed, expanded group.
+    public var groupChipDotSize: CGFloat
+    /// Longer names are faded out.
+    public var groupChipMaxNameWidth: CGFloat
+    /// Between the name and the collapsed member count.
+    public var groupChipCountSpacing: CGFloat
+    public var groupUnderlineHeight: CGFloat
+
     /// Vertical inset of tabs inside the strip.
     public var stripVerticalPadding: CGFloat { max(0, (stripHeight - tabHeight) / 2) }
 
@@ -86,6 +101,13 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = Metrics.tabHeight / 2
         tearOffDistance = Metrics.space6 + Metrics.space4
         cornerRadius = Metrics.itemCornerRadius
+        groupChipOuterInset = Metrics.space1
+        groupChipPadding = Metrics.space3
+        groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
+        groupChipDotSize = Metrics.space5 - Metrics.space1
+        groupChipMaxNameWidth = (Metrics.tabMaxWidth / 2).rounded()
+        groupChipCountSpacing = Metrics.space2
+        groupUnderlineHeight = Metrics.space1
     }
 
     /// Token-derived metrics for the current density.

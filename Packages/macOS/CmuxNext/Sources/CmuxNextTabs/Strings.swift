@@ -2,17 +2,6 @@ import Foundation
 
 /// Localized strings for CmuxNextTabs. Keys live in Resources/Localizable.xcstrings (en, ja).
 enum Strings {
-    static var menuClose: String { String(localized: "tabs.menu.close", defaultValue: "Close Tab", bundle: .module) }
-    static var menuCloseOthers: String { String(localized: "tabs.menu.closeOthers", defaultValue: "Close Other Tabs", bundle: .module) }
-    static var menuCloseToRight: String { String(localized: "tabs.menu.closeToRight", defaultValue: "Close Tabs to the Right", bundle: .module) }
-    static var menuPin: String { String(localized: "tabs.menu.pin", defaultValue: "Pin Tab", bundle: .module) }
-    static var menuUnpin: String { String(localized: "tabs.menu.unpin", defaultValue: "Unpin Tab", bundle: .module) }
-    static var menuRename: String { String(localized: "tabs.menu.rename", defaultValue: "Rename Tab…", bundle: .module) }
-    static var menuDuplicate: String { String(localized: "tabs.menu.duplicate", defaultValue: "Duplicate Tab", bundle: .module) }
-    static var menuSplitRight: String { String(localized: "tabs.menu.splitRight", defaultValue: "Move to New Split Right", bundle: .module) }
-    static var menuSplitDown: String { String(localized: "tabs.menu.splitDown", defaultValue: "Move to New Split Down", bundle: .module) }
-    static var menuNewColumn: String { String(localized: "tabs.menu.newColumn", defaultValue: "Move to New Column", bundle: .module) }
-    static var menuNewTab: String { String(localized: "tabs.menu.newTab", defaultValue: "New Tab", bundle: .module) }
     static var axStrip: String { String(localized: "tabs.ax.strip", defaultValue: "Tabs", bundle: .module) }
     static var axNewTab: String { String(localized: "tabs.ax.newTab", defaultValue: "New Tab", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }

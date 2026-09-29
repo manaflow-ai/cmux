@@ -9,8 +9,8 @@ extension TabStripView {
         let local = convert(point, to: tabsClip)
         guard local.x >= 0, local.x <= tabsClip.bounds.width else { return nil }
         for item in displayed {
-            guard let view = tabViews[item.id] else { continue }
-            let frame = view.frame
+            guard let cell = cells[item.id], cell.frame.width > 0.5 else { continue }
+            let frame = cell.frame
             // The full strip height is the hit area, not just the tab body.
             if local.x >= frame.minX, local.x < frame.maxX, local.y >= 0, local.y <= tabsClip.bounds.height {
                 return item.id
@@ -20,8 +20,10 @@ extension TabStripView {
     }
 
     func isInCloseButton(_ id: TabID, _ point: CGPoint) -> Bool {
-        guard let view = tabViews[id], let rect = view.closeButtonRect else { return false }
-        return rect.insetBy(dx: -2, dy: -2).contains(convert(point, to: view))
+        guard let cell = cells[id], let rect = cell.closeButtonRect else { return false }
+        let local = convert(point, to: tabsClip)
+        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        return rect.insetBy(dx: -2, dy: -2).contains(inCell)
     }
 
     func isInNewTabButton(_ point: CGPoint) -> Bool {
@@ -32,29 +34,34 @@ extension TabStripView {
 
     func setHovered(_ id: TabID?) {
         guard id != hoveredID else { return }
-        if let hoveredID { tabViews[hoveredID]?.isHovered = false }
+        if let hoveredID { cells[hoveredID]?.isHovered = false }
         hoveredID = id
-        if let id { tabViews[id]?.isHovered = true }
+        if let id { cells[id]?.isHovered = true }
         updateSeparators()
     }
 
     func updateHover(at point: CGPoint) {
         // No hover (or hover card) while any drag involves this strip.
         let dragging = drag != nil || detachedID != nil || dropPlaceholderIndex != nil
-        let id = dragging ? nil : tabID(at: point)
+            || groups.drag != nil || groups.detachedGroupID != nil
+        let chip = dragging ? nil : chipGroup(at: point)
+        let id = dragging || chip != nil ? nil : tabID(at: point)
         setHovered(id)
+        setHoveredChip(chip)
         let closeID = id.flatMap { isInCloseButton($0, point) ? $0 : nil }
         if closeID != closeHoveredID {
-            if let closeHoveredID { tabViews[closeHoveredID]?.isCloseHovered = false }
+            if let closeHoveredID { cells[closeHoveredID]?.isCloseHovered = false }
             closeHoveredID = closeID
-            if let closeID { tabViews[closeID]?.isCloseHovered = true }
+            if let closeID { cells[closeID]?.isCloseHovered = true }
         }
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
 
-        guard !hoverCardSuppressed else { return }
-        if let id, let item = model.tab(id), let view = tabViews[id], let window, NSApp.isActive {
-            let anchor = window.convertToScreen(view.convert(view.bounds, to: nil))
-            hoverCard.hover(item, anchor: anchor, tabWidth: view.bounds.width, parent: window)
+        guard !hoverCardSuppressed, !groupEditor.isVisible else { return }
+        if let chip {
+            hoverChip(chip)
+        } else if let id, let item = model.tab(id), let cell = cells[id], let window, NSApp.isActive {
+            let anchor = window.convertToScreen(tabsClip.convert(cell.frame, to: nil))
+            hoverCard.hover(.tab(item), anchor: anchor, tabWidth: cell.frame.width, parent: window)
         } else {
             hoverCard.hide()
         }
@@ -71,7 +78,8 @@ extension TabStripView {
 
     public override func mouseExited(with event: NSEvent) {
         setHovered(nil)
-        if let closeHoveredID { tabViews[closeHoveredID]?.isCloseHovered = false }
+        setHoveredChip(nil)
+        if let closeHoveredID { cells[closeHoveredID]?.isCloseHovered = false }
         closeHoveredID = nil
         newTabButton.isHovered = false
         hoverCard.hide()
@@ -94,10 +102,16 @@ extension TabStripView {
             newTabButton.isPressed = true
             return
         }
+        if let group = chipGroup(at: point) {
+            groups.press = TabStripGroupState.Press(groupID: group, start: point)
+            groups.chips[group]?.isPressed = true
+            startChipHold(group)
+            return
+        }
         if let id = tabID(at: point) {
             if isInCloseButton(id, point) {
                 pressedCloseID = id
-                tabViews[id]?.isClosePressed = true
+                cells[id]?.isClosePressed = true
                 return
             }
             // Chrome selects on mouse down.
@@ -115,7 +129,7 @@ extension TabStripView {
     public override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let id = pressedCloseID {
-            tabViews[id]?.isClosePressed = isInCloseButton(id, point)
+            cells[id]?.isClosePressed = isInCloseButton(id, point)
             return
         }
         if pressedNewTab {
@@ -124,6 +138,15 @@ extension TabStripView {
         }
         if drag != nil {
             updateDrag(at: point, event: event)
+            return
+        }
+        if groups.drag != nil {
+            updateGroupDrag(at: point, event: event)
+            return
+        }
+        if let press = groups.press, !press.openedEditor, hypot(point.x - press.start.x, point.y - press.start.y) > Metrics.space2 {
+            beginGroupDrag(press)
+            updateGroupDrag(at: point, event: event)
             return
         }
         if let press, hypot(point.x - press.start.x, point.y - press.start.y) > Metrics.space2 {
@@ -136,7 +159,7 @@ extension TabStripView {
         let point = convert(event.locationInWindow, from: nil)
         if let id = pressedCloseID {
             pressedCloseID = nil
-            tabViews[id]?.isClosePressed = false
+            cells[id]?.isClosePressed = false
             if isInCloseButton(id, point) { close(id, source: .mouse) }
             return
         }
@@ -148,6 +171,16 @@ extension TabStripView {
         }
         if drag != nil { endDrag() }
         press = nil
+        if groups.drag != nil {
+            endGroupDrag()
+        } else if let press = groups.press {
+            groups.chips[press.groupID]?.isPressed = false
+            if !press.openedEditor, chipGroup(at: point) == press.groupID {
+                model.send(.toggleGroupCollapsed(press.groupID))
+            }
+        }
+        groups.press = nil
+        groups.holdTask?.cancel()
         updateHover(at: point)
     }
 
@@ -167,10 +200,15 @@ extension TabStripView {
     public override func menu(for event: NSEvent) -> NSMenu? {
         hoverCard.hide(allowsQuickReshow: false)
         let point = convert(event.locationInWindow, from: nil)
-        if let id = tabID(at: point), let item = model.tab(id) {
-            return TabContextMenu.menu(for: item, in: model)
+        if let group = chipGroup(at: point) {
+            if let menu = contextMenuProvider?(.group(group)) { return menu }
+            showGroupEditor(for: group)
+            return nil
         }
-        return TabContextMenu.emptySpaceMenu(in: model)
+        if let id = tabID(at: point) {
+            return contextMenuProvider?(.tab(id, selection: [id]))
+        }
+        return contextMenuProvider?(.emptyStrip)
     }
 
     public override func scrollWheel(with event: NSEvent) {

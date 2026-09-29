@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// Demo data: 40 workspaces across a pinned area, a local machine with
@@ -50,7 +51,7 @@ public enum SidebarMock {
             if groupIndex.isMultiple(of: 3) {
                 nodes.append(contentsOf: items.map(SidebarNode.workspace))
             } else {
-                let color = SidebarColor.allCases[groupIndex % SidebarColor.allCases.count]
+                let color = GroupColor.allCases[groupIndex % GroupColor.allCases.count]
                 nodes.append(.group(SidebarGroup(id: GroupID("grp-\(groupIndex)"), name: "group \(groupIndex)", color: color, workspaces: items)))
             }
             groupIndex += 1

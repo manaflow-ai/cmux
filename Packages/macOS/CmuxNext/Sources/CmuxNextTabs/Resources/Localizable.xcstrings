@@ -188,6 +188,23 @@
         }
       }
     },
+    "tabs.demo.collapseGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Collapse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折りたたみを切り替え"
+          }
+        }
+      }
+    },
     "tabs.demo.compact": {
       "extractionState": "manual",
       "localizations": {
@@ -218,6 +235,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ステータスを切り替え"
+          }
+        }
+      }
+    },
+    "tabs.demo.groupSelected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Selected Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したタブをグループ化"
           }
         }
       }
@@ -273,6 +307,23 @@
         }
       }
     },
+    "tabs.demo.ungroupSelected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungroup Selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したタブのグループを解除"
+          }
+        }
+      }
+    },
     "tabs.demo.windowTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -290,189 +341,410 @@
         }
       }
     },
-    "tabs.menu.close": {
+    "tabs.group.ax.chip": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Tab"
+            "value": "Tab group %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブを閉じる"
+            "value": "タブグループ %@"
           }
         }
       }
     },
-    "tabs.menu.closeOthers": {
+    "tabs.group.ax.collapsed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Other Tabs"
+            "value": "Collapsed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "他のタブを閉じる"
+            "value": "折りたたみ"
           }
         }
       }
     },
-    "tabs.menu.closeToRight": {
+    "tabs.group.ax.editor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Tabs to the Right"
+            "value": "Edit Tab Group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右側のタブを閉じる"
+            "value": "タブグループを編集"
           }
         }
       }
     },
-    "tabs.menu.duplicate": {
+    "tabs.group.ax.expanded": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Duplicate Tab"
+            "value": "Expanded"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブを複製"
+            "value": "展開"
           }
         }
       }
     },
-    "tabs.menu.newColumn": {
+    "tabs.group.color.blue": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move to New Column"
+            "value": "Blue"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい列に移動"
+            "value": "青"
           }
         }
       }
     },
-    "tabs.menu.newTab": {
+    "tabs.group.color.cyan": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Tab"
+            "value": "Cyan"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規タブ"
+            "value": "シアン"
           }
         }
       }
     },
-    "tabs.menu.pin": {
+    "tabs.group.color.green": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin Tab"
+            "value": "Green"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブを固定"
+            "value": "緑"
           }
         }
       }
     },
-    "tabs.menu.rename": {
+    "tabs.group.color.grey": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename Tab…"
+            "value": "Grey"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブの名前を変更…"
+            "value": "グレー"
           }
         }
       }
     },
-    "tabs.menu.splitDown": {
+    "tabs.group.color.orange": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move to New Split Down"
+            "value": "Orange"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "下の新しい分割に移動"
+            "value": "オレンジ"
           }
         }
       }
     },
-    "tabs.menu.splitRight": {
+    "tabs.group.color.pink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move to New Split Right"
+            "value": "Pink"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右の新しい分割に移動"
+            "value": "ピンク"
           }
         }
       }
     },
-    "tabs.menu.unpin": {
+    "tabs.group.color.purple": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin Tab"
+            "value": "Purple"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブの固定を解除"
+            "value": "紫"
+          }
+        }
+      }
+    },
+    "tabs.group.color.red": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "赤"
+          }
+        }
+      }
+    },
+    "tabs.group.color.yellow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yellow"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "黄"
+          }
+        }
+      }
+    },
+    "tabs.group.editor.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを閉じる"
+          }
+        }
+      }
+    },
+    "tabs.group.editor.moveToNewWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Group to New Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを新しいウインドウに移動"
+          }
+        }
+      }
+    },
+    "tabs.group.editor.namePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name this group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループに名前を付ける"
+          }
+        }
+      }
+    },
+    "tabs.group.editor.newTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab in Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループに新しいタブ"
+          }
+        }
+      }
+    },
+    "tabs.group.editor.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを保存"
+          }
+        }
+      }
+    },
+    "tabs.group.editor.ungroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungroup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを解除"
+          }
+        }
+      }
+    },
+    "tabs.group.editor.unsave": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsave Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループの保存を解除"
+          }
+        }
+      }
+    },
+    "tabs.group.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%lld more"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他 %lld 件"
+          }
+        }
+      }
+    },
+    "tabs.group.savedBar.ax": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Tab Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みタブグループ"
+          }
+        }
+      }
+    },
+    "tabs.group.tabCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ: %lld"
+          }
+        }
+      }
+    },
+    "tabs.group.unnamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unnamed group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前のないグループ"
           }
         }
       }

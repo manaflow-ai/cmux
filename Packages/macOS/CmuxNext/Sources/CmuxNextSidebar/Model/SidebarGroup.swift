@@ -1,10 +1,11 @@
+public import CmuxNextDesign
 import Foundation
 
 /// A collapsible group of workspaces inside a machine section.
 public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var id: GroupID
     public var name: String
-    public var color: SidebarColor
+    public var color: GroupColor
     public var isCollapsed: Bool
     /// Pinned (saved) group: it survives closing its workspaces, like a
     /// Chrome saved tab group, and clicking it while empty reopens it.
@@ -14,7 +15,7 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public init(
         id: GroupID,
         name: String,
-        color: SidebarColor = .grey,
+        color: GroupColor = .grey,
         isCollapsed: Bool = false,
         isPinned: Bool = false,
         workspaces: [SidebarWorkspace]

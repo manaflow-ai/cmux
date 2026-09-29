@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import CoreGraphics
 import Foundation
 
@@ -29,7 +30,7 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     /// Children (groups) or nodes (sections), counting only non-dragged ones.
     public var childCount: Int
     /// Color of the containing group, drawn as a rail beside grouped rows.
-    public var groupColor: SidebarColor?
+    public var groupColor: GroupColor?
 
     public var maxY: CGFloat { y + height }
 }

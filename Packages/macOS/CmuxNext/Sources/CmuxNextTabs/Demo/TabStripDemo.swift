@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Mock data and a standalone window for demoing the strip without the daemon.
 public enum TabStripDemo {
@@ -25,15 +25,32 @@ public enum TabStripDemo {
         )
     }
 
-    /// A model with a few tabs, one pinned, one busy, one unread.
+    private static var groupCounter = 0
+
+    /// A new demo group with the next Chrome color.
+    public static func makeGroup(name: String = "") -> TabGroupItem {
+        groupCounter += 1
+        let color = GroupColor.allCases[groupCounter % GroupColor.allCases.count]
+        return TabGroupItem(id: TabGroupID("demo-group-\(groupCounter)"), name: name, colorToken: color)
+    }
+
+    /// A model with a few tabs (one pinned, one busy, one unread), a named
+    /// group, and a collapsed unnamed group.
     public static func makeModel(style: TabStripStyle = .chrome) -> TabStripModel {
-        var tabs = (0..<6).map { _ in makeTab() }
+        var tabs = (0..<9).map { _ in makeTab() }
         tabs[0].isPinned = true
         tabs[0].icon = .symbol("pin.fill")
         tabs[2].isBusy = true
         tabs[3].isUnread = true
         tabs[4].status = .needsInput
-        let model = TabStripModel(tabs: tabs, selectedID: tabs[1].id, style: style)
+        var named = makeGroup(name: "cmux")
+        named.colorToken = .green
+        var unnamed = makeGroup()
+        unnamed.colorToken = .purple
+        unnamed.isCollapsed = true
+        for index in [2, 3, 4] { tabs[index].groupID = named.id }
+        for index in [6, 7] { tabs[index].groupID = unnamed.id }
+        let model = TabStripModel(tabs: tabs, groups: [named, unnamed], selectedID: tabs[1].id, style: style)
         model.intentHandler = { [weak model] intent in
             model?.apply(intent) { makeTab() }
         }
@@ -44,7 +61,7 @@ public enum TabStripDemo {
     public static func makeWindow() -> NSWindow {
         let controller = DemoContentView()
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 900, height: 360),
+            contentRect: CGRect(x: 0, y: 0, width: 960, height: 400),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false

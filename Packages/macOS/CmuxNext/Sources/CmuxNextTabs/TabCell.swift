@@ -2,10 +2,16 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// One tab, drawn entirely with layers. The strip owns all mouse handling and
-/// sets this view's frame every animation frame; `layout()` repositions the
-/// sublayers synchronously so width animations never lag behind the content.
-final class TabView: NSView {
+/// One tab, drawn entirely with CALayers inside the strip's single view (no
+/// NSView per tab). The strip owns all mouse handling and sets `frame` every
+/// animation frame; `layoutLayers()` repositions the sublayers synchronously
+/// so width animations never lag behind the content.
+final class TabCell {
+    /// Root layer, a sublayer of the strip's tab clip layer.
+    let layer = CALayer()
+    /// VoiceOver and automation element for this tab.
+    let accessibility = TabAccessibilityElement()
+
     private(set) var item: TabItem
     var isSelected = false { didSet { if oldValue != isSelected { stateChanged() } } }
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
@@ -13,14 +19,38 @@ final class TabView: NSView {
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
-    var style: TabStripStyle = .chrome { didSet { if oldValue != style { needsLayout = true } } }
+    var style: TabStripStyle = .chrome { didSet { if oldValue != style { layoutLayers() } } }
     var metrics: TabStripMetrics = .standard {
         didSet {
             guard oldValue != metrics else { return }
-            needsLayout = true
+            layoutLayers()
             updateColors(animated: false)
         }
     }
+    /// The strip's effective appearance; colors resolve against it.
+    var appearance = NSAppearance.currentDrawing() {
+        didSet { if oldValue !== appearance { updateColors(animated: false) } }
+    }
+    /// Backing scale of the strip's window.
+    var scale: CGFloat = 2 {
+        didSet {
+            guard oldValue != scale else { return }
+            for sublayer in [titleLayer, iconLayer] as [CALayer] { sublayer.contentsScale = scale }
+            updateColors(animated: false)
+            layoutLayers()
+        }
+    }
+
+    var frame: CGRect {
+        get { layer.frame }
+        set {
+            let resized = layer.frame.size != newValue.size
+            layer.frame = newValue
+            if resized { layoutLayers() }
+        }
+    }
+
+    var bounds: CGRect { CGRect(origin: .zero, size: layer.bounds.size) }
 
     private let backgroundLayer = CALayer()
     private let iconLayer = CALayer()
@@ -31,9 +61,6 @@ final class TabView: NSView {
     private let closeBackgroundLayer = CALayer()
     private let closeGlyphLayer = CAShapeLayer()
     private let separatorLayer = CALayer()
-
-    var onAccessibilityPress: (() -> Void)?
-    var onAccessibilityClose: (() -> Void)?
 
     private(set) var visibility = TabChromeVisibility(showsIcon: true, showsTitle: true, showsClose: false, centersContent: false)
     /// Close button frame in this view's coordinates, or nil when hidden.
@@ -46,33 +73,17 @@ final class TabView: NSView {
             titleLayer.font = titleFont
             titleLayer.fontSize = titleFont.pointSize
             measuredTitle = nil
-            needsLayout = true
+            layoutLayers()
         }
     }
     private var measuredTitle: (String, CGFloat)?
 
     init(item: TabItem) {
         self.item = item
-        super.init(frame: .zero)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .never
+        layer.actions = Self.noActions
         buildLayers()
         applyItem(previous: nil)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.radioButton)
-        setAccessibilitySubrole(NSAccessibility.Subrole(rawValue: "AXTabButton"))
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
-
-    // The strip handles every event; tabs are never hit-test targets.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     func update(item newItem: TabItem) {
         guard newItem != item else { return }
@@ -84,7 +95,7 @@ final class TabView: NSView {
     // MARK: - Layers
 
     private func buildLayers() {
-        guard let root = layer else { return }
+        let root = layer
         root.masksToBounds = false
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
@@ -137,7 +148,7 @@ final class TabView: NSView {
         if previous?.isBusy != item.isBusy { updateSpinner() }
         updateColors(animated: false)
         updateAccessibility()
-        needsLayout = true
+        layoutLayers()
     }
 
     var displayTitle: String {
@@ -147,7 +158,7 @@ final class TabView: NSView {
     private func stateChanged() {
         updateColors(animated: true)
         updateAccessibility()
-        needsLayout = true
+        layoutLayers()
     }
 
     private func updateLift() {
@@ -155,7 +166,7 @@ final class TabView: NSView {
         backgroundLayer.shadowRadius = Metrics.space3
         backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         backgroundLayer.shadowOpacity = isLifted ? 0.22 : 0
-        layer?.zPosition = isLifted ? 10 : 0
+        layer.zPosition = isLifted ? 10 : 0
         updateColors(animated: true)
     }
 
@@ -174,29 +185,13 @@ final class TabView: NSView {
         } else {
             spinnerLayer.removeAnimation(forKey: key)
         }
-        needsLayout = true
+        layoutLayers()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateColors(animated: false)
-    }
-
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        let scale = window?.backingScaleFactor ?? 2
-        for sublayer in [titleLayer, iconLayer] as [CALayer] { sublayer.contentsScale = scale }
-        updateColors(animated: false)
-    }
-
-    override func updateLayer() {
-        updateColors(animated: false)
-    }
-
-    private func updateColors(animated: Bool) {
+    func updateColors(animated: Bool) {
         CATransaction.begin()
         CATransaction.setDisableActions(!animated)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        appearance.performAsCurrentDrawingAppearance {
             let fill: NSColor? = (isSelected || isLifted) ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted {
@@ -236,22 +231,16 @@ final class TabView: NSView {
                 tint: tint,
                 pointSize: Metrics.smallIconSize,
                 size: metrics.iconSize,
-                scale: window?.backingScaleFactor ?? 2
+                scale: scale
             )
         }
     }
 
     // MARK: - Layout
 
-    override func layout() {
-        super.layout()
-        layoutLayers()
-    }
-
     /// Rounds to the device pixel grid so icons, glyphs, and hairlines stay crisp.
     private func pixel(_ value: CGFloat) -> CGFloat {
-        let scale = window?.backingScaleFactor ?? 2
-        return (value * scale).rounded() / scale
+        (value * scale).rounded() / scale
     }
 
     func layoutLayers() {
@@ -269,7 +258,7 @@ final class TabView: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        let hairline = 1 / (window?.backingScaleFactor ?? 2)
+        let hairline = 1 / scale
         backgroundLayer.frame = bounds.insetBy(dx: m.tabBackgroundInset, dy: 0)
         backgroundLayer.cornerRadius = m.cornerRadius
         separatorLayer.frame = CGRect(
