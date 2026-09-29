@@ -669,9 +669,13 @@
     opts = opts || {};
     const ctx = createContext(opts);
     let root;
+    // deref() falls back to the refs of the latest snapshot only.
+    const previousMeta = snap.meta;
+    snap.meta = new Map();
     if (ctx.ref) {
       root = snap.registry.get(ctx.ref);
       if (!root || !root.isConnected) {
+        snap.meta = previousMeta;
         return { error: `Element with ref '${ctx.ref}' not found. It may have been removed from the page. Take a snapshot without 'ref' to get the current page state.` };
       }
       snap.registry.clear();
