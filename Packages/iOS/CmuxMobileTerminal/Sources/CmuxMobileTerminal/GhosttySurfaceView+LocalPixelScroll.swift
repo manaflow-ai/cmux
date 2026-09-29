@@ -270,6 +270,23 @@ extension GhosttySurfaceView {
                         dockedAtTail: dockedAtTail
                     )
                 }
+#if DEBUG
+                let shouldTrace = pixelState.withLock { state -> Bool in
+                    guard state.epoch == operation.pixelStateEpoch else { return false }
+                    let now = CACurrentMediaTime()
+                    guard now - state.lastTraceLogTime >= 0.25 else { return false }
+                    state.lastTraceLogTime = now
+                    return true
+                }
+                if shouldTrace {
+                    let heldSummary = held.map { "\($0.row)/\($0.revision)" } ?? "nil"
+                    MobileDebugLog.anchormux(
+                        "pixel_scroll.apply delta_px=\(Int(deltaPixels)) rebase=\(rebaseFromHeldPosition ? 1 : 0) "
+                            + "from=\(scrollbar.offset)/\(total) rev=\(scrollbar.row_space_revision) held=\(heldSummary) "
+                            + "to=\(appliedRow)/\(Int(appliedOffset)) total=\(appliedTotal) rev=\(appliedRevision)"
+                    )
+                }
+#endif
                 return
             }
             // Content changed shape mid-batch; retry once with a zeroed

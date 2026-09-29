@@ -366,6 +366,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #if DEBUG
         /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
         var lastPerfLogTime: CFTimeInterval = 0
+        /// Rate-limits successful pixel-scroll trace lines used by the
+        /// deterministic scroll simulation. The trace records whether a
+        /// batch rebased from the held gesture anchor and which row-space
+        /// revision Ghostty applied.
+        var lastTraceLogTime: CFTimeInterval = 0
         #endif
     }
     // Carve-out: main-actor gestures and synchronous libghostty callbacks share one pixel-scroll snapshot.
@@ -446,7 +451,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// it to hold position through replays mid-gesture, so it must compile in
     /// every configuration, not just DEBUG.
     var scrollInteractionActive: Bool {
-        scrollMechanicsView.isTracking
+        #if DEBUG
+        if debugScrollInteractionActive {
+            return true
+        }
+        #endif
+        return scrollMechanicsView.isTracking
             || scrollMechanicsView.isDragging
             || scrollMechanicsView.isDecelerating
     }
@@ -508,6 +518,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Frame counter + one-shot latch for the scripted headless scroll
     /// (`Debug/GhosttySurfaceView+ScrollScriptDebug.swift`).
     var debugScrollScriptFrame = 0
+    /// Synthetic ownership for the scripted gesture. Real UIKit scrolling
+    /// exposes this through `UIScrollView` tracking/deceleration state; the
+    /// deterministic script drives the same pixel-scroll path without a
+    /// touch stream, so DEBUG can model that lifecycle explicitly.
+    var debugScrollInteractionActive = false
     /// Scroll-smoothness audit: aggregates display-link cadence while a scroll
     /// gesture or its deceleration is active, logging one summary per second.
     struct DebugScrollFrameRateStats {

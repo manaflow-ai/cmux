@@ -1,6 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CMUXMobileCore
 import CmuxMobileTerminal
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -150,6 +151,14 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             terminalConfigTheme: theme
         )
         view.autoFocusOnWindowAttach = false
+        // The rainbow fixture must exercise the phone-owned pixel route. The
+        // ordinary preview is a display-only mirror because it is used for
+        // screenshots, but a mirror has no local primary-screen owner and
+        // would silently skip the path under investigation.
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_RAINBOW"] == "1" {
+            view.localEmulation = .authoritative
+            view.scrollPresentationAuthority = .legacyMirror
+        }
         // Keyboard down by default, but keep the existing keyboard viewport
         // fixture when a UI test explicitly sets it.
         let fakeKeyboardHeight = ProcessInfo.processInfo.environment["CMUX_UITEST_FAKE_KEYBOARD_HEIGHT"]
@@ -172,13 +181,21 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         var currentFont: Float32 = MobileTerminalFontPreference.defaultSize
         private var didFitFont = false
         private var didFeedContent = false
+        private var rainbowWorkload: ScrollRainbowWorkload?
+        private var rainbowStreamTask: Task<Void, Never>?
+        private let environment = ProcessInfo.processInfo.environment
         private let feedContent =
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] == "1"
+                || ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_RAINBOW"] == "1"
         private let transcriptName =
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TRANSCRIPT"] ?? "claude"
         private let targetCols =
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TARGET_COLS"].flatMap(Int.init)
         private let transcripts = TerminalPreviewTranscripts()
+
+        deinit {
+            rainbowStreamTask?.cancel()
+        }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
@@ -202,6 +219,21 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             guard !didFeedContent else { return }
             didFeedContent = true
 
+            if environment["CMUX_UITEST_SCROLL_RAINBOW"] == "1" {
+                let rowCount = environment["CMUX_UITEST_SCROLL_RAINBOW_ROWS"]
+                    .flatMap(Int.init) ?? 1_800
+                let workload = ScrollRainbowWorkload(
+                    columns: size.columns,
+                    initialRowCount: rowCount
+                )
+                rainbowWorkload = workload
+                surfaceView.processOutput(workload.initialOutput())
+                if environment["CMUX_UITEST_SCROLL_RAINBOW_STREAM"] == "1" {
+                    startRainbowStream(on: surfaceView)
+                }
+                return
+            }
+
             // Grid probe: print the live cols x rows + a column ruler.
             if transcriptName == "probe" {
                 var s = "iOS TERMINAL GRID: \(size.columns) cols x \(size.rows) rows\r\n\r\n"
@@ -210,6 +242,39 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
                 return
             }
             surfaceView.processOutput(transcripts.transcript(named: transcriptName))
+        }
+
+        private func startRainbowStream(on surfaceView: GhosttySurfaceView) {
+            guard rainbowStreamTask == nil else { return }
+            let intervalNanoseconds = UInt64(
+                max(10, environment["CMUX_UITEST_SCROLL_RAINBOW_STREAM_MS"].flatMap(Int.init) ?? 70)
+            ) * 1_000_000
+            let linesPerChunk = max(
+                1,
+                environment["CMUX_UITEST_SCROLL_RAINBOW_STREAM_LINES"].flatMap(Int.init) ?? 6
+            )
+            let durationNanoseconds = UInt64(
+                max(1, environment["CMUX_UITEST_SCROLL_RAINBOW_STREAM_SECONDS"].flatMap(Int.init) ?? 45)
+            ) * 1_000_000_000
+            rainbowStreamTask = Task { @MainActor [weak self, weak surfaceView] in
+                let clock = ContinuousClock()
+                let startedAt = clock.now
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(nanoseconds: intervalNanoseconds)
+                    } catch {
+                        return
+                    }
+                    guard let self, let surfaceView else { return }
+                    guard clock.now - startedAt < .nanoseconds(Int(durationNanoseconds)) else {
+                        return
+                    }
+                    guard var workload = self.rainbowWorkload else { return }
+                    let chunk = workload.nextOutput(rowCount: linesPerChunk)
+                    self.rainbowWorkload = workload
+                    surfaceView.processOutput(chunk)
+                }
+            }
         }
     }
 }
