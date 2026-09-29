@@ -12,9 +12,6 @@
 #
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
-#   CMUX_TUNNEL_ENTITLEMENTS  entitlements for the Cloud tunnel system extension
-#                              (default: TunnelExtension/cmuxTunnelExtension.<release|nightly|rc>.entitlements,
-#                              picked from the app entitlements file name)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
@@ -29,19 +26,19 @@
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
 #   2. The nested cmux Computer Use app with the Developer ID identity.
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
-#   4. Each nested framework under Contents/Frameworks/* with --deep
-#      (covers Sparkle's XPCServices and Updater.app).
-#   4b. The Cloud tunnel system extension under
-#      Contents/Library/SystemExtensions/* with its own entitlements and its
-#      own embedded provisioning profile. The extension is signed with the
-#      hardened runtime and without the two runtime relaxations that macOS
-#      rejects when this extension is present. When the requested app entitlement is not granted by its
-#      profile, signing stops. Nightly and Stable must not ship without the
-#      browser tunnel.
+#   4. The embedded Chromium engine (CEF framework, its libraries, the shim
+#      and the five helper apps with their own entitlements) through
+#      scripts/cmux-next/sign-cef.sh, then every other nested framework under
+#      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
+#      Updater.app, and Iroh).
 #   5. The main app bundle with the effective app-level entitlements,
 #      WITHOUT --deep. --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
 #      notarized macOS 26 Tahoe rejects with errno 163.
+#
+# cmux-next ships no Cloud tunnel system extension (the userspace
+# `cmux-tui wg hub` replaced it). Signing fails when the bundle carries
+# Contents/Library/SystemExtensions or the entitlements request the tunnel.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -83,21 +80,10 @@ else
   TS_FLAG=(--timestamp)
 fi
 
-# The app and its normal nested code use the hardened runtime. A packet-tunnel
-# system extension is a separate launch domain. macOS requires its hardened
-# runtime, but rejects the two runtime-relaxation entitlements below. It gets
-# its own signing argument set so the extension has runtime without those keys.
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
-SYSTEM_EXTENSION_COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
-
-case "$(basename "$APP_ENTITLEMENTS")" in
-  *nightly*) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.nightly.entitlements" ;;
-  *.rc.*) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.rc.entitlements" ;;
-  *) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.release.entitlements" ;;
-esac
-TUNNEL_ENTITLEMENTS="${CMUX_TUNNEL_ENTITLEMENTS:-$DEFAULT_TUNNEL_ENTITLEMENTS}"
+CEF_FRAMEWORK_NAME="Chromium Embedded Framework.framework"
 
 # Effective app entitlements: the desired file reconciled against the embedded
 # provisioning profile. Deterministic, so every CMUX_SIGN_MODE pass agrees.
@@ -114,17 +100,15 @@ else
     --entitlements "$APP_ENTITLEMENTS" --no-profile \
     --output "$EFFECTIVE_APP_ENTITLEMENTS" --json > "$RECONCILE_SUMMARY"
 fi
-TUNNEL_SUPPORTED="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1]))["tunnel_supported"] else "0")' "$RECONCILE_SUMMARY")"
 TUNNEL_REQUESTED="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1]))["tunnel_requested"] else "0")' "$RECONCILE_SUMMARY")"
 
-if [[ "$TUNNEL_REQUESTED" == "1" && "$TUNNEL_SUPPORTED" != "1" ]]; then
-  echo "error: app entitlements require the Cloud tunnel, but the embedded app profile does not grant it" >&2
+if [[ "$TUNNEL_REQUESTED" == "1" ]]; then
+  echo "error: $(basename "$APP_ENTITLEMENTS") requests the Cloud tunnel system extension, which cmux-next does not ship; remove the NetworkExtension and system-extension entitlements" >&2
   exit 1
 fi
-
-if [[ "$TUNNEL_SUPPORTED" != "1" && -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
-  echo "==> removing Contents/Library/SystemExtensions: this entitlement set does not request the Cloud tunnel"
-  rm -rf "$SYSTEM_EXTENSIONS_DIR"
+if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
+  echo "error: $SYSTEM_EXTENSIONS_DIR exists; cmux-next ships no system extension" >&2
+  exit 1
 fi
 
 if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
@@ -166,40 +150,26 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
   fi
 
-  # 4. Frameworks
+  # 4. Frameworks. The Chromium engine first, with its own per-helper
+  # entitlements; --deep would re-sign its helpers without them.
   if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
     "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
+    if [[ -d "$APP_PATH/Contents/Frameworks/$CEF_FRAMEWORK_NAME" ]]; then
+      echo "==> signing the Chromium engine (CEF framework, shim, helpers)"
+      "$SCRIPT_DIR/cmux-next/sign-cef.sh" "$APP_PATH" "$IDENTITY"
+    fi
     while IFS= read -r -d '' framework; do
+      case "$(basename "$framework")" in
+        "$CEF_FRAMEWORK_NAME"|libcmux_cef_shim.dylib|*" Helper.app"|*" Helper ("*").app") continue ;;
+      esac
       echo "==> signing framework $(basename "$framework")"
       /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
     done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
   fi
-
-  # 4b. Cloud tunnel system extension (only reaches here when the profile
-  # grants the capability; see the reconciliation above).
-  if [[ "$TUNNEL_SUPPORTED" == "1" && -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
-    if [[ ! -f "$TUNNEL_ENTITLEMENTS" ]]; then
-      echo "error: tunnel extension entitlements not found at $TUNNEL_ENTITLEMENTS" >&2
-      exit 1
-    fi
-    while IFS= read -r -d '' sysext; do
-      name="$(basename "$sysext")"
-      binary="$sysext/Contents/MacOS/$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$sysext/Contents/Info.plist")"
-      if [[ ! -f "$sysext/Contents/embedded.provisionprofile" ]]; then
-        echo "error: $name has no embedded.provisionprofile. Embed its Developer ID Network Extension profile before signing." >&2
-        exit 1
-      fi
-      # Real engine or nothing: the stub cannot carry traffic (see the verifier
-      # for why a section check beats a marker symbol after stripping).
-      "$SCRIPT_DIR/verify-tunnel-extension-engine.sh" "$binary"
-      echo "==> signing system extension $name"
-      /usr/bin/codesign "${SYSTEM_EXTENSION_COMMON[@]}" --entitlements "$TUNNEL_ENTITLEMENTS" "$sysext"
-    done < <(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print0)
-  fi
 fi
 
 # 5. Main app bundle (no --deep), with the effective entitlements.
-echo "==> signing main bundle ($SIGN_MODE; Cloud tunnel capability: $([[ "$TUNNEL_SUPPORTED" == "1" ]] && echo granted || echo not requested))"
+echo "==> signing main bundle ($SIGN_MODE)"
 /usr/bin/codesign "${COMMON[@]}" --entitlements "$EFFECTIVE_APP_ENTITLEMENTS" "$APP_PATH"
 
 echo "==> verifying"
@@ -207,7 +177,6 @@ echo "==> verifying"
 if [[ -d "$COMPUTER_USE_HELPER" ]]; then
   /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
-"$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
@@ -261,55 +230,12 @@ for entitlement in \
   fi
 done
 
-# The signed app and the bundled extension must agree about the Cloud tunnel:
-# either both carry the capability, or neither exists in the bundle.
-if [[ "$TUNNEL_SUPPORTED" == "1" ]]; then
-  if ! grep -q "packet-tunnel-provider-systemextension" "$SIGNED_ENTITLEMENTS"; then
-    echo "error: profile grants the Cloud tunnel but the signed app lacks packet-tunnel-provider-systemextension" >&2
-    exit 1
-  fi
-  # These two entitlements are valid for the ordinary app, but macOS rejects
-  # them when the app bundle carries a packet-tunnel system extension. The
-  # reconciler removes them before signing; keep this check at the artifact
-  # boundary so a future signing change cannot recreate the launch failure.
-  for entitlement in \
-    com.apple.security.cs.allow-unsigned-executable-memory \
-    com.apple.security.cs.disable-library-validation; do
-    if grep "$entitlement" "$SIGNED_ENTITLEMENTS" >/dev/null; then
-      echo "error: signed app carries incompatible system-extension entitlement $entitlement" >&2
-      exit 1
-    fi
-  done
-  if [[ -z "$(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' 2>/dev/null)" ]]; then
-    echo "error: profile grants the Cloud tunnel but no system extension is bundled under Contents/Library/SystemExtensions" >&2
-    exit 1
-  fi
-  while IFS= read -r -d '' sysext; do
-    /usr/bin/codesign --verify --strict --verbose=2 "$sysext"
-    sysext_details="$(/usr/bin/codesign -d --verbose=4 "$sysext" 2>&1)"
-    if [[ "$sysext_details" != *"flags="*"runtime"* ]]; then
-      echo "error: system extension $(basename "$sysext") is missing the hardened runtime required for notarization" >&2
-      exit 1
-    fi
-    sysext_entitlements="$(/usr/bin/codesign -d --entitlements :- "$sysext" 2>&1)"
-    for entitlement in \
-      com.apple.security.cs.allow-unsigned-executable-memory \
-      com.apple.security.cs.disable-library-validation; do
-      if grep "$entitlement" <<<"$sysext_entitlements" >/dev/null; then
-        echo "error: system extension $(basename "$sysext") carries incompatible entitlement $entitlement" >&2
-        exit 1
-      fi
-    done
-  done < <(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print0)
-else
-  if grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then
-    echo "error: signed app carries a NetworkExtension entitlement its provisioning profile does not grant; it would not launch" >&2
-    exit 1
-  fi
-  if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
-    echo "error: Contents/Library/SystemExtensions is still present without the tunnel capability" >&2
-    exit 1
-  fi
+# No NetworkExtension entitlement may reach the signed app: without a
+# provisioning profile that grants it and a bundled extension, it would not
+# launch.
+if grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then
+  echo "error: signed app carries a NetworkExtension entitlement; cmux-next ships no Cloud tunnel system extension" >&2
+  exit 1
 fi
 
 # Helpers must NOT carry the main app's application-identifier.
