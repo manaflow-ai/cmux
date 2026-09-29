@@ -626,7 +626,7 @@ mod tests {
             let stored = legacy.workspaces.iter().map(|w| w.public_id.clone()).collect::<Vec<_>>();
             assert_eq!(stored, order, "workspace order differs");
         }
-        let mut stored_active = snapshot.active_screens.clone();
+        let mut stored_active = snapshot.active_screens;
         stored_active.sort_by_key(|(workspace, _)| workspace.to_string());
         active_screens.sort_by_key(|(workspace, _)| workspace.to_string());
         assert_eq!(stored_active, active_screens, "active screens differ");
