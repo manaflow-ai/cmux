@@ -6061,7 +6061,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func updateLetterboxBorder(renderRect: CGRect, isLetterboxed: Bool, viewportRect: CGRect) {
         lastLetterboxViewportRect = viewportRect
         if sharedSizingDecoration != nil {
-            // The shared-sizing decoration draws its own owner-color border.
+            // The shared-sizing decoration draws the one bounds border.
             letterboxBorderLayer?.isHidden = true
             refreshSharedSizingLayers()
             return
@@ -6114,7 +6114,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         let pathInset = max(lineWidth / 2, 0.5 / scale)
         let outline = alignedRect.insetBy(dx: pathInset, dy: pathInset)
-        let path = UIBezierPath(rect: outline).cgPath
+        // Like the shared-sizing border: stroke only sides facing letterbox
+        // space, never one flush with the viewport edge.
+        let path = GhosttySurfaceSharedSizingLayers.borderPath(
+            edges: TerminalSizingBorderEdges(rect: alignedRect, in: viewportRect),
+            around: outline
+        )
+        border.isHidden = path == nil
         if border.path != path {
             border.path = path
         }

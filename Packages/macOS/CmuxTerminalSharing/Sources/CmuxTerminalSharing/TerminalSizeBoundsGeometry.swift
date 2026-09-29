@@ -6,7 +6,7 @@ import CoreGraphics
 /// Inputs are what the pane knows: its own size in points, the Ghostty
 /// surface's applied pixel size (the grid plus padding), one cell in pixels,
 /// the backing scale and the host's grid. The grid rect starts at the pane's
-/// top-left; the pane draws a border and hatch when it is at least one cell
+/// top-left; the pane draws a border (on the sides facing empty space) and hatch when it is at least one cell
 /// smaller than the pane, and a crop fade with a `+N` pill when the grid is
 /// wider or taller than the pane.
 public struct TerminalSizeBoundsGeometry: Hashable, Sendable {
@@ -18,6 +18,10 @@ public struct TerminalSizeBoundsGeometry: Hashable, Sendable {
     public var hiddenRows: Int
     /// Whether empty pane space surrounds the grid (draw border and hatch).
     public var showsBounds: Bool
+    /// The sides of ``gridRect`` that get a border line: only those facing
+    /// hatched pane space. The grid pins top-left, so its top (under the tab
+    /// bar separator) and leading sides are never drawn.
+    public var borderEdges: TerminalSizeBoundsEdges
 
     /// Computes the geometry.
     ///
@@ -45,6 +49,9 @@ public struct TerminalSizeBoundsGeometry: Hashable, Sendable {
         hiddenColumns = min(max(grid.cols - 1, 0), Int((overflowWidth / cellWidth).rounded(.up)))
         hiddenRows = min(max(grid.rows - 1, 0), Int((overflowHeight / cellHeight).rounded(.up)))
         showsBounds = paneSize.width - gridWidth >= cellWidth || paneSize.height - gridHeight >= cellHeight
+        borderEdges = showsBounds
+            ? TerminalSizeBoundsEdges(rect: gridRect, in: CGRect(origin: .zero, size: paneSize))
+            : []
     }
 
     /// Whether the pane needs any bounds decoration.

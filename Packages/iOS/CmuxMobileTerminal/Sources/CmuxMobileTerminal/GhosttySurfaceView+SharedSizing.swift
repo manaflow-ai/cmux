@@ -24,7 +24,8 @@ public struct TerminalSizingChipContent: Equatable, Sendable {
     }
 }
 
-/// The shared-sizing bounds: a thin neutral border, a faint hatch
+/// The shared-sizing bounds: a thin neutral border on the sides facing
+/// unused space, a faint hatch
 /// outside the grid, a short fade on cut edges, and the size chip. Only the
 /// chip takes touches.
 ///
@@ -188,7 +189,7 @@ final class GhosttySurfaceSharedSizingLayers {
 
         let inset = TerminalSizingBoundsGeometry.borderWidth / 2
         border.strokeColor = grey.cgColor
-        border.path = UIBezierPath(rect: borderRect.insetBy(dx: inset, dy: inset)).cgPath
+        border.path = Self.borderPath(edges: geometry.borderEdges, around: borderRect.insetBy(dx: inset, dy: inset))
 
         let maskPath = UIBezierPath()
         for rect in geometry.hatchRects {
@@ -225,6 +226,19 @@ final class GhosttySurfaceSharedSizingLayers {
             container.addSublayer(layer)
             return layer
         }
+    }
+
+    /// Open strokes for `edges` of `rect`, or `nil` when no side faces
+    /// unused space. Flush sides stay open so the border never doubles the
+    /// navigation bar or screen edge.
+    static func borderPath(edges: TerminalSizingBorderEdges, around rect: CGRect) -> CGPath? {
+        let lines = edges.polylines(around: rect)
+        guard !lines.isEmpty else { return nil }
+        let path = CGMutablePath()
+        for line in lines {
+            path.addLines(between: line)
+        }
+        return path
     }
 
     /// Diagonal lines across `rect`, clipped later by the hatch mask.

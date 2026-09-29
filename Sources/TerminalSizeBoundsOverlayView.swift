@@ -35,7 +35,8 @@ enum TerminalSizingChromeColor {
 }
 
 /// Draws a shared terminal's grid bounds over a pane (local and Cloud alike)
-/// when this view's grid differs: a 1 pt border in the separator grey
+/// when this view's grid differs: a 1 pt border in the separator grey on the
+/// sides facing empty pane space
 /// (``TerminalSizingChromeColor``), a faint hatch
 /// outside the grid, a 16 pt fade on a cut edge, and one small chip
 /// (`118×38 · Lawrence's Mac`) that opens the size panel at the tab. A
@@ -58,6 +59,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
     private let chip = TerminalSizeBoundsChipView()
     private var lastGridKey: String?
     private var animateNextBorderChange = false
+    private var lastBorderEdges: TerminalSizeBoundsEdges = []
     private var detachedCardHost: NSHostingView<TerminalSharingDetachedCard>?
 
     init() {
@@ -159,14 +161,28 @@ final class TerminalSizeBoundsOverlayView: NSView {
             borderLayer.isHidden = true
             return
         }
-        let rect = layerRect(geometry.gridRect.insetBy(dx: 0.5, dy: 0.5))
-        let path = CGPath(rect: rect, transform: nil)
+        // Only the sides facing hatched pane space: the top sits under the
+        // tab bar's separator and the leading side on the pane edge, so a
+        // line there would double an existing one.
+        let edges = geometry.borderEdges
+        guard !edges.isEmpty else {
+            borderLayer.isHidden = true
+            lastBorderEdges = edges
+            return
+        }
+        let path = CGMutablePath()
+        for line in edges.polylines(around: geometry.gridRect.insetBy(dx: 0.5, dy: 0.5)) {
+            path.addLines(between: line.map(layerPoint))
+        }
         let previous = borderLayer.presentation()?.path ?? borderLayer.path
         let wasHidden = borderLayer.isHidden
+        // A path animation needs the same elements on both ends.
+        let sameShape = lastBorderEdges == edges
+        lastBorderEdges = edges
         borderLayer.isHidden = false
         borderLayer.strokeColor = color.cgColor
         borderLayer.path = path
-        if animateNextBorderChange, !wasHidden, let previous, previous != path {
+        if animateNextBorderChange, !wasHidden, sameShape, let previous, previous != path {
             let animation = CABasicAnimation(keyPath: "path")
             animation.fromValue = previous
             animation.toValue = path
@@ -177,10 +193,10 @@ final class TerminalSizeBoundsOverlayView: NSView {
         animateNextBorderChange = false
     }
 
-    /// Converts a rect in this flipped view to the border layer's space.
-    private func layerRect(_ rect: NSRect) -> CGRect {
-        if borderLayer.contentsAreFlipped() { return rect }
-        return CGRect(x: rect.minX, y: bounds.height - rect.maxY, width: rect.width, height: rect.height)
+    /// Converts a point in this flipped view to the border layer's space.
+    private func layerPoint(_ point: CGPoint) -> CGPoint {
+        if borderLayer.contentsAreFlipped() { return point }
+        return CGPoint(x: point.x, y: bounds.height - point.y)
     }
 
     /// Outside the grid's bottom-right corner when there is room, else inside it.

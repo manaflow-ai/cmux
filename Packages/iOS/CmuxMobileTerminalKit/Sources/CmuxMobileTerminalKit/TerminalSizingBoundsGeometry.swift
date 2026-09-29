@@ -5,7 +5,7 @@ public import CoreGraphics
 /// The surface renders the exact shared grid: pinned 1:1 when this phone is
 /// larger, and scaled to fit the width when it is smaller (magnified and
 /// panned by a pinch). This type turns the displayed render rect into what
-/// the bounds decoration draws: a border around the visible grid, hatch in
+/// the bounds decoration draws: a border on the sides of the visible grid that face unused space, hatch in
 /// the unused viewport area, and a fade on each viewport edge that cuts off
 /// grid content.
 public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
@@ -28,8 +28,11 @@ public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
     /// The depth of the neutral fade on a cut edge, in points.
     public static let cutFadeDepth: CGFloat = 16
 
-    /// The rect the border strokes, or `nil` when the viewport matches.
+    /// The visible grid rect, or `nil` when the viewport matches.
     public let borderRect: CGRect?
+    /// The sides of ``borderRect`` the border strokes: only those facing
+    /// hatched viewport space, never a side flush with the viewport edge.
+    public let borderEdges: TerminalSizingBorderEdges
     /// Unused viewport areas outside the grid.
     public let hatchRects: [CGRect]
     /// Fade bands on edges that hide grid content, with their edge.
@@ -60,6 +63,7 @@ public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
         let differs = gridColumns != viewerColumns || gridRows != viewerRows
         guard differs, !viewportRect.isEmpty else {
             borderRect = nil
+            borderEdges = []
             hatchRects = []
             cutFades = []
             return
@@ -67,6 +71,7 @@ public struct TerminalSizingBoundsGeometry: Equatable, Sendable {
         let grid = renderRect.intersection(viewportRect)
         let visibleGrid = grid.isNull || grid.isEmpty ? viewportRect : grid
         borderRect = visibleGrid
+        borderEdges = TerminalSizingBorderEdges(rect: visibleGrid, in: viewportRect)
 
         // The letterbox bottom-pins the grid to the dock, so unused space can
         // sit on any side; hatch every band of the viewport the grid leaves.
