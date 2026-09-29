@@ -217,6 +217,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Identifies who owns the process, PTY, and terminal protocol.
     public let ioMode: TerminalSurfaceIOMode
+    /// Whether the process or PTY is supplied by a remote SSH/Cloud transport.
+    /// Remote exec terminals still use ``ioMode`` ``.exec`` because Ghostty
+    /// owns their local PTY, so protocol callbacks need this origin bit too.
+    public let isRemoteTerminal: Bool
+    /// Whether OSC 52 may publish into the local clipboard without a gesture.
+    /// Manual mirrors and remote exec PTYs are both untrusted terminal input.
+    public var allowsAutomaticClipboardWrite: Bool {
+        !ioMode.usesManualIO && !isRemoteTerminal
+    }
     /// Ordered input from the manual transport (literal bytes or named keys).
     let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
     /// Resolves physical keys that the manual transport should encode itself.
@@ -558,6 +567,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         ioMode: TerminalSurfaceIOMode = .exec,
+        isRemoteTerminal: Bool = false,
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
@@ -595,6 +605,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
         self.ioMode = ioMode
+        self.isRemoteTerminal = isRemoteTerminal
         self.manualInputHandler = manualInputHandler
         self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry

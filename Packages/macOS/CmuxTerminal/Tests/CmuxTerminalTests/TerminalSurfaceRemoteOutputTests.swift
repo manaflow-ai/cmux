@@ -176,9 +176,25 @@ struct TerminalSurfaceRemoteOutputTests {
         runtimeSurface.deallocate()
     }
 
+    @Test
+    @MainActor
+    func automaticClipboardWritesRequireLocalExecOwnership() {
+        let local = makeSurface(runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)))
+        defer { local.surface!.deallocate() }
+        #expect(local.allowsAutomaticClipboardWrite)
+
+        let remote = makeSurface(
+            runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
+            isRemoteTerminal: true
+        )
+        defer { remote.surface!.deallocate() }
+        #expect(!remote.allowsAutomaticClipboardWrite)
+    }
+
     @MainActor
     private func makeSurface(
-        runtimeSurfaceBits: UInt
+        runtimeSurfaceBits: UInt,
+        isRemoteTerminal: Bool = false
     ) -> TerminalSurface {
         let runtimeSurface = UnsafeMutableRawPointer(bitPattern: runtimeSurfaceBits)!
         let nativeView = FakeTerminalSurfaceNativeView(
@@ -190,6 +206,7 @@ struct TerminalSurfaceRemoteOutputTests {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
+            isRemoteTerminal: isRemoteTerminal,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: registry,
                 engine: FakeTerminalEngine(),

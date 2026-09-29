@@ -128,7 +128,8 @@ impl CallerOptions {
                 match flag {
                     'L' | 'R' | 'D' => forwards_ports = true,
                     'S' => {
-                        control_path_disabled |= value.is_some_and(|value| value.eq_ignore_ascii_case("none"));
+                        control_path_disabled |=
+                            value.is_some_and(|value| value.eq_ignore_ascii_case("none"));
                     }
                     'o' => {
                         if let Some((keyword, value)) = value.and_then(option_keyword_and_value) {
@@ -207,8 +208,6 @@ mod tests {
         for extra in [
             &["-o", "ControlMaster=auto", "-o", "ControlPath=/tmp/cmux-ssh-%C"][..],
             &["-o", "ControlMaster=no", "-M"],
-            &["-o", "ControlMaster=auto", "-o", "ControlPath=none"],
-            &["-S", "none", "-o", "ControlMaster=auto"],
             &["-TMo", "ControlMaster=no"],
             &["-o", "ControlMaster=auto", "-o", "ControlMaster=no"],
         ] {
@@ -221,6 +220,8 @@ mod tests {
             &["-oControlMaster no"],
             &["-o", "controlmaster = False"],
             &["-l", "-M", "-o", "ControlMaster=no"],
+            &["-o", "ControlMaster=auto", "-o", "ControlPath=none"],
+            &["-S", "none", "-o", "ControlMaster=auto"],
         ] {
             assert_eq!(arguments(extra), expected(ALL_OFF, extra), "{extra:?}");
         }

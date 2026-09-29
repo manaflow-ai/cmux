@@ -116,7 +116,7 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// - Returns: Effective explicit options for native SSH commands.
     public func mergingDefaults(
         into options: [String],
-        userConfiguredControlOptions: [String]?,
+        userConfiguredControlOptions: [String]? = nil,
         routeSensitiveOptions: [String] = []
     ) -> [String] {
         let resolver = SSHAgentSocketResolver()
