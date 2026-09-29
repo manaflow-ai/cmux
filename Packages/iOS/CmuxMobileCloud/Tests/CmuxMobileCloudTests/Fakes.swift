@@ -84,6 +84,17 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         if let revocationFailure { throw revocationFailure }
     }
 
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String
+    ) async throws {
+        _ = accessToken
+        _ = refreshToken
+        try await revokeTunnel(deviceFingerprint: deviceFingerprint, tunnelPurpose: tunnelPurpose)
+    }
+
     func waitForRevocation() async {
         await revocationCompletion.wait()
     }

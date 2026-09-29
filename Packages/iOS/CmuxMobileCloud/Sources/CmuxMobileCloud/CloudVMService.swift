@@ -77,13 +77,29 @@ public actor CloudVMService: CloudVMServing {
         return enrollment
     }
 
+    /// Revokes one role with the currently signed-in credentials.
     public func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws {
         let (access, refresh) = try await credentials()
-        _ = try await send(requests.revokeTunnel(
+        try await revokeTunnel(
             deviceFingerprint: deviceFingerprint,
             tunnelPurpose: tunnelPurpose,
             accessToken: access,
             refreshToken: refresh
+        )
+    }
+
+    /// Revokes one role with a token pair captured before local sign-out.
+    public func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String
+    ) async throws {
+        _ = try await send(requests.revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: accessToken,
+            refreshToken: refreshToken
         ))
     }
 

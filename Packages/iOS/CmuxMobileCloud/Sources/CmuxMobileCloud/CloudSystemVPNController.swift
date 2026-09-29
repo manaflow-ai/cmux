@@ -30,7 +30,7 @@ public final class CloudSystemVPNController {
     private var scope: String?
     private var hasLoadedScope = false
     private var cleanupPending = false
-    private var pendingTunnelRevocation: (deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose)?
+    private var browserTunnel: (scope: String, deviceFingerprint: String)?
     private var needsPlatformReconciliation = false
     private var generation: UInt64 = 0
     private var operation: Task<Void, Never>?
@@ -95,6 +95,9 @@ public final class CloudSystemVPNController {
         cleanupRetryTask = nil
         let previousScope = scope
         scope = newScope
+        if browserTunnel?.scope != newScope {
+            browserTunnel = nil
+        }
         // A device that cannot run the VPN never saved one, so there is
         // nothing to load or remove.
         guard manager.isAvailable else {
@@ -215,13 +218,6 @@ public final class CloudSystemVPNController {
                 }
                 let keyPair = WireGuardKeyPair()
                 try await performBounded(reconcilePlatformOnTimeout: true) {
-                    if let pending = self.pendingTunnelRevocation {
-                        try await self.service.revokeTunnel(
-                            deviceFingerprint: pending.deviceFingerprint,
-                            tunnelPurpose: pending.tunnelPurpose
-                        )
-                        self.pendingTunnelRevocation = nil
-                    }
                     let identity: CloudDeviceIdentity
                     do {
                         identity = try await self.identityResolver.resolve()
@@ -247,6 +243,7 @@ public final class CloudSystemVPNController {
                         throw CancellationError()
                     }
                     try await self.install(enrollment: enrollment, privateKey: keyPair.privateKey, scope: scope)
+                    self.browserTunnel = (scope: scope, deviceFingerprint: enrollment.deviceFingerprint)
                 }
                 guard self.isCurrent(generation) else { return }
                 publish(manager.phase == .off ? .connecting : manager.phase)
@@ -290,13 +287,41 @@ public final class CloudSystemVPNController {
                     tunnelPurpose: .browser
                 )
             } catch {
-                pendingTunnelRevocation = (
-                    deviceFingerprint: enrollment.deviceFingerprint,
-                    tunnelPurpose: .browser
-                )
                 throw CloudSystemVPNError.configuration
             }
             throw error
+        }
+    }
+
+    /// Returns the sign-out teardown that revokes this phone's browser role
+    /// with the tokens captured before auth clears them.
+    public func serverTeardown() -> @Sendable (String?, String?) async -> Void {
+        let enrolled = browserTunnel
+        let identityResolver = self.identityResolver
+        let service = self.service
+        let attempts = cleanupRetryCount
+        return { accessToken, refreshToken in
+            guard let accessToken, let refreshToken else { return }
+            let fingerprint: String?
+            if let enrolled {
+                fingerprint = enrolled.deviceFingerprint
+            } else {
+                fingerprint = try? await identityResolver.stored()?.fingerprint
+            }
+            guard let fingerprint else { return }
+            for _ in 0..<attempts {
+                do {
+                    try await service.revokeTunnel(
+                        deviceFingerprint: fingerprint,
+                        tunnelPurpose: .browser,
+                        accessToken: accessToken,
+                        refreshToken: refreshToken
+                    )
+                    return
+                } catch {
+                    continue
+                }
+            }
         }
     }
 

@@ -17,6 +17,18 @@ public struct CloudDeviceIdentityResolver: Sendable {
         self.store = store
     }
 
+    /// Reads the stored identity without minting one on a fresh install.
+    public func stored() async throws -> CloudDeviceIdentity? {
+        switch await store.read() {
+        case .found(let identity):
+            return identity
+        case .absent:
+            return nil
+        case .unavailable:
+            throw Failure.storeUnavailable
+        }
+    }
+
     /// The stored identity, or a newly minted one that is now stored.
     public func resolve() async throws -> CloudDeviceIdentity {
         switch await store.read() {

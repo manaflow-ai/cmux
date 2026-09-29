@@ -564,8 +564,15 @@ public struct CMUXMobileRootScene: View {
                 // store so the next sign-in publishes without a relaunch.
                 cloudSessionController?.resetForSignOut()
                 cloudWorkspaceBridge?.resetForSignOut()
+                let cloudServerTeardown = cloudSystemVPNController?.serverTeardown()
                 cloudSystemVPNController?.setScope(nil)
-                return signOutHook.begin()
+                let existingServerTeardown = signOutHook.begin()
+                return { accessToken, refreshToken in
+                    if let cloudServerTeardown {
+                        await cloudServerTeardown(accessToken, refreshToken)
+                    }
+                    await existingServerTeardown(accessToken, refreshToken)
+                }
             }
         )
         #else

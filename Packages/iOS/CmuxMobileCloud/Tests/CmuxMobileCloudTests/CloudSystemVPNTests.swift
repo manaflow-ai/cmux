@@ -277,6 +277,20 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
+    @Test func signOutTeardownRevokesTheBrowserPeerWithCapturedCredentials() async {
+        let rig = Rig()
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        let teardown = rig.controller.serverTeardown()
+
+        await teardown("captured-access", "captured-refresh")
+
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(rig.service.calls.revoke.first?.fingerprint == "ios-abc")
+        #expect(rig.service.calls.revoke.first?.purpose == .browser)
+    }
+
     @Test func aTimedOutInstallCanBeReplacedAfterPlatformCancellation() async {
         let rig = Rig(operationTimeout: .milliseconds(100))
         rig.manager.installDelay = .milliseconds(500)

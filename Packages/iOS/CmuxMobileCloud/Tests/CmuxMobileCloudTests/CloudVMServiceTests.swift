@@ -51,6 +51,29 @@ struct CloudVMServiceTests {
         #expect(body["tunnelPurpose"] == "browser")
     }
 
+    @Test func revokeCanUseTokensCapturedBeforeSignOut() async throws {
+        TeamHeaderURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TeamHeaderURLProtocol.self]
+        let service = CloudVMService(
+            baseURL: "https://cmux.example",
+            tokens: .fixed(accessToken: "current-access", refreshToken: "current-refresh"),
+            deviceID: { "saved-phone-id" },
+            sessionConfiguration: configuration
+        )
+
+        try await service.revokeTunnel(
+            deviceFingerprint: "role-fingerprint",
+            tunnelPurpose: .browser,
+            accessToken: "captured-access",
+            refreshToken: "captured-refresh"
+        )
+
+        let request = try #require(TeamHeaderURLProtocol.capturedRequest())
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access")
+        #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "captured-refresh")
+    }
+
     @Test func lockedDeviceIdentityDoesNotSendEnrollment() async {
         TeamHeaderURLProtocol.reset()
         let configuration = URLSessionConfiguration.ephemeral
