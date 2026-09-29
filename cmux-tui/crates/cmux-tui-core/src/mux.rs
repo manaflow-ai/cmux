@@ -4747,6 +4747,9 @@ impl Mux {
         drop(registry);
         if !commit.replayed {
             self.publish_resource_event();
+            // A commit can create the resource row that a shell's first
+            // directory report was waiting for.
+            self.publish_pending_terminal_directories();
         }
         Ok(commit)
     }
@@ -5531,6 +5534,7 @@ impl Mux {
         drop(state);
         drop(registry);
         self.publish_resource_event();
+        self.publish_pending_terminal_directories();
         Ok(commit)
     }
 
@@ -24610,11 +24614,22 @@ mod tests {
         assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let batches = mux.resource_events_after(revision).unwrap().batches;
-        assert_eq!(batches.len(), 2);
-        assert_eq!(batches[0].revision, revision + 1);
-        assert_eq!(batches[1].revision, revision + 2);
-        assert_eq!(batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(batches[1].changes[0]["value"]["state"], "blocked");
+        let last = batches.last().expect("the hook report published a revision");
+        assert_eq!(last.revision, hook_commit.revision);
+        assert_eq!(last.changes[0]["value"]["source"], "hook");
+        assert_eq!(last.changes[0]["value"]["state"], "blocked");
+        if raw_result.source == AgentSource::Socket {
+            // The socket report committed first and the hook replaced it.
+            assert_eq!(batches.len(), 2);
+            assert_eq!(batches[0].revision, revision + 1);
+            assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
+            assert_eq!(hook_commit.revision, revision + 2);
+        } else {
+            // The hook committed first. The later socket report loses to the
+            // hook-owned record and restates nothing, so it adds no revision.
+            assert_eq!(batches.len(), 1);
+            assert_eq!(hook_commit.revision, revision + 1);
+        }
     }
 
     #[test]
@@ -24698,7 +24713,7 @@ mod tests {
         .unwrap();
         mux.apply_agent_hook_record(&newer, 2).unwrap();
         mux.apply_agent_hook_record(&older, 1).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Blocked);
+        assert_eq!(hook_projected_agents(&mux)[0]["state"], "blocked");
     }
 
     #[test]
@@ -24724,14 +24739,25 @@ mod tests {
         // must not try to acquire that guard again.
         mux.apply_agent_hook_record(&hook, 1).unwrap();
 
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].agent.as_deref(), Some("claude"));
+        assert_eq!(hook_projected_agents(&mux)[0]["state"], "working");
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(snapshot["agents"][0]["extra"]["agent"], serde_json::json!("claude"));
         assert_eq!(
             mux.agent_hook_fences.lock().unwrap().get(&terminal_id).map(|fence| fence.sequence),
             Some(1)
         );
+    }
+
+    /// The public agent rows the hook projector wrote. Tests that drive
+    /// `apply_agent_hook_record` directly (to reorder or replay sequences)
+    /// bypass the journal append, so the journal-folded roster behind
+    /// `list_agents` never sees those events; the projector's fences and
+    /// its durable projection are what they exercise.
+    fn hook_projected_agents(mux: &Mux) -> Vec<Value> {
+        crate::resource_api::public_session_snapshot(mux).unwrap()["agents"]
+            .as_array()
+            .unwrap()
+            .clone()
     }
 
     /// Agent changes published after `revision`, in commit order.
@@ -25467,7 +25493,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_repairs_a_plugin_projection_lost_after_journal_commit() {
+    fn a_plugin_projection_lost_after_journal_commit_is_reconciled_from_the_roster() {
         let root = std::env::temp_dir().join(format!(
             "cmux-agent-plugin-reconcile-{}",
             crate::workspace_registry::new_uuid_v4()
@@ -25542,9 +25568,29 @@ mod tests {
             assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
             assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
             mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+
+            // Startup runs this reconciliation after restored surfaces exist
+            // and again as each terminal host is adopted. The unit runtime's
+            // placeholder terminals have no host to adopt after a restart, so
+            // exercise the reconciliation on the live terminal directly.
+            mux.reconcile_agent_roster_projections();
+            assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+            let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+            let agent = &snapshot["agents"][0];
+            assert_eq!(agent["terminal_id"], terminal_id.as_str());
+            assert_eq!(agent["state"], "working");
+            assert_eq!(agent["source"], "plugin");
+            assert_eq!(agent["source_session"], "pid:42");
+            assert_eq!(agent["extra"]["agent"], "codex");
+            // A healthy projection is left alone.
+            let revision = mux.with_state(|state| state.resource_revision);
+            mux.reconcile_agent_roster_projections();
+            assert_eq!(mux.with_state(|state| state.resource_revision), revision);
             mux.shutdown();
         }
 
+        // The roster is durable reducer state, so the observation that the
+        // projection must be rebuilt from survives a restart.
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
         let reopened = Mux::from_workspace_registry(
             session.into(),
@@ -25554,13 +25600,12 @@ mod tests {
             true,
         )
         .unwrap();
-        let repaired = reopened.list_agents(None, None);
-        assert_eq!(repaired.len(), 1);
-        assert_eq!(repaired[0].state, AgentState::Working);
-        assert_eq!(repaired[0].source, AgentSource::Plugin);
-        assert_eq!(repaired[0].agent.as_deref(), Some("codex"));
-        assert_eq!(repaired[0].session.as_deref(), Some("pid:42"));
-        assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+        let entry =
+            reopened.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].clone();
+        assert_eq!(entry.agent_state(), AgentState::Working);
+        assert_eq!(entry.agent_source(), AgentSource::Plugin);
+        assert_eq!(entry.agent.as_deref(), Some("codex"));
+        assert_eq!(entry.session.as_deref(), Some("pid:42"));
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
@@ -26163,9 +26208,9 @@ mod tests {
         mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 1).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 2).unwrap();
         mux.apply_agent_hook_record(&ingress("UserPromptSubmit", "old"), 3).unwrap();
-        let records = mux.list_agents(Some(surface.id), None);
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].state, AgentState::Idle);
+        let agents = hook_projected_agents(&mux);
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0]["state"], "idle");
         assert!(
             !mux.agent_hook_fences
                 .lock()
@@ -26194,11 +26239,11 @@ mod tests {
         // The old session can arrive after its end marker. Matching the ended
         // identity is still a stale event, not permission to reopen it.
         mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 3).unwrap();
-        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        assert!(hook_projected_agents(&mux).is_empty());
         assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
         mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 4).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 5).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
+        assert_eq!(hook_projected_agents(&mux)[0]["state"], "idle");
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
     }
 
@@ -26232,7 +26277,7 @@ mod tests {
         mux.apply_agent_hook_record(&sessionless("UserPromptSubmit"), 4).unwrap();
 
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
+        assert_eq!(hook_projected_agents(&mux)[0]["state"], "idle");
     }
 
     #[test]
@@ -26259,7 +26304,7 @@ mod tests {
         let second = mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id.clone();
         assert_ne!(first, second);
         mux.apply_agent_hook_record(&ingress("UserPromptSubmit"), 4).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+        assert_eq!(hook_projected_agents(&mux)[0]["state"], "working");
     }
 
     #[test]
@@ -26385,12 +26430,12 @@ mod tests {
         mux.apply_agent_hook_record(&ingress, 7).unwrap();
         assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 7);
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 7);
-        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+        assert_eq!(hook_projected_agents(&mux).len(), 1);
 
         // A replay of the committed sequence is an idempotent no-op.
         mux.apply_agent_hook_record(&ingress, 7).unwrap();
         assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 7);
-        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+        assert_eq!(hook_projected_agents(&mux).len(), 1);
     }
 
     #[test]

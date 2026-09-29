@@ -2652,9 +2652,14 @@ pub(super) fn complete_terminal_close_patch(
 
 /// Repair terminal rows left live by older close implementations. This is a
 /// load-time migration for the durable invariant: a terminal resource is live
-/// only while both its host and identity ledger are live. The repair advances
-/// the resource revision and emits a resource journal batch so revision-based
-/// consumers observe the tombstones after restart.
+/// only while both its host and identity ledger are live, and a live tab shows
+/// only live content. The repair therefore also retires every tab that still
+/// shows a repaired terminal (as any terminal close does), compacts the
+/// remaining tab positions of those panes, and selects a surviving tab where
+/// the retired tab was active. It advances the resource revision and emits a
+/// resource journal batch so revision-based consumers observe the tombstones
+/// after restart. Tab indexes and screen layouts that shift are restated by
+/// the next full topology projection.
 pub(super) fn repair_dangling_terminal_resources(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
@@ -2682,20 +2687,88 @@ pub(super) fn repair_dangling_terminal_resources(
         .ok_or_else(|| anyhow::anyhow!("resource revision exhausted during terminal repair"))?;
     let sqlite_revision = i64::try_from(repair_revision)
         .context("resource repair revision exceeds SQLite integer range")?;
+    // Live tabs that show a repaired terminal, with their pane and position.
+    let mut retired_tabs = Vec::new();
+    for public_id in &dangling {
+        let mut statement = transaction.prepare(
+            "SELECT public_id, pane_id, position FROM resource_tabs
+             WHERE content_kind = 'terminal' AND content_id = ?1
+               AND deleted_revision IS NULL
+             ORDER BY pane_id ASC, position ASC",
+        )?;
+        let rows = statement
+            .query_map([public_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        retired_tabs.extend(rows);
+    }
     let changes = Value::Array(
         dangling
             .iter()
+            .map(|public_id| ("terminal", public_id))
+            .chain(retired_tabs.iter().map(|(tab_id, _, _)| ("tab", tab_id)))
             .enumerate()
-            .map(|(sequence, public_id)| {
+            .map(|(sequence, (resource, public_id))| {
                 json!({
                     "kind": "delete",
                     "sequence": sequence,
-                    "resource": "terminal",
+                    "resource": resource,
                     "id": public_id,
                 })
             })
             .collect(),
     );
+
+    // Retire the views first: this also clears an active-tab selection that
+    // points at a retired tab.
+    let mut affected_panes: std::collections::BTreeMap<&str, i64> =
+        std::collections::BTreeMap::new();
+    for (tab_id, pane_id, position) in &retired_tabs {
+        tombstone_resource_tab_row(transaction, tab_id, sqlite_revision)?;
+        affected_panes
+            .entry(pane_id.as_str())
+            .and_modify(|first| *first = (*first).min(*position))
+            .or_insert(*position);
+    }
+    for (pane_id, first_retired_position) in affected_panes {
+        let survivors = {
+            let mut statement = transaction.prepare(
+                "SELECT public_id FROM resource_tabs
+                 WHERE pane_id = ?1 AND deleted_revision IS NULL
+                 ORDER BY position ASC",
+            )?;
+            statement
+                .query_map([pane_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for (position, tab_id) in survivors.iter().enumerate() {
+            transaction.execute(
+                "UPDATE resource_tabs
+                 SET position = ?1, updated_revision = ?2
+                 WHERE public_id = ?3 AND deleted_revision IS NULL AND position != ?1",
+                params![
+                    i64::try_from(position).context("tab position exceeds SQLite range")?,
+                    sqlite_revision,
+                    tab_id,
+                ],
+            )?;
+        }
+        // Select the tab that took the retired tab's place (or the new last
+        // tab) when the pane lost its active tab and still has tabs.
+        let replacement = usize::try_from(first_retired_position)
+            .ok()
+            .map(|position| position.min(survivors.len().saturating_sub(1)))
+            .and_then(|position| survivors.get(position));
+        if let Some(replacement) = replacement {
+            transaction.execute(
+                "UPDATE resource_panes
+                 SET active_tab_id = ?1, updated_revision = ?2
+                 WHERE public_id = ?3 AND active_tab_id IS NULL AND deleted_revision IS NULL",
+                params![replacement, sqlite_revision, pane_id],
+            )?;
+        }
+    }
 
     for public_id in &dangling {
         transaction.execute(
@@ -2723,7 +2796,10 @@ pub(super) fn repair_dangling_terminal_resources(
         &format!("terminal-close-repair-{repair_revision}"),
         "terminal.close.repair",
         None,
-        &json!({"repaired_terminals": dangling}),
+        &json!({
+            "repaired_terminals": dangling,
+            "retired_tabs": retired_tabs.iter().map(|(tab_id, _, _)| tab_id).collect::<Vec<_>>(),
+        }),
         &changes,
     )?;
     Ok(())

@@ -1103,7 +1103,12 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(error.code, "mutation.indeterminate");
+        // The close commit is one SQLite transaction and closing views has no
+        // external effect, so a failed commit is a known failure: nothing
+        // changed, and the key durably records that outcome.
+        assert_eq!(error.code, "operation.failed");
+        assert_eq!(error.details["operation"], "workspace.close");
+        assert!(!error.retryable);
         mux.set_resource_patch_failure_for_test(false);
 
         let replay = dispatch(
@@ -1116,7 +1121,9 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(replay.code, "mutation.indeterminate");
+        // Replay returns the recorded failure instead of running the close.
+        assert_eq!(replay.code, error.code);
+        assert_eq!(replay.details, error.details);
 
         assert_eq!(mux.with_state(|state| state.resource_revision), before_resource);
         assert_eq!(mux.with_state(|state| state.workspace_revision), before_workspace);
