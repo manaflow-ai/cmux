@@ -133,6 +133,7 @@ structured values cross the boundary as JSON strings.
 | `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store (`params.targetId` optional in the request) |
 | `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL", "message"}}` |
 | `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
+| `tmpdir`, `homedir` | canonical temporary and home directories, for `node:os` |
 
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd`,
 except files the driver reported through `download.finished`, which are
@@ -140,7 +141,9 @@ readable): `readFile {path}` → base64, `writeFile {path, base64, append?}`,
 `mkdir {path, recursive?}`, `readdir {path}` → `[{ name, type }]`,
 `stat {path}` → `{ size, type: "file"|"directory"|"symlink"|"other", mtimeMs, birthtimeMs }`,
 `rm {path, recursive?, force?}`, `rename {from, to}`, `copyFile {from, to}`,
-`exists {path}` → boolean, `resolve {path}` → absolute path.
+`exists {path}` → boolean, `resolve {path}` → absolute path. Every op
+accepts `scope: "chatgpt"`, which also admits the user's temporary directory
+(the ChatGPT dialect's `node:fs`); Aside's `fs` stays inside `cwd`.
 
 Entry points the runtime defines, called by the app:
 
@@ -166,10 +169,23 @@ otherwise `runtime-core.js`, `dialect-aside.js`, `dialect-chatgpt.js`,
 - `frame.evaluate` sends `source` as `(<source>)(...args)` through
   `callAsyncJavaScript`, so `awaitPromise` is always true on WebKit.
 - `frameId` values are opaque strings. `null`/omitted means the main frame.
-- `input.setFiles` needs the element: the page agent must expose
-  `globalThis.__cmuxPageAgent.resolveHandle(id) -> Element | null`. The
-  driver assigns files with `DataTransfer` and dispatches `input` and
-  `change`.
+- The agent is installed with the recipe in `page-agent.js` and found at
+  `globalThis[Symbol.for("cmux.browserRepl.agent")]`; `input.setFiles`
+  resolves the handle there, assigns files with `DataTransfer` and dispatches
+  `input` and `change`.
+- `frame.evaluate` with `world: "page"` and `handles`: handles live in the
+  agent world, so the driver moves them through the DOM. The page world
+  registers a one-off capturing listener for a random event type, the agent
+  world dispatches that event on each element, and the page world reads the
+  targets, then runs `source`. Detached elements fail with `stale`.
+- Evaluation errors carry `{ code, message, errorName }`; page exceptions use
+  code `evaluation`.
+- `tab.info` answers from native state (URL, title, `isLoading`) while a
+  JavaScript dialog is open, since page script is blocked then.
+- `frameId` is WebKit's frame handle id (`-[WKFrameInfo _handle].frameID`);
+  frames come from `-[WKWebView _frames:]`.
+- Network events come from `-[WKWebView _setResourceLoadDelegate:]`; without
+  that SPI no `request`/`response` events are sent.
 
 ## Proposed changes (runtime)
 
