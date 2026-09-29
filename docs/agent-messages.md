@@ -20,7 +20,7 @@ Each message moves through three states: `queued`, then `delivered`, then `read`
 | Agent | How a message arrives |
 | --- | --- |
 | Claude Code | A background hook (`asyncRewake`) runs after every session start and stop and checks for messages about every 2 seconds, opening a short connection each time. Headless `claude -p` runs neither wait for nor receive messages. An idle session wakes up with the message as a system reminder. A busy one sees it at its next step. If the human submits a prompt first, the message is attached to that prompt as context. The prompt box, and any draft in it, is never touched. |
-| Codex | Stays `queued` for now. Codex hooks can't wake an idle session; delivery at the next prompt and before Codex goes idle is a follow-up. |
+| Codex | Codex hooks can't wake an idle session, so a message waits for Codex's next hook: when the human submits a prompt it is attached as context, and when Codex is about to stop it continues the turn with the message instead. An idle Codex sees it at its next prompt. Headless `codex exec` runs neither receive nor claim messages. Sessions whose cmux hooks come from `cmux hooks codex install` rather than the launch wrapper don't receive messages yet. |
 
 While the recipient is waiting on a human (a question, permission or plan prompt is open), delivery holds until that prompt is answered.
 
