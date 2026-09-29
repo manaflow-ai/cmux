@@ -211,6 +211,7 @@
       "set-default-colors",
       "set-ratio",
       "set-split-ratio",
+      "set-tab-pinned",
       "set-terminal-idle-policy",
       "set-viewport-pane-width",
       "set-window-title",
@@ -497,6 +498,12 @@
     },
     {
       "name": "tab-added",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "tab-changed",
       "streams": [
         "subscribe-deltas"
       ]

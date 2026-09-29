@@ -21,6 +21,77 @@ use crate::workspace_registry::{
 pub struct TreeDecorations {
     pub notifications: HashMap<SurfaceId, SurfaceNotification>,
     pub presentation: Arc<PresentationSnapshot>,
+    /// Working directory and git HEAD of each PTY placement.
+    pub directories: HashMap<SurfaceId, TabDirectory>,
+}
+
+/// The directory a PTY tab presents (the shell's OSC 7 report, or its launch
+/// directory) and the git HEAD of the repository containing it, resolved on
+/// the machine that hosts the PTY.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TabDirectory {
+    pub cwd: Option<String>,
+    /// Branch name, or the abbreviated commit when HEAD is detached.
+    pub git_branch: Option<String>,
+    pub git_detached: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GitHead {
+    name: String,
+    detached: bool,
+}
+
+/// A cached HEAD lookup is reused for this long, which bounds both the
+/// filesystem work of a tree snapshot and the staleness of a branch switch
+/// made without changing directory.
+const GIT_HEAD_TTL: Duration = Duration::from_secs(2);
+const GIT_HEAD_CACHE_LIMIT: usize = 4096;
+const GIT_METADATA_MAX_BYTES: u64 = 4096;
+
+fn read_small_file(path: &Path) -> Option<String> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > GIT_METADATA_MAX_BYTES {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()
+}
+
+fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
+    let head = read_small_file(&git_dir.join("HEAD"))?;
+    let head = head.trim();
+    if let Some(reference) = head.strip_prefix("ref:") {
+        let reference = reference.trim();
+        let name = reference.strip_prefix("refs/heads/").unwrap_or(reference);
+        return (!name.is_empty()).then(|| GitHead { name: name.to_string(), detached: false });
+    }
+    (head.len() >= 7 && head.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| GitHead { name: head[..7].to_string(), detached: true })
+}
+
+/// Find the repository containing `directory` and read its HEAD without
+/// running git. A `.git` file (worktrees, submodules) names the git dir.
+pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
+    let mut current = Some(directory);
+    while let Some(candidate) = current {
+        let dot_git = candidate.join(".git");
+        match std::fs::metadata(&dot_git) {
+            Ok(metadata) if metadata.is_dir() => return read_git_head_file(&dot_git),
+            Ok(metadata) if metadata.is_file() => {
+                let pointer = read_small_file(&dot_git)?;
+                let git_dir = pointer.lines().find_map(|line| line.strip_prefix("gitdir:"))?.trim();
+                let git_dir = Path::new(git_dir);
+                let git_dir = if git_dir.is_absolute() {
+                    git_dir.to_path_buf()
+                } else {
+                    candidate.join(git_dir)
+                };
+                return read_git_head_file(&git_dir);
+            }
+            _ => current = candidate.parent(),
+        }
+    }
+    None
 }
 
 impl Deref for TreeDecorations {
@@ -35,8 +106,57 @@ impl TreeDecorations {
     /// A decoration set with notifications only, for tests and callers that
     /// build a tree snapshot without a mux.
     pub fn from_notifications(notifications: HashMap<SurfaceId, SurfaceNotification>) -> Self {
-        Self { notifications, presentation: Arc::default() }
+        Self { notifications, presentation: Arc::default(), directories: HashMap::new() }
     }
+}
+
+/// Result of `set-tab-pinned`: whether the flag changed and the tab's final
+/// index in its pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TabPinChange {
+    pub changed: bool,
+    pub index: usize,
+}
+
+fn surface_directories_in_state(state: &State) -> Vec<(SurfaceId, String)> {
+    state
+        .surfaces
+        .iter()
+        .filter(|(surface, _)| state.pane_of(**surface).is_some())
+        .filter_map(|(surface, runtime)| {
+            runtime.presented_directory().map(|directory| (*surface, directory))
+        })
+        .collect()
+}
+
+fn tab_is_pinned(state: &State, presentation: &PresentationSnapshot, surface: SurfaceId) -> bool {
+    state
+        .resource_indexes
+        .tab_ids
+        .get(&surface)
+        .is_some_and(|tab| presentation.pinned_tabs.contains(tab.as_str()))
+}
+
+fn tab_changed_delta(
+    state: &State,
+    decorations: &TreeDecorations,
+    surface: SurfaceId,
+) -> Option<TreeDelta> {
+    let pane = state.pane_of(surface)?;
+    let (workspace, screen) = state.screen_of(pane)?;
+    let entity =
+        crate::server::tree_entity_json(state, decorations, TreeDeltaKind::TabChanged, surface)?;
+    let index = state.panes.get(&pane)?.tabs.iter().position(|candidate| *candidate == surface);
+    Some(TreeDelta {
+        kind: TreeDeltaKind::TabChanged,
+        workspace: state.workspaces[workspace].id,
+        screen: Some(state.workspaces[workspace].screens[screen].id),
+        pane: Some(pane),
+        surface: Some(surface),
+        index,
+        entity,
+        workspace_revision: None,
+    })
 }
 
 /// Result of one group mutation: the group, its final index, and whether the
@@ -61,20 +181,190 @@ impl Mux {
         Ok(())
     }
 
-    /// Notifications and presentation for serializing the whole tree.
+    /// Notifications, presentation, and tab directories for serializing the
+    /// whole tree. Git HEAD lookups run after the state lock is released.
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
-        let state = self.state.lock().unwrap();
-        let notifications = self.surface_notifications_in_state(&state);
-        TreeDecorations { notifications, presentation }
+        let (notifications, directories) = {
+            let state = self.state.lock().unwrap();
+            (self.surface_notifications_in_state(&state), surface_directories_in_state(&state))
+        };
+        let directories = self.resolve_tab_directories(directories, true);
+        TreeDecorations { notifications, presentation, directories }
     }
 
     /// The same as [`Self::tree_decorations`] for a caller that already
-    /// holds the state lock.
+    /// holds the state lock. It never touches the filesystem, so git HEADs
+    /// come from the cache only.
     pub(crate) fn tree_decorations_in_state(&self, state: &State) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let notifications = self.surface_notifications_in_state(state);
-        TreeDecorations { notifications, presentation }
+        let directories = self.resolve_tab_directories(surface_directories_in_state(state), false);
+        TreeDecorations { notifications, presentation, directories }
+    }
+
+    fn resolve_tab_directories(
+        &self,
+        directories: Vec<(SurfaceId, String)>,
+        refresh: bool,
+    ) -> HashMap<SurfaceId, TabDirectory> {
+        let now = Instant::now();
+        let mut heads: HashMap<String, Option<GitHead>> = HashMap::new();
+        let mut result = HashMap::with_capacity(directories.len());
+        for (surface, cwd) in directories {
+            let head = match heads.get(&cwd) {
+                Some(head) => head.clone(),
+                None => {
+                    let head = self.git_head(&cwd, now, refresh);
+                    heads.insert(cwd.clone(), head.clone());
+                    head
+                }
+            };
+            result.insert(
+                surface,
+                TabDirectory {
+                    git_branch: head.as_ref().map(|head| head.name.clone()),
+                    git_detached: head.as_ref().is_some_and(|head| head.detached),
+                    cwd: Some(cwd),
+                },
+            );
+        }
+        result
+    }
+
+    fn git_head(&self, cwd: &str, now: Instant, refresh: bool) -> Option<GitHead> {
+        {
+            let cache = self.git_heads.lock().unwrap();
+            if let Some((checked, head)) = cache.get(cwd)
+                && (!refresh || now.saturating_duration_since(*checked) < GIT_HEAD_TTL)
+            {
+                return head.clone();
+            }
+        }
+        if !refresh {
+            return None;
+        }
+        let head = read_git_head(Path::new(cwd));
+        let mut cache = self.git_heads.lock().unwrap();
+        if cache.len() >= GIT_HEAD_CACHE_LIMIT {
+            cache.clear();
+        }
+        cache.insert(cwd.to_string(), (now, head.clone()));
+        head
+    }
+
+    /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,
+    /// unread marker) changed, with the refreshed tab entity.
+    pub(crate) fn emit_tab_changed(&self, surface: SurfaceId) {
+        let decorations = self.tree_decorations();
+        let delta = {
+            let state = self.state.lock().unwrap();
+            tab_changed_delta(&state, &decorations, surface)
+        };
+        if let Some(delta) = delta {
+            self.emit(MuxEvent::TreeDelta(delta));
+        }
+    }
+
+    /// Refresh the git HEAD for a terminal whose directory changed and emit
+    /// `tab-changed` for each of its placements.
+    pub(crate) fn emit_terminal_tabs_changed(&self, terminal: &TerminalPublicId) {
+        let placements = self.with_state(|state| {
+            state.placements_of_content(&ContentPublicId::Terminal(terminal.clone())).to_vec()
+        });
+        if placements.is_empty() {
+            return;
+        }
+        let decorations = self.tree_decorations();
+        let deltas = {
+            let state = self.state.lock().unwrap();
+            placements
+                .iter()
+                .filter_map(|surface| tab_changed_delta(&state, &decorations, *surface))
+                .collect::<Vec<_>>()
+        };
+        for delta in deltas {
+            self.emit(MuxEvent::TreeDelta(delta));
+        }
+    }
+
+    /// Pin or unpin a tab placement. Pinned tabs sort first in their pane:
+    /// pinning moves the tab to the end of the pinned run, unpinning moves
+    /// it to the start of the unpinned run. The flag is durable and keyed by
+    /// the public tab id, so it survives restarts and cross-pane moves.
+    pub fn set_tab_pinned(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        pinned: bool,
+    ) -> anyhow::Result<TabPinChange> {
+        let tab_id = self
+            .with_state(|state| state.resource_indexes.tab_ids.get(&surface).cloned())
+            .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+        let changed = {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let changed = registry.set_tab_pinned(tab_id.as_str(), pinned)?;
+            self.reload_presentation(&registry)?;
+            changed
+        };
+        let presentation = self.presentation_snapshot();
+        let target = self.with_state(|state| {
+            let pane_id = state.pane_of(surface)?;
+            let pane = state.panes.get(&pane_id)?;
+            let old_index = pane.tabs.iter().position(|candidate| *candidate == surface)?;
+            let other_pinned = pane
+                .tabs
+                .iter()
+                .filter(|candidate| **candidate != surface)
+                .filter(|candidate| tab_is_pinned(state, &presentation, **candidate))
+                .count();
+            Some((pane_id, old_index, other_pinned))
+        });
+        let (pane, old_index, final_index) =
+            target.ok_or_else(|| anyhow::anyhow!("surface {surface} has no pane"))?;
+        if final_index != old_index {
+            let insertion = if final_index > old_index { final_index + 1 } else { final_index };
+            self.move_tab(surface, pane, insertion);
+        }
+        let index = self
+            .with_state(|state| {
+                state.panes.get(&pane)?.tabs.iter().position(|candidate| *candidate == surface)
+            })
+            .unwrap_or(old_index);
+        if changed {
+            self.publish_journal_event();
+            self.emit_tab_changed(surface);
+        }
+        Ok(TabPinChange { changed, index })
+    }
+
+    /// Clamp a `move-tab` insertion index so pinned tabs stay ahead of
+    /// unpinned ones in the destination pane.
+    pub fn pinned_tab_move_index(&self, surface: SurfaceId, pane: PaneId, index: usize) -> usize {
+        let presentation = self.presentation_snapshot();
+        self.with_state(|state| {
+            let Some(target) = state.panes.get(&pane) else { return index };
+            let pinned = tab_is_pinned(state, &presentation, surface);
+            let others = target.tabs.iter().filter(|candidate| **candidate != surface);
+            let other_pinned = others
+                .clone()
+                .filter(|candidate| tab_is_pinned(state, &presentation, **candidate))
+                .count();
+            let other_count = others.count();
+            let old_index = (state.pane_of(surface) == Some(pane))
+                .then(|| target.tabs.iter().position(|candidate| *candidate == surface))
+                .flatten();
+            let final_index = match old_index {
+                Some(old) if index > old => index - 1,
+                _ => index,
+            }
+            .min(other_count);
+            let clamped =
+                if pinned { final_index.min(other_pinned) } else { final_index.max(other_pinned) };
+            match old_index {
+                Some(old) if clamped > old => clamped + 1,
+                _ => clamped,
+            }
+        })
     }
 
     pub fn workspace_groups(&self) -> Vec<WorkspaceGroupRecord> {
@@ -645,6 +935,101 @@ mod tests {
             )
             .unwrap();
         assert!(replay.replayed);
+    }
+
+    fn pane_tabs(mux: &Mux, pane: PaneId) -> Vec<SurfaceId> {
+        mux.with_state(|state| state.panes[&pane].tabs.clone())
+    }
+
+    #[test]
+    fn cmux_next_pinned_tabs_sort_first_and_survive_restart() {
+        let session = PresentationTestSession::new("pins");
+        let mux = session.open();
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let third = mux.new_tab(Some(pane), None, None).unwrap().id;
+        assert_eq!(pane_tabs(&mux, pane), vec![first, second, third]);
+
+        let pinned = mux.set_tab_pinned(third, true).unwrap();
+        assert_eq!(pinned, TabPinChange { changed: true, index: 0 });
+        assert_eq!(pane_tabs(&mux, pane), vec![third, first, second]);
+        let pinned = mux.set_tab_pinned(second, true).unwrap();
+        assert_eq!(pinned.index, 1);
+        assert_eq!(pane_tabs(&mux, pane), vec![third, second, first]);
+        assert!(!mux.set_tab_pinned(second, true).unwrap().changed);
+
+        // An unpinned tab cannot move ahead of the pinned run, and a pinned
+        // tab cannot move behind it.
+        let clamped = mux.pinned_tab_move_index(first, pane, 0);
+        mux.move_tab(first, pane, clamped);
+        assert_eq!(pane_tabs(&mux, pane), vec![third, second, first]);
+        let clamped = mux.pinned_tab_move_index(third, pane, 3);
+        mux.move_tab(third, pane, clamped);
+        assert_eq!(pane_tabs(&mux, pane), vec![second, third, first]);
+
+        let unpinned = mux.set_tab_pinned(second, false).unwrap();
+        assert_eq!(unpinned.index, 1);
+        assert_eq!(pane_tabs(&mux, pane), vec![third, second, first]);
+        let pinned_tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&third].clone());
+        drop(mux);
+
+        let mux = session.open();
+        let snapshot = mux.presentation_snapshot();
+        assert_eq!(snapshot.pinned_tabs.len(), 1);
+        assert!(snapshot.pinned_tabs.contains(pinned_tab_id.as_str()));
+        let decorations = mux.tree_decorations();
+        let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+        let tabs =
+            tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap().clone();
+        assert_eq!(tabs[0]["pinned"], true);
+        assert_eq!(tabs[1]["pinned"], false);
+    }
+
+    #[test]
+    fn cmux_next_git_head_reads_branches_worktrees_and_detached_heads() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-git-head-{}", WorkspacePublicId::random().unwrap()));
+        let repo = root.join("repo");
+        let nested = repo.join("src").join("deep");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/feature/tabs\n").unwrap();
+        assert_eq!(
+            read_git_head(&nested),
+            Some(GitHead { name: "feature/tabs".into(), detached: false })
+        );
+
+        let worktree = root.join("worktree");
+        let worktree_git = root.join("gitdirs").join("worktree");
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::create_dir_all(&worktree_git).unwrap();
+        std::fs::write(worktree.join(".git"), "gitdir: ../gitdirs/worktree\n").unwrap();
+        std::fs::write(worktree_git.join("HEAD"), "0123456789abcdef0123456789abcdef01234567\n")
+            .unwrap();
+        assert_eq!(
+            read_git_head(&worktree),
+            Some(GitHead { name: "0123456".into(), detached: true })
+        );
+        assert_eq!(read_git_head(&root.join("gitdirs")), None);
+
+        let mux = Mux::new_for_test("git-heads", SurfaceOptions::default());
+        let nested_path = nested.to_string_lossy().into_owned();
+        let directories = mux.resolve_tab_directories(vec![(7, nested_path.clone())], true);
+        assert_eq!(
+            directories[&7],
+            TabDirectory {
+                cwd: Some(nested_path.clone()),
+                git_branch: Some("feature/tabs".into()),
+                git_detached: false,
+            }
+        );
+        // Cache-only resolution (used under the state lock) never reads disk.
+        let cached = mux.resolve_tab_directories(vec![(8, nested_path)], false);
+        assert_eq!(cached[&8].git_branch.as_deref(), Some("feature/tabs"));
+        let unknown = mux.resolve_tab_directories(vec![(9, "/nonexistent-cmux".into())], false);
+        assert_eq!(unknown[&9].git_branch, None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

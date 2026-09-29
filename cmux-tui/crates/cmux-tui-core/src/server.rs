@@ -132,6 +132,10 @@ pub const WORKSPACE_GROUPS_CAPABILITY: &str = "workspace-groups-v1";
 /// Durable workspace presentation: `set-workspace-metadata`, the
 /// `color`/`icon`/`title` workspace fields, and `workspace-changed` deltas.
 pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
+/// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
+/// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
+/// `tab-changed` delta.
+pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -236,6 +240,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
+        TAB_METADATA_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1236,6 +1241,11 @@ enum Command {
         surface: SurfaceId,
         pane: PaneId,
         index: usize,
+    },
+    /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
+    SetTabPinned {
+        surface: SurfaceId,
+        pinned: bool,
     },
     MoveTabToWorkspace {
         surface: SurfaceId,
@@ -9964,9 +9974,17 @@ fn pane_json(
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.as_str());
+            let directory = notifications.directories.get(sid);
+            let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
+                notifications.presentation.pinned_tabs.contains(tab.as_str())
+            });
             json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
+                "pinned": pinned,
+                "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
+                "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
+                "git_detached": directory.is_some_and(|directory| directory.git_detached),
                 "content_resource_id": content_resource_id,
                 "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
                 "terminal_resource_id": terminal_resource_id,
@@ -10154,19 +10172,18 @@ pub(crate) fn tree_entity_json(
             .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
             .find(|pane| pane.get("id").and_then(Value::as_u64) == Some(id))
             .cloned(),
-        TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
-            workspaces
-                .iter()
-                .flat_map(|workspace| {
-                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-                })
-                .flat_map(|screen| {
-                    screen.get("panes").and_then(Value::as_array).into_iter().flatten()
-                })
-                .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
-                .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
-                .cloned()
-        }
+        TreeDeltaKind::TabAdded
+        | TreeDeltaKind::TabClosed
+        | TreeDeltaKind::TabRenamed
+        | TreeDeltaKind::TabChanged => workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+            })
+            .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
+            .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
+            .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
+            .cloned(),
     }
 }
 
@@ -12580,8 +12597,19 @@ fn handle_command_with_cancellation(
             if !valid {
                 anyhow::bail!("unknown surface/pane");
             }
+            let index = mux.pinned_tab_move_index(surface, pane, index);
             mux.move_tab(surface, pane, index);
             Ok(json!({}))
+        }
+        Command::SetTabPinned { surface, pinned } => {
+            get_surface(mux, surface)?;
+            let change = mux.set_tab_pinned(surface, pinned)?;
+            Ok(json!({
+                "surface": surface,
+                "pinned": pinned,
+                "index": change.index,
+                "changed": change.changed,
+            }))
         }
         Command::MoveWorkspace { workspace, key, index, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
@@ -21242,6 +21270,35 @@ mod tests {
                 json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":"NOT/AN ICON"}),
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_set_tab_pinned_reports_pinned_first_order_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TAB_METADATA_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let pinned =
+            run_json_command(&mux, json!({"cmd":"set-tab-pinned","surface":second,"pinned":true}))
+                .unwrap();
+        assert_eq!(pinned["index"], 0);
+        assert_eq!(pinned["changed"], true);
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let tabs = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap();
+        assert_eq!(tabs[0]["surface"], second);
+        assert_eq!(tabs[0]["pinned"], true);
+        assert_eq!(tabs[1]["pinned"], false);
+        assert!(tabs[1].get("cwd").is_some());
+        assert!(tabs[1].get("git_branch").is_some());
+        // move-tab clamps an unpinned tab behind the pinned run.
+        run_json_command(&mux, json!({"cmd":"move-tab","surface":first,"pane":pane,"index":0}))
+            .unwrap();
+        assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.clone()), vec![second, first]);
+        assert!(
+            run_json_command(&mux, json!({"cmd":"set-tab-pinned","surface":999999,"pinned":true}))
+                .is_err()
         );
     }
 

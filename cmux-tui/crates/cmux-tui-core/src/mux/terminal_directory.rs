@@ -75,6 +75,7 @@ impl Mux {
         drop(state);
         drop(registry);
         self.publish_resource_event();
+        self.emit_terminal_tabs_changed(id);
         Ok(true)
     }
 

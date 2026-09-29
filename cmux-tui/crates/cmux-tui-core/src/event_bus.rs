@@ -189,9 +189,10 @@ impl SurfaceSessionScope {
 
     fn accepts_tree_delta(&mut self, delta: &TreeDelta) -> bool {
         let relevant = match delta.kind {
-            TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
-                delta.surface == Some(self.surface)
-            }
+            TreeDeltaKind::TabAdded
+            | TreeDeltaKind::TabClosed
+            | TreeDeltaKind::TabRenamed
+            | TreeDeltaKind::TabChanged => delta.surface == Some(self.surface),
             TreeDeltaKind::PaneClosed => delta.pane == Some(self.pane),
             TreeDeltaKind::ScreenClosed => delta.screen == Some(self.screen),
             TreeDeltaKind::WorkspaceClosed => delta.workspace == self.workspace,

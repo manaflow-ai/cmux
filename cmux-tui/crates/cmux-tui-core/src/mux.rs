@@ -9,7 +9,7 @@ mod resource_topology;
 mod terminal_directory;
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
-pub use presentation::{TreeDecorations, WorkspaceGroupChange};
+pub use presentation::{TabDirectory, TabPinChange, TreeDecorations, WorkspaceGroupChange};
 pub(crate) use resource_content::ResourceEffectProjection;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
@@ -1014,6 +1014,9 @@ pub enum TreeDeltaKind {
     TabAdded,
     TabClosed,
     TabRenamed,
+    /// Tab metadata (pinned flag, directory, git HEAD, unread marker)
+    /// changed.
+    TabChanged,
 }
 
 impl TreeDeltaKind {
@@ -1032,6 +1035,7 @@ impl TreeDeltaKind {
             Self::TabAdded => "tab-added",
             Self::TabClosed => "tab-closed",
             Self::TabRenamed => "tab-renamed",
+            Self::TabChanged => "tab-changed",
         }
     }
 }
@@ -2535,6 +2539,8 @@ pub struct Mux {
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
+    /// Git HEAD lookups keyed by directory, with the time they were read.
+    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -2951,6 +2957,7 @@ impl Mux {
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
             presentation: Mutex::new(Arc::new(presentation)),
+            git_heads: Mutex::new(HashMap::new()),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,

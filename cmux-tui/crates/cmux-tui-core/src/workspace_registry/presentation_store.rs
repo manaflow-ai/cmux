@@ -15,7 +15,7 @@
 //! The materialized table is authoritative for restoration, so a restore
 //! preview never counts these records as unsupported required state.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -48,6 +48,10 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            color TEXT,
            icon TEXT,
            title TEXT
+         );
+         CREATE TABLE IF NOT EXISTS tab_presentation (
+           tab_id TEXT PRIMARY KEY NOT NULL,
+           pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))
          );",
     )?;
     Ok(())
@@ -128,6 +132,8 @@ pub struct PresentationSnapshot {
     pub groups: Vec<WorkspaceGroupRecord>,
     /// Keyed by the stable workspace key.
     pub workspaces: HashMap<String, WorkspacePresentationRecord>,
+    /// Public ids (`tab_...`) of pinned live tabs.
+    pub pinned_tabs: HashSet<String>,
 }
 
 impl PresentationSnapshot {
@@ -431,7 +437,16 @@ impl WorkspaceRegistry {
                 workspaces.insert(key, record);
             }
         }
-        Ok(PresentationSnapshot { groups, workspaces })
+        let pinned_tabs = self
+            .connection
+            .prepare(
+                "SELECT p.tab_id FROM tab_presentation AS p
+                 JOIN resource_tabs AS t ON t.public_id = p.tab_id
+                 WHERE p.pinned = 1 AND t.deleted_revision IS NULL",
+            )?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<HashSet<_>, _>>()?;
+        Ok(PresentationSnapshot { groups, workspaces, pinned_tabs })
     }
 
     /// Create a group at `index` (default: last). Creating an id that
@@ -584,5 +599,58 @@ impl WorkspaceRegistry {
         }
         tx.commit()?;
         Ok(new_index)
+    }
+
+    /// Store a tab placement's pinned flag, keyed by its public tab id.
+    /// Rows of closed tabs are pruned on the way. Returns whether the flag
+    /// changed.
+    pub fn set_tab_pinned(&mut self, tab_id: &str, pinned: bool) -> anyhow::Result<bool> {
+        anyhow::ensure!(
+            tab_id.starts_with("tab_") && tab_id.len() <= 64,
+            "bad request: invalid tab id {tab_id}"
+        );
+        let tx = self.connection.transaction()?;
+        let live = tx
+            .query_row(
+                "SELECT 1 FROM resource_tabs WHERE public_id = ?1 AND deleted_revision IS NULL",
+                [tab_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        anyhow::ensure!(live, "unknown tab {tab_id}");
+        let current = tx
+            .query_row("SELECT pinned FROM tab_presentation WHERE tab_id = ?1", [tab_id], |row| {
+                row.get::<_, i64>(0)
+            })
+            .optional()?
+            .is_some_and(|value| value != 0);
+        tx.execute(
+            "DELETE FROM tab_presentation WHERE tab_id NOT IN (
+               SELECT public_id FROM resource_tabs WHERE deleted_revision IS NULL
+             )",
+            [],
+        )?;
+        if current == pinned {
+            tx.commit()?;
+            return Ok(false);
+        }
+        if pinned {
+            tx.execute(
+                "INSERT INTO tab_presentation(tab_id, pinned) VALUES(?1, 1)
+                 ON CONFLICT(tab_id) DO UPDATE SET pinned = 1",
+                [tab_id],
+            )?;
+        } else {
+            tx.execute("DELETE FROM tab_presentation WHERE tab_id = ?1", [tab_id])?;
+        }
+        append_presentation_record(
+            &tx,
+            "tab.presentation.updated",
+            vec![JournalSubject { kind: "tab".into(), id: tab_id.to_string() }],
+            &json!({"tab_id": tab_id, "pinned": pinned}),
+        )?;
+        tx.commit()?;
+        Ok(true)
     }
 }

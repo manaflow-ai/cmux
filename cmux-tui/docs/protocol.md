@@ -110,6 +110,13 @@ custom `title` on every workspace. `set-workspace-metadata` treats an absent
 field as unchanged and `null` as clear, commits one workspace-registry
 revision, and emits `workspace-changed` with the full workspace entity.
 
+`tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
+every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
+`move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
+OSC 7 (or the launch directory) and reads the repository's HEAD on the host
+that owns the PTY, so remote daemons report their own branches. `tab-changed`
+delivers the refreshed tab after a pin or directory change.
+
 Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
 ```json

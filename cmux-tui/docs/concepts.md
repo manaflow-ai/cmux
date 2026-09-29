@@ -44,6 +44,11 @@ A terminal resource wraps one child process connected to one pseudo-terminal, it
 
 `rename-tab` sets the placement-local name. Empty tab names clear the custom name and fall back to the generated tab label. The old config key `rename-pane` is still accepted as an alias for the `rename-tab` key binding, but the UI rename action targets the tab placement, not the pane object.
 
+A tab placement can be pinned. Pinned tabs sort first in their pane for
+every frontend, and the flag follows the tab across panes and restarts. Each
+PTY tab also reports its working directory and the git branch of the
+repository containing it, read on the machine that runs the terminal.
+
 Pane names still exist in the control socket through `rename-pane`. They are separate from the tab labels shown in the TUI.
 
 ## Automatic Layout
