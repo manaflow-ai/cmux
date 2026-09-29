@@ -339,6 +339,27 @@ def key(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def contract_differences(sealed, wanted, prefix=""):
+    """The dotted contract fields where a sealed receipt and this job differ.
+
+    Only names: a receipt found under this job's key but sealed with another
+    contract means the producer's contract changed between naming its artifact
+    and sealing it, and the field says which input moved.
+    """
+    if not isinstance(sealed, dict) or not isinstance(wanted, dict):
+        return [prefix or "contract"]
+    fields = []
+    for name in sorted(set(sealed) | set(wanted)):
+        path = f"{prefix}{name}"
+        if sealed.get(name) == wanted.get(name):
+            continue
+        if isinstance(sealed.get(name), dict) and isinstance(wanted.get(name), dict):
+            fields.extend(contract_differences(sealed[name], wanted[name], f"{path}."))
+        else:
+            fields.append(path)
+    return fields or [prefix or "contract"]
+
+
 def github_product_identity(api, revision):
     """Recompute one revision's product identity from GitHub-owned Git objects."""
     cache = getattr(api, "_product_identity_cache", None)
@@ -1036,10 +1057,12 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
             root = staging / "Build/Products"
             try:
                 receipt = json.loads((root / RECEIPT).read_text())
-                if (receipt["contract"] != value
-                        or receipt["run_id"] != str(run["id"])
+                if receipt["contract"] != value:
+                    raise ValueError("artifact producer contract mismatch in "
+                                     + ", ".join(contract_differences(receipt["contract"], value)))
+                if (receipt["run_id"] != str(run["id"])
                         or receipt["run_attempt"] != str(run["run_attempt"])):
-                    raise ValueError("artifact producer contract mismatch")
+                    raise ValueError("artifact producer run mismatch")
                 # Bind the candidate-authored receipt back to a GitHub-attested
                 # producer revision, re-fingerprinting whatever it names.
                 revision = receipt["revision"]
@@ -1059,7 +1082,12 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                 # Relocate once more from staging into the actual consumer location.
                 products.stamp(staging, current_identity)
             except (TypeError, AttributeError, ValueError, KeyError, OSError,
-                    subprocess.SubprocessError):
+                    subprocess.SubprocessError) as error:
+                # The reason alone cannot tell a stale receipt from a relocation
+                # or disk fault, and every candidate records it once; name the
+                # artifact and the check that refused it.
+                print(f"Compiled-product reuse refused artifact {artifact.get('id')} of run "
+                      f"{run.get('id')}: {type(error).__name__}: {str(error)[:300]}")
                 record_reason(reasons, "product_provenance_invalid")
                 continue
 
