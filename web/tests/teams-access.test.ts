@@ -130,7 +130,7 @@ describe("loadTeamDetail", () => {
       expect.objectContaining({ email: "new@example.com", role: "admin" }),
     ]);
     expect(adminView.links).toHaveLength(1);
-    expect(adminView.billing).toEqual({ planId: null, seats: null, memberCount: 2, hasActiveSubscription: true });
+    expect(adminView.billing).toEqual({ planId: null, seats: null, memberLimit: null, memberCount: 2, hasActiveSubscription: true });
     expect(adminView.members.find((member) => member.userId === ADMIN_ID)?.role).toBe("admin");
   });
 
