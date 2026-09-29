@@ -31,7 +31,7 @@ User decisions 2026-09-28:
 - D4: Cloud and iOS must keep working seamlessly. They may be rewritten so both ride cmux-tui (Cloud VMs already run the daemon; iOS should attach to the same daemon tree).
 - Deployment target macOS 26 for cmux-next (flagged: appcast needs minimumSystemVersion before any release).
 
-Design docs: cmux-tui-contract.md, inventory.md, browser.md, shell.md.
+Design docs: architecture.md (state ownership, AppKit, RAM/CPU budgets, Chrome tab group parity; binding for every agent), cmux-tui-contract.md, inventory.md, browser.md, shell.md, cloud-ios.md.
 
 ## Status
 
