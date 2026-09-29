@@ -17,6 +17,9 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     var stopAttempts: [Bool] = []
     private var installDelayTask: Task<Void, Never>?
     private var installWasCancelled = false
+    private let installCompletion = TestSignal()
+    private let cancellation = TestSignal()
+    private let stopCompletion = TestSignal()
     private(set) var cancelPendingOperationCount = 0
     private(set) var activeOperations = 0
     private(set) var maxConcurrentOperations = 0
@@ -50,6 +53,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
             try Task.checkCancellation()
         }
         installed.append((configuration, scope))
+        await installCompletion.signal()
         phase = phaseAfterStart
         onPhaseChange?(phase)
     }
@@ -59,6 +63,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         installWasCancelled = true
         installDelayTask?.cancel()
         phase = .off
+        Task { await cancellation.signal() }
     }
 
     func stop(removeConfiguration: Bool) async throws {
@@ -70,7 +75,20 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
             throw CloudSystemVPNError.configuration
         }
         stops.append(removeConfiguration)
+        await stopCompletion.signal()
         phase = phaseAfterStop
+    }
+
+    func waitForInstallCompletion() async {
+        await installCompletion.wait()
+    }
+
+    func waitForCancellation() async {
+        await cancellation.wait()
+    }
+
+    func waitForStopCompletion() async {
+        await stopCompletion.wait()
     }
 
     private func beginOperation() {
@@ -109,6 +127,19 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
                 operationTimeout: operationTimeout,
                 cleanupRetryCount: cleanupRetryCount
             )
+        }
+
+        @MainActor
+        func waitForPhase(_ expected: CloudSystemVPNPhase) async {
+            while controller.phase != expected {
+                await withCheckedContinuation { continuation in
+                    withObservationTracking {
+                        _ = controller.phase
+                    } onChange: {
+                        continuation.resume()
+                    }
+                }
+            }
         }
     }
 
@@ -228,7 +259,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.controller.phase == .failed(.configuration))
 
         rig.controller.enable()
-        try? await Task.sleep(for: .milliseconds(500))
+        await rig.manager.waitForCancellation()
         await rig.controller.waitForPendingOperation()
 
         #expect(rig.manager.cancelPendingOperationCount == 1)
@@ -248,7 +279,8 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         rig.controller.enable()
         #expect(rig.service.calls.enroll.count == 1)
 
-        try? await Task.sleep(for: .milliseconds(300))
+        await rig.manager.waitForInstallCompletion()
+        await rig.waitForPhase(.failed(.configuration))
         #expect(rig.manager.installed.count == 1)
         #expect(rig.controller.phase == .failed(.configuration))
     }
@@ -265,7 +297,9 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         rig.controller.enable()
         #expect(rig.service.calls.enroll.count == 1)
 
-        try? await Task.sleep(for: .milliseconds(300))
+        await rig.service.waitForEnrollmentCompletion()
+        await rig.manager.waitForInstallCompletion()
+        await rig.waitForPhase(.failed(.configuration))
         #expect(rig.manager.installed.count == 1)
         #expect(rig.controller.phase == .failed(.configuration))
     }
@@ -295,7 +329,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         await rig.controller.waitForPendingOperation()
         #expect(rig.controller.phase == .connecting)
 
-        try? await Task.sleep(for: .milliseconds(100))
+        await rig.waitForPhase(.failed(.configuration))
         #expect(rig.controller.phase == .failed(.configuration))
     }
 
@@ -311,7 +345,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         await rig.controller.waitForPendingOperation()
         #expect(rig.controller.phase == .disconnecting)
 
-        try? await Task.sleep(for: .milliseconds(100))
+        await rig.waitForPhase(.failed(.configuration))
         #expect(rig.controller.phase == .failed(.configuration))
     }
 
@@ -331,7 +365,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.manager.stops.isEmpty)
         #expect(rig.controller.phase == .failed(.configuration))
 
-        try? await Task.sleep(for: .milliseconds(450))
+        await rig.manager.waitForCancellation()
         rig.controller.disable()
         await rig.controller.waitForPendingOperation()
 
@@ -353,7 +387,8 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         await rig.controller.waitForPendingOperation()
         #expect(rig.manager.stops.isEmpty)
 
-        try? await Task.sleep(for: .milliseconds(450))
+        await rig.manager.waitForStopCompletion()
+        await rig.waitForPhase(.off)
         #expect(rig.manager.stops == [true])
         #expect(rig.controller.phase == .off)
     }

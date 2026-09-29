@@ -2,6 +2,30 @@ import Foundation
 import os
 @testable import CmuxMobileCloud
 
+actor TestSignal {
+    private var pendingSignals = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func signal() {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume()
+        } else {
+            pendingSignals += 1
+        }
+    }
+
+    func wait() async {
+        if pendingSignals > 0 {
+            pendingSignals -= 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
 /// Scripted control plane.
 final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     struct Calls: Sendable {
@@ -22,6 +46,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     var creation: Result<CloudMachine, any Error> = .success(CloudMachine(id: "vm-created", provider: "freestyle", status: "starting"))
     var enrollment: Result<CloudTunnelEnrollment, any Error> = .success(Fixtures.enrollment)
     var enrollmentDelay: Duration?
+    private let enrollmentCompletion = TestSignal()
     var attach: Result<CloudAttachEndpoint, any Error> = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
     var approvals: [Bool] = [true]
     /// Thrown by pause, resume and delete when set.
@@ -42,7 +67,12 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         if let enrollmentDelay {
             try? await ContinuousClock().sleep(for: enrollmentDelay)
         }
+        await enrollmentCompletion.signal()
         return try enrollment.get()
+    }
+
+    func waitForEnrollmentCompletion() async {
+        await enrollmentCompletion.wait()
     }
 
     func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {
