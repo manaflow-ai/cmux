@@ -347,7 +347,7 @@ struct MobilePasteboardReader: Sendable {
     /// replaced) and the result must still sit in the wrapper, which is also
     /// what ``cleanUp(_:)`` assumes when it removes the parent directory.
     private func destination(in wrapper: URL, name: String) -> URL? {
-        let fileName = MobileAttachmentFileName.sanitized(name) ?? UUID().uuidString
+        let fileName = MobileAttachmentFileName(name)?.value ?? UUID().uuidString
         let destination = wrapper.appendingPathComponent(fileName).standardizedFileURL
         guard destination.deletingLastPathComponent().path
             == wrapper.standardizedFileURL.path else {
