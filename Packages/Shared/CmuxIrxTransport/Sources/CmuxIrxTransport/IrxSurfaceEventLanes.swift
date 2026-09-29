@@ -221,16 +221,22 @@ public actor IrxSurfaceEventLanes {
             pendingOpenCount -= 1
             throw error
         }
-        pendingOpenCount -= 1
         guard case .operation(let opened?) = result else {
+            // The native open ignores cancellation and may still consume the
+            // peer's stream credit after our deadline. Keep the slot reserved
+            // until that late stream returns and is reset; otherwise each
+            // timeout can launch another native open and recreate credit
+            // exhaustion.
             Task {
                 if let late = try? await openTask.value {
                     await late.reset(errorCode: Self.supersededResetCode)
                 }
+                await self.pendingOpenFinished()
             }
             journal?.record("host-surface-lanes", "open-timed-out", ["surface": surfaceID])
             throw LaneError.openTimedOut
         }
+        pendingOpenCount -= 1
         guard isEnabled else {
             await opened.reset(errorCode: Self.supersededResetCode)
             throw LaneError.disabled
@@ -263,6 +269,10 @@ public actor IrxSurfaceEventLanes {
             ["surface": surfaceID, "priority": String(priority), "open": String(lanes.count)]
         )
         return lane
+    }
+
+    private func pendingOpenFinished() {
+        pendingOpenCount = max(0, pendingOpenCount - 1)
     }
 
     private func retire(surfaceID: String, token: UInt64, errorCode: UInt64) {

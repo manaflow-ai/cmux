@@ -1480,6 +1480,10 @@ actor MobileHostConnection {
     /// Last surface this connection wrote terminal input to; its output lane
     /// is scheduled first so keystroke echo never waits behind other surfaces.
     private var lastInteractiveSurfaceKey: String?
+    /// Monotonic owner for serialized focus transitions. Actor reentrancy can
+    /// suspend one writer hop while a newer focus arrives; stale continuations
+    /// must not apply priority after the newer transition commits.
+    private var focusTransitionGeneration: UInt64 = 0
     private var didDecodeFirstFrame = false
     private var isClosed = false
     private var exit = CmxIrohAdmittedConnectionExit(
@@ -2522,7 +2526,12 @@ actor MobileHostConnection {
             }
             await independentEventWriter.setSurfaceEventLanesEnabled(true)
             if let focusedSurfaceKey = lastInteractiveSurfaceKey {
-                await focusSurfaceLane(focusedSurfaceKey, writer: independentEventWriter)
+                focusTransitionGeneration &+= 1
+                await focusSurfaceLane(
+                    focusedSurfaceKey,
+                    writer: independentEventWriter,
+                    transitionGeneration: focusTransitionGeneration
+                )
             }
         } else {
             let resync = eventQueue.disableSurfaceLanes()
@@ -2542,13 +2551,20 @@ actor MobileHostConnection {
         let surfaceKey = MobileHostConnectionEventQueue.canonicalSurfaceKey(rawSurfaceKey)
         guard !surfaceKey.isEmpty, lastInteractiveSurfaceKey != surfaceKey else { return }
         lastInteractiveSurfaceKey = surfaceKey
+        focusTransitionGeneration &+= 1
+        let transitionGeneration = focusTransitionGeneration
         guard surfaceEventLanesActive, let independentEventWriter else { return }
-        await focusSurfaceLane(surfaceKey, writer: independentEventWriter)
+        await focusSurfaceLane(
+            surfaceKey,
+            writer: independentEventWriter,
+            transitionGeneration: transitionGeneration
+        )
     }
 
     private func focusSurfaceLane(
         _ surfaceKey: String,
-        writer: any MobileHostIndependentEventWriting
+        writer: any MobileHostIndependentEventWriting,
+        transitionGeneration: UInt64
     ) async {
         let released = eventQueue.focusSurfaceLane(surfaceKey)
         if !released.isEmpty {
@@ -2557,6 +2573,7 @@ actor MobileHostConnection {
             )
             await writer.releaseSurfaceLanes(released)
         }
+        guard transitionGeneration == focusTransitionGeneration else { return }
         await writer.noteInteractiveSurface(surfaceKey)
     }
 

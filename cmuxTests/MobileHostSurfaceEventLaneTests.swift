@@ -158,6 +158,47 @@ struct MobileHostSurfaceEventLaneTests {
         await session.close(reason: "test complete")
     }
 
+    @Test func staleFocusContinuationCannotReprioritizeAfterANewerFocus() async throws {
+        let writer = FocusOrderingIndependentEventWriter()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: RecordingMobileHostByteTransport(),
+            independentEventWriter: writer,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        _ = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "s",
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": "events",
+                    "topics": ["terminal.render_grid"],
+                    "event_transport": "iroh_server_events_v1",
+                    "surface_event_lanes": "v1",
+                ],
+                auth: nil
+            )
+        )
+        await session.noteInteractiveSurface("surface-x")
+        #expect(await session.sendEvent(
+            topic: "terminal.render_grid",
+            payload: ["surface_id": "surface-x", "full": true]
+        ))
+
+        let first = Task { await session.noteInteractiveSurface("surface-a") }
+        #expect(try await waitUntil { await writer.isReleaseBlocked })
+        let second = Task { await session.noteInteractiveSurface("surface-b") }
+        await writer.releaseBlockedOperation()
+        await first.value
+        await second.value
+
+        #expect(await writer.notes() == ["surface-x", "surface-b"])
+        await session.close(reason: "test complete")
+    }
+
     @Test func surfaceLaneFallbackToControlRebasesEachSurfaceWithAFullFrame() {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid"])
@@ -353,4 +394,38 @@ actor SurfaceGatedIndependentEventWriter: MobileHostIndependentEventWriting {
               let body = envelope["payload"] as? [String: Any] else { return nil }
         return body["surface_id"] as? String
     }
+}
+
+/// Blocks one released-lane operation so two connection-owned focus
+/// transitions can re-enter the actor at the writer await boundary.
+actor FocusOrderingIndependentEventWriter: MobileHostIndependentEventWriting {
+    nonisolated let maximumSurfaceEventLaneCount = 1
+    private var blockNextRelease = true
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+    private var recordedNotes: [String] = []
+
+    func probe(_: Data) async -> Bool { true }
+    func send(_: Data) async throws {}
+    func reset() async {}
+    func close() async {}
+
+    func sendSurfaceEvent(
+        _: Data,
+        surfaceID _: String,
+        generation _: UInt64
+    ) async throws {}
+
+    func releaseSurfaceLanes(_ generationsBySurfaceID: [String: UInt64]) async {
+        guard blockNextRelease, !generationsBySurfaceID.isEmpty else { return }
+        blockNextRelease = false
+        await withCheckedContinuation { releaseWaiter = $0 }
+    }
+
+    func noteInteractiveSurface(_ surfaceID: String) async {
+        recordedNotes.append(surfaceID)
+    }
+
+    var isReleaseBlocked: Bool { releaseWaiter != nil }
+    func releaseBlockedOperation() { releaseWaiter?.resume(); releaseWaiter = nil }
+    func notes() -> [String] { recordedNotes }
 }

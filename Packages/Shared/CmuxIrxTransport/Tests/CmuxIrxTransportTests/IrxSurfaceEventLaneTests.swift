@@ -161,11 +161,14 @@ private actor FakeLaneOpener {
 private actor PendingLaneOpener {
     private var pending: [CheckedContinuation<Void, Never>] = []
     private(set) var openCount = 0
+    private(set) var opened: [FakeEventLaneWriter] = []
 
     func open(_ descriptor: IrxLaneDescriptor) async -> any IrxEventLaneWriting {
         openCount += 1
         await withCheckedContinuation { pending.append($0) }
-        return FakeEventLaneWriter(descriptor: descriptor, blocked: false)
+        let writer = FakeEventLaneWriter(descriptor: descriptor, blocked: false)
+        opened.append(writer)
+        return writer
     }
 
     func releaseAll() {
@@ -545,6 +548,50 @@ struct IrxSurfaceEventLanesTests {
         await opener.releaseAll()
         #expect(await old.value == .failed(.released))
         #expect(await newer.value == .completed)
+        await lanes.closeAll()
+    }
+
+    @Test func timedOutOpenKeepsItsReservedSlotUntilLateNativeOpenRetires() async throws {
+        let opener = PendingLaneOpener()
+        let lanes = makeLanes(
+            opener,
+            configuration: .init(maximumLaneCount: 1, openDeadline: .milliseconds(20))
+        )
+        let timedOut = Task<SurfaceLaneSendOutcome, Never> {
+            do {
+                try await lanes.send(frame("timed-out"), surfaceID: "surface", generation: 0)
+                return .completed
+            } catch let error as IrxSurfaceEventLanes.LaneError {
+                return .failed(error)
+            } catch {
+                return .failed(.openTimedOut)
+            }
+        }
+        #expect(try await waitUntil { await opener.openCount == 1 })
+        #expect(await timedOut.value == .failed(.openTimedOut))
+        await #expect(throws: IrxSurfaceEventLanes.LaneError.laneLimit) {
+            try await lanes.send(frame("retry"), surfaceID: "surface", generation: 1)
+        }
+
+        await opener.releaseAll()
+        #expect(try await waitUntil {
+            guard let writer = await opener.opened.first else { return false }
+            return await writer.resetCodes == [IrxSurfaceEventLanes.supersededResetCode]
+        })
+
+        let recovered = Task<SurfaceLaneSendOutcome, Never> {
+            do {
+                try await lanes.send(frame("recovered"), surfaceID: "surface", generation: 1)
+                return .completed
+            } catch let error as IrxSurfaceEventLanes.LaneError {
+                return .failed(error)
+            } catch {
+                return .failed(.laneLimit)
+            }
+        }
+        #expect(try await waitUntil { await opener.openCount == 2 })
+        await opener.releaseAll()
+        #expect(await recovered.value == .completed)
         await lanes.closeAll()
     }
 
