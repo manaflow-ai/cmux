@@ -60,10 +60,14 @@ public protocol TerminalSessionDelegate: AnyObject {
     func terminalSessionDidRingBell(_ session: TerminalSession)
     /// Ghostty asked to close the surface (for example `close_surface`).
     func terminalSessionDidRequestClose(_ session: TerminalSession)
+    /// Right-click menu for the terminal. Nil shows the built-in
+    /// Copy/Paste/Select All menu.
+    func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu?
 }
 
 public extension TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool { false }
+    func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? { nil }
     func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String) {}
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
         NSWorkspace.shared.open(url)

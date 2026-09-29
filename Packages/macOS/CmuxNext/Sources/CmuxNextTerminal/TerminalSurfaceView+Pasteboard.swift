@@ -109,6 +109,7 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     }
 
     public override func menu(for event: NSEvent) -> NSMenu? {
+        if let session, let menu = session.delegate?.terminalSession(session, contextMenuFor: event) { return menu }
         let menu = NSMenu()
         if hasSelection {
             menu.addItem(withTitle: String(localized: "terminal.menu.copy", defaultValue: "Copy", bundle: .module), action: #selector(copy(_:)), keyEquivalent: "")

@@ -52,6 +52,33 @@ struct TerminalHostActionTests {
         #expect(recorder.runs.map(\.0) == table.map(\.1))
     }
 
+    @Test func terminalRightClickSplitsTheClickedTerminal() throws {
+        let (services, tab, recorder) = try Self.services(recording: ["splitDown"])
+        let session = services.cache.terminal(for: tab).session
+        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        let menu = try #require(session.delegate?.terminalSession(session, contextMenuFor: event))
+        let index = try #require(menu.items.firstIndex { $0.title == "Split Down" })
+        menu.performActionForItem(at: index)
+        #expect(recorder.runs.map(\.0) == ["splitDown"])
+        #expect(recorder.runs.first?.1 == ActionTargetRef(kind: .tab, id: tab.id))
+    }
+
+    @Test func windowRoutesSplitShortcutsToTheRegistry() throws {
+        let (services, _, recorder) = try Self.services(recording: ["splitRight", "splitDown"])
+        let window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled],
+                                 backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.registry = services.registry
+        for (characters, flags) in [("d", NSEvent.ModifierFlags.command), ("D", [.command, .shift])] {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 1,
+                                                      windowNumber: window.windowNumber, context: nil, characters: characters,
+                                                      charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 2))
+            #expect(window.performKeyEquivalent(with: event))
+        }
+        #expect(recorder.runs.map(\.0) == ["splitRight", "splitDown"])
+    }
+
     @Test func terminalRightClickOffersSplits() {
         let ids = ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: .terminalSelection))
         for id: ActionID in ["splitRight", "splitDown", "splitLeft", "splitUp"] {
