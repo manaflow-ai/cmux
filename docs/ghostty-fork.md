@@ -24,8 +24,11 @@ When we change the fork, update this document and the parent submodule SHA.
 - Summary: a full-width background row is terminal content for VT and HTML
   formatting even when none of its cells contains text. Emitting that row
   keeps Cloud Codex's grey composer band aligned with the header, prompt, and
-  status after replay. The #241 implementation remains the sole owner of the
-  trailing-row delimiter state.
+  status after replay. The same rule applies to copy-as-HTML output, and the
+  emitted spaces consume more replay budget, so a fully background-painted
+  TUI may retain less scrollback while the visible viewport remains intact.
+  The #241 implementation remains the sole owner of the trailing-row delimiter
+  state.
 - Coverage: Ghostty's `Page VT preserves a fully styled blank row`, cmux-tui's
   `vt_replay_preserves_blank_tail_after_history`,
   `vt_replay_preserves_codex_composer_before_incremental_redraw`, and the
