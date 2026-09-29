@@ -715,5 +715,17 @@
     "arguments": [
       1
     ]
+  },
+  "fileSearch.status.fileCount": {
+    "source": "%lld files",
+    "arguments": [
+      1
+    ]
+  },
+  "fileSearch.status.resultCount": {
+    "source": "%lld results",
+    "arguments": [
+      1
+    ]
   }
 }

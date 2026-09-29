@@ -5,12 +5,27 @@ import Foundation
 enum FileSearchStatusText {
     /// "12 results" (one match is one result, as in VS Code).
     static func resultCount(_ count: Int) -> String {
-        String(localized: "fileSearch.status.resultCount", defaultValue: "\(count) results")
+        String(
+            format: String(localized: "fileSearch.status.resultCount", defaultValue: "%lld results"),
+            Int64(count)
+        )
+    }
+
+    /// "3 files".
+    static func fileCount(_ count: Int) -> String {
+        String(
+            format: String(localized: "fileSearch.status.fileCount", defaultValue: "%lld files"),
+            Int64(count)
+        )
     }
 
     /// "12 results in 3 files".
     static func summary(results: Int, files: Int) -> String {
-        String(localized: "fileSearch.status.summary", defaultValue: "\(results) results in \(files) files")
+        String(
+            format: String(localized: "fileSearch.status.summary", defaultValue: "%1$@ in %2$@"),
+            resultCount(results),
+            fileCount(files)
+        )
     }
 
     /// The status line for the current search state. `nil` hides it.

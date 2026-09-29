@@ -80,11 +80,10 @@ final class FileSearchFileCellView: NSTableCellView {
         countLabel.setCount(file.matches.count)
         iconView.image = Self.icon(forFileName: name)
         toolTip = file.path
-        setAccessibilityLabel(String(
-            format: String(localized: "fileSearch.fileRow.accessibility", defaultValue: "%@, %@"),
+        setAccessibilityLabel(ListFormatter.localizedString(byJoining: [
             file.relativePath,
-            FileSearchStatusText.resultCount(file.matches.count)
-        ))
+            FileSearchStatusText.resultCount(file.matches.count),
+        ]))
     }
 
     /// File-type icons keyed by extension. Remote paths have no local file,
@@ -172,8 +171,8 @@ final class FileSearchMatchCellView: NSTableCellView {
         previewLabel.attributedStringValue = Self.attributedPreview(for: match)
         toolTip = "\(node.file.relativePath):\(match.lineNumber):\(match.column)"
         setAccessibilityLabel(String(
-            format: String(localized: "fileSearch.matchRow.accessibility", defaultValue: "Line %1$lld: %2$@"),
-            Int64(match.lineNumber),
+            format: String(localized: "fileSearch.matchRow.accessibility", defaultValue: "Line %1$@: %2$@"),
+            String(match.lineNumber),
             match.preview
         ))
     }
