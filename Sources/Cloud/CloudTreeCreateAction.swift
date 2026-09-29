@@ -10,7 +10,7 @@ enum CloudTreeCreateAction: Equatable {
     var title: String {
         switch self {
         case .newCloudVM:
-            return String(localized: "command.cloudVM.new.title", defaultValue: "New Cloud VM")
+            return String(localized: "cloudTree.action.newCloudMachine", defaultValue: "New Cloud Machine")
         case .newWorkspace:
             return String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")
         }
@@ -68,7 +68,11 @@ struct CloudTreeCreateActionView: View {
             action.perform(nodeActions)
         } label: {
             CloudTreeCreateActionLabel(action: action, style: style)
-                .padding(.horizontal, 6)
+                // Keep the glyph in the same leading icon slot as the owning
+                // category. The normal tree rows do not have a leading button
+                // inset; only the trailing edge needs breathing room for the
+                // action background.
+                .padding(.trailing, 6)
                 .frame(maxWidth: .infinity, minHeight: style.rowHeight, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 4, style: .continuous)

@@ -23,7 +23,7 @@ struct CloudTreeCategoryCreateActionTests {
         let action = try #require(section.children.last)
         #expect(action.kind == .createAction(.newCloudVM))
         #expect(fixture.row(for: action) >= 0)
-        #expect(try fixture.cell(for: action).accessibilityLabel() == "New Cloud VM")
+        #expect(try fixture.cell(for: action).accessibilityLabel() == "New Cloud Machine")
         #expect(try fixture.createHost(for: action).passesThrough == false)
     }
 
