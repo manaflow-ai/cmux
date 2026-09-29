@@ -1,51 +1,5 @@
-import CmuxNextActions
 public import Foundation
 public import Observation
-
-/// Keyboard intents, decoupled from key events so the state machine is
-/// testable without AppKit.
-public enum PaletteKeyCommand: Equatable, Sendable {
-    case moveUp
-    case moveDown
-    case pageUp
-    case pageDown
-    case moveToFirst
-    case moveToLast
-    /// Return: run the primary command (or the selected Actions menu entry).
-    case submit
-    /// Cmd-Return: run the alternate command.
-    case submitAlternate
-    /// Cmd-K.
-    case toggleActions
-    /// Tab.
-    case openActions
-    /// Shift-Tab.
-    case closeActions
-    /// Esc: close the Actions menu, else pop a page, else clear the query,
-    /// else dismiss.
-    case escape
-    /// Backspace in an empty field: pop a page.
-    case back
-    /// Typing while the Actions menu is open filters it.
-    case actionsFilterAppend(String)
-    case actionsFilterDeleteBackward
-}
-
-/// State of the Cmd-K Actions menu for the selected item.
-public struct PaletteActionsMenuState {
-    public let itemID: String
-    public let itemTitle: String
-    public let commands: [PaletteCommand]
-    public var filter: String = ""
-    public var selectedIndex: Int = 0
-
-    /// Commands matching `filter`, in menu order.
-    public var visibleCommands: [PaletteCommand] {
-        let query = filter.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return commands }
-        return commands.filter { FuzzyMatch.score(query, in: $0.title) != nil }
-    }
-}
 
 /// The palette's navigation state machine and view model.
 ///
@@ -436,57 +390,5 @@ public final class PaletteModel {
         selectedRowID = rows[index].id
         current?.selectedRowID = selectedRowID
         if scroll { scrollRequest += 1 }
-    }
-}
-
-/// Per-page state kept on the navigation stack.
-final class PageState {
-    enum Kind {
-        case list(PalettePageSpec)
-        case textInput(PaletteTextInputSpec)
-    }
-
-    let kind: Kind
-    var query = ""
-    var selectedRowID: String?
-    var providerItems: [String: [PaletteItem]] = [:]
-    var pendingProviders = Set<String>()
-    var tasks: [Task<Void, Never>] = []
-    private var cachedIndex: PaletteSearchIndex?
-
-    init(kind: Kind) {
-        self.kind = kind
-    }
-
-    var title: String {
-        switch kind {
-        case .list(let page): page.title
-        case .textInput(let spec): spec.title
-        }
-    }
-
-    func invalidateIndex() {
-        cachedIndex = nil
-    }
-
-    func index(for page: PalettePageSpec) -> PaletteSearchIndex {
-        if let cachedIndex { return cachedIndex }
-        var items: [PaletteItem] = []
-        var visible: [Bool] = []
-        var seen = Set<String>()
-        for provider in page.providers {
-            for item in providerItems[provider.id] ?? [] where seen.insert(item.id).inserted {
-                items.append(item)
-                visible.append(provider.showsItemsForEmptyQuery)
-            }
-        }
-        let index = PaletteSearchIndex(items: items, visibleWhenQueryEmpty: visible)
-        cachedIndex = index
-        return index
-    }
-
-    func cancel() {
-        for task in tasks { task.cancel() }
-        tasks = []
     }
 }

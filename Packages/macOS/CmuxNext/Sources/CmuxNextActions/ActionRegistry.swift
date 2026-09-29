@@ -35,7 +35,7 @@ public final class ActionRegistry {
 
     /// User shortcut overrides (from `cmux.json` `shortcuts`). A stored nil
     /// removes the default shortcut.
-    public private(set) var shortcutOverrides: [ActionID: Shortcut?] = [:] {
+    public internal(set) var shortcutOverrides: [ActionID: Shortcut?] = [:] {
         didSet { shortcutIndex = nil }
     }
 
@@ -43,8 +43,8 @@ public final class ActionRegistry {
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
-    @ObservationIgnored private var descriptorIndexByID: [ActionID: Int] = [:]
-    @ObservationIgnored private var shortcutIndex: ShortcutIndex?
+    @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
+    @ObservationIgnored var shortcutIndex: ShortcutIndex?
 
     /// An empty registry with no catalog.
     public init() {}
@@ -267,122 +267,9 @@ public final class ActionRegistry {
         return best?.id
     }
 
-    // MARK: - Shortcuts
+    @ObservationIgnored lazy var menuTarget = ActionMenuTarget(registry: self)
 
-    /// The shortcut `id` responds to: user override, else the bound action's
-    /// shortcut, else the catalog default.
-    public func effectiveShortcut(for id: ActionID) -> Shortcut? {
-        let id = canonicalID(for: id)
-        if let override = shortcutOverrides[id] { return override }
-        return action(for: id)?.shortcut ?? descriptor(for: id)?.defaultShortcut
-    }
-
-    /// Keycaps to render for `id`, or nil when it has no shortcut. Handles
-    /// labels (vim sequences) and numbered families (`⌘1…9`).
-    public func shortcutKeycaps(for id: ActionID) -> [String]? {
-        let id = canonicalID(for: id)
-        if shortcutOverrides[id] == nil, let label = descriptor(for: id)?.shortcutLabel {
-            return label.split(separator: " ").map(String.init)
-        }
-        guard let shortcut = effectiveShortcut(for: id) else { return nil }
-        if shortcutOverrides[id] == nil, descriptor(for: id)?.shortcutFamily == .digits {
-            return shortcut.modifierGlyphs + ["1…9"]
-        }
-        return shortcut.keycaps
-    }
-
-    /// Compact text for `id`'s shortcut (`⇧⌘P`), or nil.
-    public func shortcutDisplay(for id: ActionID) -> String? {
-        guard let caps = shortcutKeycaps(for: id) else { return nil }
-        let isSequence = shortcutOverrides[canonicalID(for: id)] == nil && descriptor(for: id)?.shortcutLabel != nil
-        return caps.joined(separator: isSequence ? " " : "")
-    }
-
-    /// Sets a user override. Pass nil to remove the shortcut entirely.
-    public func setShortcutOverride(_ shortcut: Shortcut?, for id: ActionID) {
-        shortcutOverrides[canonicalID(for: id)] = .some(shortcut)
-    }
-
-    /// Restores the default shortcut.
-    public func removeShortcutOverride(for id: ActionID) {
-        shortcutOverrides.removeValue(forKey: canonicalID(for: id))
-    }
-
-    /// Groups of actions that claim the same shortcut with the same required
-    /// context, so neither can win. Different contexts are intentional
-    /// overlaps (Cmd-[ is focus back in a terminal and back in a browser).
-    public func shortcutConflicts() -> [[ActionID]] {
-        var groups: [String: [ActionID]] = [:]
-        for descriptor in descriptors {
-            guard let shortcut = effectiveShortcut(for: descriptor.id) else { continue }
-            let key = "\(shortcut.displayString)|\(descriptor.requires.rawValue)|\(descriptor.shortcutFamily == nil)"
-            groups[key, default: []].append(descriptor.id)
-        }
-        return groups.values.filter { $0.count > 1 }.sorted { $0[0].rawValue < $1[0].rawValue }
-    }
-
-    private struct ShortcutIndex {
-        var byShortcut: [Shortcut: [ActionID]] = [:]
-        var digitFamilies: [Shortcut: [ActionID]] = [:]
-    }
-
-    private func currentShortcutIndex() -> ShortcutIndex {
-        if let shortcutIndex { return shortcutIndex }
-        var index = ShortcutIndex()
-        var ids = descriptors.map(\.id)
-        ids += actions.map(\.id).filter { descriptorIndexByID[$0] == nil }
-        for id in ids {
-            guard let shortcut = effectiveShortcut(for: id) else { continue }
-            if shortcutOverrides[id] == nil, descriptor(for: id)?.shortcutFamily == .digits {
-                index.digitFamilies[Shortcut("1", modifiers: shortcut.modifiers), default: []].append(id)
-            } else {
-                index.byShortcut[shortcut, default: []].append(id)
-            }
-        }
-        shortcutIndex = index
-        return index
-    }
-
-    // MARK: - Search and menus
-
-    /// Bound actions ranked for a query. An empty query returns every bound
-    /// action in registration order. The palette uses its own index; this is
-    /// for simple callers such as the debug socket.
-    public func search(_ query: String) -> [Action] {
-        let parsed = FuzzyQuery(query)
-        guard !parsed.isEmpty else { return actions }
-        return actions
-            .compactMap { action -> (Action, Int)? in
-                var fields = [FuzzyField(FuzzyText(title(for: action.id) ?? action.title))]
-                fields += action.keywords.map { FuzzyField(FuzzyText($0), weight: 80) }
-                guard let score = FuzzyMatcher.score(parsed, fields: fields) else { return nil }
-                return (action, score)
-            }
-            .sorted { $0.1 > $1.1 }
-            .map(\.0)
-    }
-
-    /// A menu item that performs `id` and shows its effective shortcut. Nil
-    /// when `id` is neither bound nor in the catalog.
-    public func makeMenuItem(for id: ActionID) -> NSMenuItem? {
-        let id = canonicalID(for: id)
-        guard let title = title(for: id) else { return nil }
-        let shortcut = effectiveShortcut(for: id)
-        let isFamily = descriptor(for: id)?.shortcutFamily != nil
-        let item = NSMenuItem(
-            title: title,
-            action: #selector(ActionMenuTarget.performAction(_:)),
-            keyEquivalent: isFamily ? "" : (shortcut?.key ?? "")
-        )
-        item.keyEquivalentModifierMask = isFamily ? [] : (shortcut?.modifiers ?? [])
-        item.representedObject = id.rawValue
-        item.target = menuTarget
-        return item
-    }
-
-    @ObservationIgnored private lazy var menuTarget = ActionMenuTarget(registry: self)
-
-    private static func synthesizedDescriptor(for action: Action) -> ActionDescriptor {
+    static func synthesizedDescriptor(for action: Action) -> ActionDescriptor {
         ActionDescriptor(
             id: action.id,
             title: action.title,
@@ -390,24 +277,5 @@ public final class ActionRegistry {
             defaultShortcut: action.shortcut,
             category: .other
         )
-    }
-}
-
-/// Objective-C target that forwards menu selections to the registry.
-final class ActionMenuTarget: NSObject, NSMenuItemValidation {
-    private weak var registry: ActionRegistry?
-
-    init(registry: ActionRegistry) {
-        self.registry = registry
-    }
-
-    @objc func performAction(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String else { return }
-        registry?.perform(ActionID(rawValue: raw))
-    }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard let raw = menuItem.representedObject as? String else { return false }
-        return registry?.canPerform(ActionID(rawValue: raw)) ?? false
     }
 }

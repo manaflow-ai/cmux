@@ -18,6 +18,91 @@
         }
       }
     },
+    "action.appearance.density.comfortable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Comfortable Density"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゆったり表示を使用"
+          }
+        }
+      }
+    },
+    "action.appearance.density.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Compact Density"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクト表示を使用"
+          }
+        }
+      }
+    },
+    "action.appearance.interfaceSize.decrease": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrease Interface Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェイスのサイズを小さく"
+          }
+        }
+      }
+    },
+    "action.appearance.interfaceSize.increase": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase Interface Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェイスのサイズを大きく"
+          }
+        }
+      }
+    },
+    "action.appearance.interfaceSize.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Interface Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェイスのサイズをリセット"
+          }
+        }
+      }
+    },
     "action.attachTextBoxFile": {
       "extractionState": "manual",
       "localizations": {
