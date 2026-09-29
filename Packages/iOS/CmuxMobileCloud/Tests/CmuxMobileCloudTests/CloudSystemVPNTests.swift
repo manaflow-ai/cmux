@@ -196,7 +196,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.manager.installed.isEmpty)
     }
 
-    @Test func aReplacementWaitsForTheOriginalPlatformCall() async {
+    @Test func aQueuedReplacementTimesOutAndCanBeRetried() async {
         let rig = Rig(operationTimeout: .milliseconds(100))
         rig.manager.installDelay = .milliseconds(500)
         await signedIn(rig)
@@ -205,6 +205,14 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         await rig.controller.waitForPendingOperation()
         #expect(rig.controller.phase == .failed(.configuration))
 
+        rig.controller.disable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.maxConcurrentOperations == 1)
+        #expect(rig.manager.stops.isEmpty)
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        try? await Task.sleep(for: .milliseconds(450))
         rig.controller.disable()
         await rig.controller.waitForPendingOperation()
 

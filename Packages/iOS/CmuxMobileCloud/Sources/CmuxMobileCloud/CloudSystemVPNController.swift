@@ -278,8 +278,16 @@ public final class CloudSystemVPNController {
         _ action: @escaping @MainActor () async throws -> T
     ) async throws -> T {
         let operation = operationGate.start(action)
-        await operation.acquired.value
-        return try await timeout.value(operation.result)
+        let completion = Task { @MainActor in
+            await operation.acquired.value
+            return try await operation.result.value
+        }
+        do {
+            return try await timeout.value(completion)
+        } catch {
+            operation.cancelIfPending()
+            throw error
+        }
     }
 
     private func isCurrent(_ generation: UInt64) -> Bool {
