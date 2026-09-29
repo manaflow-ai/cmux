@@ -27,7 +27,7 @@ extension TabHandlers {
         })
         registry.bind("tab.moveToNewColumn", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            TabMoves.toNewColumn(tab, rightOf: pane, services: ctx.services)
+            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services)
         })
         registry.bind("tab.moveToWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), let workspace = ctx.workspaceArgument(invocation) else { return }

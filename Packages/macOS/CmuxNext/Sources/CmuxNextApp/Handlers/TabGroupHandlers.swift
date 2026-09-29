@@ -164,20 +164,21 @@ enum TabGroupHandlers {
         }
         bind("tabGroup.unsave") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }
-            guard let saved = ctx.services.daemon.store.savedTabGroups.first(where: { $0.openGroup == group })?.id
-                ?? ctx.refuse("the group is not saved") else { return }
-            run("unsave-tab-group", pane: pane, ctx) { c, _ in try await c.unsaveTabGroup(saved) }
+            guard ctx.services.daemon.store.savedTabGroups.contains(where: { $0.openGroup == group }) else {
+                return ctx.refuse("the group is not saved")
+            }
+            run("unsave-tab-group", pane: pane, ctx) { c, _ in _ = try await c.unsaveTabGroup(group: group) }
         }
         bind("tabGroup.deleteSaved") { invocation in
             guard let saved = savedGroup(invocation, ctx) else { return }
             let id = saved.id
-            run("unsave-tab-group", pane: nil, ctx) { c, _ in try await c.unsaveTabGroup(id) }
+            run("delete-saved-tab-group", pane: nil, ctx) { c, _ in _ = try await c.deleteSavedTabGroup(id) }
         }
         bind("tabGroup.reopenSaved") { invocation in
             guard let saved = savedGroup(invocation, ctx), let pane = ctx.daemonPane(invocation) else { return }
             guard saved.openGroup == nil else { return ctx.refuse("the saved group is already open") }
             let id = saved.id, handle = pane.handle
-            run("open-saved-tab-group", pane: pane, ctx) { c, t in _ = try await c.openSavedTabGroup(id, in: handle, transaction: t) }
+            run("reopen-saved-tab-group", pane: pane, ctx) { c, t in _ = try await c.reopenSavedTabGroup(id, in: handle, transaction: t) }
         }
     }
 

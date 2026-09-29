@@ -53,19 +53,17 @@ extension TabGroupHandlers {
     }
 
     private static func moveToNewWorkspace(_ invocation: ActionInvocation, newWindow: Bool, _ ctx: AppActionContext) {
-        guard let (group, pane) = group(invocation, ctx), let connection = ctx.connection() else { return }
+        guard let (group, pane) = group(invocation, ctx), ctx.connection() != nil else { return }
         Task {
-            do {
-                let result = try await connection.moveTabGroupToNewWorkspace(group)
-                guard let key = result.key else { return }
-                if newWindow {
-                    ctx.services.windows.open(record: nil, workspaceID: key.rawValue)
-                } else if let state = ctx.services.windows.active?.state {
-                    ctx.services.windows.show(workspaceID: key.rawValue, in: state)
-                }
-            } catch {
-                ctx.services.daemon.logger.error("move-tab-group-to-new-workspace failed: \(String(describing: error), privacy: .public)")
+            guard let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: ctx.services,
+                                                               transaction: .generate()) else {
                 ctx.services.paneController(for: pane)?.resyncStrip()
+                return
+            }
+            if newWindow {
+                ctx.services.windows.open(record: nil, workspaceID: key.rawValue)
+            } else if let state = ctx.services.windows.active?.state {
+                ctx.services.windows.show(workspaceID: key.rawValue, in: state)
             }
         }
     }

@@ -15,7 +15,7 @@ use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryTab, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, ResourceWorkspaceLedger,
-    TerminalLifecycle, TerminalOnExit, TerminalResourceCloseCommit,
+    TerminalLifecycle, TerminalOnExit, TerminalResourceCloseCommit, WorkspacePresentationUpdate,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
@@ -289,7 +289,7 @@ impl Mux {
             Self::validate_workspace_name(name)?;
         }
         // Read before the state lock: `surface_notifications` locks state.
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
@@ -429,6 +429,7 @@ impl Mux {
                 "name":name,
                 "index":index,
             }),
+            presentation: None,
         })
         .with_metrics(ResourceMutationMetrics {
             touched_resources: 1,
@@ -475,6 +476,7 @@ impl Mux {
                 index: Some(index),
                 entity,
                 workspace_revision,
+                transaction: None,
             },
             index > 0,
         );
@@ -1423,6 +1425,42 @@ impl Mux {
         surface: SurfaceId,
         workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<()> {
+        self.move_tab_to_workspace_placed(surface, workspace, None, None)
+    }
+
+    /// Move a tab into a new workspace created in the same transaction,
+    /// optionally in a sidebar group and at a final index among that
+    /// section's members (groups partition the workspace order). Returns the
+    /// new workspace.
+    pub fn move_tab_to_new_workspace(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        group: Option<String>,
+        index: Option<usize>,
+    ) -> anyhow::Result<WorkspaceId> {
+        if let Some(group) = &group {
+            anyhow::ensure!(
+                self.presentation_snapshot().group(group).is_some(),
+                "unknown workspace group {group}"
+            );
+        }
+        self.move_tab_to_workspace_placed(surface, None, group, index)?;
+        self.with_state(|state| {
+            state
+                .pane_of(surface)
+                .and_then(|pane| state.screen_of(pane))
+                .map(|(workspace, _)| state.workspaces[workspace].id)
+        })
+        .context("moved tab has no workspace")
+    }
+
+    fn move_tab_to_workspace_placed(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+        group: Option<String>,
+        group_index: Option<usize>,
+    ) -> anyhow::Result<()> {
         if let Some(workspace) = workspace {
             if self.with_state(|state| {
                 state
@@ -1451,7 +1489,14 @@ impl Mux {
             "managed workspace creation is not supported by tab moves"
         );
         let mutation = WorkspaceMutation::local("cmux-tui");
-        let fingerprint = json!({"surface":surface,"workspace":workspace});
+        let fingerprint = json!({
+            "surface":surface,
+            "workspace":workspace,
+            "group":group,
+            "group_index":group_index,
+        });
+        let presentation = self.presentation_snapshot();
+        let plan_group = group.clone();
         let mux = Arc::clone(self);
         let commit = self.commit_resource_mutation_plan(
             &mutation,
@@ -1490,7 +1535,12 @@ impl Mux {
                         "workspace limit reached"
                     );
                     (
-                        state.workspaces.len(),
+                        new_workspace_position(
+                            state,
+                            &presentation,
+                            plan_group.as_deref(),
+                            group_index,
+                        ),
                         Workspace {
                             id: mux.next_id(),
                             public_id: WorkspacePublicId::random()?,
@@ -1679,7 +1729,7 @@ impl Mux {
                 if new_workspace {
                     let mut order =
                         state.workspaces.iter().map(|w| w.public_id.clone()).collect::<Vec<_>>();
-                    order.push(target_ws.public_id.clone());
+                    order.insert(target_wi, target_ws.public_id.clone());
                     changes.push(ResourceChange::SetWorkspaceOrder { workspace_ids: order });
                 }
                 if let ContentPublicId::Terminal(public_id) = &moved_tab.content_id {
@@ -1804,7 +1854,19 @@ impl Mux {
                 let result = json!({"tab":tab_id,"workspace":target_ws.public_id});
                 let mut desired = mux.registry_projection(state);
                 if new_workspace {
-                    desired.push(durable_ws);
+                    desired.insert(target_wi, durable_ws);
+                    // Workspaces after the insertion point shift right; keep
+                    // their public indexes current.
+                    for (index, shifted) in state.workspaces.iter().enumerate().skip(target_wi) {
+                        deltas.push(workspace_resource_upsert(
+                            deltas.len(),
+                            registry.session_id().as_str(),
+                            &shifted.public_id,
+                            &shifted.name,
+                            index + 1,
+                            false,
+                        ));
+                    }
                 }
                 let key = target_ws.key.clone();
                 let target_ws_slot = target_ws.id;
@@ -1853,6 +1915,10 @@ impl Mux {
                         }
                         if new_workspace {
                             state.push_workspace(target_ws);
+                            let last = state.workspaces.len() - 1;
+                            if target_wi < last {
+                                state.move_workspace(last, target_wi);
+                            }
                         } else {
                             state.workspaces[target_wi] = target_ws;
                         }
@@ -1875,12 +1941,20 @@ impl Mux {
                         workspace_key: key,
                         workspaces: desired,
                         legacy_result: result,
+                        presentation: plan_group.map(|group| WorkspacePresentationUpdate {
+                            group: Some(Some(group)),
+                            ..WorkspacePresentationUpdate::default()
+                        }),
                     })
                 } else {
                     plan
                 })
             },
         )?;
+        if group.is_some() {
+            let registry = self.workspace_registry.lock().unwrap();
+            self.reload_presentation(&registry)?;
+        }
         if let Some(surface_handle) = self.surface(surface) {
             let key = self.with_state(|state| {
                 state
@@ -2778,7 +2852,7 @@ impl Mux {
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(terminal) =
             registry.replay_terminal_close(mutation, terminal_id, expected_incarnation)?
@@ -3168,7 +3242,7 @@ impl Mux {
     ) -> anyhow::Result<CommittedResourceClose> {
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
         let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
         let slots = resolve_slots(&state)?;
@@ -3277,7 +3351,7 @@ impl Mux {
         slots: EffectSlots,
         registry: &WorkspaceRegistry,
         state: &State,
-        notifications: &HashMap<SurfaceId, SurfaceNotification>,
+        notifications: &TreeDecorations,
     ) -> anyhow::Result<ResourceClosePlan> {
         let selection_before = active_tree_selection(state);
         let mut projected = state.clone();
@@ -3989,9 +4063,15 @@ impl Mux {
             });
         }
         if operation == ResourceOperation::TabCreateBrowser {
+            // A frontend-rendered browser registers its content id before
+            // the tab commits, so the creation must use that exact id.
+            let browser_id = match fields.get("frontend_browser_id").and_then(Value::as_str) {
+                Some(id) => BrowserPublicId::parse(id.to_string())?,
+                None => BrowserPublicId::random()?,
+            };
             intent["browser_reservation"] = json!({
                 "tab_id":TabPublicId::random()?,
-                "browser_id":BrowserPublicId::random()?,
+                "browser_id":browser_id,
             });
         }
         if operation == ResourceOperation::WorkspaceLayoutApply {
@@ -4537,6 +4617,7 @@ impl Mux {
             expected_generation: None,
             expected_revision: None,
             on_exit: on_exit.unwrap_or_default(),
+            env: terminal_env_field(&intent["fields"]),
         })
     }
 
@@ -4651,7 +4732,7 @@ impl Mux {
             surface.set_name(Some(name));
         }
         let active_at = self.next_active_at();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let attached = {
             let mut state = self.state.lock().unwrap();
             let delta = match state.panes.get_mut(&target) {
@@ -4681,6 +4762,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
+                        transaction: None,
                     })
                 }
                 None => None,
@@ -4838,7 +4920,7 @@ impl Mux {
         let split_id = split_direction.map(|_| self.next_id());
         let base_column_id = viewport_width.map(|_| self.next_id());
         let active_at = self.next_active_at();
-        let notifications = self.surface_notifications();
+        let notifications = self.tree_decorations();
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
             let mut state = self.state.lock().unwrap();
             let Some((workspace, screen_index)) = state.screen_of(target) else {
@@ -4953,6 +5035,7 @@ impl Mux {
                     index: Some(pane_index),
                     entity,
                     workspace_revision: None,
+                    transaction: None,
                 },
                 screen_id,
                 CreatedTerminalEffect { path },
@@ -5699,6 +5782,34 @@ fn created_identity_kind(operation: ResourceOperation) -> Option<CreatedIdentity
         | ResourceOperation::TabCreateTerminal => Some(CreatedIdentityKind::Terminal),
         ResourceOperation::TabCreateBrowser => Some(CreatedIdentityKind::Browser),
         _ => None,
+    }
+}
+
+/// Registry position for a workspace created into `group` (`None` =
+/// ungrouped) at final index `index` among that section's members. Groups
+/// partition the workspace order, so the position sits among the members,
+/// and after the last member when `index` is past the end. Without an index
+/// the workspace goes after the section's last member, or last overall.
+pub(super) fn new_workspace_position(
+    state: &State,
+    presentation: &crate::workspace_registry::PresentationSnapshot,
+    group: Option<&str>,
+    index: Option<usize>,
+) -> usize {
+    let members = state
+        .workspaces
+        .iter()
+        .enumerate()
+        .filter(|(_, workspace)| {
+            presentation.workspace(&workspace.key).and_then(|record| record.group.as_deref())
+                == group
+        })
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    match (index, members.last()) {
+        (Some(index), Some(_)) if index < members.len() => members[index],
+        (_, Some(last)) if group.is_some() || index.is_some() => last + 1,
+        _ => state.workspaces.len(),
     }
 }
 

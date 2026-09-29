@@ -13,14 +13,18 @@ import java.util.Objects;
 /** Immutable split request. Protocol v5; authority: control. */
 public final class SplitRequest implements WireValue {
     private final Field<Integer> cols;
+    private final Field<String> cwd;
     private final SplitDirection dir;
+    private final Field<Map<String, String>> env;
     private final UInt64 pane;
     private final Field<Integer> rows;
 
     private SplitRequest(Builder builder) {
         this.cols = builder.cols;
+        this.cwd = builder.cwd;
         if (!builder.dirSet) throw new IllegalArgumentException("dir is required");
         this.dir = Wire.nonNull(builder.dir, "dir");
+        this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
         if (!builder.paneSet) throw new IllegalArgumentException("pane is required");
         this.pane = Wire.nonNull(builder.pane, "pane");
         this.rows = builder.rows;
@@ -29,7 +33,9 @@ public final class SplitRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<Integer> cols() { return cols; }
+    public Field<String> cwd() { return cwd; }
     public SplitDirection dir() { return dir; }
+    public Field<Map<String, String>> env() { return env; }
     public UInt64 pane() { return pane; }
     public Field<Integer> rows() { return rows; }
 
@@ -40,8 +46,16 @@ public final class SplitRequest implements WireValue {
         if (!Wire.isMissing(rawCols)) {
             builder.cols(rawCols == null ? null : Wire.uint16(rawCols, "SplitRequest.cols"));
         }
+        Object rawCwd = Wire.optional(object, "cwd");
+        if (!Wire.isMissing(rawCwd)) {
+            builder.cwd(rawCwd == null ? null : Wire.string(rawCwd, "SplitRequest.cwd"));
+        }
         Object rawDir = Wire.required(object, "dir");
         builder.dir(SplitDirection.fromWire(rawDir));
+        Object rawEnv = Wire.optional(object, "env");
+        if (!Wire.isMissing(rawEnv)) {
+            builder.env(rawEnv == null ? null : Wire.map(rawEnv, "SplitRequest.env", item -> Wire.string(item, "SplitRequest.env value")));
+        }
         Object rawPane = Wire.required(object, "pane");
         builder.pane(Wire.uint64(rawPane, "SplitRequest.pane"));
         Object rawRows = Wire.optional(object, "rows");
@@ -55,7 +69,9 @@ public final class SplitRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "cols", cols);
+        Wire.put(object, "cwd", cwd);
         Wire.put(object, "dir", dir);
+        Wire.put(object, "env", env);
         Wire.put(object, "pane", pane);
         Wire.put(object, "rows", rows);
         return Collections.unmodifiableMap(object);
@@ -64,19 +80,21 @@ public final class SplitRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SplitRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(dir, that.dir) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows);
+        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(dir, that.dir) && Objects.equals(env, that.env) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, dir, pane, rows); }
+    public int hashCode() { return Objects.hash(cols, cwd, dir, env, pane, rows); }
 
     @Override
     public String toString() { return "SplitRequest" + toWire(); }
 
     public static final class Builder {
         private Field<Integer> cols = Field.omitted();
+        private Field<String> cwd = Field.omitted();
         private SplitDirection dir;
         private boolean dirSet;
+        private Field<Map<String, String>> env = Field.omitted();
         private UInt64 pane;
         private boolean paneSet;
         private Field<Integer> rows = Field.omitted();
@@ -85,9 +103,17 @@ public final class SplitRequest implements WireValue {
             this.cols = Field.ofNullable(value);
             return this;
         }
+        public Builder cwd(String value) {
+            this.cwd = Field.ofNullable(value);
+            return this;
+        }
         public Builder dir(SplitDirection value) {
             this.dir = value;
             this.dirSet = true;
+            return this;
+        }
+        public Builder env(Map<String, String> value) {
+            this.env = Field.ofNullable(value);
             return this;
         }
         public Builder pane(UInt64 value) {

@@ -40,14 +40,27 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 `Tree`:
 
 ```text
-object{workspace_revision?:uint64,pane_revision?:uint64,workspaces:array<Workspace>}
+object{workspace_revision?:uint64,pane_revision?:uint64,groups?:array<WorkspaceGroup>,workspaces:array<Workspace>}
 ```
 
 `Workspace`:
 
 ```text
-object{id:Id,key?:string,name:string,active:boolean,screens:array<Screen>}
+object{id:Id,key?:string,name:string,group?:string|null,color?:string|null,icon?:string|null,title?:string|null,active:boolean,screens:array<Screen>}
 ```
+
+Servers advertising `notification-ack-v1` add `unread_count`, the number of
+tabs in the workspace whose content has an unread notification marker.
+
+Servers advertising `workspace-metadata-v1` add the shared presentation
+fields `color` (palette token or `#RRGGBB[AA]`), `icon` (SF Symbol name), and
+`title` (a custom sidebar title that overrides `name` for display). Each is
+null when unset.
+
+Servers advertising `workspace-groups-v1` add the ordered `Tree.groups` array
+(the `list-workspace-groups` result) and `Workspace.group`, the id of the
+workspace's group or null. Groups partition the workspace order: a sidebar
+section lists the workspaces of one group in `workspaces` order.
 
 `workspace_revision` and `Workspace.key` are present on servers advertising
 `workspace-registry-v1`. They are omitted by older servers, so clients must
@@ -121,6 +134,31 @@ object{
   dead: boolean
 }
 ```
+
+Servers advertising `tab-metadata-v1` add `pinned:boolean` to every tab, plus
+`cwd:string|null`, `git_branch:string|null`, and `git_detached:boolean`. Pinned
+tabs sort first in their pane. `cwd` is the directory the tab presents: the
+shell's last OSC 7 report, or the directory the terminal launched in. The
+daemon reads the git HEAD of the repository containing `cwd` on the machine
+that hosts the PTY, without running git: `git_branch` is the branch name, or
+the seven-character commit when `git_detached` is true. Browser tabs report
+null. A changed `cwd` emits `tab-changed`; a branch switch without a directory
+change appears at the next snapshot (HEAD lookups are cached for two seconds).
+
+Servers advertising `frontend-browser-tabs-v1` add `browser_renderer` to
+every tab: `"daemon"` for a CDP browser, `"frontend"` for a browser whose page
+the frontend renders, and null for a PTY. Frontend browsers also report
+`browser_engine` (`"webkit"` or `"cef"`), `favicon_url`, and
+`browser_profile_id`, and report null `browser_status`/`browser_error`. Their
+`url` and `title` are the values the frontend last recorded.
+
+Servers advertising `tab-groups-v1` add `tab_groups` to every pane, in strip
+order: `array<object{id:string, name:string, color:string, collapsed:bool,
+saved_id:string|null, start:usize, count:usize, surfaces:array<Id>}>`, and
+`group:string|null` to every tab. `start` is the strip index of the group's
+first tab. Group members are contiguous; a tab another path moved away from
+its group's run is reported ungrouped. Colors are Chrome's nine: `grey`,
+`blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan`, `orange`.
 
 The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
 
@@ -227,7 +265,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`.
 
 Errors:
 
@@ -1273,6 +1311,15 @@ Example:
 {"id":6,"ok":true,"data":{"surface":5}}
 ```
 
+With `terminal-env-v1`, `new-tab`, `split`, and `create-terminal` accept an
+optional `env` object of extra environment variables for the new terminal's
+child only (at most 1024 entries and 256 KiB; names nonempty without `=` or
+NUL, values without NUL). A frontend passes the user's login-shell
+environment this way even to a daemon that started with a minimal launchd
+environment. `split` also accepts `cwd`. The environment is applied at spawn
+and kept with the creation receipt in the local state directory, like `argv`
+and `cwd`; `create-terminal` with `env` always takes the receipted path.
+
 ### new-browser-tab
 
 | Field | Value |
@@ -1322,6 +1369,72 @@ Example:
 ```json
 {"id":7,"cmd":"new-browser-tab","url":"https://example.com","pane":2}
 {"id":7,"ok":true,"data":{"surface":8}}
+```
+
+### new-frontend-browser-tab
+
+| Field | Value |
+| --- | --- |
+| name | `new-frontend-browser-tab` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `frontend-browser-tabs-v1` |
+
+Creates a browser tab whose page the frontend renders with WebKit or CEF. The
+tab is an ordinary `kind:"browser"` placement in the durable tree, so it
+restores after a restart and moves like any tab, but the daemon never waits
+for, attaches, or drives a CDP target for it and never renders frames.
+`attach-surface` on it fails. The frontend reports navigation with
+`update-frontend-browser-tab`. Existing CDP browser tabs (`new-browser-tab`)
+are unchanged.
+
+The daemon registers the record before the tab commits, under the browser id
+the creation uses, so a daemon restart between the two steps never
+bootstraps a CDP target for the tab.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `url` | string | required | Nonempty, at most 32 KiB, no control characters |
+| `engine` | string | required | `"webkit"` or `"cef"` |
+| `pane` | `Id` | default active pane | Destination pane |
+| `title` | string | optional | At most 2048 characters |
+| `favicon_url` | string | optional | As `url` |
+| `profile_id` | string | optional | 1-128 printable ASCII characters; frontend profile (cookies, extensions) |
+| `cols`, `rows` | uint16 | optional, together | Initial size hint |
+
+Result:
+
+```text
+object{surface:Id, tab_resource_id:string, content_resource_id:string}
+```
+
+### update-frontend-browser-tab
+
+| Field | Value |
+| --- | --- |
+| name | `update-frontend-browser-tab` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `frontend-browser-tabs-v1` |
+
+Records the URL, title, or favicon a frontend-rendered browser reports. An
+absent field is unchanged and `favicon_url:null` clears the favicon. A change
+persists durably and emits `title-changed` (when the title changed) and
+`tab-changed`. Fails for a tab that is not frontend-rendered.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Frontend browser tab |
+| `url` | string | optional | As in `new-frontend-browser-tab` |
+| `title` | string | optional | As in `new-frontend-browser-tab` |
+| `favicon_url` | string or null | optional | As `url`; null clears |
+
+Result:
+
+```text
+object{surface:Id, url:string, title:string|null, favicon_url:string|null, changed:bool}
 ```
 
 ### new-workspace
@@ -3056,6 +3169,330 @@ Example:
 {"id":26,"ok":true,"data":{}}
 ```
 
+With `tab-drag-v1`, `move-tab` accepts an optional `transaction` (echoed in the
+moved tab's `tab-changed` delta) and returns `object{moved:bool, undoable:bool}`.
+A move between two panes of one screen whose source pane keeps a tab records a
+layout-undo entry that moves the tab back. Same-pane reorders are not
+undoable. With `tab-metadata-v1`, the index is clamped so pinned tabs stay
+first.
+
+### create-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `create-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Every tab group command names tabs by numeric surface id or public `tab_...`
+id, and panes by numeric id or public `pane_...` id, so the noun-first CLI
+(`cmux tab group ...`) can pass the ids `cmux tab list` prints. The
+`surfaces` field also accepts the alias `tabs`.
+
+Groups tabs of one pane. The members become contiguous at the strip position
+of the first of them and leave any group they were in. Pinned tabs cannot be
+grouped. The reorder and the group commit in one transaction. Each member's
+`tab-changed` carries `transaction`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surfaces` | array of `Id` | required, nonempty | Tabs of one pane |
+| `name` | string | default `""` | At most 256 characters; empty shows the color only |
+| `color` | string | default `"grey"` | One of the nine tab group colors |
+| `group` | string | default generated `tgrp_<32 hex>` | 1-64 ASCII letters, digits, `_`, `-`, `.`, `:` |
+| `transaction` | string | optional | Client id echoed in `tab-changed` |
+
+Result (every tab group command that returns a group):
+
+```text
+object{group:object{id:string, name:string, color:string, collapsed:bool, saved_id:string|null}|null, pane:Id|null, workspace:Id|null, surfaces:array<Id>}
+```
+
+### list-tab-groups
+
+| Field | Value |
+| --- | --- |
+| name | `list-tab-groups` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Returns every group run with its `pane`, in the `Pane.tab_groups` shape.
+
+Result: `object{groups:[...]}`.
+
+### update-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `update-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Renames, recolors, collapses, or expands a group; absent fields are
+unchanged. A linked saved group follows. Collapse is shared state; moving
+selection out of a collapsed group is the frontend's client-local focus.
+
+Params: `group` (string, required), `name` (string), `color` (string),
+`collapsed` (bool).
+
+### add-tabs-to-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `add-tabs-to-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Adds tabs at the end of a group's run. Tabs in other panes, screens, or
+workspaces move into the group's pane in the same commit. Pinned tabs are
+refused.
+
+Params: `group` (string, required), `surfaces` (array of `Id`, required),
+`transaction` (string).
+
+### remove-tabs-from-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `remove-tabs-from-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Removes tabs from their groups; each lands just after its former group, as in
+Chrome. A group left without members disappears.
+
+Params: `surfaces` (array of `Id`, required), `transaction` (string).
+
+Result: `object{surfaces:array<Id>, groups:array<string>}`.
+
+### move-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Moves a whole group, members in order, to insertion `index` among the other
+tabs of `pane` (default: the group's own pane, at the end). Another pane's
+strip, screen, or workspace works too. The index is clamped so pinned tabs
+stay first. One commit; not layout-undoable.
+
+Params: `group` (string, required), `pane` (`Id`), `index` (usize),
+`transaction` (string).
+
+### move-tab-group-to-split
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-group-to-split` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Moves a whole group into a new split beside `pane`, in one commit.
+
+Params: `group`, `pane`, `edge` (`left`/`right`/`top`/`bottom`), `ratio`,
+`transaction`, as in `move-tab-to-split`.
+
+### move-tab-group-to-column
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-group-to-column` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Moves a whole group into a new niri column, in one commit.
+
+Params: `group`, then `pane` or `screen`, `after_column`, `width`,
+`transaction`, as in `move-tab-to-column`.
+
+### move-tab-group-to-new-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-group-to-new-workspace` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Moves a whole group into a new workspace created in the same commit,
+optionally in the sidebar group `workspace_group` at final section index
+`index`. Frontends tear a group off into a new window by opening the returned
+workspace there.
+
+Params: `group` (string, required), `workspace_group` (string), `index`
+(usize), `transaction` (string).
+
+### ungroup-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `ungroup-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Deletes a group; its tabs stay in place. Result: `object{group:string,
+surfaces:array<Id>}`.
+
+### close-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `close-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-groups-v1` |
+
+Closes every member placement in one commit. Terminal processes keep
+running, as with any closed view; browsers close with their only tab. A
+linked saved group remains. Result: `object{group:string,
+closed:array<Id>}`.
+
+### save-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `save-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `saved-tab-groups-v1` |
+
+Saves (pins) a live group: a session-wide record of its name, color, and
+members (terminal host id, directory, and title; browser URL, engine,
+profile, and title) that outlives the placements. The live group stays
+linked: renames, recolors, and membership changes update the record.
+
+Params: `group` (string, required). Result: `object{group:string,
+saved:string}`.
+
+### unsave-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `unsave-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `saved-tab-groups-v1` |
+
+Deletes the saved record linked to a live group; the group stays. Result:
+`object{group:string, unsaved:bool}`.
+
+### delete-saved-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `delete-saved-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `saved-tab-groups-v1` |
+
+Deletes a saved record by id; a linked live group stays, unlinked. Result:
+`object{saved:string, deleted:bool}`.
+
+### list-saved-tab-groups
+
+| Field | Value |
+| --- | --- |
+| name | `list-saved-tab-groups` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `saved-tab-groups-v1` |
+
+Result:
+
+```text
+object{saved_groups:array<object{id:string, name:string, color:string, updated_at_ms:uint64, members:array<object{kind:"terminal", terminal_id:string|null, cwd:string|null, title:string|null} | object{kind:"browser", url:string, engine:string|null, profile_id:string|null, title:string|null}>}>}
+```
+
+### reopen-saved-tab-group
+
+| Field | Value |
+| --- | --- |
+| name | `reopen-saved-tab-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `saved-tab-groups-v1` |
+
+Reopens a saved group into `pane`. When a live group is still linked to the
+record, it is returned unchanged. Otherwise each member is restored: a
+terminal that is still running is reattached as a new view of the same
+terminal, other terminals start in their saved directory, and browsers
+reopen at their saved URL (frontend-rendered with the saved engine and
+profile). The restored tabs form a new group linked to the record. Restoring
+creates one tab per member, so a failure partway leaves the tabs created so
+far.
+
+Params: `saved` (string, required), `pane` (`Id`, required), `transaction`
+(string).
+
+### ack-tab-notifications
+
+| Field | Value |
+| --- | --- |
+| name | `ack-tab-notifications` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `notification-ack-v1` |
+
+Acknowledges a tab's notifications without selecting or focusing it: clears
+the unread marker of the tab's content (all views of one terminal share it)
+and durably records every retained notification of that content as
+acknowledged, so a daemon restart does not restore the marker. Frontends keep
+focus client-local and call this when the user has seen the tab. The legacy
+clear on `select-tab`/`focus-pane` persists its acknowledgement the same way.
+Emits `tab-changed` for each view whose marker cleared. Acknowledging a tab
+with no marker succeeds with `cleared:false`.
+
+Params: `surface` (`Id`, required).
+
+Result:
+
+```text
+object{surface:Id, cleared:bool, acknowledged:[string]}
+```
+
+### list-notifications
+
+| Field | Value |
+| --- | --- |
+| name | `list-notifications` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `notification-ack-v1` |
+
+Returns the retained notification ledger (at most 256), newest first.
+
+Params: `limit` (usize, default 256).
+
+Result:
+
+```text
+object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}]}
+```
+
+### set-tab-pinned
+
+| Field | Value |
+| --- | --- |
+| name | `set-tab-pinned` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-metadata-v1` |
+
+Pins or unpins a tab placement. Pinned tabs sort first in their pane:
+pinning moves the tab to the end of the pinned run, and unpinning moves it to
+the start of the unpinned run. The flag is durable, keyed by the public tab
+id, so it survives restarts and moves between panes. While tabs are pinned,
+`move-tab` clamps its index so an unpinned tab cannot move ahead of the pinned
+run and a pinned tab cannot move behind it. Emits `tab-changed` when the flag
+changed, and the usual reorder events when the tab moved.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Tab placement |
+| `pinned` | bool | required | |
+
+Result:
+
+```text
+object{surface:Id, pinned:bool, index:usize, changed:bool}
+```
+
 ### move-tab-to-workspace
 
 | Field | Value |
@@ -3072,9 +3509,108 @@ move. The destination becomes selected. Unknown source/destination IDs fail.
 Provider-owned workspace creation is rejected. The server advertises
 `tab-workspace-move-v1`; clients hide these UI actions for older owners.
 
+With `tab-drag-v1` the command accepts an optional `transaction`, echoed in
+the moved tab's `tab-changed` delta, and returns
+`object{surface:Id, workspace:Id, pane:Id, undoable:false}`.
+
 ```json
 {"id":26,"cmd":"move-tab-to-workspace","surface":1}
 {"id":26,"ok":true,"data":{}}
+```
+
+### move-tab-to-split
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-split` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-drag-v1` |
+
+Drops a tab on a pane edge: creates a pane beside `pane` on `edge` and moves
+the tab into it, in one atomic commit. The tab keeps its terminal or browser;
+nothing restarts. The source pane collapses when it loses its last tab. A tab
+cannot be split out of a pane where it is the only tab.
+
+When the source pane survives on the destination screen, the drag records one
+layout-undo entry: `undo-layout` on that screen moves the tab back to its
+original pane and index and removes the created pane, without confirmation
+and without closing anything. Other drags clear the undo history of the
+screens they touch and return `undoable:false`.
+
+Emits `tree-changed`, `layout-changed`, and `tab-changed` for the moved tab;
+`tab-changed` carries `transaction` when the request did.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Tab to move |
+| `pane` | `Id` | required | Pane whose edge received the drop |
+| `edge` | string | required | `"left"`, `"right"`, `"top"`, or `"bottom"` |
+| `ratio` | float | default 0.5 | The new pane's share, 0.05 through 0.95 |
+| `transaction` | string | optional | Client id echoed in `tab-changed`; 1-128 printable ASCII |
+
+Result:
+
+```text
+object{surface:Id, pane:Id, screen:Id, workspace:Id, undoable:bool}
+```
+
+### move-tab-to-column
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-column` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-drag-v1` |
+
+Drops a tab between niri columns: creates a horizontal viewport column on the
+screen and moves the tab into it, in one atomic commit, with the same undo,
+event, and transaction rules as `move-tab-to-split`. A screen without columns
+becomes a two-column screen.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Tab to move |
+| `pane` | `Id` | exactly one of `pane`/`screen` | Any pane on the destination screen |
+| `screen` | `Id` | exactly one of `pane`/`screen` | Destination screen |
+| `after_column` | `Id` | default: after the last column | Column (`Screen.columns[].id`) to insert after |
+| `width` | float | default 2/3 | Column width as a fraction of the viewport, 0.1 through 1.0 |
+| `transaction` | string | optional | As in `move-tab-to-split` |
+
+Result: as `move-tab-to-split`.
+
+### move-tab-to-new-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-new-workspace` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-drag-v1` |
+
+Drops a tab on the sidebar: creates a workspace holding the tab in one
+durable transaction, like `move-tab-to-workspace` without a destination, and
+optionally places it in a group at a final index among that section's
+members (the group membership commits in the same transaction). Without
+`index` the workspace goes after the section's last member. The move is not
+layout-undoable. Frontends tear a tab off into a new window by opening the
+returned workspace there.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Tab to move |
+| `group` | string | optional | Existing group id |
+| `index` | usize | optional | Final index among the section's members |
+| `transaction` | string | optional | As in `move-tab-to-split` |
+
+Result:
+
+```text
+object{surface:Id, workspace:Id, key:string, index:usize, group:string|null, pane:Id, undoable:false}
 ```
 
 ### move-workspace
@@ -3132,6 +3668,174 @@ Example:
 ```json
 {"id":27,"cmd":"move-workspace","workspace":4,"index":0}
 {"id":27,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":4}}
+```
+
+### set-workspace-metadata
+
+| Field | Value |
+| --- | --- |
+| name | `set-workspace-metadata` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-metadata-v1` |
+
+Sets a workspace's shared presentation. For each of `color`, `icon`, and
+`title`, an absent field is unchanged, `null` clears it, and a value sets it.
+The write commits one workspace-registry revision without changing the
+workspace order, so it takes the durable mutation envelope and emits
+`workspace-changed` with the full workspace entity.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | one of id/key | Workspace to change |
+| `key` | string | one of id/key | Workspace key |
+| `color` | string or null | optional | Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]` |
+| `icon` | string or null | optional | SF Symbol name: lowercase letters, digits, dots; at most 128 bytes |
+| `title` | string or null | optional | 1-256 characters, no control characters |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
+
+Result:
+
+```text
+object{workspace:Id,key:string,color:string|null,icon:string|null,title:string|null,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
+```
+
+### list-workspace-groups
+
+| Field | Value |
+| --- | --- |
+| name | `list-workspace-groups` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Returns the durable sidebar groups in order. `list-workspaces` carries the
+same array as its top-level `groups` field.
+
+Result:
+
+```text
+object{groups:[WorkspaceGroup]}
+WorkspaceGroup = object{id:string, name:string, color:string|null, collapsed:bool, index:usize}
+```
+
+### create-workspace-group
+
+| Field | Value |
+| --- | --- |
+| name | `create-workspace-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Creates a sidebar group. Groups are shared durable state in the session
+registry, so every frontend sees them and they survive daemon restarts. A
+caller-chosen `group` id makes a retry idempotent: the same id and name return
+the stored group with `changed:false`; the same id with another name fails.
+Emits `tree-changed`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `name` | string | required | 1-256 characters, no control characters |
+| `group` | string | default generated `grp_<32 hex>` | 1-64 ASCII letters, digits, `_`, `-`, `.`, `:` |
+| `color` | string | default null | Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]` |
+| `collapsed` | bool | default false | Shared collapsed state |
+| `index` | usize | default last | Insertion index among groups |
+
+Result:
+
+```text
+object{group:WorkspaceGroup, changed:bool}
+```
+
+### update-workspace-group
+
+| Field | Value |
+| --- | --- |
+| name | `update-workspace-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Renames, recolors, or collapses a group. An absent field is unchanged, and
+`color:null` clears the color. Emits `tree-changed` when something changed.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `group` | string | required | Existing group id |
+| `name` | string | optional | As in `create-workspace-group` |
+| `color` | string or null | optional | As in `create-workspace-group`; null clears |
+| `collapsed` | bool | optional | |
+
+Result: `object{group:WorkspaceGroup, changed:bool}`.
+
+### delete-workspace-group
+
+| Field | Value |
+| --- | --- |
+| name | `delete-workspace-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Deletes a group. Its workspaces keep their place in the workspace order and
+become ungrouped. Emits `tree-changed`.
+
+Params: `group` (string, required).
+
+Result: `object{group:string, ungrouped_keys:[string]}`.
+
+### move-workspace-group
+
+| Field | Value |
+| --- | --- |
+| name | `move-workspace-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Moves a group to zero-based insertion `index` among groups, with the same
+insertion-point rule as `move-workspace`. Emits `tree-changed` when the order
+changed.
+
+Params: `group` (string, required), `index` (usize, required).
+
+Result: `object{group:WorkspaceGroup, changed:bool}`.
+
+### move-workspace-to-group
+
+| Field | Value |
+| --- | --- |
+| name | `move-workspace-to-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-groups-v1` |
+
+Puts a workspace in a group, or ungroups it with `group:null`, and optionally
+reorders it inside that section. Groups partition the one durable workspace
+order: a section's order is the workspace order filtered by group. `index` is
+the workspace's final zero-based position among the destination section's
+other members (clamped to the end); an absent `index` keeps the workspace's
+position. An empty destination keeps the position too.
+
+The move commits one workspace-registry revision and emits `workspace-moved`
+with the full workspace entity, so it takes the durable mutation envelope:
+`origin`/`mutation_id` retries replay the original result and
+`expected_revision` guards against stale clients.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | one of id/key | Workspace to move |
+| `key` | string | one of id/key | Workspace key |
+| `group` | string or null | required | Existing group id, or null for ungrouped |
+| `index` | usize | optional | Final index among the section's members |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
+
+Result:
+
+```text
+object{workspace:Id,key:string,index:usize,group:string|null,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
 ```
 
 ### scroll-surface

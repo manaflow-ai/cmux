@@ -12,8 +12,22 @@ enum AppActions {
         bindApp(services)
         bindWorkspaces(services)
         bindBrowser(services)
-        // Tab, tab group, pane, column, screen, and terminal handlers live in
-        // Handlers/ and bind right after this (AppDelegate).
+        let registry = services.registry
+        let context = AppActionContext(services: services)
+        WindowHandlers.bind(into: registry, context: context)
+        WorkspaceHandlers.bind(into: registry, context: context)
+        WorkspaceMetadataHandlers.bind(into: registry, context: context)
+        WorkspaceGroupHandlers.bind(into: registry, context: context)
+        SidebarHandlers.bind(into: registry, context: context)
+        SettingsHandlers.bind(into: registry, context: context)
+        AppearanceHandlers.bind(into: registry, context: context)
+        TabHandlers.bind(into: registry, context: context)
+        TabGroupHandlers.bind(into: registry, context: context)
+        PaneHandlers.bind(into: registry, context: context)
+        ColumnHandlers.bind(into: registry, context: context)
+        ScreenHandlers.bind(into: registry, context: context)
+        TerminalHandlers.bind(into: registry, context: context)
+        context.observeRefusals()
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
@@ -32,7 +46,5 @@ enum AppActions {
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggleHidden() }
-        registry.bind("appearance.density.compact") { DesignSettings.shared.density = .compact }
-        registry.bind("appearance.density.comfortable") { DesignSettings.shared.density = .comfortable }
     }
 }

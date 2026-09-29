@@ -6,9 +6,10 @@ import os
 /// A Finder- or Dock-launched app gets launchd's minimal `PATH`
 /// (`/usr/bin:/bin:/usr/sbin:/sbin`). The cmux-tui owner inherits the env of
 /// whoever runs `server ensure`, and every PTY it spawns inherits the owner's
-/// env; the raw protocol has no per-terminal `env` field. So the app captures
-/// `$SHELL -l -i -c 'env -0'` once and launches the daemon with it
-/// (plans/cmux-next/cmux-tui-contract.md section 5, "Shell environment").
+/// env. So the app captures `$SHELL -l -i -c 'env -0'` once, launches the
+/// daemon with its allowlisted subset, and sends the same subset as
+/// per-terminal `env` (`terminal-env-v1`). See `TerminalEnvironment` for why
+/// the full login env never leaves the app.
 public enum LoginEnvironment {
     /// Printed before `env -0` so rc-file chatter on stdout is skipped.
     static let marker = "__CMUX_NEXT_LOGIN_ENV__"
@@ -71,21 +72,15 @@ public enum LoginEnvironment {
         return env.isEmpty ? nil : env
     }
 
-    /// Environment for `server ensure`: the login env (or the app env when
-    /// capture failed) minus excluded keys, plus `overrides`.
+    /// Environment for `server ensure`: the allowlisted login env (or app env
+    /// when capture failed), the app's process identity keys, and
+    /// `overrides`. Same as `TerminalEnvironment.daemon(login:base:overrides:)`.
     public static func daemonEnvironment(
         login: [String: String]?,
         base: [String: String],
         overrides: [String: String]
     ) -> [String: String] {
-        var env = login ?? base
-        if login == nil, let path = env["PATH"], !path.contains("/opt/homebrew/bin") {
-            // Best effort when capture failed: add the common tool prefixes.
-            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + path
-        }
-        for key in excludedKeys { env.removeValue(forKey: key) }
-        for (key, value) in overrides { env[key] = value }
-        return env
+        TerminalEnvironment.daemon(login: login, base: base, overrides: overrides)
     }
 
     private static func userShell() -> String? {

@@ -196,6 +196,12 @@ let package = Package(
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
+            name: "CmuxNextAppTests",
+            dependencies: ["CmuxNextApp", "CmuxNextActions"],
+            swiftSettings: uiSwiftSettings,
+            linkerSettings: [.linkedLibrary("c++")]
+        ),
+        .testTarget(
             name: "CmuxNextActionsTests",
             dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings

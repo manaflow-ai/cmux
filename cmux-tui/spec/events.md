@@ -35,6 +35,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `workspace-closed` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-renamed` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-moved` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `workspace-changed` | subscribe (`deltas`) | `workspace` | protocol 12 additive extension; capability `workspace-metadata-v1` |
 | `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
@@ -44,6 +45,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `tab-added` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
 | `tab-closed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
 | `tab-renamed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
+| `tab-changed` | subscribe (`deltas`) | `surface` | protocol 12 additive extension; capability `tab-metadata-v1`; parents `workspace`, `screen`, `pane` |
 | `tree-changed` | subscribe (`coarse`; `deltas` fallback) | session | protocol 5; `coarse` is the default and exact v6 behavior |
 | `layout-changed` | subscribe | `screen` | protocol 6 |
 | `surface-output` | subscribe | `surface` | protocol 5 |
@@ -314,7 +316,23 @@ object{event:"workspace-renamed",workspace:Id,entity:Workspace,workspace_revisio
 object{event:"workspace-moved",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
 ```
 
-For all four workspace delta events, `origin` and `mutation_id` are either both
+### workspace-changed
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-metadata-v1` |
+
+Emitted after `set-workspace-metadata` commits. It carries a workspace
+registry revision like the other workspace deltas; clients that do not know
+the event name must still advance their revision cursor or refetch on the gap.
+
+```text
+object{event:"workspace-changed",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
+```
+
+For all workspace delta events, `origin` and `mutation_id` are either both
 present or both absent.
 
 ### frontend-projection-changed
@@ -468,6 +486,29 @@ object{event:"tab-renamed",workspace:Id,screen:Id,pane:Id,surface:Id,entity:Tab}
 ```
 
 `tab-renamed` reports a user-visible tab-name mutation such as `rename-surface`. Application title changes remain `title-changed`.
+
+### tab-changed
+
+| Field | Value |
+| --- | --- |
+| event | `tab-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-metadata-v1` |
+
+Emitted when a tab's metadata changes without a structural change: its
+pinned flag, its presented directory (and so its git HEAD), or its unread
+notification marker. `entity` is the full refreshed `Tab`. It carries no
+workspace revision.
+
+```text
+object{event:"tab-changed",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab,transaction?:string}
+```
+
+After a tab drag command (`move-tab`, `move-tab-to-workspace`,
+`move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`), the
+moved tab's `tab-changed` carries the request's `transaction` so the frontend
+that dropped the tab can reconcile its optimistic layout. It follows the
+drag's `tree-changed`.
 
 ### tree-changed
 

@@ -33,6 +33,7 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+mod presentation_store;
 mod public_projection_store;
 mod resource_store;
 mod session_journal;
@@ -57,6 +58,12 @@ pub(crate) use journal_extensions::{
     JournalCheckpointCommit, JournalCheckpointSummary, JournalContentBlob, JournalHookAttempt,
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
+};
+pub use presentation_store::{
+    FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
+    TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
+    new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_tab_group_color,
+    validate_tab_group_name, validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
@@ -131,6 +138,9 @@ const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+
+/// An extra write that runs inside a workspace-registry commit transaction.
+type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {
@@ -3383,6 +3393,44 @@ impl WorkspaceRegistry {
             active_workspace,
             result,
             true,
+            None,
+        )
+    }
+
+    /// Commit a workspace-registry revision that also writes one workspace's
+    /// presentation row in the same transaction. The desired registry may be
+    /// unchanged (metadata only) or reordered (a group move). A replayed
+    /// mutation returns its original result and writes nothing.
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_workspace_presentation(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        workspace_key: &str,
+        workspaces: &[RegistryWorkspace],
+        active_workspace: Option<&WorkspacePublicId>,
+        update: &WorkspacePresentationUpdate,
+        result: &Value,
+    ) -> anyhow::Result<RegistryCommit> {
+        update.validate()?;
+        let write = |tx: &Transaction<'_>| {
+            presentation_store::write_workspace_presentation(tx, workspace_key, update)
+        };
+        self.commit_workspace_registry(
+            mutation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            event_kind,
+            workspace_key,
+            workspaces,
+            active_workspace,
+            result,
+            true,
+            Some(&write),
         )
     }
 
@@ -3415,6 +3463,7 @@ impl WorkspaceRegistry {
             active_workspace,
             result,
             false,
+            None,
         )
     }
 
@@ -3431,6 +3480,7 @@ impl WorkspaceRegistry {
         active_workspace: Option<&WorkspacePublicId>,
         result: &Value,
         project_resource: bool,
+        extra: Option<RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<RegistryCommit> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
@@ -3607,6 +3657,9 @@ impl WorkspaceRegistry {
                 &resource_deltas,
             )?;
             resource_store::prune_resource_mutations(&tx)?;
+        }
+        if let Some(extra) = extra {
+            extra(&tx)?;
         }
         tx.commit()?;
         Ok(RegistryCommit { revision, result: result.clone(), replayed: false })
@@ -3928,6 +3981,7 @@ fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
 }
 
 fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    presentation_store::create_presentation_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (
            workspace_key TEXT PRIMARY KEY NOT NULL,

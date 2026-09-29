@@ -6,6 +6,12 @@ public struct SurfaceCreated: Decodable, Sendable, Equatable {
     public var terminalID: TerminalID?
     public var terminalIncarnation: TerminalIncarnation?
 
+    init(surface: SurfaceID, terminalID: TerminalID? = nil, terminalIncarnation: TerminalIncarnation? = nil) {
+        self.surface = surface
+        self.terminalID = terminalID
+        self.terminalIncarnation = terminalIncarnation
+    }
+
     enum CodingKeys: String, CodingKey {
         case surface
         case terminalID = "terminal_id"
@@ -46,10 +52,14 @@ public struct CreateTerminalRequest: DaemonRequest {
     public var name: String?
     public var size: CellSize?
     public var terminalID: TerminalID?
+    /// Extra environment for the child only (`terminal-env-v1`); stored on
+    /// disk with the receipt, so never pass secrets.
+    public var env: [String: String]?
     public var mutation: MutationIdentity?
 
     public init(workspace: WorkspaceRef, argv: [String]? = nil, command: String? = nil, cwd: String? = nil,
-                name: String? = nil, size: CellSize? = nil, terminalID: TerminalID? = nil, mutation: MutationIdentity?) {
+                name: String? = nil, size: CellSize? = nil, terminalID: TerminalID? = nil, env: [String: String]? = nil,
+                mutation: MutationIdentity?) {
         self.workspace = workspace
         self.argv = argv
         self.command = command
@@ -57,10 +67,11 @@ public struct CreateTerminalRequest: DaemonRequest {
         self.name = name
         self.size = size
         self.terminalID = terminalID
+        self.env = env
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case argv, command, cwd, name, cols, rows, terminalID }
+    enum CodingKeys: String, CodingKey { case argv, command, cwd, name, cols, rows, terminalID, env }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(argv, forKey: .argv)
@@ -70,6 +81,7 @@ public struct CreateTerminalRequest: DaemonRequest {
         try c.encodeIfPresent(size?.cols, forKey: .cols)
         try c.encodeIfPresent(size?.rows, forKey: .rows)
         try c.encodeIfPresent(terminalID, forKey: .terminalID)
+        try c.encodeIfPresent(env, forKey: .env)
         try WorkspaceRefFields(ref: workspace).encode(to: encoder)
         try MutationFields(identity: mutation).encode(to: encoder)
     }

@@ -50,15 +50,36 @@ import Testing
         #expect(LoginEnvironment.parse(Data("no marker".utf8)) == nil)
     }
 
-    @Test func daemonEnvironmentDropsIdentityKeysAndAppliesOverrides() {
-        let env = LoginEnvironment.daemonEnvironment(
-            login: ["PATH": "/opt/homebrew/bin:/usr/bin", "CMUX_TUI_SOCKET": "/tmp/leak", "SHLVL": "2", "EDITOR": "vim"],
-            base: [:],
-            overrides: ["CMUX_TUI_STATE_DIR": "/tmp/state"])
-        #expect(env["CMUX_TUI_SOCKET"] == nil)
-        #expect(env["SHLVL"] == nil)
-        #expect(env["EDITOR"] == "vim")
+    @Test func daemonEnvironmentIsAllowlistedPlusIdentityAndOverrides() {
+        let login = [
+            "PATH": "/opt/homebrew/bin:/usr/bin", "MANPATH": "/m", "INFOPATH": "/i", "LANG": "en_US.UTF-8",
+            "LC_ALL": "C", "SHELL": "/bin/zsh", "TERMINFO_DIRS": "/t", "XDG_CONFIG_HOME": "/x",
+            "HOMEBREW_PREFIX": "/opt/homebrew", "HOMEBREW_CELLAR": "/c", "HOMEBREW_REPOSITORY": "/r",
+            "CMUX_NEXT_FLAG": "1", "CMUX_TUI_SOCKET": "/tmp/leak", "CMUX_SURFACE_ID": "9",
+            "SHLVL": "2", "EDITOR": "vim", "GITHUB_TOKEN": "ghp_secret", "AWS_SECRET_ACCESS_KEY": "s", "HOME": "/login-home",
+        ]
+        let base = ["HOME": "/Users/u", "USER": "u", "TMPDIR": "/tmp/u", "SSH_AUTH_SOCK": "/tmp/agent", "OPENAI_API_KEY": "sk", "CMUX_TAG": "t1"]
+        let env = LoginEnvironment.daemonEnvironment(login: login, base: base, overrides: ["CMUX_TUI_STATE_DIR": "/tmp/state"])
+        for key in ["PATH", "MANPATH", "INFOPATH", "LANG", "LC_ALL", "SHELL", "TERMINFO_DIRS", "XDG_CONFIG_HOME",
+                    "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY", "CMUX_NEXT_FLAG"] {
+            #expect(env[key] == login[key], "\(key)")
+        }
+        for key in ["CMUX_TUI_SOCKET", "CMUX_SURFACE_ID", "SHLVL", "EDITOR", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "OPENAI_API_KEY"] {
+            #expect(env[key] == nil, "\(key)")
+        }
+        // Process identity comes from the app, never the login shell.
+        #expect(env["HOME"] == "/Users/u")
+        #expect(env["SSH_AUTH_SOCK"] == "/tmp/agent")
+        #expect(env["CMUX_TAG"] == "t1")
         #expect(env["CMUX_TUI_STATE_DIR"] == "/tmp/state")
+
+        // Terminals get the allowlist without the daemon's identity keys.
+        let terminal = TerminalEnvironment.terminal(login: login, base: base)
+        #expect(terminal["HOME"] == nil)
+        #expect(terminal["SSH_AUTH_SOCK"] == nil)
+        #expect(terminal["GITHUB_TOKEN"] == nil)
+        #expect(terminal["PATH"] == login["PATH"])
+        #expect(terminal["CMUX_TAG"] == "t1")
 
         let fallback = LoginEnvironment.daemonEnvironment(login: nil, base: ["PATH": "/usr/bin:/bin"], overrides: [:])
         #expect(fallback["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")

@@ -70,23 +70,46 @@ extension DaemonConnection {
 
     // Terminals, tabs, panes, columns, screens
 
+    /// `env` for a new terminal: the caller's, else the configured allowlist
+    /// provider's when the daemon supports `terminal-env-v1`.
+    func terminalEnvironment(_ explicit: [String: String]?) async -> [String: String]? {
+        if let explicit { return explicit }
+        guard identity?.supports(DaemonCapabilities.terminalEnv) == true, let provider = configuration.terminalEnvironment else {
+            return nil
+        }
+        let env = await provider()
+        return env.isEmpty ? nil : env
+    }
+
     /// Spawns a terminal in a workspace; creates its first screen/pane when empty.
     @discardableResult
     public func createTerminal(in key: WorkspaceKey, cwd: String? = nil, argv: [String]? = nil, name: String? = nil,
-                               size: CellSize? = nil) async throws -> CreateTerminalResult {
-        try await request(CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
-                                                terminalID: .generate(), mutation: mutation()))
+                               size: CellSize? = nil, env: [String: String]? = nil) async throws -> CreateTerminalResult {
+        let env = await terminalEnvironment(env)
+        return try await request(CreateTerminalRequest(workspace: .key(key), argv: argv, cwd: cwd, name: name, size: size,
+                                                       terminalID: .generate(), env: env, mutation: mutation()))
     }
 
     @discardableResult
     public func newTab(in pane: PaneID?, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
-        try await request(NewTabRequest(pane: pane, options: options))
+        var options = options
+        options.env = await terminalEnvironment(options.env)
+        return try await request(NewTabRequest(pane: pane, options: options))
     }
 
+    /// Splits `pane` with a new terminal. With `tab`, moves that existing tab
+    /// into the new pane instead (`move-tab-to-split`, right or bottom edge)
+    /// and returns it; `options` then do not apply.
     @discardableResult
     public func split(_ pane: PaneID, direction: SplitDirection, movingTab tab: SurfaceID? = nil,
                       options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
-        try await request(SplitRequest(pane: pane, direction: direction, tab: tab, options: options))
+        if let tab {
+            let moved = try await moveTabToSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom)
+            return SurfaceCreated(surface: moved.surface ?? tab)
+        }
+        var options = options
+        options.env = await terminalEnvironment(options.env)
+        return try await request(SplitRequest(pane: pane, direction: direction, options: options))
     }
 
     @discardableResult

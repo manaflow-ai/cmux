@@ -1,0 +1,72 @@
+import AppKit
+import CmuxNextActions
+
+/// Window and app-level actions (category `window`) not bound in
+/// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
+/// navigation. Features cmux-next has not built yet report a typed
+/// `ActionFailure` so the CLI and palette say so.
+enum WindowHandlers {
+    /// Held while "Keep Mac Awake" is on.
+    private final class KeepAwake { var activity: (any NSObjectProtocol)? }
+
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let keepAwake = KeepAwake()
+        registry.bind("openSettings", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
+        registry.bind("about", run: { _ in
+            context.activateApp()
+            NSApp.orderFrontStandardAboutPanel(nil)
+        })
+        registry.bind("showMainWindow", run: { _ in showMainWindow(context) })
+        registry.bind("showHideAllWindows", run: { _ in
+            if NSApp.isActive, !NSApp.isHidden, context.services.windows.controllers.contains(where: { $0.window?.isVisible == true }) {
+                NSApp.hide(nil)
+            } else {
+                NSApp.unhide(nil)
+                showMainWindow(context)
+            }
+        })
+        registry.bind("keepMacAwake", run: { _ in toggleKeepAwake(keepAwake) })
+        registry.bind("commandPaletteNext", run: { _ in context.services.palette.model.handle(.moveDown) })
+        registry.bind("commandPalettePrevious", run: { _ in context.services.palette.model.handle(.moveUp) })
+
+        let unbuilt: [(ActionID, String)] = [
+            ("globalSearch", "search-all-windows"),
+            ("focusHistoryBack", "focus-history"),
+            ("focusHistoryForward", "focus-history"),
+            ("focusHistoryLast", "focus-history"),
+            ("recentlyFocused", "focus-history"),
+            ("palette.openTaskManager", "task-manager"),
+            ("taskManager.killProcess", "task-manager"),
+            ("palette.sleepyMode", "sleepy-mode"),
+        ]
+        for (id, feature) in unbuilt {
+            registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
+        }
+        // Closed workspaces and tabs are gone from the daemon tree; reopening
+        // needs a daemon-side closed-item history.
+        registry.bindUnavailable(["recentlyClosed"], ActionFailure.needsDaemonCapability("closed-history-v1"))
+    }
+
+    private static func showMainWindow(_ context: AppActionContext) {
+        guard let window = context.activeWindow?.window else {
+            context.services.windows.newWindow()
+            return
+        }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.orderFront(nil)
+        context.activateApp()
+    }
+
+    /// Prevents idle system sleep while on; a second run turns it off.
+    private static func toggleKeepAwake(_ state: KeepAwake) {
+        if let activity = state.activity {
+            ProcessInfo.processInfo.endActivity(activity)
+            state.activity = nil
+        } else {
+            state.activity = ProcessInfo.processInfo.beginActivity(
+                options: [.idleSystemSleepDisabled, .userInitiated],
+                reason: "cmux Keep Mac Awake"
+            )
+        }
+    }
+}

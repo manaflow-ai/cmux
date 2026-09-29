@@ -13,17 +13,20 @@ import java.util.Objects;
 /** Immutable move-tab-to-workspace request. Protocol v12; authority: control. */
 public final class MoveTabToWorkspaceRequest implements WireValue {
     private final UInt64 surface;
+    private final Field<String> transaction;
     private final Field<UInt64> workspace;
 
     private MoveTabToWorkspaceRequest(Builder builder) {
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
+        this.transaction = builder.transaction;
         this.workspace = builder.workspace;
     }
 
     public static Builder builder() { return new Builder(); }
 
     public UInt64 surface() { return surface; }
+    public Field<String> transaction() { return transaction; }
     public Field<UInt64> workspace() { return workspace; }
 
     public static MoveTabToWorkspaceRequest fromWire(Object value) {
@@ -31,6 +34,10 @@ public final class MoveTabToWorkspaceRequest implements WireValue {
         Builder builder = builder();
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "MoveTabToWorkspaceRequest.surface"));
+        Object rawTransaction = Wire.optional(object, "transaction");
+        if (!Wire.isMissing(rawTransaction)) {
+            builder.transaction(rawTransaction == null ? null : Wire.string(rawTransaction, "MoveTabToWorkspaceRequest.transaction"));
+        }
         Object rawWorkspace = Wire.optional(object, "workspace");
         if (!Wire.isMissing(rawWorkspace)) {
             builder.workspace(rawWorkspace == null ? null : Wire.uint64(rawWorkspace, "MoveTabToWorkspaceRequest.workspace"));
@@ -42,6 +49,7 @@ public final class MoveTabToWorkspaceRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "surface", surface);
+        Wire.put(object, "transaction", transaction);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
     }
@@ -49,11 +57,11 @@ public final class MoveTabToWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof MoveTabToWorkspaceRequest that)) return false;
-        return Objects.equals(surface, that.surface) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(surface, workspace); }
+    public int hashCode() { return Objects.hash(surface, transaction, workspace); }
 
     @Override
     public String toString() { return "MoveTabToWorkspaceRequest" + toWire(); }
@@ -61,11 +69,16 @@ public final class MoveTabToWorkspaceRequest implements WireValue {
     public static final class Builder {
         private UInt64 surface;
         private boolean surfaceSet;
+        private Field<String> transaction = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
         public Builder surface(UInt64 value) {
             this.surface = value;
             this.surfaceSet = true;
+            return this;
+        }
+        public Builder transaction(String value) {
+            this.transaction = Field.ofNullable(value);
             return this;
         }
         public Builder workspace(UInt64 value) {

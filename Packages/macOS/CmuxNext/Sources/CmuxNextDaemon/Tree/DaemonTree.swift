@@ -7,9 +7,10 @@ import Foundation
 // daemon never breaks an older app.
 //
 // Fields gated by `workspace-groups-v1`, `workspace-metadata-v1`,
-// `tab-metadata-v1`, and `frontend-browser-tabs-v1` come from the
-// feat-cmux-next-daemon branch (cmux-tui/spec/commands.md there); older
-// daemons omit them and they decode as nil/false.
+// `tab-metadata-v1`, `frontend-browser-tabs-v1`, `notification-ack-v1`, and
+// `tab-groups-v1` are additive protocol 12 fields (cmux-tui PR 15518,
+// cmux-tui/spec/commands.md); older daemons omit them and they decode as
+// nil/false/empty.
 
 /// `list-workspaces` result.
 public struct DaemonTree: Sendable, Hashable, Decodable {
@@ -22,7 +23,9 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
     public var workspaces: [WorkspaceSnapshot]
     /// Ordered sidebar groups (`workspace-groups-v1`).
     public var groups: [WorkspaceGroupSnapshot]
-    /// Session-wide saved tab groups. TODO(feat-cmux-next-daemon): `saved_tab_groups`.
+    /// Session-wide saved tab groups (`saved-tab-groups-v1`). Not part of
+    /// `list-workspaces`: `DaemonConnection.snapshot()` fills it from
+    /// `list-saved-tab-groups`.
     public var savedTabGroups: [SavedTabGroupSnapshot]
 
     public init(
@@ -66,6 +69,22 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
         workspaces = try c.decodeIfPresent([WorkspaceSnapshot].self, forKey: .workspaces) ?? []
         groups = try c.decodeIfPresent([WorkspaceGroupSnapshot].self, forKey: .groups) ?? []
         savedTabGroups = try c.decodeIfPresent([SavedTabGroupSnapshot].self, forKey: .savedTabGroups) ?? []
+    }
+}
+
+extension DaemonTree {
+    /// Sets each saved record's `openGroup` from the live group whose
+    /// `savedID` names it.
+    public mutating func linkSavedTabGroups() {
+        var open: [SavedTabGroupID: TabGroupID] = [:]
+        for workspace in workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    for group in pane.tabGroups { if let saved = group.savedID { open[saved] = group.id } }
+                }
+            }
+        }
+        for index in savedTabGroups.indices { savedTabGroups[index].openGroup = open[savedTabGroups[index].id] }
     }
 }
 

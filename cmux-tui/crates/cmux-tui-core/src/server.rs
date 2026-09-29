@@ -75,8 +75,8 @@ use crate::{
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
     LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
     Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
-    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
+    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceRenderFrame,
+    TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
     WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
@@ -125,6 +125,37 @@ pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
 /// Advertises `set-terminal-idle-policy` and the owner-side reaper that
 /// closes a terminal once it has had no attached view for its policy.
 pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
+/// Durable sidebar workspace groups: the `*-workspace-group` commands,
+/// `move-workspace-to-group`, a `groups` array in `list-workspaces`, and a
+/// `group` field on every workspace.
+pub const WORKSPACE_GROUPS_CAPABILITY: &str = "workspace-groups-v1";
+/// Durable workspace presentation: `set-workspace-metadata`, the
+/// `color`/`icon`/`title` workspace fields, and `workspace-changed` deltas.
+pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
+/// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
+/// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
+/// `tab-changed` delta.
+pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
+/// Frontend-rendered browser tabs (WebKit or CEF): `new-frontend-browser-tab`,
+/// `update-frontend-browser-tab`, and the `browser_renderer`,
+/// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
+pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
+/// Tab drag outcomes as single atomic commands: `move-tab-to-split`,
+/// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
+/// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
+pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
+/// Durable notification acknowledgement decoupled from focus:
+/// `ack-tab-notifications`, `list-notifications`, and the workspace
+/// `unread_count` rollup.
+pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
+/// Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
+/// and `Tab.group`.
+pub const TAB_GROUPS_CAPABILITY: &str = "tab-groups-v1";
+/// Saved (pinned) tab groups that outlive their placements.
+pub const SAVED_TAB_GROUPS_CAPABILITY: &str = "saved-tab-groups-v1";
+/// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and
+/// `cwd` on `split`.
+pub const TERMINAL_ENV_CAPABILITY: &str = "terminal-env-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -227,6 +258,15 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
+        WORKSPACE_GROUPS_CAPABILITY,
+        WORKSPACE_METADATA_CAPABILITY,
+        TAB_METADATA_CAPABILITY,
+        FRONTEND_BROWSER_TABS_CAPABILITY,
+        TAB_DRAG_CAPABILITY,
+        NOTIFICATION_ACK_CAPABILITY,
+        TAB_GROUPS_CAPABILITY,
+        SAVED_TAB_GROUPS_CAPABILITY,
+        TERMINAL_ENV_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -970,12 +1010,43 @@ enum Command {
         pane: Option<PaneId>,
         #[serde(default)]
         cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
         /// Expected content size in cells (spawn-at-size avoids shell
         /// redraw artifacts).
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+    },
+    /// New browser tab whose page the frontend renders (WebKit or CEF).
+    /// The daemon persists its location and never attaches a CDP target.
+    NewFrontendBrowserTab {
+        url: String,
+        engine: String,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        favicon_url: Option<String>,
+        #[serde(default)]
+        profile_id: Option<String>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    /// Record a frontend-rendered browser's URL, title, or favicon.
+    UpdateFrontendBrowserTab {
+        surface: SurfaceId,
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        favicon_url: Option<Option<String>>,
     },
     NewBrowserTab {
         url: String,
@@ -1128,6 +1199,9 @@ enum Command {
         /// mutation id makes a lost-response retry exactly once.
         #[serde(default)]
         terminal_id: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1164,6 +1238,11 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// Extra environment for the new terminal's child only.
+        #[serde(default)]
+        env: Option<BTreeMap<String, String>>,
     },
     SetRatio {
         pane: PaneId,
@@ -1227,11 +1306,165 @@ enum Command {
         surface: SurfaceId,
         pane: PaneId,
         index: usize,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Every tab group with its pane and members.
+    ListTabGroups,
+    /// Group tabs of one pane; they become contiguous at the first one.
+    CreateTabGroup {
+        #[serde(alias = "tabs")]
+        surfaces: Vec<TabRef>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        group: Option<String>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Rename, recolor, or collapse a tab group.
+    UpdateTabGroup {
+        group: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    AddTabsToTabGroup {
+        group: String,
+        #[serde(alias = "tabs")]
+        surfaces: Vec<TabRef>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    RemoveTabsFromTabGroup {
+        #[serde(alias = "tabs")]
+        surfaces: Vec<TabRef>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Move a whole group within its strip or into another pane's strip.
+    MoveTabGroup {
+        group: String,
+        #[serde(default)]
+        pane: Option<PaneRef>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    MoveTabGroupToSplit {
+        group: String,
+        pane: PaneRef,
+        edge: String,
+        #[serde(default)]
+        ratio: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    MoveTabGroupToColumn {
+        group: String,
+        #[serde(default)]
+        pane: Option<PaneRef>,
+        #[serde(default)]
+        screen: Option<ScreenId>,
+        #[serde(default)]
+        after_column: Option<SplitId>,
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    MoveTabGroupToNewWorkspace {
+        group: String,
+        #[serde(default)]
+        workspace_group: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    UngroupTabGroup {
+        group: String,
+    },
+    /// Close every member placement of a group in one commit.
+    CloseTabGroup {
+        group: String,
+    },
+    ListSavedTabGroups,
+    SaveTabGroup {
+        group: String,
+    },
+    UnsaveTabGroup {
+        group: String,
+    },
+    DeleteSavedTabGroup {
+        saved: String,
+    },
+    ReopenSavedTabGroup {
+        saved: String,
+        pane: PaneRef,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Acknowledge a tab's notifications without selecting or focusing it.
+    AckTabNotifications {
+        surface: SurfaceId,
+    },
+    /// Retained notifications, newest first.
+    ListNotifications {
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
+    SetTabPinned {
+        surface: SurfaceId,
+        pinned: bool,
     },
     MoveTabToWorkspace {
         surface: SurfaceId,
         #[serde(default)]
         workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Drop a tab on a pane edge: a new split beside `pane` holding the tab.
+    MoveTabToSplit {
+        surface: SurfaceId,
+        pane: PaneId,
+        edge: String,
+        #[serde(default)]
+        ratio: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Drop a tab between niri columns: a new column holding the tab.
+    MoveTabToColumn {
+        surface: SurfaceId,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        screen: Option<ScreenId>,
+        #[serde(default)]
+        after_column: Option<SplitId>,
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        transaction: Option<String>,
+    },
+    /// Drop a tab on the sidebar: a new workspace holding the tab.
+    MoveTabToNewWorkspace {
+        surface: SurfaceId,
+        #[serde(default)]
+        group: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        transaction: Option<String>,
     },
     MoveWorkspace {
         #[serde(default)]
@@ -1239,6 +1472,70 @@ enum Command {
         #[serde(default)]
         key: Option<String>,
         index: usize,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
+    /// Set, clear (`null`), or keep (absent) a workspace's shared color,
+    /// SF Symbol icon, and custom title.
+    SetWorkspaceMetadata {
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        title: Option<Option<String>>,
+        #[serde(flatten)]
+        mutation: MutationRequest,
+    },
+    /// List sidebar workspace groups in order.
+    ListWorkspaceGroups,
+    /// Create a sidebar workspace group. A caller-chosen `group` id makes a
+    /// retry idempotent.
+    CreateWorkspaceGroup {
+        name: String,
+        #[serde(default)]
+        group: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        collapsed: bool,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    /// Rename, recolor, or collapse a group. An absent field is unchanged;
+    /// `color: null` clears the color.
+    UpdateWorkspaceGroup {
+        group: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    /// Delete a group; its workspaces become ungrouped in place.
+    DeleteWorkspaceGroup {
+        group: String,
+    },
+    /// Move a group to an insertion index among groups.
+    MoveWorkspaceGroup {
+        group: String,
+        index: usize,
+    },
+    /// Put a workspace in a group (`group: null` ungroups it), optionally at
+    /// a final index among that section's members.
+    MoveWorkspaceToGroup {
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        key: Option<String>,
+        group: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1494,6 +1791,174 @@ impl Command {
                 | Self::ScrollSurface { .. }
         )
     }
+}
+
+/// A tab named by its numeric surface id or its public `tab_...` id.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum TabRef {
+    Surface(SurfaceId),
+    Public(String),
+}
+
+/// A pane named by its numeric id or its public `pane_...` id.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum PaneRef {
+    Id(PaneId),
+    Public(String),
+}
+
+fn resolve_tab_refs(mux: &Mux, refs: &[TabRef]) -> anyhow::Result<Vec<SurfaceId>> {
+    mux.with_state(|state| {
+        refs.iter()
+            .map(|reference| match reference {
+                TabRef::Surface(surface) => Ok(*surface),
+                TabRef::Public(id) => state
+                    .resource_indexes
+                    .tabs
+                    .iter()
+                    .find_map(|(tab, surface)| (tab.as_str() == id).then_some(*surface))
+                    .ok_or_else(|| anyhow::anyhow!("unknown tab {id}")),
+            })
+            .collect()
+    })
+}
+
+fn resolve_pane_ref(mux: &Mux, reference: &PaneRef) -> anyhow::Result<PaneId> {
+    match reference {
+        PaneRef::Id(pane) => Ok(*pane),
+        PaneRef::Public(id) => mux
+            .with_state(|state| {
+                state
+                    .resource_indexes
+                    .panes
+                    .iter()
+                    .find_map(|(pane, slot)| (pane.as_str() == id).then_some(*slot))
+            })
+            .ok_or_else(|| anyhow::anyhow!("unknown pane {id}")),
+    }
+}
+
+/// A client transaction id: opaque, 1-128 printable ASCII characters.
+fn validate_client_transaction(transaction: Option<&str>) -> anyhow::Result<()> {
+    if let Some(transaction) = transaction {
+        anyhow::ensure!(
+            !transaction.is_empty()
+                && transaction.len() <= 128
+                && transaction.bytes().all(|byte| byte.is_ascii_graphic()),
+            "bad request: transaction must be 1-128 printable ASCII characters"
+        );
+    }
+    Ok(())
+}
+
+fn surface_placement(mux: &Mux, surface: SurfaceId) -> (Option<WorkspaceId>, Option<PaneId>) {
+    mux.with_state(|state| {
+        let pane = state.pane_of(surface);
+        let workspace = pane
+            .and_then(|pane| state.screen_of(pane))
+            .map(|(workspace, _)| state.workspaces[workspace].id);
+        (workspace, pane)
+    })
+}
+
+/// The pane that anchors a column drop: the given pane, or the active pane
+/// of the given screen.
+fn column_anchor(
+    mux: &Mux,
+    pane: Option<PaneId>,
+    screen: Option<ScreenId>,
+) -> anyhow::Result<PaneId> {
+    match (pane, screen) {
+        (Some(pane), None) => Ok(pane),
+        (None, Some(screen)) => mux
+            .with_state(|state| {
+                state
+                    .workspaces
+                    .iter()
+                    .flat_map(|workspace| workspace.screens.iter())
+                    .find_map(|candidate| (candidate.id == screen).then_some(candidate.active_pane))
+            })
+            .ok_or_else(|| anyhow::anyhow!("unknown screen {screen}")),
+        _ => anyhow::bail!("bad request: exactly one of pane or screen"),
+    }
+}
+
+fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> Value {
+    let mut value = json!({
+        "id": run.group.id,
+        "name": run.group.name,
+        "color": run.group.color,
+        "collapsed": run.group.collapsed,
+        "saved_id": run.group.saved_id,
+        "start": run.start,
+        "count": run.members.len(),
+        "surfaces": run.members,
+    });
+    if let Some(pane) = pane {
+        value["pane"] = json!(pane);
+    }
+    value
+}
+
+fn tab_group_outcome_json(outcome: &crate::TabGroupOutcome) -> Value {
+    json!({
+        "group": outcome.group.as_ref().map(|group| json!({
+            "id": group.id,
+            "name": group.name,
+            "color": group.color,
+            "collapsed": group.collapsed,
+            "saved_id": group.saved_id,
+        })),
+        "pane": outcome.pane,
+        "workspace": outcome.workspace,
+        "surfaces": outcome.members,
+    })
+}
+
+fn tab_drag_outcome_json(outcome: &crate::TabDragOutcome) -> Value {
+    json!({
+        "surface": outcome.surface,
+        "pane": outcome.pane,
+        "screen": outcome.screen,
+        "workspace": outcome.workspace,
+        "undoable": outcome.undoable,
+    })
+}
+
+/// Deserialize a field whose absence and `null` mean different things:
+/// absent is `None` (via `#[serde(default)]`), `null` is `Some(None)`.
+fn present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+fn workspace_group_json(
+    group: &crate::workspace_registry::WorkspaceGroupRecord,
+    index: usize,
+) -> Value {
+    json!({
+        "id": group.id,
+        "name": group.name,
+        "color": group.color,
+        "collapsed": group.collapsed,
+        "index": index,
+    })
+}
+
+fn workspace_groups_json(presentation: &crate::workspace_registry::PresentationSnapshot) -> Value {
+    json!(
+        presentation
+            .groups
+            .iter()
+            .enumerate()
+            .map(|(index, group)| workspace_group_json(group, index))
+            .collect::<Vec<_>>()
+    )
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -9830,10 +10295,14 @@ fn pane_json(
     state: &State,
     id: PaneId,
     short_ids: &HashMap<u64, String>,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
 ) -> Value {
     let Some(pane) = state.panes.get(&id) else {
         return json!({ "id": id, "dead": true });
+    };
+    let tab_groups = crate::mux::pane_tab_groups(state, &notifications.presentation, id);
+    let group_of = |surface: &SurfaceId| {
+        tab_groups.iter().find(|run| run.members.contains(surface)).map(|run| run.group.id.as_str())
     };
     json!({
         "id": id,
@@ -9842,6 +10311,7 @@ fn pane_json(
         "name": pane.name,
         "active_tab": pane.active_tab,
         "focused_at": pane.focused_at,
+        "tab_groups": tab_groups.iter().map(|run| pane_tab_group_json(run, None)).collect::<Vec<_>>(),
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
             let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
@@ -9857,9 +10327,26 @@ fn pane_json(
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.as_str());
+            let directory = notifications.directories.get(sid);
+            let frontend_browser = surface
+                .and_then(|surface| surface.resource_identity())
+                .and_then(|identity| match &identity.content_id {
+                    ContentPublicId::Browser(id) => {
+                        notifications.presentation.frontend_browsers.get(id.as_str())
+                    }
+                    ContentPublicId::Terminal(_) => None,
+                });
+            let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
+                notifications.presentation.pinned_tabs.contains(tab.as_str())
+            });
             json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
+                "group": group_of(sid),
+                "pinned": pinned,
+                "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
+                "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
+                "git_detached": directory.is_some_and(|directory| directory.git_detached),
                 "content_resource_id": content_resource_id,
                 "terminal_id": terminal_identity.as_ref().map(|identity| &identity.terminal_id),
                 "terminal_resource_id": terminal_resource_id,
@@ -9869,8 +10356,18 @@ fn pane_json(
                 "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
                 "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
                 "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
-                "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
-                "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
+                "browser_status": surface
+                    .filter(|_| frontend_browser.is_none())
+                    .and_then(|s| s.browser_status().map(|status| status.as_str())),
+                "browser_error": surface
+                    .filter(|_| frontend_browser.is_none())
+                    .and_then(|s| s.browser_status().and_then(|status| status.error())),
+                "browser_renderer": surface
+                    .filter(|surface| surface.kind() == SurfaceKind::Browser)
+                    .map(|_| if frontend_browser.is_some() { "frontend" } else { "daemon" }),
+                "browser_engine": frontend_browser.map(|record| record.engine.as_str()),
+                "favicon_url": frontend_browser.and_then(|record| record.favicon_url.as_deref()),
+                "browser_profile_id": frontend_browser.and_then(|record| record.profile_id.as_deref()),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
                 "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
@@ -9899,7 +10396,7 @@ fn screen_json(
     screen: &Screen,
     active: bool,
     short_ids: &HashMap<u64, String>,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
@@ -9944,14 +10441,12 @@ fn screen_json(
     value
 }
 
-fn workspaces_json(
-    state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
-) -> Value {
+pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
     let short_ids = tree_short_ids(state);
     json!({
         "workspace_revision": state.workspace_revision,
         "pane_revision": state.pane_revision,
+        "groups": workspace_groups_json(&notifications.presentation),
         "workspaces": state.workspaces.iter().enumerate().map(|(index, workspace)| {
             workspace_json(state, workspace, index, &short_ids, notifications)
         }).collect::<Vec<_>>(),
@@ -9979,14 +10474,20 @@ fn workspace_json(
     workspace: &Workspace,
     index: usize,
     short_ids: &HashMap<u64, String>,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
 ) -> Value {
+    let presentation = notifications.presentation.workspace(&workspace.key);
     json!({
         "id": workspace.id,
         "resource_id": workspace.public_id,
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
+        "group": presentation.and_then(|presentation| presentation.group.as_deref()),
+        "color": presentation.and_then(|presentation| presentation.color.as_deref()),
+        "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
+        "title": presentation.and_then(|presentation| presentation.title.as_deref()),
+        "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
             screen_json(
@@ -10000,9 +10501,25 @@ fn workspace_json(
     })
 }
 
+/// Tabs in a workspace whose content has an unread notification marker.
+fn workspace_unread_count(
+    state: &State,
+    workspace: &Workspace,
+    notifications: &TreeDecorations,
+) -> usize {
+    workspace
+        .screens
+        .iter()
+        .flat_map(|screen| screen.root.pane_ids_vec())
+        .filter_map(|pane| state.panes.get(&pane))
+        .flat_map(|pane| pane.tabs.iter())
+        .filter(|surface| notifications.get(surface).is_some_and(|marker| marker.unread))
+        .count()
+}
+
 pub(crate) fn tree_entity_json(
     state: &State,
-    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    notifications: &TreeDecorations,
     kind: TreeDeltaKind,
     id: u64,
 ) -> Option<Value> {
@@ -10012,6 +10529,7 @@ pub(crate) fn tree_entity_json(
             | TreeDeltaKind::WorkspaceClosed
             | TreeDeltaKind::WorkspaceRenamed
             | TreeDeltaKind::WorkspaceMoved
+            | TreeDeltaKind::WorkspaceChanged
     ) {
         let short_ids = tree_short_ids(state);
         let index = state.workspace_index(id)?;
@@ -10024,7 +10542,8 @@ pub(crate) fn tree_entity_json(
         TreeDeltaKind::WorkspaceAdded
         | TreeDeltaKind::WorkspaceClosed
         | TreeDeltaKind::WorkspaceRenamed
-        | TreeDeltaKind::WorkspaceMoved => unreachable!("workspace deltas returned above"),
+        | TreeDeltaKind::WorkspaceMoved
+        | TreeDeltaKind::WorkspaceChanged => unreachable!("workspace deltas returned above"),
         TreeDeltaKind::ScreenAdded | TreeDeltaKind::ScreenClosed | TreeDeltaKind::ScreenRenamed => {
             workspaces
                 .iter()
@@ -10042,19 +10561,18 @@ pub(crate) fn tree_entity_json(
             .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
             .find(|pane| pane.get("id").and_then(Value::as_u64) == Some(id))
             .cloned(),
-        TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
-            workspaces
-                .iter()
-                .flat_map(|workspace| {
-                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-                })
-                .flat_map(|screen| {
-                    screen.get("panes").and_then(Value::as_array).into_iter().flatten()
-                })
-                .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
-                .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
-                .cloned()
-        }
+        TreeDeltaKind::TabAdded
+        | TreeDeltaKind::TabClosed
+        | TreeDeltaKind::TabRenamed
+        | TreeDeltaKind::TabChanged => workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+            })
+            .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
+            .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
+            .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
+            .cloned(),
     }
 }
 
@@ -10075,6 +10593,9 @@ fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     }
     if let Some(index) = delta.index {
         value["index"] = json!(index);
+    }
+    if let Some(transaction) = &delta.transaction {
+        value["transaction"] = json!(transaction.as_ref());
     }
     if let Some(revision) = delta.workspace_revision {
         value["workspace_revision"] = json!(revision);
@@ -11604,7 +12125,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ListWorkspaces => {
-            let notifications = mux.surface_notifications();
+            let notifications = mux.tree_decorations();
             let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
             let (registry_id, generation) = mux.registry_identity();
             workspaces["registry_id"] = json!(registry_id);
@@ -11991,8 +12512,14 @@ fn handle_command_with_cancellation(
                 "idle_close_seconds": idle_close_seconds,
             }))
         }
-        Command::NewTab { pane, cwd, cols, rows } => {
-            let surface = mux.new_tab(pane, cwd, optional_surface_size(cols, rows))?;
+        Command::NewTab { pane, cwd, env, cols, rows } => {
+            let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?;
+            let surface = mux.new_tab_with_env(
+                pane,
+                cwd,
+                env.unwrap_or_default(),
+                optional_surface_size(cols, rows),
+            )?;
             let terminal_identity = surface.terminal_host_identity();
             Ok(json!({
                 "surface": surface.id,
@@ -12000,6 +12527,46 @@ fn handle_command_with_cancellation(
                 "terminal_incarnation": terminal_identity
                     .as_ref()
                     .map(|identity| &identity.incarnation),
+            }))
+        }
+        Command::NewFrontendBrowserTab {
+            url,
+            engine,
+            pane,
+            title,
+            favicon_url,
+            profile_id,
+            cols,
+            rows,
+        } => {
+            let record = crate::workspace_registry::FrontendBrowserRecord {
+                engine,
+                url,
+                title,
+                favicon_url,
+                profile_id,
+            };
+            let surface = mux.new_frontend_browser_tab(
+                pane,
+                record,
+                paired_surface_size("new-frontend-browser-tab", cols, rows)?,
+            )?;
+            let identity = surface.resource_identity();
+            Ok(json!({
+                "surface": surface.id,
+                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
+                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
+            }))
+        }
+        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url } => {
+            let (record, changed) =
+                mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
+            Ok(json!({
+                "surface": surface,
+                "url": record.url,
+                "title": record.title,
+                "favicon_url": record.favicon_url,
+                "changed": changed,
             }))
         }
         Command::NewBrowserTab { url, pane, cols, rows } => {
@@ -12228,8 +12795,14 @@ fn handle_command_with_cancellation(
             cols,
             rows,
             terminal_id,
+            env,
             mutation,
         } => {
+            let env = env
+                .as_ref()
+                .map(crate::mux::validate_terminal_env)
+                .transpose()?
+                .unwrap_or_default();
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
@@ -12244,7 +12817,9 @@ fn handle_command_with_cancellation(
             let size = paired_surface_size("create-terminal", cols, rows)?;
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
             let (registry_id, generation) = mux.registry_identity();
-            if terminal_id.is_some() || mutation.mutation_id.is_some() {
+            // A per-terminal environment rides the receipted path, which is
+            // the only one that carries a spawn reservation.
+            if terminal_id.is_some() || mutation.mutation_id.is_some() || !env.is_empty() {
                 let workspace_mutation = workspace_mutation(&mutation)?;
                 let result = mux.create_raw_terminal_in_workspace_with_mutation(
                     workspace,
@@ -12256,6 +12831,7 @@ fn handle_command_with_cancellation(
                     mutation.expected_generation.as_deref(),
                     mutation.expected_revision,
                     &workspace_mutation,
+                    env,
                 )?;
                 let projection_fingerprint = json!({
                     "terminal_id":result.terminal_id,
@@ -12330,9 +12906,16 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::Split { pane, dir, cols, rows } => {
+        Command::Split { pane, dir, cols, rows, cwd, env } => {
             let dir = parse_split_dir(&dir)?;
-            let surface = mux.split(pane, dir, optional_surface_size(cols, rows))?;
+            let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?;
+            let surface = mux.split_with(
+                pane,
+                dir,
+                cwd,
+                env.unwrap_or_default(),
+                optional_surface_size(cols, rows),
+            )?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::SetRatio { pane, dir, ratio } => {
@@ -12455,11 +13038,52 @@ fn handle_command_with_cancellation(
                 "generation":generation,
             }))
         }
-        Command::MoveTabToWorkspace { surface, workspace } => {
+        Command::MoveTabToWorkspace { surface, workspace, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
             mux.move_tab_to_workspace(surface, workspace)?;
-            Ok(json!({}))
+            mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
+            let (workspace, pane) = surface_placement(mux, surface);
+            Ok(json!({"surface": surface, "workspace": workspace, "pane": pane, "undoable": false}))
         }
-        Command::MoveTab { surface, pane, index } => {
+        Command::MoveTabToSplit { surface, pane, edge, ratio, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            get_surface(mux, surface)?;
+            let edge = crate::TabDropEdge::parse(&edge)?;
+            let outcome = mux.move_tab_to_split(surface, pane, edge, ratio, transaction)?;
+            Ok(tab_drag_outcome_json(&outcome))
+        }
+        Command::MoveTabToColumn { surface, pane, screen, after_column, width, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            get_surface(mux, surface)?;
+            let anchor = column_anchor(mux, pane, screen)?;
+            let outcome =
+                mux.move_tab_to_column(surface, anchor, after_column, width, transaction)?;
+            Ok(tab_drag_outcome_json(&outcome))
+        }
+        Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            get_surface(mux, surface)?;
+            let workspace = mux.move_tab_to_new_workspace(surface, group.clone(), index)?;
+            mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
+            let (key, workspace_index) = mux
+                .with_state(|state| {
+                    let index = state.workspace_index(workspace)?;
+                    Some((state.workspaces[index].key.clone(), index))
+                })
+                .ok_or_else(|| anyhow::anyhow!("new workspace disappeared"))?;
+            let (_, pane) = surface_placement(mux, surface);
+            Ok(json!({
+                "surface": surface,
+                "workspace": workspace,
+                "key": key,
+                "index": workspace_index,
+                "group": group,
+                "pane": pane,
+                "undoable": false,
+            }))
+        }
+        Command::MoveTab { surface, pane, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
             let valid = mux.with_state(|state| {
                 state.surfaces.contains_key(&surface)
                     && state.panes.contains_key(&pane)
@@ -12468,8 +13092,167 @@ fn handle_command_with_cancellation(
             if !valid {
                 anyhow::bail!("unknown surface/pane");
             }
-            mux.move_tab(surface, pane, index);
-            Ok(json!({}))
+            let index = mux.pinned_tab_move_index(surface, pane, index);
+            let (moved, undoable) = mux.move_tab_with_undo(surface, pane, index, transaction);
+            Ok(json!({"moved": moved, "undoable": undoable}))
+        }
+        Command::ListTabGroups => {
+            let presentation = mux.presentation_snapshot();
+            let groups = mux.with_state(|state| {
+                let mut groups = Vec::new();
+                for pane in state.panes.keys() {
+                    for run in crate::mux::pane_tab_groups(state, &presentation, *pane) {
+                        groups.push(pane_tab_group_json(&run, Some(*pane)));
+                    }
+                }
+                groups
+            });
+            Ok(json!({ "groups": groups }))
+        }
+        Command::CreateTabGroup { surfaces, name, color, group, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let surfaces = resolve_tab_refs(mux, &surfaces)?;
+            let outcome =
+                mux.create_tab_group(&surfaces, name, color, group, transaction.as_deref())?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::UpdateTabGroup { group, name, color, collapsed } => {
+            Ok(tab_group_outcome_json(&mux.update_tab_group(&group, name, color, collapsed)?))
+        }
+        Command::AddTabsToTabGroup { group, surfaces, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let surfaces = resolve_tab_refs(mux, &surfaces)?;
+            let outcome = mux.add_tabs_to_tab_group(&group, &surfaces, transaction.as_deref())?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::RemoveTabsFromTabGroup { surfaces, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let surfaces = resolve_tab_refs(mux, &surfaces)?;
+            let groups = mux.remove_tabs_from_tab_group(&surfaces, transaction.as_deref())?;
+            Ok(json!({ "surfaces": surfaces, "groups": groups }))
+        }
+        Command::MoveTabGroup { group, pane, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let pane =
+                match pane {
+                    Some(pane) => resolve_pane_ref(mux, &pane)?,
+                    None => mux
+                        .with_state(|state| {
+                            let presentation = mux.presentation_snapshot();
+                            let record = presentation.tab_groups.groups.get(&group)?;
+                            state.resource_indexes.panes.iter().find_map(|(id, slot)| {
+                                (id.as_str() == record.pane_id).then_some(*slot)
+                            })
+                        })
+                        .ok_or_else(|| anyhow::anyhow!("unknown tab group {group}"))?,
+                };
+            let outcome = mux.move_tab_group(
+                &group,
+                crate::TabGroupDestination::Strip { pane, index },
+                transaction.as_deref(),
+            )?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::MoveTabGroupToSplit { group, pane, edge, ratio, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let pane = resolve_pane_ref(mux, &pane)?;
+            if let Some(ratio) = ratio {
+                anyhow::ensure!(
+                    ratio.is_finite() && (0.05..=0.95).contains(&ratio),
+                    "bad request: ratio must be between 0.05 and 0.95"
+                );
+            }
+            let edge = crate::TabDropEdge::parse(&edge)?;
+            let outcome = mux.move_tab_group(
+                &group,
+                crate::TabGroupDestination::Split { pane, edge, ratio },
+                transaction.as_deref(),
+            )?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::MoveTabGroupToColumn { group, pane, screen, after_column, width, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let pane = pane.map(|pane| resolve_pane_ref(mux, &pane)).transpose()?;
+            let pane = column_anchor(mux, pane, screen)?;
+            let outcome = mux.move_tab_group(
+                &group,
+                crate::TabGroupDestination::Column { pane, after_column, width },
+                transaction.as_deref(),
+            )?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::MoveTabGroupToNewWorkspace { group, workspace_group, index, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let outcome = mux.move_tab_group(
+                &group,
+                crate::TabGroupDestination::NewWorkspace { group: workspace_group, index },
+                transaction.as_deref(),
+            )?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::UngroupTabGroup { group } => {
+            let members = mux.ungroup_tab_group(&group)?;
+            Ok(json!({ "group": group, "surfaces": members }))
+        }
+        Command::CloseTabGroup { group } => {
+            let closed = mux.close_tab_group(&group)?;
+            Ok(json!({ "group": group, "closed": closed }))
+        }
+        Command::ListSavedTabGroups => Ok(json!({ "saved_groups": mux.saved_tab_groups() })),
+        Command::SaveTabGroup { group } => {
+            let saved = mux.save_tab_group(&group)?;
+            Ok(json!({ "group": group, "saved": saved }))
+        }
+        Command::UnsaveTabGroup { group } => {
+            Ok(json!({ "group": group, "unsaved": mux.unsave_tab_group(&group)? }))
+        }
+        Command::DeleteSavedTabGroup { saved } => {
+            Ok(json!({ "saved": saved, "deleted": mux.delete_saved_tab_group(&saved)? }))
+        }
+        Command::ReopenSavedTabGroup { saved, pane, transaction } => {
+            validate_client_transaction(transaction.as_deref())?;
+            let pane = resolve_pane_ref(mux, &pane)?;
+            let outcome = mux.reopen_saved_tab_group(&saved, pane, transaction.as_deref())?;
+            Ok(tab_group_outcome_json(&outcome))
+        }
+        Command::AckTabNotifications { surface } => {
+            let ack = mux.acknowledge_tab_notifications(surface)?;
+            Ok(json!({
+                "surface": surface,
+                "cleared": ack.cleared,
+                "acknowledged": ack.acknowledged,
+            }))
+        }
+        Command::ListNotifications { limit } => {
+            let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
+            Ok(json!({
+                "notifications": rows
+                    .iter()
+                    .map(|(row, acknowledged)| {
+                        json!({
+                            "id": row.id,
+                            "title": row.title,
+                            "subtitle": row.subtitle,
+                            "body": row.body,
+                            "level": row.level.as_str(),
+                            "terminal_id": row.terminal_id,
+                            "surface": row.surface,
+                            "created_at_ms": row.created_at_ms,
+                            "acknowledged": acknowledged,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            }))
+        }
+        Command::SetTabPinned { surface, pinned } => {
+            get_surface(mux, surface)?;
+            let change = mux.set_tab_pinned(surface, pinned)?;
+            Ok(json!({
+                "surface": surface,
+                "pinned": pinned,
+                "index": change.index,
+                "changed": change.changed,
+            }))
         }
         Command::MoveWorkspace { workspace, key, index, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
@@ -12486,6 +13269,90 @@ fn handle_command_with_cancellation(
                 "workspace": result.workspace,
                 "key": result.key,
                 "index": result.index,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
+        }
+        Command::SetWorkspaceMetadata { workspace, key, color, icon, title, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let update = crate::workspace_registry::WorkspacePresentationUpdate {
+                group: None,
+                color,
+                icon,
+                title,
+            };
+            let result = mux.set_workspace_metadata(
+                workspace,
+                key.as_deref(),
+                update,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let presentation = mux.presentation_snapshot();
+            let record = presentation.workspace(&result.key).cloned().unwrap_or_default();
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "color": record.color,
+                "icon": record.icon,
+                "title": record.title,
+                "workspace_revision": result.revision,
+                "changed": result.changed,
+                "replayed": result.replayed,
+                "registry_id": registry_id,
+                "generation": generation,
+            }))
+        }
+        Command::ListWorkspaceGroups => {
+            Ok(json!({ "groups": workspace_groups_json(&mux.presentation_snapshot()) }))
+        }
+        Command::CreateWorkspaceGroup { name, group, color, collapsed, index } => {
+            let change = mux.create_workspace_group(group, name, color, collapsed, index)?;
+            Ok(json!({
+                "group": workspace_group_json(&change.group, change.index),
+                "changed": change.changed,
+            }))
+        }
+        Command::UpdateWorkspaceGroup { group, name, color, collapsed } => {
+            let change = mux.update_workspace_group(&group, name, color, collapsed)?;
+            Ok(json!({
+                "group": workspace_group_json(&change.group, change.index),
+                "changed": change.changed,
+            }))
+        }
+        Command::DeleteWorkspaceGroup { group } => {
+            let ungrouped = mux.delete_workspace_group(&group)?;
+            Ok(json!({ "group": group, "ungrouped_keys": ungrouped }))
+        }
+        Command::MoveWorkspaceGroup { group, index } => {
+            let change = mux.move_workspace_group(&group, index)?;
+            Ok(json!({
+                "group": workspace_group_json(&change.group, change.index),
+                "changed": change.changed,
+            }))
+        }
+        Command::MoveWorkspaceToGroup { workspace, key, group, index, mutation } => {
+            let workspace_mutation = workspace_mutation(&mutation)?;
+            let result = mux.move_workspace_to_group(
+                workspace,
+                key.as_deref(),
+                group.clone(),
+                index,
+                mutation.expected_generation.as_deref(),
+                mutation.expected_revision,
+                &workspace_mutation,
+            )?;
+            let (registry_id, generation) = mux.registry_identity();
+            Ok(json!({
+                "workspace": result.workspace,
+                "key": result.key,
+                "index": result.index,
+                "group": group,
                 "workspace_revision": result.revision,
                 "changed": result.changed,
                 "replayed": result.replayed,
@@ -12995,6 +13862,10 @@ fn handle_command_with_cancellation(
                 }
             };
             let surface = get_surface(mux, surface_id)?;
+            anyhow::ensure!(
+                !mux.is_frontend_browser_surface(&surface),
+                "surface {surface_id} is a frontend-rendered browser and has no daemon stream"
+            );
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
                     anyhow::ensure!(
@@ -20069,6 +20940,7 @@ mod tests {
                     cols,
                     rows,
                     terminal_id: None,
+                    env: None,
                     mutation: MutationRequest::default(),
                 },
                 &test_writer(),
@@ -20096,6 +20968,7 @@ mod tests {
             cols: Some(80),
             rows: Some(24),
             terminal_id: Some("00000000000040008000000000000001".to_string()),
+            env: None,
             mutation: MutationRequest {
                 origin: Some("raw-projection-test".to_string()),
                 mutation_id: Some("raw-terminal-create-once".to_string()),
@@ -20924,6 +21797,355 @@ mod tests {
             mux.close_terminal(TERMINAL, INCARNATION).unwrap();
             assert!(mux.surface(surface).is_none());
         }
+    }
+
+    fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
+        let command: Command = serde_json::from_value(request)?;
+        handle_command(mux, 0, command, &test_writer())
+    }
+
+    #[test]
+    fn cmux_next_workspace_group_commands_round_trip_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&WORKSPACE_GROUPS_CAPABILITY));
+        let first = mux.create_empty_workspace(None, None, None).unwrap();
+        let second = mux.create_empty_workspace(None, None, None).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"create-workspace-group","name":"Agents","color":"slate-2"}),
+        )
+        .unwrap();
+        let group = created["group"]["id"].as_str().unwrap().to_string();
+        assert!(group.starts_with("grp_"));
+        assert_eq!(created["group"]["index"], 0);
+        assert_eq!(created["changed"], true);
+        let moved = run_json_command(
+            &mux,
+            json!({
+                "cmd":"move-workspace-to-group",
+                "key": second.key,
+                "group": group,
+                "index": 0,
+                "origin":"wire-test",
+                "mutation_id":"group-1",
+            }),
+        )
+        .unwrap();
+        assert_eq!(moved["group"], json!(group));
+        assert_eq!(moved["replayed"], false);
+        // Absent color leaves it unchanged; collapsed flips.
+        let updated = run_json_command(
+            &mux,
+            json!({"cmd":"update-workspace-group","group":group,"collapsed":true}),
+        )
+        .unwrap();
+        assert_eq!(updated["group"]["color"], "slate-2");
+        assert_eq!(updated["group"]["collapsed"], true);
+        // `color: null` clears it.
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"update-workspace-group","group":group,"color":null}),
+        )
+        .unwrap();
+        assert!(cleared["group"]["color"].is_null());
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"create-workspace-group","name":"Bad","color":"not a color"}),
+            )
+            .is_err()
+        );
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        assert_eq!(tree["groups"][0]["id"], json!(group));
+        assert_eq!(tree["groups"][0]["collapsed"], true);
+        let by_key = |key: &str| {
+            tree["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|workspace| workspace["key"] == json!(key))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(by_key(&second.key)["group"], json!(group));
+        assert!(by_key(&first.key)["group"].is_null());
+        let listed = run_json_command(&mux, json!({"cmd":"list-workspace-groups"})).unwrap();
+        assert_eq!(listed["groups"].as_array().unwrap().len(), 1);
+        let deleted =
+            run_json_command(&mux, json!({"cmd":"delete-workspace-group","group":group})).unwrap();
+        assert_eq!(deleted["ungrouped_keys"], json!([second.key]));
+    }
+
+    #[test]
+    fn cmux_next_set_workspace_metadata_distinguishes_absent_from_null() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&WORKSPACE_METADATA_CAPABILITY));
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let set = run_json_command(
+            &mux,
+            json!({
+                "cmd":"set-workspace-metadata",
+                "key": workspace.key,
+                "color":"#336699",
+                "icon":"hammer",
+                "title":"Build",
+            }),
+        )
+        .unwrap();
+        assert_eq!(set["color"], "#336699");
+        assert_eq!(set["changed"], true);
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":null}),
+        )
+        .unwrap();
+        assert!(cleared["icon"].is_null());
+        assert_eq!(cleared["color"], "#336699");
+        assert_eq!(cleared["title"], "Build");
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let entry = tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["key"] == json!(workspace.key))
+            .cloned()
+            .unwrap();
+        assert_eq!(entry["color"], "#336699");
+        assert!(entry["icon"].is_null());
+        assert_eq!(entry["title"], "Build");
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":"NOT/AN ICON"}),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_set_tab_pinned_reports_pinned_first_order_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TAB_METADATA_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let pinned =
+            run_json_command(&mux, json!({"cmd":"set-tab-pinned","surface":second,"pinned":true}))
+                .unwrap();
+        assert_eq!(pinned["index"], 0);
+        assert_eq!(pinned["changed"], true);
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let tabs = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap();
+        assert_eq!(tabs[0]["surface"], second);
+        assert_eq!(tabs[0]["pinned"], true);
+        assert_eq!(tabs[1]["pinned"], false);
+        assert!(tabs[1].get("cwd").is_some());
+        assert!(tabs[1].get("git_branch").is_some());
+        // move-tab clamps an unpinned tab behind the pinned run.
+        run_json_command(&mux, json!({"cmd":"move-tab","surface":first,"pane":pane,"index":0}))
+            .unwrap();
+        assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.clone()), vec![second, first]);
+        assert!(
+            run_json_command(&mux, json!({"cmd":"set-tab-pinned","surface":999999,"pinned":true}))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_frontend_browser_tab_commands_and_attach_refusal() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&FRONTEND_BROWSER_TABS_CAPABILITY));
+        let terminal = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"new-frontend-browser-tab",
+                "pane": pane,
+                "url":"https://cmux.com",
+                "engine":"cef",
+                "title":"cmux",
+            }),
+        )
+        .unwrap();
+        let surface = created["surface"].as_u64().unwrap();
+        assert!(created["content_resource_id"].as_str().unwrap().starts_with("browser_"));
+        let updated = run_json_command(
+            &mux,
+            json!({
+                "cmd":"update-frontend-browser-tab",
+                "surface": surface,
+                "title":"cmux docs",
+                "favicon_url":"https://cmux.com/icon.png",
+            }),
+        )
+        .unwrap();
+        assert_eq!(updated["changed"], true);
+        assert_eq!(updated["url"], "https://cmux.com");
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"update-frontend-browser-tab","surface":surface,"favicon_url":null}),
+        )
+        .unwrap();
+        assert!(cleared["favicon_url"].is_null());
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let tabs = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap();
+        let browser = tabs.iter().find(|tab| tab["surface"] == json!(surface)).unwrap();
+        assert_eq!(browser["browser_renderer"], "frontend");
+        assert_eq!(browser["browser_engine"], "cef");
+        assert_eq!(browser["title"], "cmux docs");
+        let terminal_tab = tabs.iter().find(|tab| tab["surface"] == json!(terminal)).unwrap();
+        assert!(terminal_tab["browser_renderer"].is_null());
+        let attach = run_json_command(
+            &mux,
+            json!({"cmd":"attach-surface","surface":surface,"cols":80,"rows":24}),
+        );
+        assert!(attach.unwrap_err().to_string().contains("frontend-rendered"));
+    }
+
+    #[test]
+    fn cmux_next_tab_drag_commands_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TAB_DRAG_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let third = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let split = run_json_command(
+            &mux,
+            json!({
+                "cmd":"move-tab-to-split",
+                "surface":second,
+                "pane":pane,
+                "edge":"right",
+                "transaction":"tx-split",
+            }),
+        )
+        .unwrap();
+        assert_eq!(split["undoable"], true);
+        let split_pane = split["pane"].as_u64().unwrap();
+        assert_ne!(split_pane, pane);
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"move-tab-to-split","surface":third,"pane":pane,"edge":"middle"}),
+            )
+            .is_err()
+        );
+        let screen = mux
+            .with_state(|state| {
+                state.screen_of(pane).map(|(w, s)| state.workspaces[w].screens[s].id)
+            })
+            .unwrap();
+        let column = run_json_command(
+            &mux,
+            json!({"cmd":"move-tab-to-column","surface":third,"screen":screen}),
+        )
+        .unwrap();
+        assert_eq!(column["screen"], screen);
+        let moved = run_json_command(
+            &mux,
+            json!({
+                "cmd":"move-tab",
+                "surface":third,
+                "pane":split_pane,
+                "index":0,
+                "transaction":"tx-move",
+            }),
+        )
+        .unwrap();
+        assert_eq!(moved["moved"], true);
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"move-tab-to-new-workspace","surface":third,"transaction":"tx-new"}),
+        )
+        .unwrap();
+        assert!(created["workspace"].as_u64().is_some());
+        assert!(created["key"].as_str().is_some());
+        assert!(
+            run_json_command(
+                &mux,
+                json!({"cmd":"move-tab","surface":first,"pane":split_pane,"index":0,"transaction":""}),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_tab_group_commands_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TAB_GROUPS_CAPABILITY));
+        assert!(advertised_capabilities(false).contains(&SAVED_TAB_GROUPS_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"create-tab-group",
+                "surfaces":[first, second],
+                "name":"Pair",
+                "color":"purple",
+                "transaction":"tx-group",
+            }),
+        )
+        .unwrap();
+        let group = created["group"]["id"].as_str().unwrap().to_string();
+        assert_eq!(created["surfaces"], json!([first, second]));
+        let listed = run_json_command(&mux, json!({"cmd":"list-tab-groups"})).unwrap();
+        assert_eq!(listed["groups"][0]["id"], json!(group));
+        assert_eq!(listed["groups"][0]["pane"], pane);
+        run_json_command(&mux, json!({"cmd":"update-tab-group","group":group,"collapsed":true}))
+            .unwrap();
+        let saved = run_json_command(&mux, json!({"cmd":"save-tab-group","group":group})).unwrap();
+        assert!(saved["saved"].as_str().unwrap().starts_with("saved_"));
+        let saved_list = run_json_command(&mux, json!({"cmd":"list-saved-tab-groups"})).unwrap();
+        assert_eq!(saved_list["saved_groups"][0]["name"], "Pair");
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let pane_json = &tree["workspaces"][0]["screens"][0]["panes"][0];
+        assert_eq!(pane_json["tab_groups"][0]["collapsed"], true);
+        assert_eq!(pane_json["tabs"][0]["group"], json!(group));
+        let ungrouped =
+            run_json_command(&mux, json!({"cmd":"ungroup-tab-group","group":group})).unwrap();
+        assert_eq!(ungrouped["surfaces"], json!([first, second]));
+        assert!(run_json_command(&mux, json!({"cmd":"close-tab-group","group":group})).is_err());
+    }
+
+    #[test]
+    fn cmux_next_terminal_creation_accepts_a_per_terminal_env() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TERMINAL_ENV_CAPABILITY));
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"new-tab",
+                "pane":pane,
+                "cwd":"/tmp",
+                "env":{"PATH":"/opt/homebrew/bin:/usr/bin","LANG":"en_US.UTF-8"},
+            }),
+        )
+        .unwrap();
+        assert!(created["surface"].as_u64().is_some());
+        let split = run_json_command(
+            &mux,
+            json!({"cmd":"split","pane":pane,"dir":"right","env":{"EDITOR":"vim"}}),
+        )
+        .unwrap();
+        assert!(split["surface"].as_u64().is_some());
+        for bad in [json!({"":"x"}), json!({"A=B":"x"}), json!({"A":"x\u{0}y"})] {
+            assert!(
+                run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"env":bad})).is_err()
+            );
+        }
+        let pairs = crate::mux::validate_terminal_env(
+            &[("B".to_string(), "2".to_string()), ("A".to_string(), "1".to_string())]
+                .into_iter()
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(pairs, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
     }
 
     #[cfg(unix)]

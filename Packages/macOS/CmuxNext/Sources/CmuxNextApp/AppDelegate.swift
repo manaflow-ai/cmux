@@ -15,14 +15,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let services = AppServices(environment: environment)
         self.services = services
         AppActions.bind(services)
-        let actionContext = AppActionContext(services: services)
-        actionContext.observeRefusals()
-        TabHandlers.bind(into: services.registry, context: actionContext)
-        TabGroupHandlers.bind(into: services.registry, context: actionContext)
-        PaneHandlers.bind(into: services.registry, context: actionContext)
-        ColumnHandlers.bind(into: services.registry, context: actionContext)
-        ScreenHandlers.bind(into: services.registry, context: actionContext)
-        TerminalHandlers.bind(into: services.registry, context: actionContext)
         HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
         startSettingsAndControl(registry: services.registry)
@@ -38,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startSettingsAndControl(registry: ActionRegistry) {
         let settings = SettingsController(registry: registry)
         self.settings = settings
+        services.settings = settings
         settings.start()
         Task {
             await settings.waitForLoad(atLeast: 1)

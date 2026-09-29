@@ -64,7 +64,8 @@ import Testing
     @Test func layoutAndProjectionCommands() throws {
         let split = try object(SplitRequest(pane: 4, direction: .down, tab: 9))
         #expect(split["dir"] == .string("down"))
-        #expect(split["tab"] == .number(9))
+        // The daemon has no split `tab`; the connection routes it to move-tab-to-split.
+        #expect(split["tab"] == nil)
         let width = try object(SetColumnWidthRequest(pane: 7, width: 0.5, transaction: 11))
         #expect(width["cmd"] == .string("set-viewport-pane-width"))
         #expect(width["transaction"] == .number(11))
@@ -104,12 +105,20 @@ import Testing
     }
 
     @Test func tabGroupAndSavedGroupCommands() throws {
-        let create = try object(CreateTabGroupRequest(pane: 4, tabs: [3, 6], name: "API", color: "green", transaction: "t1"))
+        let create = try object(CreateTabGroupRequest(tabs: [3, 6], name: "API", color: "green", transaction: "t1"))
         #expect(create["cmd"] == .string("create-tab-group"))
-        #expect(create["tabs"] == .array([.number(3), .number(6)]))
-        let update = try object(UpdateTabGroupRequest(group: "tg1", color: .clear, collapsed: true))
-        #expect(update["color"] == .null)
+        #expect(create["surfaces"] == .array([.number(3), .number(6)]))
+        #expect(create["pane"] == nil)
+        #expect(create["transaction"] == .string("t1"))
+        let update = try object(UpdateTabGroupRequest(group: "tg1", color: .set("red"), collapsed: true))
+        #expect(update["color"] == .string("red"))
         #expect(update["collapsed"] == .bool(true))
+        #expect(update["transaction"] == nil)
+        let add = try object(AddTabsToGroupRequest(group: "tg1", tabs: [7], transaction: "t3"))
+        #expect(add["cmd"] == .string("add-tabs-to-tab-group"))
+        #expect(add["surfaces"] == .array([.number(7)]))
+        let remove = try object(RemoveTabsFromGroupRequest(tabs: [7]))
+        #expect(remove["surfaces"] == .array([.number(7)]))
         let toColumn = try object(MoveTabGroupToColumnRequest(group: "tg1", target: .pane(4), transaction: "t2"))
         #expect(toColumn["cmd"] == .string("move-tab-group-to-column"))
         #expect(toColumn["pane"] == .number(4))
@@ -117,8 +126,14 @@ import Testing
         #expect(toWorkspace["workspace_group"] == .string("agents"))
         #expect(try object(UngroupTabGroupRequest(group: "tg1"))["cmd"] == .string("ungroup-tab-group"))
         #expect(try object(CloseTabGroupRequest(group: "tg1"))["cmd"] == .string("close-tab-group"))
-        let open = try object(OpenSavedTabGroupRequest(saved: "s1", pane: 4))
-        #expect(open["saved"] == .string("s1"))
+        let reopen = try object(ReopenSavedTabGroupRequest(saved: "s1", pane: 4))
+        #expect(reopen["cmd"] == .string("reopen-saved-tab-group"))
+        #expect(reopen["saved"] == .string("s1"))
+        #expect(reopen["pane"] == .number(4))
+        #expect(try object(SaveTabGroupRequest(group: "tg1"))["group"] == .string("tg1"))
+        #expect(try object(UnsaveTabGroupRequest(group: "tg1"))["group"] == .string("tg1"))
+        #expect(try object(DeleteSavedTabGroupRequest(saved: "s1"))["cmd"] == .string("delete-saved-tab-group"))
+        #expect(try object(ListSavedTabGroupsRequest())["cmd"] == .string("list-saved-tab-groups"))
         #expect(try object(AckTabNotificationsRequest(surface: 3))["cmd"] == .string("ack-tab-notifications"))
     }
 
@@ -166,5 +181,19 @@ import Testing
         #expect(navigate["url"] == nil)
         let pin = try object(SetTabPinnedRequest(surface: 4, pinned: true))
         #expect(pin["pinned"] == .bool(true))
+    }
+
+    @Test func terminalEnvReachesSpawnCommands() throws {
+        let env = ["PATH": "/opt/homebrew/bin:/usr/bin", "LANG": "en_US.UTF-8"]
+        let tab = try object(NewTabRequest(pane: 3, options: SpawnOptions(cwd: "/tmp", env: env)))
+        #expect(tab["env"] == .object(["PATH": .string("/opt/homebrew/bin:/usr/bin"), "LANG": .string("en_US.UTF-8")]))
+        #expect(tab["cwd"] == .string("/tmp"))
+        let split = try object(SplitRequest(pane: 3, direction: .right, options: SpawnOptions(cwd: "/tmp", env: env)))
+        #expect(split["cwd"] == .string("/tmp"))
+        #expect(split["env"]?["PATH"] == .string("/opt/homebrew/bin:/usr/bin"))
+        #expect(split["tab"] == nil)
+        let terminal = try object(CreateTerminalRequest(workspace: .key("k1"), env: env, mutation: nil))
+        #expect(terminal["env"]?["LANG"] == .string("en_US.UTF-8"))
+        #expect(try object(NewTabRequest(pane: 3))["env"] == nil)
     }
 }
