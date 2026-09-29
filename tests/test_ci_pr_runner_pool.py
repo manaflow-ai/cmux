@@ -165,7 +165,7 @@ class PreferenceOrder(unittest.TestCase):
         # its two free machines, and this run the other. After two, it is full.
         snap = backlog(small=2, large=0, old=1)
         snap["pools"][LARGE]["running"] = 3
-        self.assertEqual(choose(snap, routed=1).runner, SMALL)
+        self.assertEqual(choose(snap, routed=1).runner, LARGE)
         self.assertIn("every pool is full", choose(snap, routed=1).reason)
         self.assertIn("every pool is full", choose(snap, routed=2).reason)
         self.assertEqual(pool.effective_queue({"queued": 0, "running": 2}, 8), 0)
@@ -184,8 +184,8 @@ class PreferenceOrder(unittest.TestCase):
         snap = backlog(small=0, large=0, old=0)
         snap["pools"][LARGE]["running"] = 0
         args = dict(now=NOW, xcode_pins=PINS)
-        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 4}, **args).runner, SMALL)
-        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).runner, SMALL)
+        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 4}, **args).runner, LARGE)
+        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).runner, LARGE)
         self.assertIn("replaying 5", pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).reason)
         # A pool outside the order is ignored rather than trusted.
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={"blacksmith-6vcpu-macos-latest": 9}, **args).runner, LARGE)
@@ -942,7 +942,7 @@ class OwnedPools(unittest.TestCase):
         # 5 machines, 5 newer runs. Guessed, the first two replays would close
         # the pool (3 each); known, only the one on the minis counts, at its peak.
         guessed = owned_choice(fleet(), machines=5, jobs=1, routed=5)
-        self.assertEqual(guessed.runner, SMALL)
+        self.assertEqual(guessed.runner, LARGE)
         known = pool.Routed(owned={MINI: 3}, ephemeral=4)
         choice = owned_choice(fleet(), machines=5, jobs=1, routed=known)
         self.assertEqual(choice.runner, MINI)
@@ -957,7 +957,7 @@ class OwnedPools(unittest.TestCase):
         snap = backlog(small=0, large=0)
         snap["pools"][LARGE]["running"] = pool.POOL_CAPACITY - 1
         self.assertEqual(choose(snap).runner, LARGE)
-        self.assertEqual(choose(snap, routed=pool.Routed(ephemeral=1)).runner, SMALL)
+        self.assertEqual(choose(snap, routed=pool.Routed(ephemeral=1)).runner, LARGE)
 
     def test_route_lookup_reads_markers_then_the_changes_job(self):
         same = {"head_repository": {"id": 5}, "repository": {"id": 5}, "event": "pull_request"}

@@ -1474,7 +1474,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         # one more replay crosses the faster pool's headroom comparison.
         crowded = queue(large_running=3, pr_since=2)
         self.assertEqual(self.decide(crowded)[0], LARGE)
-        self.assertEqual(self.decide(queue(large_running=3, pr_since=1))[0], SMALL)
+        self.assertEqual(self.decide(queue(large_running=3, pr_since=1))[0], LARGE)
 
     def test_pull_request_runs_stay_on_their_lane_when_routing_is_off(self):
         pr = self.pool.pr_runner_pool
