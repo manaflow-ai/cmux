@@ -162,6 +162,7 @@ final class CloudWorkspaceCreationCoordinator {
                 )
                 operation.terminal = firstTerminal.resource
                 operation.openedProjections = [opened.projection]
+                try check(operation, catalog: catalog)
                 operation.reservation?.creationReceipt.finish(.success(firstTerminal.resource))
                 projections = [opened.projection]
             } else {
@@ -172,6 +173,7 @@ final class CloudWorkspaceCreationCoordinator {
                 )
                 guard !opened.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
                 operation.openedProjections = opened
+                try check(operation, catalog: catalog)
                 projections = opened
             }
             // Commit the request before retiring its loading reservation. A

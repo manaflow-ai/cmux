@@ -116,6 +116,50 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
+    @Test("A canceled existing workspace open cannot be resurrected by a late attach callback")
+    func existingWorkspaceOpenCancellationFencesLateCallback() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            let workspace = SurfaceRemoteWorkspace(id: "ws_cancel", name: "Cancel", index: 0, focused: true)
+            fixture.provider.createdWorkspaces = [workspace]
+            fixture.provider.info.remoteWorkspaces = [workspace]
+            fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
+            fixture.catalog.upsert(fixture.provider.terminal(in: workspace), from: fixture.provider)
+            let attachStarted = CloudLinkFirstValue<Bool>()
+            let releaseAttach = CloudLinkFirstValue<Bool>()
+            fixture.provider.beforeMaterialize = { _, _ in
+                attachStarted.resolve(true)
+                _ = await releaseAttach.result
+            }
+            let completed = CloudLinkFirstValue<Bool>()
+            let actions = CloudTreeNodeActions.bound(
+                navigationHost: CloudTerminalNavigationHost(focus: { _, _ in }, closeWorkspace: { _ in }),
+                catalog: { fixture.catalog },
+                selectedWorkspaceID: { fixture.manager.selectedTabId },
+                selectLocalWorkspace: { fixture.manager.selectedTabId = $0 },
+                onWillMutate: { _ in },
+                onDidMutate: { completed.resolve(true) },
+                onFailure: { Issue.record("Unexpected cancellation failure: \($0)") },
+                refresh: {},
+                workspaceCreationHost: { CloudWorkspaceCreationHost(manager: fixture.manager) }
+            )
+            let row = try #require(fixture.workspaceRows().first { node in
+                if case .workspace(_, let value, _, _, _) = node.kind { return value.id == workspace.id }
+                return false
+            })
+            actions.openWorkspace(fixture.provider.machine, workspace, try #require(row.dragGroup))
+            #expect(await attachStarted.result == true)
+            fixture.catalog.cloudWorkspaceCreationCoordinator.cancelAll()
+            releaseAttach.resolve(true)
+            #expect(await completed.result == true)
+            #expect(fixture.manager.tabs.map(\.id) == [fixture.originalWorkspaceID])
+            #expect(fixture.manager.selectedTabId == fixture.originalWorkspaceID)
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            #expect(fixture.catalog.projections.isEmpty)
+        }
+    }
+
     @Test("Replacing a reservation preserves the committed remote workspace", arguments: [false, true])
     func successfulCreationDoesNotCancelWhenTheProviderReplacesItsPane(adoptsReservation: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
