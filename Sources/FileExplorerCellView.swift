@@ -80,7 +80,7 @@ final class FileExplorerCellView: NSTableCellView {
     /// Applies a row's state. Writes are skipped when unchanged.
     func configure(
         with node: FileExplorerNode,
-        gitStatus: GitFileStatus?,
+        gitStatus: GitFileStatus? = nil,
         style: FileExplorerStyle = .current,
         iconCache: FileExplorerIconCache? = nil
     ) {
