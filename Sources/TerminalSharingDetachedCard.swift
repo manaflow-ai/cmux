@@ -70,7 +70,10 @@ struct TerminalSharingDetachedCard: View {
                 Button(String(localized: "terminalSharing.detached.reattachAsViewer", defaultValue: "Reattach as Viewer")) {
                     onReattach(true)
                 }
-                .buttonStyle(.link)
+                // A standard secondary push button: label color on the
+                // control fill. The link style drew accent-blue text on the
+                // grey card below WCAG AA contrast.
+                .buttonStyle(.bordered)
                 .help(String(localized: "terminalSharing.detached.reattachAsViewer.help", defaultValue: "Reattach without changing the terminal size"))
             }
         }
