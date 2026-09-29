@@ -11,7 +11,7 @@ import type { CodexCredential } from "../services/coderouter/types";
 import { authenticateRequestRouteToken } from "../services/coderouter/routeTokenAuth";
 import "./vm-authorization-fixture";
 import { authenticateRouteToken, deleteAccount, issueRouteToken, issueVmAuthorizationToken, listAccounts, selectAccountForRequest, selectAccountForSession } from "../services/coderouter/repository";
-import { listClaudeAccounts } from "../services/coderouter/claudeUpstream";
+import { listClaudeAccounts, removeAllClaudeAccounts, removeClaudeAccount, updateClaudeAccount } from "../services/coderouter/claudeUpstream";
 import { resolveCoderouterUsageTeam, resolveCodeRouterRequestContext, resolveCoderouterControlContext } from "../services/coderouter/requestContext";
 import { GET as accountsGet } from "../app/api/coderouter/accounts/route";
 import { GET as claudeGet } from "../app/api/coderouter/claude-upstream/route";
@@ -74,7 +74,7 @@ function guest(path: string, headers: Record<string, string> = {}) {
     authorization: "Bearer cmux-vm-edge-placeholder", ...headers,
   } });
 }
-function access() { return { kind: "vm" as const, vmId: vmA, poolId: poolA }; }
+function access() { return { kind: "vm" as const, vmId: vmA, poolId: poolA, creatorUserId: USER }; }
 function codexCredential(userId: string, accountId: string): CodexCredential {
   const token = `h.${Buffer.from(JSON.stringify({ email: "vm@example.com", "https://api.openai.com/auth": { chatgpt_user_id: userId, chatgpt_account_id: accountId } })).toString("base64url")}.s`;
   return {
@@ -231,10 +231,35 @@ dbTest("VM account mutations retain the pool boundary and cannot borrow the crea
   expect(await deleteAccount({teamId:TEAM_A,accountId:sharedA,access:access()})).toMatchObject({removed:true});
 });
 
+dbTest("a VM can change or remove only the accounts its creator imported", async () => {
+  // A teammate's shared credentials are in the VM's pool so the VM can use
+  // them, but code on the VM must not be able to delete or disable them.
+  const [teammateNative] = await db`insert into coderouter_accounts (team_id, provider, provider_account_id, label, visibility, created_by)
+    values (${TEAM_A}, 'openai-apikey', 'a-teammate', 'Teammate shared', 'team', 'teammate-user') returning id`;
+  const [teammateClaude] = await db`insert into coderouter_claude_accounts (team_id, kind, label, identifier, visibility, created_by, ciphertext, nonce, auth_tag, encrypted_data_key, kms_key_id)
+    values (${TEAM_A}, 'anthropic_api_key', 'Teammate Claude', 'masked-t', 'team', 'teammate-user', 'x', 'x', 'x', 'x', 'x') returning id`;
+  expect((await listAccounts(TEAM_A, access())).map(a => a.id)).toContain(teammateNative.id);
+  expect((await listClaudeAccounts(TEAM_A, access())).map(a => a.id)).toContain(teammateClaude.id);
+
+  expect(await deleteAccount({ teamId: TEAM_A, stackUserId: USER, accountId: teammateNative.id, access: access() }))
+    .toMatchObject({ removed: false });
+  expect(await updateClaudeAccount(TEAM_A, teammateClaude.id, { state: "disabled" }, access())).toBeNull();
+  expect(await removeClaudeAccount(TEAM_A, teammateClaude.id, access())).toMatchObject({ removed: false });
+  expect(await removeAllClaudeAccounts(TEAM_A, access())).toMatchObject({ removed: 1 });
+  const [native] = await db`select id from coderouter_accounts where id = ${teammateNative.id}`;
+  const [claude] = await db`select state from coderouter_claude_accounts where id = ${teammateClaude.id}`;
+  expect(native?.id).toBe(teammateNative.id);
+  expect(claude?.state).toBe("active");
+
+  // The creator's own shared import stays removable from the VM.
+  expect(await deleteAccount({ teamId: TEAM_A, stackUserId: USER, accountId: sharedA, access: access() }))
+    .toMatchObject({ removed: true });
+});
+
 dbTest("a VM import is granted to its current custom pool and rejects stale or foreign bindings", async () => {
   const [custom] = await db`insert into coderouter_pools (team_id,name) values (${TEAM_A},'Import pool') returning id`;
   await db`update cloud_vms set coderouter_pool_id = ${custom.id} where id = ${vmA}`;
-  const scope = {kind:'vm' as const,vmId:vmA,poolId:custom.id as string};
+  const scope = {kind:'vm' as const,vmId:vmA,poolId:custom.id as string,creatorUserId:USER};
   expect(await listAccounts(TEAM_A,scope)).toEqual([]);
   await cloudDb().transaction(tx=>grantVmImportedAccount(tx,TEAM_A,sharedA,'native',scope));
   expect((await listAccounts(TEAM_A,scope)).map(a=>a.id)).toEqual([sharedA]);

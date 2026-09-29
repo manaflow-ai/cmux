@@ -35,7 +35,7 @@ describe("API-key account access", () => {
     expect(accountAccessForIdentity({ teamId: "org-1", stackUserId: "admin-1", vmId: null }))
       .toEqual({ kind: "user", userId: "admin-1" });
     expect(accountAccessForIdentity({ teamId: "org-1", stackUserId: "admin-1", vmId: "vm-1", poolId: "pool-1" }))
-      .toEqual({ kind: "vm", vmId: "vm-1", poolId: "pool-1" });
+      .toEqual({ kind: "vm", vmId: "vm-1", poolId: "pool-1", creatorUserId: "admin-1" });
     expect(accountAccessForIdentity({ teamId: "org-1", stackUserId: "admin-1", vmId: "chatmux:m", machine: "chatmux" }))
       .toEqual({ kind: "team-machine", teamId: "org-1", machineId: "chatmux:m" });
   });
