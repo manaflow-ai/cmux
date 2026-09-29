@@ -3046,6 +3046,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let sidebarMetadata = WorkspaceSidebarMetadataModel(
         limitProvider: WorkspaceSidebarLogEntryLimitProvider()
     )
+    var agentStatusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
     var statusEntries: [String: SidebarStatusEntry] {
         get { sidebarMetadata.statusEntries }
         set { sidebarMetadata.statusEntries = newValue }
@@ -3252,6 +3253,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Journals agent sessions ended by closing their terminal. Tests point it
     /// at a private journal.
     var agentSessionCloseJournal = AgentSessionCloseJournal()
+    /// Restored terminals held until this workspace is first shown.
+    var startupRestorePanelIdsAwaitingFirstVisit: Set<UUID> = []
     /// In-memory compare-and-claim state held while a CLI restore hands the
     /// validated binding to its child process.
     @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
