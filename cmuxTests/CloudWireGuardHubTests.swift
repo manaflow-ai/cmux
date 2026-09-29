@@ -313,6 +313,10 @@ struct CloudWireGuardHubTests {
         #expect(await h.hub.status().pinnedByExternalClient == false)
     }
 
+    /// A permanent refusal (a 4xx or `retryable: false`) gets the same answer
+    /// on every attempt, so startup recovery ends at once: one request, no
+    /// recovery sleep, and the server's reason reaches the caller. Awaiting the
+    /// open task is the signal; a sleep would park it and time the test out.
     @Test
     func permanentEnrollmentFailureIsBoundedAndPreservesTheReason() async throws {
         let attempts = AttemptCounter()
@@ -321,10 +325,6 @@ struct CloudWireGuardHubTests {
             throw VMClientError.httpStatus(400, #"{"error":"vm_tunnel_invalid_key","message":"Invalid public key"}"#)
         })
         let open = Task { try await h.hub.pinForExternalClient() }
-        for _ in 0..<2 {
-            try await waitForPendingSleeps(h.gate, count: 1)
-            await h.gate.elapse()
-        }
         do {
             _ = try await open.value
             Issue.record("a persistent enrollment failure cannot claim readiness")
@@ -332,8 +332,13 @@ struct CloudWireGuardHubTests {
             #expect(status == 400)
             #expect(body.contains("vm_tunnel_invalid_key"))
         }
-        #expect(await attempts.value == 3)
-        #expect(await h.hub.status().running == false)
+        #expect(await attempts.value == 1)
+        #expect(await h.gate.requested.isEmpty)
+        #expect(await h.gate.pendingCount == 0)
+        #expect(h.spawner.count == 0)
+        let status = await h.hub.status()
+        #expect(status.running == false)
+        #expect(status.lastError?.contains("vm_tunnel_invalid_key") == true)
         await h.hub.stop()
     }
 
