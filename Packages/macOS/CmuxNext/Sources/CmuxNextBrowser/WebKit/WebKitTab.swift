@@ -25,10 +25,10 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private weak var engine: WebKitEngine?
-    @ObservationIgnored private var observations: [NSKeyValueObservation] = []
+    @ObservationIgnored var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
-    @ObservationIgnored private var downloads: [ObjectIdentifier: BrowserDownload] = [:]
+    @ObservationIgnored var downloads: [ObjectIdentifier: BrowserDownload] = [:]
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private var isClosed = false
@@ -274,29 +274,6 @@ public final class WebKitTab: NSObject, BrowserTab {
         engine?.downloadsDirectory ?? DownloadDestination.defaultDirectory
     }
 
-    func register(_ download: WKDownload, source: URL?) {
-        let item = BrowserDownload(sourceURL: source, filename: source?.lastPathComponent ?? "download")
-        item.cancelHandler = { [weak download] in download?.cancel(nil) }
-        downloads[ObjectIdentifier(download)] = item
-        download.delegate = self
-        let progress = download.progress
-        observations.append(progress.observe(\.fractionCompleted, options: [.new]) { [weak item] progress, _ in
-            let fraction = progress.totalUnitCount > 0 ? progress.fractionCompleted : nil
-            Task { @MainActor in item?.fraction = fraction }
-        })
-        emit(.download(item))
-    }
-
-    func download(for download: WKDownload) -> BrowserDownload? {
-        downloads[ObjectIdentifier(download)]
-    }
-
-    func finishDownload(_ download: WKDownload, status: BrowserDownload.Status) {
-        guard let item = downloads.removeValue(forKey: ObjectIdentifier(download)) else { return }
-        if status == .finished { item.fraction = 1 }
-        if item.status == .inProgress { item.status = status }
-    }
-
     func refreshFavicon() {
         faviconTask?.cancel()
         faviconTask = Task { [weak self] in
@@ -358,44 +335,5 @@ public final class WebKitTab: NSObject, BrowserTab {
             security = .insecure
         }
         apply(.securityChanged(security))
-    }
-}
-
-extension BrowserScriptWorld {
-    var contentWorld: WKContentWorld {
-        switch self {
-        case .page: .page
-        case .isolated: .defaultClient
-        }
-    }
-}
-
-/// Tracks the "3 of 12" position, which WebKit's find API does not report.
-/// It assumes each step moves one match, which holds unless the page changes
-/// or the user clicks elsewhere between steps.
-nonisolated struct FindState: Sendable {
-    private var query: String?
-    private var index = 0
-
-    mutating func step(query newQuery: String, direction: BrowserFindDirection, matchFound: Bool, count: Int?) -> BrowserFindResult {
-        guard matchFound else {
-            query = newQuery
-            index = 0
-            return BrowserFindResult(matchFound: false, matchCount: count ?? 0, currentIndex: nil)
-        }
-        guard let count, count > 0 else {
-            query = newQuery
-            return BrowserFindResult(matchFound: true, matchCount: nil, currentIndex: nil)
-        }
-        if query != newQuery {
-            index = direction == .forward ? 1 : count
-        } else {
-            switch direction {
-            case .forward: index = index >= count ? 1 : index + 1
-            case .backward: index = index <= 1 ? count : index - 1
-            }
-        }
-        query = newQuery
-        return BrowserFindResult(matchFound: true, matchCount: count, currentIndex: index)
     }
 }

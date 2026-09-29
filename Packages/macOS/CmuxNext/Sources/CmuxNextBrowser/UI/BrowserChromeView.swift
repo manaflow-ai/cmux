@@ -34,6 +34,8 @@ public final class BrowserChromeView: NSView {
     private var toolbarHeight: NSLayoutConstraint!
     private var observation: ObservationLoop?
     private var showsStop = false
+    private var isToolbarHidden = false
+    private let density = DensityBinding()
 
     public static var toolbarHeight: CGFloat { BrowserMetrics.toolbarHeight }
 
@@ -110,11 +112,9 @@ public final class BrowserChromeView: NSView {
         contentContainer.layer?.masksToBounds = true
 
         extensionSlot.orientation = .horizontal
-        extensionSlot.spacing = BrowserMetrics.buttonSpacing
         extensionSlot.setAccessibilityLabel(Strings.extensions)
 
         let navigation = NSStackView(views: [backButton, forwardButton, reloadButton])
-        navigation.spacing = BrowserMetrics.buttonSpacing
         navigation.translatesAutoresizingMaskIntoConstraints = false
         // NSStackView hugs through its own API, not content hugging. The
         // address bar has no intrinsic width and takes the remaining space.
@@ -134,31 +134,37 @@ public final class BrowserChromeView: NSView {
         addSubview(promptBar)
         addSubview(findBar)
 
-        toolbarHeight = toolbar.heightAnchor.constraint(equalToConstant: Self.toolbarHeight)
+        toolbarHeight = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [unowned self] in
+            isToolbarHidden ? 0 : Self.toolbarHeight
+        }
+        density.update { [extensionSlot] in
+            extensionSlot.spacing = BrowserMetrics.buttonSpacing
+            navigation.spacing = BrowserMetrics.buttonSpacing
+        }
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
             toolbarHeight,
-            navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: BrowserMetrics.toolbarInset),
+            density.bind(navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor)) { BrowserMetrics.toolbarInset },
             navigation.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor, constant: BrowserMetrics.itemSpacing),
+            density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { BrowserMetrics.itemSpacing },
             addressBar.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor, constant: BrowserMetrics.itemSpacing),
-            extensionSlot.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor, constant: -BrowserMetrics.toolbarInset),
+            density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { BrowserMetrics.itemSpacing },
+            density.bind(extensionSlot.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -BrowserMetrics.toolbarInset },
             extensionSlot.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            extensionSlot.heightAnchor.constraint(equalToConstant: BrowserMetrics.controlHeight),
-            addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: BrowserMetrics.minimumAddressWidth),
+            density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
+            density.bind(addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { BrowserMetrics.minimumAddressWidth },
 
             separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: BrowserMetrics.separatorThickness),
+            density.bind(separator.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.separatorThickness },
 
             progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
             progressLine.leadingAnchor.constraint(equalTo: leadingAnchor),
             progressLine.trailingAnchor.constraint(equalTo: trailingAnchor),
-            progressLine.heightAnchor.constraint(equalToConstant: BrowserMetrics.progressThickness),
+            density.bind(progressLine.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.progressThickness },
 
             contentContainer.topAnchor.constraint(equalTo: separator.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -170,12 +176,12 @@ public final class BrowserChromeView: NSView {
             errorView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
             errorView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
 
-            findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: BrowserMetrics.overlayInset),
-            findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -BrowserMetrics.overlayInset),
+            density.bind(findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
+            density.bind(findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor)) { -BrowserMetrics.overlayInset },
 
-            promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: BrowserMetrics.overlayInset),
+            density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
             promptBar.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
-            promptBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor, constant: BrowserMetrics.overlayInset),
+            density.bind(promptBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor)) { BrowserMetrics.overlayInset },
         ])
 
         findBar.isHidden = true
@@ -183,6 +189,7 @@ public final class BrowserChromeView: NSView {
         promptBar.isHidden = true
         errorView.isHidden = true
         errorView.onRetry = { [weak self] in self?.tab.reload() }
+        density.start()
         updateColors()
     }
 
@@ -259,14 +266,15 @@ public final class BrowserChromeView: NSView {
     }
 
     private func setToolbarHidden(_ hidden: Bool) {
+        guard hidden != isToolbarHidden else { return }
+        isToolbarHidden = hidden
         let height = hidden ? 0 : Self.toolbarHeight
-        guard toolbarHeight.constant != height else { return }
         if !hidden { toolbar.isHidden = false; separator.isHidden = false }
         Motion.animate(duration: 0.2, {
             self.toolbarHeight.animator().constant = height
             self.layoutSubtreeIfNeeded()
         }) {
-            if self.toolbarHeight.constant == 0 {
+            if self.isToolbarHidden {
                 self.toolbar.isHidden = true
                 self.separator.isHidden = true
             }
@@ -294,104 +302,4 @@ public final class BrowserChromeView: NSView {
             separator.layer?.backgroundColor = Palette.separator.cgColor
         }
     }
-}
-
-/// Thin gray load progress line under the toolbar.
-final class ProgressLineView: NSView {
-    private let bar = CALayer()
-    private var progress: Double = 0
-    private var visible = false
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        layer?.addSublayer(bar)
-        bar.anchorPoint = .zero
-        bar.opacity = 0
-        updateColor()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func set(progress: Double, visible: Bool) {
-        let wasVisible = self.visible
-        self.progress = visible ? progress : (wasVisible ? 1 : 0)
-        self.visible = visible
-        CATransaction.begin()
-        CATransaction.setDisableActions(Motion.reduced || (!wasVisible && visible))
-        CATransaction.setAnimationDuration(0.2)
-        layoutBar()
-        if visible {
-            bar.opacity = 1
-        } else if wasVisible {
-            bar.opacity = 0
-        }
-        CATransaction.commit()
-    }
-
-    override func layout() {
-        super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layoutBar()
-        CATransaction.commit()
-    }
-
-    private func layoutBar() {
-        bar.frame = CGRect(x: 0, y: 0, width: bounds.width * progress, height: bounds.height)
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateColor()
-    }
-
-    private func updateColor() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            bar.backgroundColor = Palette.focusRing.withAlphaComponent(0.8).cgColor
-        }
-    }
-}
-
-/// Shown over the content when a load fails.
-final class LoadErrorView: NSView {
-    var onRetry: (() -> Void)?
-    private let titleLabel = NSTextField(labelWithString: Strings.loadFailedTitle)
-    private let messageLabel = NSTextField(wrappingLabelWithString: "")
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        titleLabel.font = BrowserMetrics.errorTitleFont
-        titleLabel.textColor = Palette.textPrimary
-        messageLabel.font = BrowserMetrics.bodyFont
-        messageLabel.textColor = Palette.textSecondary
-        messageLabel.alignment = .center
-        messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
-        let retry = ChromeTextButton(title: Strings.tryAgain, prominent: true, action: #selector(retry), target: self)
-        let stack = NSStackView(views: [titleLabel, messageLabel, retry])
-        stack.orientation = .vertical
-        stack.spacing = BrowserMetrics.overlayPadding
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -BrowserMetrics.toolbarHeight),
-            stack.widthAnchor.constraint(lessThanOrEqualToConstant: BrowserMetrics.promptMaxWidth),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func show(_ error: BrowserLoadError) {
-        messageLabel.stringValue = error.message
-        isHidden = false
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Palette.contentBackground.cgColor
-        }
-    }
-
-    @objc private func retry() { onRetry?() }
 }

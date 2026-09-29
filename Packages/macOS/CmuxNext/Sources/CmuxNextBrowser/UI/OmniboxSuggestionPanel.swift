@@ -10,6 +10,7 @@ final class OmniboxSuggestionPanel {
     private var panel: SuggestionWindow?
     private let stack = NSStackView()
     private var rows: [SuggestionRowView] = []
+    private let density = DensityBinding()
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
@@ -76,14 +77,16 @@ final class OmniboxSuggestionPanel {
         let content = OverlayBackingView()
         content.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: BrowserMetrics.suggestionGap),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -BrowserMetrics.suggestionGap),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: BrowserMetrics.suggestionGap),
+            density.bind(stack.leadingAnchor.constraint(equalTo: content.leadingAnchor)) { BrowserMetrics.suggestionGap },
+            density.bind(stack.trailingAnchor.constraint(equalTo: content.trailingAnchor)) { -BrowserMetrics.suggestionGap },
+            density.bind(stack.topAnchor.constraint(equalTo: content.topAnchor)) { BrowserMetrics.suggestionGap },
         ])
         let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.autoresizingMask = [.width, .height]
         window.contentView = glass
+        density.update { glass.cornerRadius = BrowserMetrics.overlayCornerRadius }
+        density.start()
         panel = window
         return window
     }
@@ -101,46 +104,51 @@ final class SuggestionRowView: NSView {
     var isSelected = false { didSet { updateFill() } }
     private var isHovering = false { didSet { updateFill() } }
     private var tracking: NSTrackingArea?
+    private let density = DensityBinding()
 
     init(suggestion: BrowserSuggestion) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.cornerRadius = Metrics.itemCornerRadius
 
         let symbol = switch suggestion.kind {
         case .navigate: "globe"
         case .search: "magnifyingglass"
         case .history: "clock"
         }
-        let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize, weight: .medium)) ?? NSImage())
+        let icon = NSImageView()
         icon.contentTintColor = Palette.textSecondary
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         let title = NSTextField(labelWithString: suggestion.title)
-        title.font = BrowserMetrics.bodyFont
         title.textColor = Palette.textPrimary
         title.lineBreakMode = .byTruncatingTail
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let detail = NSTextField(labelWithString: suggestion.detail.isEmpty ? "" : "— \(suggestion.detail)")
-        detail.font = BrowserMetrics.captionFont
         detail.textColor = Palette.textSecondary
         detail.lineBreakMode = .byTruncatingTail
         detail.setContentCompressionResistancePriority(.defaultLow - 1, for: .horizontal)
 
         let stack = NSStackView(views: [icon, title, detail])
-        stack.spacing = BrowserMetrics.itemSpacing
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: Self.height),
-            icon.widthAnchor.constraint(equalToConstant: BrowserMetrics.glyphSize),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: BrowserMetrics.overlayPadding),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -BrowserMetrics.overlayPadding),
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { Self.height },
+            density.bind(icon.widthAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.glyphSize },
+            density.bind(stack.leadingAnchor.constraint(equalTo: leadingAnchor)) { BrowserMetrics.overlayPadding },
+            density.bind(stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor)) { -BrowserMetrics.overlayPadding },
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        density.update { [unowned self] in
+            layer?.cornerRadius = Metrics.itemCornerRadius
+            icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize, weight: .medium))
+            title.font = BrowserMetrics.bodyFont
+            detail.font = BrowserMetrics.captionFont
+            stack.spacing = BrowserMetrics.itemSpacing
+        }
+        density.start()
         setAccessibilityRole(.button)
         setAccessibilityLabel([suggestion.title, suggestion.detail].filter { !$0.isEmpty }.joined(separator: ", "))
     }

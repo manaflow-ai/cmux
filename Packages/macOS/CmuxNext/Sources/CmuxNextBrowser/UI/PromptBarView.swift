@@ -9,28 +9,23 @@ final class PromptBarView: NSView {
     private let inputField = ChromeTextField()
     private let buttons = NSStackView()
     private let stack = NSStackView()
+    private let density = DensityBinding()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
 
-        messageLabel.font = BrowserMetrics.bodyFont
         messageLabel.textColor = Palette.textPrimary
         messageLabel.maximumNumberOfLines = 6
-        messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - BrowserMetrics.overlayPadding * 2
 
         inputField.wantsLayer = true
-        inputField.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
         inputField.layer?.backgroundColor = NSColor(white: 0.5, alpha: 0.12).cgColor
         inputField.delegate = self
 
-        buttons.spacing = BrowserMetrics.itemSpacing
         buttons.setHuggingPriority(.required, for: .horizontal)
 
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = BrowserMetrics.overlayPadding
-        stack.edgeInsets = NSEdgeInsets(top: BrowserMetrics.overlayPadding, left: BrowserMetrics.overlayPadding, bottom: BrowserMetrics.overlayPadding, right: BrowserMetrics.overlayPadding)
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(messageLabel)
         stack.addArrangedSubview(inputField)
@@ -49,11 +44,22 @@ final class PromptBarView: NSView {
             glass.trailingAnchor.constraint(equalTo: trailingAnchor),
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            widthAnchor.constraint(lessThanOrEqualToConstant: BrowserMetrics.promptMaxWidth),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: BrowserMetrics.promptMinWidth),
-            inputField.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -BrowserMetrics.overlayPadding * 2),
-            inputField.heightAnchor.constraint(equalToConstant: BrowserMetrics.controlHeight),
+            density.bind(widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { BrowserMetrics.promptMaxWidth },
+            density.bind(widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { BrowserMetrics.promptMinWidth },
+            density.bind(inputField.widthAnchor.constraint(equalTo: stack.widthAnchor)) { -BrowserMetrics.overlayPadding * 2 },
+            density.bind(inputField.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
         ])
+        density.update { [unowned self] in
+            let padding = BrowserMetrics.overlayPadding
+            messageLabel.font = BrowserMetrics.bodyFont
+            messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - padding * 2
+            inputField.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+            buttons.spacing = BrowserMetrics.itemSpacing
+            stack.spacing = padding
+            stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding, right: padding)
+            glass.cornerRadius = BrowserMetrics.overlayCornerRadius
+        }
+        density.start()
     }
 
     @available(*, unavailable)

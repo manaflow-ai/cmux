@@ -245,33 +245,6 @@ extension WebKitTab: WKUIDelegate {
     }
 }
 
-// MARK: - Downloads
-
-extension WebKitTab: WKDownloadDelegate {
-    public func download(
-        _ download: WKDownload,
-        decideDestinationUsing response: URLResponse,
-        suggestedFilename: String
-    ) async -> URL? {
-        let destination = DownloadDestination.uniqueURL(in: downloadsDirectory, suggestedFilename: suggestedFilename)
-        if let item = self.download(for: download) {
-            item.filename = destination.lastPathComponent
-            item.destination = destination
-        }
-        return destination
-    }
-
-    public func downloadDidFinish(_ download: WKDownload) {
-        finishDownload(download, status: .finished)
-    }
-
-    public func download(_ download: WKDownload, didFailWithError error: any Error, resumeData: Data?) {
-        let ns = error as NSError
-        let cancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
-        finishDownload(download, status: cancelled ? .cancelled : .failed(ns.localizedDescription))
-    }
-}
-
 // MARK: - Script messages
 
 extension WebKitTab: WKScriptMessageHandler {

@@ -10,20 +10,19 @@ final class FindBarView: NSView {
     private let field = ChromeTextField()
     private let countLabel = NSTextField(labelWithString: "")
     private var findTask: Task<Void, Never>?
+    private let density = DensityBinding()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
 
-        let icon = NSImageView(image: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize - 1, weight: .semibold)) ?? NSImage())
+        let icon = NSImageView()
         icon.contentTintColor = Palette.textSecondary
 
         field.setPlaceholder(Strings.findPlaceholder)
         field.delegate = self
         field.setAccessibilityLabel(Strings.findPlaceholder)
 
-        countLabel.font = BrowserMetrics.countFont
         countLabel.textColor = Palette.textSecondary
         countLabel.alignment = .right
         countLabel.setContentHuggingPriority(.required, for: .horizontal)
@@ -33,10 +32,6 @@ final class FindBarView: NSView {
         let done = ChromeIconButton(symbol: "xmark", label: Strings.findDone, action: #selector(close), target: self)
 
         let stack = NSStackView(views: [icon, field, countLabel, previous, next, done])
-        stack.spacing = BrowserMetrics.buttonSpacing
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: BrowserMetrics.overlayPadding, bottom: 0, right: BrowserMetrics.buttonSpacing)
-        stack.setCustomSpacing(BrowserMetrics.itemSpacing, after: icon)
-        stack.setCustomSpacing(BrowserMetrics.itemSpacing, after: countLabel)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let content = OverlayBackingView()
@@ -51,10 +46,21 @@ final class FindBarView: NSView {
             glass.trailingAnchor.constraint(equalTo: trailingAnchor),
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: BrowserMetrics.findBarHeight),
-            field.widthAnchor.constraint(equalToConstant: BrowserMetrics.findFieldWidth),
-            countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: BrowserMetrics.findCountWidth),
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.findBarHeight },
+            density.bind(field.widthAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.findFieldWidth },
+            density.bind(countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { BrowserMetrics.findCountWidth },
         ])
+        density.update { [countLabel] in
+            icon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize - 1, weight: .semibold))
+            countLabel.font = BrowserMetrics.countFont
+            stack.spacing = BrowserMetrics.buttonSpacing
+            stack.edgeInsets = NSEdgeInsets(top: 0, left: BrowserMetrics.overlayPadding, bottom: 0, right: BrowserMetrics.buttonSpacing)
+            stack.setCustomSpacing(BrowserMetrics.itemSpacing, after: icon)
+            stack.setCustomSpacing(BrowserMetrics.itemSpacing, after: countLabel)
+            glass.cornerRadius = BrowserMetrics.overlayCornerRadius
+        }
+        density.start()
     }
 
     @available(*, unavailable)

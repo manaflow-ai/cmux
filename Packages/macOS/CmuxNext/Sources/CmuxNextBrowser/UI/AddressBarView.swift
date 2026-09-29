@@ -12,6 +12,7 @@ public final class AddressBarView: NSView {
     public var suggestionEngine: OmniboxSuggestionEngine
 
     private let glass: NSGlassEffectView
+    private let density = DensityBinding()
     private let focusOutline = NSView()
     private let iconView = NSImageView()
     private let field = AddressField()
@@ -42,7 +43,6 @@ public final class AddressBarView: NSView {
 
         focusOutline.translatesAutoresizingMaskIntoConstraints = false
         focusOutline.wantsLayer = true
-        focusOutline.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
         focusOutline.layer?.borderWidth = 1
         focusOutline.alphaValue = 0
 
@@ -59,18 +59,23 @@ public final class AddressBarView: NSView {
             focusOutline.trailingAnchor.constraint(equalTo: trailingAnchor),
             focusOutline.topAnchor.constraint(equalTo: topAnchor),
             focusOutline.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: BrowserMetrics.controlHeight),
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
 
-            iconView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: BrowserMetrics.toolbarInset),
+            density.bind(iconView.leadingAnchor.constraint(equalTo: content.leadingAnchor)) { BrowserMetrics.toolbarInset },
             iconView.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: BrowserMetrics.glyphSize),
-            iconView.heightAnchor.constraint(equalToConstant: BrowserMetrics.glyphSize),
-            field.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: BrowserMetrics.itemSpacing),
-            field.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -BrowserMetrics.toolbarInset),
+            density.bind(iconView.widthAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.glyphSize },
+            density.bind(iconView.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.glyphSize },
+            density.bind(field.leadingAnchor.constraint(equalTo: iconView.trailingAnchor)) { BrowserMetrics.itemSpacing },
+            density.bind(field.trailingAnchor.constraint(equalTo: content.trailingAnchor)) { -BrowserMetrics.toolbarInset },
             field.centerYAnchor.constraint(equalTo: content.centerYAnchor),
         ])
         panel.onPick = { [weak self] index in self?.pick(index) }
-        updateIcon()
+        density.update { [unowned self] in
+            glass.cornerRadius = BrowserMetrics.controlCornerRadius
+            focusOutline.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+            updateIcon()
+        }
+        density.start()
         updateOutlineColor()
     }
 
