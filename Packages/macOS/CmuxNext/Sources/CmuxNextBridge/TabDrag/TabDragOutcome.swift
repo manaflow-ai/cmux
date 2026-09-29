@@ -1,0 +1,108 @@
+public import CmuxNextDesign
+public import CoreGraphics
+public import Foundation
+
+/// How a tab drag ends. The App maps each case to exactly one daemon
+/// command (plans/cmux-next/REWRITE.md "Tab drag").
+public nonisolated enum TabDragOutcome: Hashable, Sendable {
+    /// Into a tab strip at `index` (final display index), joining `groupID`.
+    case strip(stripID: UUID, index: Int, groupID: String?)
+    /// New pane on `edge` of the layout pane `paneID`.
+    case newSplit(paneID: String, edge: TabDropEdge)
+    /// New niri column on `screenID` after `afterColumnID`.
+    case newColumn(screenID: String, afterColumnID: String)
+    /// New workspace at root `index`, inside `groupID` when non-nil.
+    case newWorkspace(groupID: String?, index: Int?)
+    /// Into an existing workspace.
+    case workspace(id: String)
+    /// Released outside every window: new workspace in a new window whose
+    /// tab strip sits under `screenPoint`.
+    case tearOff(screenPoint: CGPoint)
+    /// Released outside every window while dragging everything the source
+    /// workspace holds: the source window moves under the pointer instead
+    /// (Chrome's single-tab window drag). No daemon command.
+    case moveWindow(screenPoint: CGPoint)
+    /// No valid target: spring back to the origin.
+    case cancel
+}
+
+/// What the resolver needs to know about the drag's source.
+public nonisolated struct TabDragContext: Hashable, Sendable {
+    /// Layout pane id (`PaneModel.id`) of the source pane.
+    public var sourcePaneID: String
+    /// Tabs in the source pane, including the dragged ones.
+    public var sourcePaneTabCount: Int
+    public var sourceWorkspaceID: String
+    /// Tabs in the whole source workspace, including the dragged ones.
+    public var sourceWorkspaceTabCount: Int
+    /// Tabs being dragged (1, or a group's member count).
+    public var draggedTabCount: Int
+
+    public init(sourcePaneID: String, sourcePaneTabCount: Int, sourceWorkspaceID: String,
+                sourceWorkspaceTabCount: Int, draggedTabCount: Int) {
+        self.sourcePaneID = sourcePaneID
+        self.sourcePaneTabCount = sourcePaneTabCount
+        self.sourceWorkspaceID = sourceWorkspaceID
+        self.sourceWorkspaceTabCount = sourceWorkspaceTabCount
+        self.draggedTabCount = draggedTabCount
+    }
+
+    /// The drag carries every tab of its pane: the pane closes when they leave.
+    var emptiesSourcePane: Bool { draggedTabCount >= sourcePaneTabCount }
+    var emptiesSourceWorkspace: Bool { draggedTabCount >= sourceWorkspaceTabCount }
+}
+
+/// Pure outcome resolution from drop-target proposals. The session asks
+/// surfaces in priority order (sidebar, strips, layout) and takes the first
+/// proposal `accepts` allows; the others get `dropExited`.
+public nonisolated enum TabDragResolver {
+    /// False for proposals that would be a no-op or break the layout:
+    /// - splitting the source pane with every tab it holds (the pane would
+    ///   close, leaving nothing to split; daemons reject the swap too),
+    /// - moving into the workspace the tabs already live in,
+    /// - a column before the first one (no daemon command expresses it).
+    public static func accepts(_ kind: TabDropKind, context: TabDragContext) -> Bool {
+        switch kind {
+        case .strip:
+            return true
+        case .newSplit(let pane, _):
+            return !(pane == context.sourcePaneID && context.emptiesSourcePane)
+        case .newColumn(_, let after):
+            return after != nil
+        case .newWorkspace:
+            return true
+        case .workspace(let id):
+            return id != context.sourceWorkspaceID
+        }
+    }
+
+    /// Index of the winning proposal: the first non-nil accepted one.
+    public static func winner(_ proposals: [TabDropProposal?], context: TabDragContext) -> Int? {
+        proposals.firstIndex { proposal in
+            proposal.map { accepts($0.kind, context: context) } ?? false
+        }
+    }
+
+    /// The outcome for the winning proposal. `insideWindow` is false when
+    /// the pointer is outside every app window (tear-off).
+    public static func outcome(for proposal: TabDropProposal?, insideWindow: Bool, screenPoint: CGPoint,
+                               context: TabDragContext) -> TabDragOutcome {
+        guard insideWindow else {
+            return context.emptiesSourceWorkspace ? .moveWindow(screenPoint: screenPoint) : .tearOff(screenPoint: screenPoint)
+        }
+        guard let proposal, accepts(proposal.kind, context: context) else { return .cancel }
+        switch proposal.kind {
+        case .strip(let stripID, let index, let groupID):
+            return .strip(stripID: stripID, index: index, groupID: groupID)
+        case .newSplit(let pane, let edge):
+            return .newSplit(paneID: pane, edge: edge)
+        case .newColumn(let screen, let after):
+            guard let after else { return .cancel }
+            return .newColumn(screenID: screen, afterColumnID: after)
+        case .newWorkspace(let group, let index):
+            return .newWorkspace(groupID: group, index: index < 0 ? nil : index)
+        case .workspace(let id):
+            return .workspace(id: id)
+        }
+    }
+}
