@@ -15,6 +15,12 @@ enum AppActions {
         bindLayout(services)
         bindTabGroups(services)
         bindBrowser(services)
+        let context = AppActionContext(services: services)
+        BrowserHandlers.bind(into: services.registry, context: context)
+        OpenInHandlers.bind(into: services.registry, context: context)
+        NotificationHandlers.bind(into: services.registry, context: context)
+        AgentHandlers.bind(into: services.registry, context: context)
+        CloudHandlers.bind(into: services.registry, context: context)
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {

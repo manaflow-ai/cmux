@@ -260,12 +260,14 @@ public final class ControlRouter: Sendable {
         let catalog = self.catalog
         let action = try resolveAction(params, in: catalog)
         let request = try Self.validatedRequest(for: action, params: params, knownKinds: catalog.targetKinds)
+        if let reason = action.unavailableReason { throw Self.unsupported(action.id, reason: reason) }
         guard catalog.isAvailable(action) else {
             throw ControlError(code: "unavailable", message: "\(action.id) is not available in the current context", data: [
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
             ])
         }
-        switch await executor.runAction(request) {
+        let outcome = await executor.runAction(request)
+        switch outcome {
         case .ran:
             var result: [String: JSONValue] = [
                 "action": .string(action.id),
@@ -274,14 +276,8 @@ public final class ControlRouter: Sendable {
             ]
             if let target = request.target { result["target"] = target.json }
             return .object(result)
-        case .unknownAction:
-            throw ControlError(code: "not_found", message: "Unknown action '\(action.id)'")
-        case .notBound:
-            throw ControlError(code: "not_bound", message: "\(action.id) has no handler in this build", data: ["action": .string(action.id)])
-        case .unavailable:
-            throw ControlError(code: "unavailable", message: "\(action.id) is not available in the current context", data: ["action": .string(action.id)])
-        case .disabled:
-            throw ControlError(code: "disabled", message: "\(action.id) is disabled right now", data: ["action": .string(action.id)])
+        default:
+            throw Self.error(for: outcome, action: action.id)
         }
     }
 

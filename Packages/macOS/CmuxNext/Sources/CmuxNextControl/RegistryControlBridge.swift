@@ -71,13 +71,19 @@ public final class RegistryControlBridge: ControlActionExecutor {
         let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))
         guard registry.descriptor(for: id) != nil || registry.isBound(id) else { return .unknownAction }
         guard let action = registry.action(for: id) else { return .notBound }
+        if let reason = registry.unavailableReason(for: id) { return .unsupported(reason: reason) }
         guard registry.isAvailable(id) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         let invocation = ActionInvocation(
             target: request.target.flatMap(Self.actionTarget),
             arguments: request.arguments.compactMapValues(Self.actionValue)
         )
-        return registry.perform(id, invocation: invocation) ? .ran : .disabled
+        switch registry.run(id, invocation: invocation) {
+        case .ran: return .ran
+        case .failed(let reason): return .failed(reason: reason)
+        case .unavailable(let reason): return .unsupported(reason: reason)
+        case .notRun: return .disabled
+        }
     }
 
     static func actionTarget(_ ref: ControlTargetRef) -> ActionTargetRef? {
@@ -115,7 +121,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
     static func info(for entry: ActionEntry, in registry: ActionRegistry) -> ControlActionInfo {
         let descriptor = entry.descriptor
         let shortcut = registry.effectiveShortcut(for: descriptor.id)
-        return ControlActionInfo(
+        var info = ControlActionInfo(
             id: descriptor.id.rawValue,
             title: descriptor.title,
             category: descriptor.category.rawValue,
@@ -135,6 +141,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
             isDebugOnly: descriptor.isDebugOnly,
             mainMenu: descriptor.mainMenu?.rawValue
         )
+        info.unavailableReason = registry.unavailableReason(for: descriptor.id)
+        return info
     }
 
     static func argumentInfo(_ argument: ActionArgument) -> ControlArgumentInfo {

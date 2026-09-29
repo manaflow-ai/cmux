@@ -25,4 +25,8 @@ public enum ControlActionOutcome: Sendable, Hashable {
     case unavailable
     /// Its handler's `isEnabled` predicate refused.
     case disabled
+    /// Bound as unavailable in this build, with a user-facing reason.
+    case unsupported(reason: String)
+    /// The handler ran and reported why it did nothing.
+    case failed(reason: String)
 }

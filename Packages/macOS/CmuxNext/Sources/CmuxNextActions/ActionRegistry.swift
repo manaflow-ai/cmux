@@ -47,6 +47,12 @@ public final class ActionRegistry {
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
+    /// Why a bound action cannot run in this build ("unavailable: <reason>").
+    /// Set by `bindUnavailable`; binding a real handler clears it.
+    @ObservationIgnored public internal(set) var unavailableReasons: [ActionID: String] = [:]
+    /// Reason the running handler reported through `fail(_:)`.
+    @ObservationIgnored var pendingFailure: String?
+
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     @ObservationIgnored var shortcutIndex: ShortcutIndex?
@@ -115,6 +121,7 @@ public final class ActionRegistry {
     public func register(_ action: Action) {
         let id = canonicalID(for: action.id)
         let stored = id == action.id ? action : action.withID(id)
+        unavailableReasons[id] = nil
         if let index = indexByID[id] {
             actions[index] = stored
         } else {
