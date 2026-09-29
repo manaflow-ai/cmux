@@ -19,19 +19,9 @@ enum TabHandlers {
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("newSurface", invoke: { ctx.paneController($0)?.newTerminalTab() })
-        registry.bind("openBrowser", invoke: { invocation in
-            var url: URL?
-            if let text = invocation["url"]?.stringValue {
-                guard let resolved = BrowserURLResolver().url(for: text) else { return ctx.refuse(MiscHandlerStrings.invalidURL(text)) }
-                url = resolved
-            }
-            ctx.paneController(invocation)?.newBrowserTab(url: url, engine: invocation["engine"]?.stringValue)
-        })
-        registry.bind("closeTab", invoke: { invocation in
-            guard let (pane, id) = ctx.tab(invocation) else { return }
-            pane.close([id])
-        })
+        registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
+        registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
+        registry.bind("closeTab", invoke: { TabLifecycle.close(ctx, $0) })
         registry.bind("closeOtherTabsInPane", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
             pane.handle(.closeOthers(keeping: id))
@@ -143,17 +133,20 @@ enum TabHandlers {
 
     private static func bindMetadata(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("renameTab", invoke: { invocation in
+            if TabLifecycle.renameHidden(ctx, invocation, name: invocation["name"]?.stringValue) { return }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let name = invocation["name"]?.stringValue, !name.isEmpty else { return pane.rename(id) }
             guard let surface = pane.tab(id)?.surface ?? ctx.refuse(RefusalStrings.sessionLocalCannotRename) else { return }
             rename(surface, to: name, ctx: ctx, pane: pane)
         })
         registry.bind("palette.clearTabName", invoke: { invocation in
+            if TabLifecycle.renameHidden(ctx, invocation, name: "") { return }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let surface = pane.tab(id)?.surface ?? ctx.refuse(RefusalStrings.sessionLocalHasNoName) else { return }
             rename(surface, to: nil, ctx: ctx, pane: pane)
         })
         registry.bind("palette.toggleTabPin", invoke: { invocation in
+            if TabLifecycle.togglePinHidden(ctx, invocation) { return }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }
             pane.setPinned(id, pinned: !tab.pinned)
@@ -162,11 +155,12 @@ enum TabHandlers {
 
     /// Optimistic rename; an empty name clears it on the daemon.
     static func rename(_ surface: SurfaceID, to name: String?, ctx: AppActionContext, pane: PaneController) {
-        Task {
+        ctx.registry.track(Task {
             let ok = await ctx.services.daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
                 try await connection.renameTab(surface, to: name ?? "")
             }
             if !ok { pane.resyncStrip() }
-        }
+            return ok ? nil : "rename-surface failed (see the app log)"
+        })
     }
 }

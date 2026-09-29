@@ -64,19 +64,13 @@ enum CompatSurfaceMethods {
         let world = try await call.world()
         let target = call.target(world)
         let surface = try target.surface()
-        try await closeTab(surface, service: call.service)
+        try await closeTab(surface, call: call)
         return .object(CompatJSON.ids(window: try target.window(), workspace: world.workspace(surface.workspaceUUID), surface: surface))
     }
 
-    /// Terminals close through `close-terminal` (ends the process); other
-    /// tabs through `close-surface`, like the App's tab strip.
-    static func closeTab(_ surface: CompatWorld.Surface, service: CompatService) async throws {
-        let handle = surface.handle
-        if surface.isTerminal, let terminal = surface.tab.terminalID.map(TerminalID.init(rawValue:)) {
-            try await service.daemon("close-terminal") { try await $0.closeTerminal(terminal) }
-        } else {
-            try await service.daemon("close-surface") { try await $0.closeTab(handle) }
-        }
+    /// The `closeTab` action on one tab (terminals end their process).
+    static func closeTab(_ surface: CompatWorld.Surface, call: CompatCall) async throws {
+        try await call.service.runAction("closeTab", target: CompatTargets.tab(surface), call: call)
     }
 
     static func focus(_ call: CompatCall) async throws -> JSON {
@@ -119,8 +113,8 @@ enum CompatSurfaceMethods {
             destination = try world.resolvePane(paneRaw, in: nil, refs: refs)
         } else if call.method == "surface.move", let workspaceRaw = call.string("workspace_id") {
             let workspace = try world.resolveWorkspace(workspaceRaw, refs: refs)
-            let workspaceHandle = workspace.handle
-            _ = try await call.service.daemon("move-tab-to-workspace") { try await $0.moveTab(handle, toWorkspace: workspaceHandle) }
+            try await call.service.runAction("tab.moveToWorkspace", target: CompatTargets.tab(surface),
+                                             arguments: ["workspace": .target(CompatTargets.workspace(workspace))], call: call)
             return try await moved(call, surface: surface)
         } else if call.method == "surface.move", call.string("window_id") != nil {
             throw CompatErrors.unsupported("windows do not own workspaces in cmux-next; move to a workspace or pane", method: call.method)

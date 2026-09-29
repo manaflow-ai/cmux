@@ -27,42 +27,60 @@ enum CompatCreate {
         }
     }
 
-    /// A new tab in `pane`. Returns its surface handle.
+    /// A new tab in `pane` through the `newSurface` / `openBrowser` actions.
+    /// Returns its surface handle.
     static func newTab(_ kind: Kind, in pane: CompatWorld.Pane, call: CompatCall) async throws -> SurfaceID {
-        let service = call.service
-        let handle = pane.handle
+        let before = try await call.world()
         switch kind {
         case .browser:
-            let url = call.string("url").flatMap { $0.isEmpty ? nil : $0 } ?? "about:blank"
-            return try await service.daemon("new-frontend-browser-tab") {
-                try await $0.newFrontendBrowserTab(url: url, engine: .webkit, in: handle).surface
-            }
+            var arguments: [String: ControlValue] = [:]
+            if let url = call.string("url"), !url.isEmpty { arguments["url"] = .string(url) }
+            try await call.service.runAction("openBrowser", target: CompatTargets.pane(pane), arguments: arguments, call: call)
         case .terminal:
-            let options = SpawnOptions(cwd: try CompatSpawn.workingDirectory(call),
-                                       env: await CompatSpawn.environment(call, workspaceUUID: pane.workspaceUUID, surfaceUUID: nil))
-            let surface = try await service.daemon("new-tab") { try await $0.newTab(in: handle, options: options).surface }
-            try await runInitial(call, surface: surface)
-            return surface
+            var arguments: [String: ControlValue] = [:]
+            if let cwd = try CompatSpawn.workingDirectory(call) { arguments["cwd"] = .string(cwd) }
+            try await call.service.runAction("newSurface", target: CompatTargets.pane(pane), arguments: arguments, call: call)
         }
+        let surface = try await created(since: before, in: pane.workspaceUUID, call: call)
+        if kind == .terminal { try await runInitial(call, surface: surface) }
+        return surface
     }
 
-    /// A new pane beside `pane` holding a new tab. Right and down terminal
-    /// splits are one `split`; other cases create the tab, then
-    /// `move-tab-to-split` it to the edge (the daemon has no left/up split).
+    /// A new pane beside `pane` holding a new tab: the `split<Edge>` actions
+    /// for terminals; for browsers `openBrowser`, then `tab.moveToNewSplit`.
     static func split(_ kind: Kind, from pane: CompatWorld.Pane, edge: PaneEdge, call: CompatCall) async throws -> SurfaceID {
-        let service = call.service
-        let handle = pane.handle
-        if kind == .terminal, edge == .right || edge == .bottom {
-            let options = SpawnOptions(cwd: try CompatSpawn.workingDirectory(call),
-                                       env: await CompatSpawn.environment(call, workspaceUUID: pane.workspaceUUID, surfaceUUID: nil))
-            let direction: SplitDirection = edge == .right ? .right : .down
-            let surface = try await service.daemon("split") { try await $0.split(handle, direction: direction, options: options).surface }
-            try await runInitial(call, surface: surface)
+        let direction = switch edge {
+        case .right: "right"
+        case .left: "left"
+        case .top: "up"
+        case .bottom: "down"
+        }
+        guard kind == .terminal else {
+            let surface = try await newTab(.browser, in: pane, call: call)
+            let world = try await call.world()
+            guard let tab = world.surfaces.values.first(where: { $0.handle == surface }) else {
+                throw CompatErrors.notFound("surface", "created surface \(surface.rawValue)")
+            }
+            try await call.service.runAction("tab.moveToNewSplit", target: CompatTargets.tab(tab),
+                                             arguments: ["direction": .string(direction)], call: call)
             return surface
         }
-        let surface = try await newTab(kind, in: pane, call: call)
-        _ = try await service.daemon("move-tab-to-split") { try await $0.moveTabToSplit(surface, pane: handle, edge: edge) }
+        let before = try await call.world()
+        var arguments: [String: ControlValue] = [:]
+        if let cwd = try CompatSpawn.workingDirectory(call) { arguments["cwd"] = .string(cwd) }
+        let action = "split" + direction.prefix(1).uppercased() + direction.dropFirst()
+        try await call.service.runAction(action, target: CompatTargets.pane(pane), arguments: arguments, call: call)
+        let surface = try await created(since: before, in: pane.workspaceUUID, call: call)
+        try await runInitial(call, surface: surface)
         return surface
+    }
+
+    /// The surface an action just created, found by diffing fresh trees.
+    static func created(since before: CompatWorld, in workspaceUUID: String, call: CompatCall) async throws -> SurfaceID {
+        guard let surface = try await call.world().createdSurface(since: before, in: workspaceUUID) else {
+            throw ControlError(code: "internal_error", message: "\(call.method): the action ran but created no surface")
+        }
+        return surface.handle
     }
 
     /// `initial_command` for tabs the daemon spawns without a command

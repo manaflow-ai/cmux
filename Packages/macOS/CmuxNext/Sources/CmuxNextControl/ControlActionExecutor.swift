@@ -7,6 +7,9 @@ public import CmuxNextSettings
 /// implementation is `RegistryControlBridge`; tests inject a fake.
 public protocol ControlActionExecutor: Sendable {
     @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome
+    /// Like `performAction`, plus the daemon work the handler started, so
+    /// a caller can answer after the effect exists (cmux CLI compat).
+    @MainActor func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun
 }
 
 /// `settings.get` / `settings.set` storage. `CmuxConfigFile` conforms, so

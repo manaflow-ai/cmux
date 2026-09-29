@@ -14,22 +14,21 @@ enum CompatTabActions {
         let target = call.target(world)
         let surface = try target.surface()
         let service = call.service
-        let handle = surface.handle
+        let tab = CompatTargets.tab(surface)
         var title: JSON = .null
         switch action {
         case "rename":
             guard let text = call.string("title")?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
                 throw CompatErrors.invalid("Missing or invalid title")
             }
-            try await service.daemon("rename-surface") { try await $0.renameTab(handle, to: text) }
+            try await service.runAction("renameTab", target: tab, arguments: ["name": .string(text)], call: call)
             title = .string(text)
         case "clear_name":
-            try await service.daemon("rename-surface") { try await $0.renameTab(handle, to: "") }
+            try await service.runAction("palette.clearTabName", target: tab, call: call)
         case "pin", "unpin":
-            let pinned = action == "pin"
-            _ = try await service.daemon("set-tab-pinned") { try await $0.setTabPinned(handle, pinned) }
+            if surface.tab.pinned != (action == "pin") { try await service.runAction("palette.toggleTabPin", target: tab, call: call) }
         case "close":
-            try await CompatSurfaceMethods.closeTab(surface, service: service)
+            try await CompatSurfaceMethods.closeTab(surface, call: call)
         case "close_others", "close_left", "close_right":
             guard let pane = world.panes[surface.paneUUID] else { throw CompatErrors.notFound("pane", surface.paneUUID) }
             let others = world.orderedSurfaces(in: pane).filter { other in
@@ -39,9 +38,9 @@ enum CompatTabActions {
                 default: other.uuid != surface.uuid
                 }
             }
-            for other in others { try await CompatSurfaceMethods.closeTab(other, service: service) }
+            for other in others { try await CompatSurfaceMethods.closeTab(other, call: call) }
         case "move_to_new_workspace":
-            _ = try await service.daemon("move-tab-to-new-workspace") { try await $0.moveTabToNewWorkspace(handle) }
+            try await service.runAction("palette.moveTabToNewWorkspace", target: tab, call: call)
         default:
             throw CompatErrors.invalid("Unknown tab action \(action)")
         }

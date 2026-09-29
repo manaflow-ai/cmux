@@ -67,8 +67,27 @@ final class DaemonService {
 
     /// Fire-and-forget variant for UI handlers.
     func send(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
-        Task { await run(label, body) }
+        workTracker?(Task { await failure(label, body) })
     }
+
+    /// Runs a command; returns nil on success, else the failure (logged).
+    func failure(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> String? {
+        guard let connection else {
+            logger.error("\(label, privacy: .public): not connected")
+            return "\(label): not connected to cmux-tui"
+        }
+        do {
+            try await body(connection)
+            return nil
+        } catch {
+            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            return "\(label): \(error)"
+        }
+    }
+
+    /// Receives every command task `send` starts, so an action run from the
+    /// control socket can await it (`ActionRegistry.track`).
+    @ObservationIgnored var workTracker: ((Task<String?, Never>) -> Void)?
 
     /// Runs an intent with an optimistic store patch settled by the daemon's
     /// transaction echo (or reverted on failure).

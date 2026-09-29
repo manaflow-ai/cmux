@@ -2,6 +2,7 @@ import CmuxNextDaemon
 @testable import CmuxNextControl
 import CmuxNextSettings
 import Foundation
+import Synchronization
 import Testing
 
 @Suite struct CompatServiceTests {
@@ -106,5 +107,66 @@ import Testing
             store.appendLog(.init(level: "info", message: "\(index)"), workspace: "W")
         }
         #expect(store.workspace("W").log.count == CompatSidebarStore.logLimit)
+    }
+}
+
+/// Compat mutations run registry actions through the executor (the shared
+/// keyboard/menu/palette path) and wait for the work the handler tracked.
+@Suite struct CompatActionTests {
+    final class TrackingExecutor: ControlActionExecutor {
+        let requests = Mutex<[ControlActionRequest]>([])
+        let outcome: ControlActionOutcome
+        let failure: String?
+        init(outcome: ControlActionOutcome = .ran, failure: String? = nil) {
+            self.outcome = outcome
+            self.failure = failure
+        }
+        func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
+            requests.withLock { $0.append(request) }
+            return outcome
+        }
+        func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun {
+            let failure = failure
+            return ControlActionRun(outcome: performAction(request), work: [Task { failure }])
+        }
+    }
+
+    /// The service holds its router weakly; the caller keeps both alive.
+    func install(_ executor: TrackingExecutor) -> (CompatService, ControlRouter) {
+        let router = ControlRouter(identity: testIdentity(), executor: executor)
+        let service = CompatService(frontend: HeadlessCompatFrontend()) { nil }
+        service.install(on: router)
+        return (service, router)
+    }
+
+    @Test func runsTheRegistryActionWithTargetAndArguments() async throws {
+        let executor = TrackingExecutor()
+        let (service, router) = install(executor)
+        defer { withExtendedLifetime(router) {} }
+        try await service.runAction("splitRight", target: ControlTargetRef(kind: "pane", id: "pane_1"),
+                                    arguments: ["cwd": .string("/tmp")], connection: .inProcess, method: "surface.split",
+                                    deadline: .now + .seconds(2))
+        let request = try #require(executor.requests.withLock { $0.last })
+        #expect(request.actionID == "splitRight")
+        #expect(request.target == ControlTargetRef(kind: "pane", id: "pane_1"))
+        #expect(request.arguments["cwd"] == .string("/tmp"))
+    }
+
+    @Test func refusalsAndDaemonFailuresComeBackTyped() async {
+        let (refused, keepA) = install(TrackingExecutor(outcome: .refused("not shown in any window")))
+        defer { withExtendedLifetime(keepA) {} }
+        await #expect(throws: ControlError.self) {
+            try await refused.runAction("closeTab", connection: .inProcess, method: "surface.close", deadline: .now + .seconds(2))
+        }
+        let (failing, keepB) = install(TrackingExecutor(failure: "split: PTY capacity exhausted"))
+        defer { withExtendedLifetime(keepB) {} }
+        do {
+            try await failing.runAction("splitDown", connection: .inProcess, method: "surface.split", deadline: .now + .seconds(2))
+            Issue.record("expected failure")
+        } catch let error as ControlError {
+            #expect(error.code == "daemon_error" && error.message.contains("PTY capacity"))
+        } catch {
+            Issue.record("unexpected \(error)")
+        }
     }
 }

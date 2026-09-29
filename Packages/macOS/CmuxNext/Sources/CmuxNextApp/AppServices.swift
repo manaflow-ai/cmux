@@ -34,6 +34,8 @@ final class AppServices {
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
         compat = AppCompatFrontend(services: self)
+        let registry = registry
+        daemon.workTracker = { registry.track($0) }
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
         cache.onBrowserReady = { [weak self] key in

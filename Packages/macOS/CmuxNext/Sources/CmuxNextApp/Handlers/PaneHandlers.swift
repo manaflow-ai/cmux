@@ -48,27 +48,35 @@ enum PaneHandlers {
         })
     }
 
-    /// Splits the pane. Left and up split right or down, then swap the
-    /// original into the new slot, so the new pane lands on that side.
+    /// Splits the targeted pane (a shown one or any daemon pane, so the CLI
+    /// can split a background workspace). Left and up split right or down,
+    /// then swap the original into the new slot, so the new pane lands on
+    /// that side. A shown workspace focuses the new pane.
     static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection) {
-        guard let pane = ctx.paneController(invocation), let content = pane.workspace, let connection = ctx.connection() else { return }
-        let handle = pane.pane.handle, cwd = pane.selectedTab?.cwd
+        guard let pane = ctx.daemonPane(invocation), let connection = ctx.connection() else { return }
+        let controller = ctx.services.paneController(for: pane)
+        let content = controller?.workspace
+        let handle = pane.handle
+        let cwd = invocation["cwd"]?.stringValue ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let daemonDirection: SplitDirection = direction == .left || direction == .right ? .right : .down
         let swapTowards: PaneDirection? = switch direction {
         case .left: .right
         case .up: .down
         default: nil
         }
-        Task {
+        let logger = ctx.services.daemon.logger
+        ctx.registry.track(Task {
             do {
                 let created = try await connection.split(handle, direction: daemonDirection, options: SpawnOptions(cwd: cwd))
                 if let swapTowards { try await connection.swapPane(handle, with: .direction(swapTowards)) }
-                content.pendingFocusSurface = created.surface
-                content.applyCurrent()
+                content?.pendingFocusSurface = created.surface
+                content?.applyCurrent()
+                return nil
             } catch {
-                ctx.services.daemon.logger.error("split failed: \(String(describing: error), privacy: .public)")
+                logger.error("split failed: \(String(describing: error), privacy: .public)")
+                return "split: \(error)"
             }
-        }
+        })
     }
 
     // MARK: Focus

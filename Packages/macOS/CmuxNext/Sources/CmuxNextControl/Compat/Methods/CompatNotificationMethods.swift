@@ -98,13 +98,17 @@ enum CompatNotificationMethods {
         return .object(result)
     }
 
+    /// Marks unread tabs read through the `palette.toggleTabUnread` action
+    /// (the tab context menu's Mark Read), one tab at a time.
     @discardableResult
-    static func acknowledge(_ surfaces: [CompatWorld.Surface], service: CompatService) async throws -> Int {
-        for surface in surfaces {
-            let handle = surface.handle
-            _ = try await service.daemon("ack-tab-notifications") { try await $0.acknowledgeNotifications(of: handle) }
+    static func acknowledge(_ surfaces: [CompatWorld.Surface], service: CompatService,
+                            method: String = "notification.clear") async throws -> Int {
+        let unread = surfaces.filter(\.tab.unread)
+        for surface in unread {
+            try await service.runAction("palette.toggleTabUnread", target: CompatTargets.tab(surface), connection: .inProcess,
+                                        method: method, deadline: .now + CompatDeadline.controlPlane)
         }
-        return surfaces.count
+        return unread.count
     }
 
     /// `notification.dismiss {id}` / `{all_read}` and `mark_read`: the

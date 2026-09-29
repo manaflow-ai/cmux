@@ -66,15 +66,17 @@ extension PaneController {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
         guard let connection = services.daemon.connection else { return }
-        Task {
+        services.registry.track(Task {
             do {
                 let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
                 pendingSelectSurface = created.surface
                 apply(snapshot())
+                return nil
             } catch {
                 services.daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
+                return "new-tab: \(error)"
             }
-        }
+        })
     }
 
     /// New browser tab: daemon-owned when supported (engine `requested`,
@@ -86,16 +88,18 @@ extension PaneController {
         if browserTabs.isAvailable() {
             let engine = browserTabs.engine(requested: requested)
             let handle = pane.handle
-            Task {
+            services.registry.track(Task {
                 do {
                     let surface = try await browserTabs.create(handle, url?.absoluteString ?? "about:blank", engine)
                     pendingSelectSurface = surface
                     if url == nil { pendingAddressBarFocus = surface }
                     apply(snapshot())
+                    return nil
                 } catch {
                     services.daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
+                    return "new-frontend-browser-tab: \(error)"
                 }
-            }
+            })
             return
         }
         let local = LocalBrowserTab.make(url: url)
@@ -127,13 +131,16 @@ extension PaneController {
         apply(snapshot())
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
-        Task {
-            var failed = false
-            for command in commands where !(await services.daemon.run(command.label, command.run)) { failed = true }
+        services.registry.track(Task {
+            var failure: String?
+            for command in commands {
+                if let error = await services.daemon.failure(command.label, command.run) { failure = failure ?? error }
+            }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
-            if failed { resyncStrip() }
-        }
+            if failure != nil { resyncStrip() }
+            return failure
+        })
     }
 
     /// Moves a tab into `target` at `index` (display order), optimistic.
@@ -150,12 +157,13 @@ extension PaneController {
     func setPinned(_ id: StripTabID, pinned: Bool) {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
-        Task {
+        services.registry.track(Task {
             let ok = await services.daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
-        }
+            return ok ? nil : "set-tab-pinned failed (see the app log)"
+        })
     }
 
     func rename(_ id: StripTabID) {

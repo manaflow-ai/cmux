@@ -68,6 +68,13 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// Same as ``performAction(_:)``.
     public func perform(_ request: ControlActionRequest) -> ControlActionOutcome { performAction(request) }
 
+    /// Runs `request` and collects the daemon work its handler started.
+    public func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun {
+        var outcome = ControlActionOutcome.disabled
+        let work = registry.capturingWork { outcome = performAction(request) }
+        return ControlActionRun(outcome: outcome, work: work)
+    }
+
     /// Runs `request` through the registry. Main actor only.
     public func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
         let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))

@@ -51,6 +51,7 @@ public final class ActionRegistry {
     @ObservationIgnored public var refusalObserver: (@MainActor (String) -> Void)?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false
     @ObservationIgnored var capturedRefusal: String?
+    @ObservationIgnored var capturedWork: [ActionWork]?
 
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
