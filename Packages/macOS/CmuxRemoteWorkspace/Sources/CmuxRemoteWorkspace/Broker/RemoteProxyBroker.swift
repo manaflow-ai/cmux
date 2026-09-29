@@ -438,10 +438,13 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
         do {
             let tunnelGeneration = UUID()
+            // Fresh per tunnel start; only the embedded browser receives it.
+            let credential = BrowserProxyCredential.random()
             let tunnel = tunnelProvider.makeTunnel(
                 configuration: entry.configuration,
                 remotePath: entry.remotePath,
-                localPort: localPort
+                localPort: localPort,
+                credential: credential
             ) { [weak self] detail in
                 guard let self else { return }
                 self.queue.async {
@@ -459,7 +462,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             entry.tunnel = tunnel
             entry.tunnelGeneration = tunnelGeneration
             entry.ptyLifecycleSnapshot = nil
-            let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort)
+            let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort, credential: credential)
             entry.endpoint = endpoint
             entry.restartRetryCount = 0
             notifyLocked(entry, update: .ready(endpoint))
