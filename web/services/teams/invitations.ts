@@ -89,8 +89,12 @@ export async function inviteTeamMembers(
       await store.upsertInviteRole({ stackTeamId: access.team.id, email, role: input.role, invitedByUserId: access.userId });
       await withStackDeadline(() => access.team.inviteUser({ email, callbackUrl: input.callbackUrl }));
       sent.push(email);
-    } catch {
-      console.error("team invitation send failed", { teamId: access.team.id });
+    } catch (error) {
+      console.error("team invitation send failed", {
+        teamId: access.team.id,
+        errorType: error instanceof Error ? error.name : typeof error,
+        message: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
+      });
       failed.push({ email, code: "invite_failed" });
       continue;
     }
