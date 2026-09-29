@@ -12859,6 +12859,7 @@
 				CE7A0000000000000000000C /* Copy CLI */,
 				CE7A0000000000000000000D /* Reject Bundled Provider Binaries */,
 				CE7A00000000000000000016 /* Bundle cmux-tui */,
+				CE7A00000000000000000017 /* Bundle Ghostty resources */,
 			);
 			buildRules = (
 			);
@@ -13282,6 +13283,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-cmux-tui.sh\"\n";
+		};
+		CE7A00000000000000000017 /* Bundle Ghostty resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle Ghostty resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-ghostty-resources.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

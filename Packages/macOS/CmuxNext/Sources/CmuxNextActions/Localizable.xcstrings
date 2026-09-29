@@ -2398,6 +2398,23 @@
         }
       }
     },
+    "action.newColumn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Column"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい列"
+          }
+        }
+      }
+    },
     "action.newPaneAutoLayout": {
       "extractionState": "manual",
       "localizations": {

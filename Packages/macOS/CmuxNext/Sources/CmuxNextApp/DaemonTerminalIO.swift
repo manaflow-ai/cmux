@@ -40,7 +40,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         self.target = target
         self.endpoint = endpoint
         (events, continuation) = AsyncStream.makeStream(of: TerminalIOEvent.self, bufferingPolicy: .unbounded)
-        let task = Task.detached(priority: .userInitiated) { [weak self] in await self?.run() }
+        let task = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            await self.run()
+        }
         pump.withLock { $0 = task }
     }
 
@@ -49,6 +52,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     // MARK: TerminalIO
+
+    /// The daemon's VT core answers DA/DSR, so the surface mirrors only.
+    var answersTerminalQueries: Bool { true }
 
     func write(_ data: Data) async {
         state.withLock { $0.attachment }?.enqueueInput(data)

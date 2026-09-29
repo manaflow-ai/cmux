@@ -5,6 +5,7 @@ import QuartzCore
 /// Runs daemon-store batches once per display frame (architecture.md 2).
 /// The link is paused whenever nothing is pending, so an idle app has no
 /// timer and no wakeups.
+@MainActor
 final class DisplayLinkFrameScheduler: NSObject, FrameScheduler {
     private var pending: [@MainActor @Sendable () -> Void] = []
     private var link: CADisplayLink?

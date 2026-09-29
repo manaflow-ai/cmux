@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
+public import CmuxNextDesign
 import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
@@ -61,8 +62,8 @@ public enum SidebarMapping {
         return .idle
     }
 
-    public static func color(_ name: String?) -> SidebarColor? {
+    public static func color(_ name: String?) -> GroupColor? {
         guard let name else { return nil }
-        return SidebarColor(rawValue: name.lowercased()) ?? (name.lowercased() == "gray" ? .grey : nil)
+        return GroupColor(rawValue: name.lowercased()) ?? (name.lowercased() == "gray" ? .grey : nil)
     }
 }

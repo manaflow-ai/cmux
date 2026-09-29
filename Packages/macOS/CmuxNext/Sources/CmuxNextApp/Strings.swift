@@ -10,31 +10,22 @@ enum Strings {
     static var menuHideOthers: String { String(localized: "menu.app.hideOthers", defaultValue: "Hide Others", bundle: .module) }
     static var menuShowAll: String { String(localized: "menu.app.showAll", defaultValue: "Show All", bundle: .module) }
     static var menuFile: String { String(localized: "menu.file", defaultValue: "File", bundle: .module) }
+    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit", bundle: .module) }
+    static var menuUndo: String { String(localized: "menu.edit.undo", defaultValue: "Undo", bundle: .module) }
+    static var menuRedo: String { String(localized: "menu.edit.redo", defaultValue: "Redo", bundle: .module) }
+    static var menuCut: String { String(localized: "menu.edit.cut", defaultValue: "Cut", bundle: .module) }
+    static var menuCopy: String { String(localized: "menu.edit.copy", defaultValue: "Copy", bundle: .module) }
+    static var menuPaste: String { String(localized: "menu.edit.paste", defaultValue: "Paste", bundle: .module) }
+    static var menuSelectAll: String { String(localized: "menu.edit.selectAll", defaultValue: "Select All", bundle: .module) }
     static var menuView: String { String(localized: "menu.view", defaultValue: "View", bundle: .module) }
     static var menuWindow: String { String(localized: "menu.window", defaultValue: "Window", bundle: .module) }
     static var menuMinimize: String { String(localized: "menu.window.minimize", defaultValue: "Minimize", bundle: .module) }
     static var menuZoom: String { String(localized: "menu.window.zoom", defaultValue: "Zoom", bundle: .module) }
 
-    static var actionQuit: String { String(localized: "action.app.quit", defaultValue: "Quit cmux", bundle: .module) }
-    static var actionNewTab: String { String(localized: "action.tab.new", defaultValue: "New Tab", bundle: .module) }
-    static var actionCloseTab: String { String(localized: "action.tab.close", defaultValue: "Close Tab", bundle: .module) }
-    static var actionNextTab: String { String(localized: "action.tab.next", defaultValue: "Show Next Tab", bundle: .module) }
-    static var actionPreviousTab: String { String(localized: "action.tab.previous", defaultValue: "Show Previous Tab", bundle: .module) }
-    static var actionToggleSidebar: String { String(localized: "action.view.toggleSidebar", defaultValue: "Toggle Sidebar", bundle: .module) }
-    static var actionCommandPalette: String { String(localized: "action.palette.show", defaultValue: "Command Palette", bundle: .module) }
-
-    static var sidebarTitle: String { String(localized: "sidebar.title", defaultValue: "Workspaces", bundle: .module) }
-    static var defaultWorkspace: String { String(localized: "sidebar.workspace.default", defaultValue: "Default", bundle: .module) }
-
-    static func tabTitle(_ number: Int) -> String {
-        String(localized: "tab.title", defaultValue: "Terminal \(number)", bundle: .module)
-    }
-
-    static var placeholderTitle: String { String(localized: "content.placeholder.title", defaultValue: "cmux next", bundle: .module) }
-    static var placeholderSubtitle: String {
-        String(localized: "content.placeholder.subtitle", defaultValue: "Terminal surfaces attach here once the daemon client lands.", bundle: .module)
-    }
-    static func placeholderTag(_ tag: String) -> String {
-        String(localized: "content.placeholder.tag", defaultValue: "Tag: \(tag)", bundle: .module)
-    }
+    static var localMachine: String { String(localized: "sidebar.machine.local", defaultValue: "This Mac", bundle: .module) }
+    static var untitledTerminal: String { String(localized: "tab.untitled.terminal", defaultValue: "Terminal", bundle: .module) }
+    static var untitledBrowser: String { String(localized: "tab.untitled.browser", defaultValue: "New Tab", bundle: .module) }
+    static var renameTabTitle: String { String(localized: "rename.tab.title", defaultValue: "Rename Tab", bundle: .module) }
+    static var renameConfirm: String { String(localized: "rename.confirm", defaultValue: "Rename", bundle: .module) }
+    static var cancel: String { String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module) }
 }
