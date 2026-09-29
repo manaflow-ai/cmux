@@ -302,7 +302,7 @@
 						TestTargetID = 8B41F6442DEDD0D5001A66F9;
 					};
 					D4E2A0070000000000000001 = { CreatedOnToolsVersion = 16.3; };
-					C10DA0050000000000000001 = { CreatedOnToolsVersion = 26.0; };
+					C10DA0050000000000000001 = { CreatedOnToolsVersion = 16.3; };
 				};
 			};
 			buildConfigurationList = 8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "cmux" */;

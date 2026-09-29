@@ -14,8 +14,10 @@ extension WorkspaceListView {
                 createWorkspaceOnComputerTarget(target)
             }
         let createWorkspaceAction: () -> Void = {
-            if computerTargets.count == 1, let target = computerTargets.first {
-                createOnComputer?(target)
+            if computerTargets.count == 1,
+               let target = computerTargets.first,
+               let createOnComputer {
+                createOnComputer(target)
             } else if let scopedExternalHostID, let createWorkspaceOnCloudMachine {
                 createWorkspaceOnCloudMachine(scopedExternalHostID)
             } else {
