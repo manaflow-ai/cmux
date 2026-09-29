@@ -13,6 +13,10 @@ final class CloudSystemVPNOperationGate {
 
     var hasPendingOperation: Bool { pendingCount > 0 }
 
+    func waitForIdle() async {
+        await tail?.value
+    }
+
     @MainActor
     fileprivate final class State {
         var acquired = false

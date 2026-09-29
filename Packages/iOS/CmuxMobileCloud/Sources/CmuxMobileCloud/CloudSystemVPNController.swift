@@ -95,7 +95,7 @@ public final class CloudSystemVPNController {
                     cleanupPending = false
                 }
                 if let newScope {
-                    try await performBounded {
+                    try await performBounded(reconcilePlatformOnTimeout: true) {
                         try await self.manager.refresh(scope: newScope)
                     }
                     guard self.isCurrent(generation) else { return }
@@ -135,7 +135,7 @@ public final class CloudSystemVPNController {
                     guard self.isCurrent(generation) else { return }
                     cleanupPending = false
                 }
-                try await performBounded {
+                try await performBounded(reconcilePlatformOnTimeout: true) {
                     try await self.manager.refresh(scope: scope)
                 }
                 guard self.isCurrent(generation) else { return }
@@ -162,6 +162,7 @@ public final class CloudSystemVPNController {
             phase = .failed(.configuration)
             return
         }
+        guard !operationGate.hasPendingOperation else { return }
         switch phase {
         case .preparing, .connecting, .connected, .disconnecting: return
         case .off, .failed: break
@@ -206,7 +207,7 @@ public final class CloudSystemVPNController {
                 guard routePolicy.permitsOnlyPrivateRoutes(inQuickConfig: configuration.text) else {
                     throw CloudSystemVPNError.configuration
                 }
-                try await performBounded {
+                try await performBounded(reconcilePlatformOnTimeout: true) {
                     try await self.manager.installAndStart(configuration: configuration.text, scope: scope)
                 }
                 guard self.isCurrent(generation) else { return }
@@ -224,7 +225,7 @@ public final class CloudSystemVPNController {
         phase = .disconnecting
         enqueue { [self] generation in
             do {
-                try await performBounded {
+                try await performBounded(reconcilePlatformOnTimeout: true) {
                     try await self.manager.stop(removeConfiguration: false)
                 }
                 guard self.isCurrent(generation) else { return }
@@ -261,7 +262,7 @@ public final class CloudSystemVPNController {
         var lastError: (any Error)?
         for _ in 0..<cleanupRetryCount {
             do {
-                try await performBounded {
+                try await performBounded(reconcilePlatformOnTimeout: true) {
                     try await self.manager.stop(removeConfiguration: true)
                 }
                 return
@@ -275,6 +276,7 @@ public final class CloudSystemVPNController {
     }
 
     private func performBounded<T: Sendable>(
+        reconcilePlatformOnTimeout: Bool = false,
         _ action: @escaping @MainActor () async throws -> T
     ) async throws -> T {
         let operation = operationGate.start(action)
@@ -285,8 +287,25 @@ public final class CloudSystemVPNController {
         do {
             return try await timeout.value(completion)
         } catch {
+            if reconcilePlatformOnTimeout, error is CloudSystemVPNTaskTimeout.Failure {
+                watchPlatformCompletion(completion)
+            }
             operation.cancelIfPending()
             throw error
+        }
+    }
+
+    private func watchPlatformCompletion<T: Sendable>(
+        _ completion: Task<T, any Error>
+    ) {
+        Task { @MainActor [weak self] in
+            _ = await completion.result
+            guard let self else { return }
+            await self.operationGate.waitForIdle()
+            guard self.scope != nil,
+                  self.operation == nil,
+                  !self.operationGate.hasPendingOperation else { return }
+            self.accept(self.manager.phase)
         }
     }
 

@@ -37,6 +37,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         }
         installed.append((configuration, scope))
         phase = phaseAfterStart
+        onPhaseChange?(phase)
     }
 
     func stop(removeConfiguration: Bool) async throws {
@@ -194,6 +195,23 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
         #expect(rig.controller.phase == .failed(.configuration))
         #expect(rig.manager.installed.isEmpty)
+    }
+
+    @Test func aLateInstallReconcilesAndDoesNotEnrollAgain() async {
+        let rig = Rig(operationTimeout: .milliseconds(100))
+        rig.manager.installDelay = .milliseconds(250)
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.controller.phase == .failed(.configuration))
+
+        rig.controller.enable()
+        #expect(rig.service.calls.enroll.count == 1)
+
+        try? await Task.sleep(for: .milliseconds(300))
+        #expect(rig.manager.installed.count == 1)
+        #expect(rig.controller.phase == .connecting)
     }
 
     @Test func aQueuedReplacementTimesOutAndCanBeRetried() async {
