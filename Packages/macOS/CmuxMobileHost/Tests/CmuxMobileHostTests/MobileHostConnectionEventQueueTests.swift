@@ -169,6 +169,31 @@ struct MobileHostConnectionEventQueueTests {
         #expect(queue.dequeue(lane: .shared)?.frame == Data([2]))
     }
 
+    @Test("Evicting a surface drops queued frames with older key spellings")
+    func evictingSurfaceCanonicalizesQueuedKeys() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        _ = queue.focusSurfaceLane("surface")
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "surface",
+            isFullRenderGridFrame: true,
+            frame: Data([1])
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "SURFACE",
+            isFullRenderGridFrame: true,
+            frame: Data([2])
+        ).admitted)
+
+        let released = queue.focusSurfaceLane("other")
+        #expect(Set(released.keys) == Set(["SURFACE"]))
+        #expect(queue.dequeue(lane: .surface("surface")) == nil)
+        #expect(queue.dequeue(lane: .surface("SURFACE")) == nil)
+    }
+
     @Test("A lane that stays backlogged keeps its order storage bounded")
     func backloggedLaneOrderStaysBounded() {
         let queue = MobileHostConnectionEventQueue(maximumEventCount: 1_000, maximumByteCount: 1_000_000)

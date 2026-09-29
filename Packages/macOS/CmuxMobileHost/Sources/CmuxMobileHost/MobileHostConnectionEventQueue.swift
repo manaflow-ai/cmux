@@ -671,10 +671,11 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         summary: inout MobileHostEventShedSummary
     ) {
         let renderGridTopic = MobileHostEventTopicPolicy().renderGridTopic
+        let canonicalSurfaceIDs = Set(surfaceIDs.map(Self.canonicalSurfaceKey))
         let eventIDs = queuedEvents.compactMap { entry -> UUID? in
             guard entry.value.topic == renderGridTopic,
                   let surfaceID = entry.value.coalesceKey,
-                  surfaceIDs.contains(surfaceID) else { return nil }
+                  canonicalSurfaceIDs.contains(Self.canonicalSurfaceKey(surfaceID)) else { return nil }
             return entry.key
         }
         for eventID in eventIDs {
