@@ -1,48 +1,31 @@
 import AppKit
 import CmuxFileSearch
 
-// Results outline data source, delegate and context menu.
-extension FileSearchPanelView: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        if item == nil { return session.engine.tree.fileCount }
-        return (item as? FileSearchFileNode)?.matches.count ?? 0
+// Results table data source, delegate and context menu.
+extension FileSearchPanelView: NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        session.rows.count
     }
 
-    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        if let file = item as? FileSearchFileNode {
-            return file.matchNode(at: index)
-        }
-        return session.engine.tree.files[index]
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        item is FileSearchFileNode
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
-        if let file = item as? FileSearchFileNode {
-            let cell = outlineView.makeView(withIdentifier: FileSearchFileCellView.reuseIdentifier, owner: nil)
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let target = item(atRow: row)
+        if let file = target as? FileSearchFileNode {
+            let cell = tableView.makeView(withIdentifier: FileSearchFileCellView.reuseIdentifier, owner: nil)
                 as? FileSearchFileCellView ?? FileSearchFileCellView(frame: .zero)
             cell.configure(with: file)
+            cell.onToggle = { [weak self, weak file] in
+                guard let self, let file else { return }
+                self.setExpanded(!file.isExpanded, file: file)
+            }
             return cell
         }
-        if let node = item as? FileSearchMatchNode {
-            let cell = outlineView.makeView(withIdentifier: FileSearchMatchCellView.reuseIdentifier, owner: nil)
+        if let node = target as? FileSearchMatchNode {
+            let cell = tableView.makeView(withIdentifier: FileSearchMatchCellView.reuseIdentifier, owner: nil)
                 as? FileSearchMatchCellView ?? FileSearchMatchCellView(frame: .zero)
             cell.configure(with: node)
             return cell
         }
         return nil
-    }
-
-    func outlineViewItemDidExpand(_ notification: Notification) {
-        (notification.userInfo?["NSObject"] as? FileSearchFileNode)?.isExpanded = true
-        updateStatus()
-    }
-
-    func outlineViewItemDidCollapse(_ notification: Notification) {
-        (notification.userInfo?["NSObject"] as? FileSearchFileNode)?.isExpanded = false
-        updateStatus()
     }
 
     // MARK: - Context menu
@@ -57,9 +40,8 @@ extension FileSearchPanelView: NSOutlineViewDataSource, NSOutlineViewDelegate, N
     }
 
     func file(atRow row: Int) -> FileSearchFileNode? {
-        guard row >= 0, row < resultsView.numberOfRows else { return nil }
-        let item = resultsView.item(atRow: row)
-        return (item as? FileSearchFileNode) ?? (item as? FileSearchMatchNode)?.file
+        let target = item(atRow: row)
+        return (target as? FileSearchFileNode) ?? (target as? FileSearchMatchNode)?.file
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -68,7 +50,7 @@ extension FileSearchPanelView: NSOutlineViewDataSource, NSOutlineViewDelegate, N
         let clickedRow = resultsView.clickedRow
         let row = clickedRow >= 0 ? clickedRow : resultsView.selectedRow
         guard resourceContextID == coordinator.store.resourceContextID,
-              let item = row >= 0 ? resultsView.item(atRow: row) : nil,
+              let target = item(atRow: row),
               let file = self.file(atRow: row) else { return }
         if clickedRow >= 0, !resultsView.selectedRowIndexes.contains(clickedRow) {
             resultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
@@ -77,7 +59,7 @@ extension FileSearchPanelView: NSOutlineViewDataSource, NSOutlineViewDelegate, N
         let isLocal = coordinator.store.provider is LocalFileExplorerProvider
 
         addItem(to: menu, title: String(localized: "fileExplorer.contextMenu.openInCmux", defaultValue: "Open in cmux"),
-                action: #selector(menuOpenInCmux(_:)), represented: item)
+                action: #selector(menuOpenInCmux(_:)), represented: target)
         if isLocal {
             FileExplorerExternalOpenMenuItems(
                 fileURL: URL(fileURLWithPath: file.path),
@@ -98,7 +80,7 @@ extension FileSearchPanelView: NSOutlineViewDataSource, NSOutlineViewDelegate, N
                 action: #selector(menuCopyPath(_:)), represented: rowNumber)
         addItem(to: menu, title: String(localized: "fileExplorer.contextMenu.copyRelativePath", defaultValue: "Copy Relative Path"),
                 action: #selector(menuCopyRelativePath(_:)), represented: rowNumber)
-        if item is FileSearchFileNode {
+        if target is FileSearchFileNode {
             menu.addItem(.separator())
             addItem(to: menu, title: String(localized: "fileSearch.action.dismissFile", defaultValue: "Dismiss"),
                     action: #selector(menuDismiss(_:)), represented: rowNumber)
@@ -176,10 +158,9 @@ extension FileSearchPanelView: NSOutlineViewDataSource, NSOutlineViewDelegate, N
     /// Hides a file's results, like VS Code's Dismiss. The next search
     /// shows it again.
     @objc private func menuDismiss(_ sender: NSMenuItem) {
-        guard let row = menuRow(sender), let file = resultsView.item(atRow: row) as? FileSearchFileNode else { return }
-        let index = resultsView.childIndex(forItem: file)
-        guard index >= 0, session.engine.tree.remove(file) else { return }
-        resultsView.removeItems(at: IndexSet(integer: index), inParent: nil, withAnimation: [])
+        guard let row = menuRow(sender), let file = item(atRow: row) as? FileSearchFileNode,
+              session.engine.tree.remove(file) else { return }
+        reloadRows()
         updateStatus()
     }
 }

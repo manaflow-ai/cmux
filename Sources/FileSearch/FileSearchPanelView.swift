@@ -150,7 +150,6 @@ final class FileSearchPanelView: NSView {
         column.isEditable = false
         column.resizingMask = .autoresizingMask
         resultsView.addTableColumn(column)
-        resultsView.outlineTableColumn = column
         resultsView.headerView = nil
         resultsView.usesAlternatingRowBackgroundColors = false
         resultsView.style = .plain
@@ -158,8 +157,6 @@ final class FileSearchPanelView: NSView {
         resultsView.backgroundColor = .clear
         resultsView.rowHeight = FileSearchResultMetrics.rowHeight
         resultsView.usesAutomaticRowHeights = false
-        resultsView.indentationPerLevel = 14
-        resultsView.autoresizesOutlineColumn = false
         resultsView.allowsMultipleSelection = true
         resultsView.intercellSpacing = NSSize(width: 0, height: 0)
         resultsView.setAccessibilityIdentifier("FileSearchResults")
@@ -172,6 +169,7 @@ final class FileSearchPanelView: NSView {
         resultsView.onCancel = { [weak self] in self?.handleEscape() }
         resultsView.onNavigateMatch = { [weak self] delta in self?.navigateMatch(by: delta) }
         resultsView.onExitTop = { [weak self] in _ = self?.focusQueryField(seed: nil) }
+        resultsView.onDisclosure = { [weak self] action in self?.applyDisclosure(action) }
         resultsView.onFocus = { [weak self] in self?.onFocus?() }
         resultsView.onNativeDragPointerBoundary = { [weak self] in self?.prepareForNativeDragBoundary() }
         resultsView.onModeShortcut = { [weak coordinator] mode, window in
@@ -211,7 +209,6 @@ final class FileSearchPanelView: NSView {
         if resultsView.rowHeight != rowHeight {
             resultsView.rowHeight = rowHeight
             resultsView.reloadData()
-            restoreExpansion()
         }
     }
 
@@ -292,8 +289,7 @@ final class FileSearchPanelView: NSView {
         }
         historyCursor.reset()
         queryBar.show(query: session.query, showsDetails: session.showsDetails)
-        resultsView.reloadData()
-        restoreExpansion()
+        reloadRows()
         updateStatus()
     }
 
@@ -389,7 +385,7 @@ final class FileSearchPanelView: NSView {
     private func handle(_ event: FileSearchEngineEvent) {
         switch event {
         case .reset:
-            resultsView.reloadData()
+            reloadRows()
         case .changed(let change):
             apply(change)
         case .phase(let phase):
@@ -401,43 +397,82 @@ final class FileSearchPanelView: NSView {
         updateStatus()
     }
 
-    /// Applies one batch to the outline without reloading existing rows.
+    /// Applies one batch to the table, appending rows rather than reloading.
     private func apply(_ change: FileSearchTreeChange) {
-        let tree = session.engine.tree
         let hadSelection = resultsView.selectedRow >= 0
-        for grown in change.grownFiles {
-            let file = tree.files[grown.fileIndex]
-            if resultsView.isItemExpanded(file) {
-                resultsView.insertItems(
-                    at: IndexSet(integersIn: grown.previousCount..<file.matches.count),
-                    inParent: file,
-                    withAnimation: []
-                )
+        switch session.rows.apply(change) {
+        case .appended(let inserted, let refreshed):
+            if !inserted.isEmpty {
+                resultsView.insertRows(at: IndexSet(integersIn: inserted), withAnimation: [])
             }
-            refreshFileRow(file)
+            for row in refreshed { refreshFileRow(at: row) }
+        case .reload:
+            resultsView.reloadData()
         }
-        if !change.insertedFiles.isEmpty {
-            resultsView.insertItems(at: IndexSet(integersIn: change.insertedFiles), inParent: nil, withAnimation: [])
-            for index in change.insertedFiles where tree.files[index].isExpanded {
-                resultsView.expandItem(tree.files[index])
-            }
-        }
-        if !hadSelection, let first = tree.files.first, !first.matches.isEmpty {
-            select(item: first.matchNode(at: 0), scroll: false)
+        if !hadSelection, session.rows.count > 1 {
+            resultsView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
         }
     }
 
-    func refreshFileRow(_ file: FileSearchFileNode) {
-        let row = resultsView.row(forItem: file)
-        guard row >= 0,
+    private func refreshFileRow(at row: Int) {
+        guard let file = item(atRow: row) as? FileSearchFileNode,
               let cell = resultsView.view(atColumn: 0, row: row, makeIfNecessary: false) as? FileSearchFileCellView else { return }
         cell.configure(with: file)
     }
 
-    /// Re-expands files after a reload, honoring each file's collapse choice.
-    func restoreExpansion() {
-        for file in session.engine.tree.files where file.isExpanded {
-            resultsView.expandItem(file)
+    /// Rebuilds the rows from the tree, for a reset or an expansion change.
+    func reloadRows() {
+        session.rows.rebuild()
+        resultsView.reloadData()
+    }
+
+    /// The file or match object shown at `row`.
+    func item(atRow row: Int) -> AnyObject? {
+        guard row >= 0, row < session.rows.count else { return nil }
+        let position = session.rows.rows[row]
+        let file = session.engine.tree.files[position.fileIndex]
+        if let matchIndex = position.matchIndex { return file.matchNode(at: matchIndex) }
+        return file
+    }
+
+    /// The row showing `item`, when it is visible.
+    func row(for item: AnyObject) -> Int? {
+        let tree = session.engine.tree
+        if let node = item as? FileSearchMatchNode, let position = tree.position(of: node) {
+            return session.rows.row(of: position)
+        }
+        if let file = item as? FileSearchFileNode, let index = tree.index(of: file) {
+            return session.rows.row(of: FileSearchResultPosition(fileIndex: index, matchIndex: nil))
+        }
+        return nil
+    }
+
+    /// Expands or collapses one file, keeping it selected.
+    func setExpanded(_ expanded: Bool, file: FileSearchFileNode) {
+        guard file.isExpanded != expanded else { return }
+        file.isExpanded = expanded
+        reloadRows()
+        if let row = row(for: file) {
+            resultsView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            resultsView.scrollRowToVisible(row)
+        }
+        updateStatus()
+    }
+
+    private func applyDisclosure(_ action: RightSidebarKeyboardNavigation.DisclosureAction) {
+        let selected = item(atRow: resultsView.selectedRow)
+        switch action {
+        case .expand:
+            if let file = selected as? FileSearchFileNode {
+                if file.isExpanded { resultsView.moveSelection(by: 1) } else { setExpanded(true, file: file) }
+            }
+        case .collapse:
+            if let file = selected as? FileSearchFileNode {
+                setExpanded(false, file: file)
+            } else if let node = selected as? FileSearchMatchNode, let row = row(for: node.file) {
+                resultsView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                resultsView.scrollRowToVisible(row)
+            }
         }
     }
 
@@ -509,11 +544,7 @@ final class FileSearchPanelView: NSView {
         for file in session.engine.tree.files {
             file.isExpanded = expand
         }
-        if expand {
-            resultsView.expandItem(nil, expandChildren: true)
-        } else {
-            resultsView.collapseItem(nil, collapseChildren: true)
-        }
+        reloadRows()
         updateStatus()
     }
 

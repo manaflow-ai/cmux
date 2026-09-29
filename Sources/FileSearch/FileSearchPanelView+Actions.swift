@@ -112,13 +112,12 @@ extension FileSearchPanelView: NSSearchFieldDelegate {
 
     // MARK: - Selection and navigation
 
-    func select(item: Any, scroll: Bool) {
-        if let node = item as? FileSearchMatchNode, !resultsView.isItemExpanded(node.file) {
+    func select(item: AnyObject, scroll: Bool) {
+        if let node = item as? FileSearchMatchNode, !node.file.isExpanded {
             node.file.isExpanded = true
-            resultsView.expandItem(node.file)
+            reloadRows()
         }
-        let row = resultsView.row(forItem: item)
-        guard row >= 0 else { return }
+        guard let row = row(for: item) else { return }
         resultsView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         if scroll { resultsView.scrollRowToVisible(row) }
     }
@@ -126,7 +125,7 @@ extension FileSearchPanelView: NSSearchFieldDelegate {
     /// F4 / Shift-F4: select the next or previous match and open it.
     func navigateMatch(by delta: Int) {
         let tree = session.engine.tree
-        let current = resultsView.selectedRow >= 0 ? resultsView.item(atRow: resultsView.selectedRow) : nil
+        let current = item(atRow: resultsView.selectedRow)
         let position: FileSearchResultPosition?
         if let node = current as? FileSearchMatchNode {
             position = tree.position(of: node)
@@ -175,25 +174,18 @@ extension FileSearchPanelView: NSSearchFieldDelegate {
 
     @objc func openClickedResult(_ sender: Any?) {
         let row = resultsView.clickedRow >= 0 ? resultsView.clickedRow : resultsView.selectedRow
-        guard row >= 0, let item = resultsView.item(atRow: row) else { return }
-        if let file = item as? FileSearchFileNode, resultsView.clickedRow >= 0 {
+        guard let target = item(atRow: row) else { return }
+        if let file = target as? FileSearchFileNode, resultsView.clickedRow >= 0 {
             // Double-clicking a file row toggles it, like the Files tree.
-            if resultsView.isItemExpanded(file) {
-                file.isExpanded = false
-                resultsView.collapseItem(file)
-            } else {
-                file.isExpanded = true
-                resultsView.expandItem(file)
-            }
+            setExpanded(!file.isExpanded, file: file)
             return
         }
-        openResult(item)
+        openResult(target)
     }
 
     func openSelectedResult() {
-        let row = resultsView.selectedRow
-        guard row >= 0, let item = resultsView.item(atRow: row) else { return }
-        openResult(item)
+        guard let target = item(atRow: resultsView.selectedRow) else { return }
+        openResult(target)
     }
 
     func openResult(_ item: Any) {

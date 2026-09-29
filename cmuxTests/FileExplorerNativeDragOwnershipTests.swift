@@ -42,9 +42,9 @@ struct FileExplorerNativeDragOwnershipTests {
             let activeContainer = try #require(container)
             let panel = activeContainer.findPanel
             writer = try #require(
-                panel.outlineView(panel.resultsView, pasteboardWriterForItem: resultItem(0, in: activeContainer))
+                panel.tableView(panel.resultsView, pasteboardWriterForRow: resultRow(0, in: activeContainer))
             )
-            panel.outlineView(panel.resultsView, draggingSession: session, willBeginAt: .zero, forItems: [])
+            panel.tableView(panel.resultsView, draggingSession: session, willBeginAt: .zero, forRowIndexes: [])
             #expect(panel.resultsView.activeNativeDragDelegateMarker === panel)
             #expect(panel.resultsView.activeNativeDragSession === session)
 
@@ -65,7 +65,7 @@ struct FileExplorerNativeDragOwnershipTests {
             // AppKit's terminal callback is the cleanup authority. It must
             // still run after dismantle and release only this session's owner
             // graph.
-            retainedPanel.outlineView(retainedPanel.resultsView, draggingSession: session, endedAt: .zero, operation: [])
+            retainedPanel.tableView(retainedPanel.resultsView, draggingSession: session, endedAt: .zero, operation: [])
             #expect(retainedPanel.resultsView.activeNativeDragDelegateMarker == nil)
             #expect(retainedPanel.resultsView.activeNativeDragSession == nil)
         }
@@ -88,7 +88,7 @@ struct FileExplorerNativeDragOwnershipTests {
         showResults([("/tmp/search-result.txt", 1)], in: container)
 
         let firstWriter = try #require(
-            container.findPanel.outlineView(container.searchResultsView, pasteboardWriterForItem: resultItem(0, in: container)) as? FilePreviewDragPasteboardWriter
+            container.findPanel.tableView(container.searchResultsView, pasteboardWriterForRow: resultRow(0, in: container)) as? FilePreviewDragPasteboardWriter
         )
         let sharedPasteboard = NSPasteboard(
             name: NSPasteboard.Name("file-explorer-shared-drag-\(UUID().uuidString)")
@@ -98,15 +98,15 @@ struct FileExplorerNativeDragOwnershipTests {
             sequence: 1,
             pasteboard: sharedPasteboard
         )
-        container.findPanel.outlineView(
+        container.findPanel.tableView(
             container.searchResultsView,
             draggingSession: firstSession,
             willBeginAt: .zero,
-            forItems: []
+            forRowIndexes: []
         )
 
         let secondWriter = try #require(
-            container.findPanel.outlineView(container.searchResultsView, pasteboardWriterForItem: resultItem(0, in: container)) as? FilePreviewDragPasteboardWriter
+            container.findPanel.tableView(container.searchResultsView, pasteboardWriterForRow: resultRow(0, in: container)) as? FilePreviewDragPasteboardWriter
         )
         sharedPasteboard.clearContents()
         #expect(sharedPasteboard.writeObjects([secondWriter]))
@@ -114,11 +114,11 @@ struct FileExplorerNativeDragOwnershipTests {
             sequence: 2,
             pasteboard: sharedPasteboard
         )
-        container.findPanel.outlineView(
+        container.findPanel.tableView(
             container.searchResultsView,
             draggingSession: secondSession,
             willBeginAt: .zero,
-            forItems: []
+            forRowIndexes: []
         )
 
         #expect(container.searchResultsView.activeNativeDragDelegateMarker === container.findPanel)
@@ -130,17 +130,17 @@ struct FileExplorerNativeDragOwnershipTests {
 
         // A duplicate callback repeats the same native session; sequence
         // numbers may be reused by genuinely distinct AppKit sessions.
-        container.findPanel.outlineView(
+        container.findPanel.tableView(
             container.searchResultsView,
             draggingSession: secondSession,
             willBeginAt: .zero,
-            forItems: []
+            forRowIndexes: []
         )
         #expect(container.searchResultsView.activeNativeDragSession === secondSession)
 
         // A late callback from the superseded source must not clear the new
         // owner/session pair.
-        container.findPanel.outlineView(
+        container.findPanel.tableView(
             container.searchResultsView,
             draggingSession: firstSession,
             endedAt: .zero,
@@ -148,7 +148,7 @@ struct FileExplorerNativeDragOwnershipTests {
         )
         #expect(container.searchResultsView.activeNativeDragSession === secondSession)
 
-        container.findPanel.outlineView(
+        container.findPanel.tableView(
             container.searchResultsView,
             draggingSession: secondSession,
             endedAt: .zero,
@@ -174,11 +174,11 @@ struct FileExplorerNativeDragOwnershipTests {
         showResults([("/tmp/search-first.txt", 1), ("/tmp/search-second.txt", 2)], in: container)
 
         let firstWriter = try #require(
-            container.findPanel.outlineView(container.searchResultsView, pasteboardWriterForItem: resultItem(0, in: container))
+            container.findPanel.tableView(container.searchResultsView, pasteboardWriterForRow: resultRow(0, in: container))
                 as? FilePreviewDragPasteboardWriter
         )
         let secondWriter = try #require(
-            container.findPanel.outlineView(container.searchResultsView, pasteboardWriterForItem: resultItem(1, in: container))
+            container.findPanel.tableView(container.searchResultsView, pasteboardWriterForRow: resultRow(1, in: container))
                 as? FilePreviewDragPasteboardWriter
         )
         let firstOwnership = try #require(firstWriter.nativeDragOwnership())
@@ -189,11 +189,11 @@ struct FileExplorerNativeDragOwnershipTests {
         #expect(pasteboard.writeObjects([firstWriter, secondWriter]))
 
         let session = SearchResultsDragTestSession(sequence: 31, pasteboard: pasteboard)
-        container.findPanel.outlineView(
+        container.findPanel.tableView(
             container.searchResultsView,
             draggingSession: session,
             willBeginAt: .zero,
-            forItems: []
+            forRowIndexes: []
         )
 
         // AppKit places every selected writer on the native pasteboard. Keep
@@ -202,7 +202,7 @@ struct FileExplorerNativeDragOwnershipTests {
         #expect(FilePreviewDragRegistry.shared.contains(id: firstOwnership.dragID))
         #expect(FilePreviewDragRegistry.shared.contains(id: secondOwnership.dragID))
 
-        container.findPanel.outlineView(
+        container.findPanel.tableView(
             container.searchResultsView,
             draggingSession: session,
             endedAt: .zero,
@@ -232,7 +232,7 @@ struct FileExplorerNativeDragOwnershipTests {
         do {
             let activeContainer = try #require(container)
             writer = try #require(
-                activeContainer.findPanel.outlineView(activeContainer.searchResultsView, pasteboardWriterForItem: resultItem(0, in: activeContainer))
+                activeContainer.findPanel.tableView(activeContainer.searchResultsView, pasteboardWriterForRow: resultRow(0, in: activeContainer))
             )
             let session = SearchResultsDragTestSession(
                 sequence: 11,
@@ -240,11 +240,11 @@ struct FileExplorerNativeDragOwnershipTests {
                     name: NSPasteboard.Name("file-explorer-boundary-\(UUID().uuidString)")
                 )
             )
-            activeContainer.findPanel.outlineView(
+            activeContainer.findPanel.tableView(
             activeContainer.searchResultsView,
             draggingSession: session,
             willBeginAt: .zero,
-            forItems: []
+            forRowIndexes: []
         )
             FileExplorerPanelView.dismantleNSView(activeContainer, coordinator: coordinator)
 
@@ -350,12 +350,12 @@ struct FileExplorerNativeDragOwnershipTests {
                 FileSearchMatch(lineNumber: line, column: 1, length: 6, preview: "needle", previewMatchRange: 0..<6),
             ])
         })
-        panel.resultsView.reloadData()
-        panel.restoreExpansion()
+        panel.reloadRows()
     }
 
     /// The first match row of the `index`th file.
-    private func resultItem(_ index: Int, in container: FileExplorerContainerView) -> Any {
-        container.findPanel.session.engine.tree.files[index].matchNode(at: 0)
+    private func resultRow(_ index: Int, in container: FileExplorerContainerView) -> Int {
+        let panel = container.findPanel
+        return panel.row(for: panel.session.engine.tree.files[index].matchNode(at: 0)) ?? -1
     }
 }

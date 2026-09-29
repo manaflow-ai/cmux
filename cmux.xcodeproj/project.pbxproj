@@ -1923,7 +1923,7 @@
 		3DC94C2EA97909FCCAB58301 /* FileSearchPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08B3C48BC68B9327ADCC527 /* FileSearchPanelTests.swift */; };
 		2B540C3ABD827F7A5B1933E2 /* FileSearchPanelView+Actions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD756272D40EB5AA60C82B3 /* FileSearchPanelView+Actions.swift */; };
 		60D45107C76543FA17F808C4 /* FileSearchPanelView+Drag.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CC79B537A88C7220DC7CE2 /* FileSearchPanelView+Drag.swift */; };
-		1309360778F13FFE6D577890 /* FileSearchPanelView+Outline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05782075866E06FFA59A33F7 /* FileSearchPanelView+Outline.swift */; };
+		1309360778F13FFE6D577890 /* FileSearchPanelView+Table.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05782075866E06FFA59A33F7 /* FileSearchPanelView+Table.swift */; };
 		8ADAD942273D30375C20DA3E /* FileSearchPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C8C7EF2D92B9AB6289CE86 /* FileSearchPanelView.swift */; };
 		0C57822B7F73433B0C26C106 /* FileSearchQueryBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F49D8560C36295E12EC62F /* FileSearchQueryBar.swift */; };
 		91A299D86E9F064D5C5AE888 /* FileSearchResultCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53490A0C384EBE6A13A87FAA /* FileSearchResultCells.swift */; };
@@ -6024,7 +6024,7 @@
 		E08B3C48BC68B9327ADCC527 /* FileSearchPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearchPanelTests.swift"; sourceTree = "<group>"; };
 		5BD756272D40EB5AA60C82B3 /* FileSearchPanelView+Actions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearch/FileSearchPanelView+Actions.swift"; sourceTree = "<group>"; };
 		F9CC79B537A88C7220DC7CE2 /* FileSearchPanelView+Drag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearch/FileSearchPanelView+Drag.swift"; sourceTree = "<group>"; };
-		05782075866E06FFA59A33F7 /* FileSearchPanelView+Outline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearch/FileSearchPanelView+Outline.swift"; sourceTree = "<group>"; };
+		05782075866E06FFA59A33F7 /* FileSearchPanelView+Table.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileSearch/FileSearchPanelView+Table.swift"; sourceTree = "<group>"; };
 		A3C8C7EF2D92B9AB6289CE86 /* FileSearchPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchPanelView.swift; sourceTree = "<group>"; };
 		A5F49D8560C36295E12EC62F /* FileSearchQueryBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchQueryBar.swift; sourceTree = "<group>"; };
 		53490A0C384EBE6A13A87FAA /* FileSearchResultCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearch/FileSearchResultCells.swift; sourceTree = "<group>"; };
@@ -11072,7 +11072,7 @@
 				4718F7134F2A60A5E4C2E64E /* FileSearchBackends.swift */,
 				5BD756272D40EB5AA60C82B3 /* FileSearchPanelView+Actions.swift */,
 				F9CC79B537A88C7220DC7CE2 /* FileSearchPanelView+Drag.swift */,
-				05782075866E06FFA59A33F7 /* FileSearchPanelView+Outline.swift */,
+				05782075866E06FFA59A33F7 /* FileSearchPanelView+Table.swift */,
 				A3C8C7EF2D92B9AB6289CE86 /* FileSearchPanelView.swift */,
 				A5F49D8560C36295E12EC62F /* FileSearchQueryBar.swift */,
 				53490A0C384EBE6A13A87FAA /* FileSearchResultCells.swift */,
@@ -14204,7 +14204,7 @@
 				AA5A057E54DC862E292E727F /* FileSearchBackends.swift in Sources */,
 				2B540C3ABD827F7A5B1933E2 /* FileSearchPanelView+Actions.swift in Sources */,
 				60D45107C76543FA17F808C4 /* FileSearchPanelView+Drag.swift in Sources */,
-				1309360778F13FFE6D577890 /* FileSearchPanelView+Outline.swift in Sources */,
+				1309360778F13FFE6D577890 /* FileSearchPanelView+Table.swift in Sources */,
 				8ADAD942273D30375C20DA3E /* FileSearchPanelView.swift in Sources */,
 				0C57822B7F73433B0C26C106 /* FileSearchQueryBar.swift in Sources */,
 				91A299D86E9F064D5C5AE888 /* FileSearchResultCells.swift in Sources */,

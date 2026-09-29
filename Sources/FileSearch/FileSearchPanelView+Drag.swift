@@ -7,21 +7,14 @@ import CmuxFileSearch
 // and the coordinator tracks the promoted source so a rebuilt view can
 // reclaim a drag whose endedAt was lost.
 extension FileSearchPanelView {
-    func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
-        guard outlineView === resultsView,
-              coordinator.store.provider is LocalFileExplorerProvider else { return nil }
-        let file: FileSearchFileNode
-        if let node = item as? FileSearchMatchNode {
-            file = node.file
-        } else if let fileNode = item as? FileSearchFileNode {
-            file = fileNode
-        } else {
-            return nil
-        }
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+        guard tableView === resultsView,
+              coordinator.store.provider is LocalFileExplorerProvider,
+              let file = file(atRow: row) else { return nil }
         let writer = FilePreviewDragPasteboardWriter(
             filePath: file.path,
             displayTitle: (file.relativePath as NSString).lastPathComponent,
-            nativeSourceView: outlineView,
+            nativeSourceView: tableView,
             nativeSourceOwner: self,
             provisionalToken: pendingPreviewDrag.makeToken()
         )
@@ -31,13 +24,13 @@ extension FileSearchPanelView {
         return writer
     }
 
-    func outlineView(
-        _ outlineView: NSOutlineView,
+    func tableView(
+        _ tableView: NSTableView,
         draggingSession session: NSDraggingSession,
         willBeginAt screenPoint: NSPoint,
-        forItems draggedItems: [Any]
+        forRowIndexes rowIndexes: IndexSet
     ) {
-        guard outlineView === resultsView else { return }
+        guard tableView === resultsView else { return }
         if let previousSession = resultsView.activeNativeDragSession, previousSession === session {
             return
         }
@@ -48,7 +41,7 @@ extension FileSearchPanelView {
         // source belonged to a view replaced by SwiftUI reconstruction.
         _ = coordinator.reclaimTrackedNativeDrag()
         let fallbackWriter = resultsView.pendingNativeDragWriter
-        var promotedWriters = pendingPreviewDrag.writers(for: outlineView)
+        var promotedWriters = pendingPreviewDrag.writers(for: tableView)
         if let fallbackWriter, !promotedWriters.contains(where: { $0 === fallbackWriter }) {
             promotedWriters.append(fallbackWriter)
         }
@@ -80,7 +73,7 @@ extension FileSearchPanelView {
             ? (promotedWriter?.nativeDragOwnership()).map { [$0] } ?? []
             : promotedOwnerships
         // The writer retains this panel through the terminal callback; the
-        // outline keeps only a weak marker to avoid a retain cycle.
+        // table keeps only a weak marker to avoid a retain cycle.
         resultsView.activeNativeDragDelegateMarker = self
         resultsView.activeNativeDragWriter = promotedWriter
         resultsView.activeNativeDragOwnerships = ownerships
@@ -90,13 +83,13 @@ extension FileSearchPanelView {
         coordinator.trackNativeDrag(sourceView: resultsView, session: session, writer: promotedWriter, ownerships: ownerships)
     }
 
-    func outlineView(
-        _ outlineView: NSOutlineView,
+    func tableView(
+        _ tableView: NSTableView,
         draggingSession session: NSDraggingSession,
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        guard outlineView === resultsView, resultsView.activeNativeDragSession === session else { return }
+        guard tableView === resultsView, resultsView.activeNativeDragSession === session else { return }
         if resultsView.activeNativeDragOwnerships.isEmpty {
             // This is the matching generation, so the fallback cannot parse
             // a newer session's shared pasteboard.

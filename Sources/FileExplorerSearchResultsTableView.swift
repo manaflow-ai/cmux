@@ -1,22 +1,20 @@
 import AppKit
 
-/// The Find mode's results outline: file rows with their match rows.
-///
-/// The name predates the outline; it stays because the shared drag and
-/// open-selection code refer to it. Rows are fixed height and cells are
+/// The Find mode's results: a flat table of file rows, each followed by its
+/// match rows (see `FileSearchRowList`). Rows are fixed height and cells are
 /// reused, so AppKit only builds views for visible rows.
-final class FileExplorerSearchResultsTableView: NSOutlineView {
+final class FileExplorerSearchResultsTableView: NSTableView {
     var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
     /// Weak marker for the view retained by the pasteboard writer until
-    /// AppKit reports completion. A strong edge from this outline would form
-    /// a cycle because that view owns the outline.
+    /// AppKit reports completion. A strong edge from this table would form
+    /// a cycle because that view owns the table.
     weak var activeNativeDragDelegateMarker: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
     weak var pendingNativeDragWriter: FilePreviewDragPasteboardWriter?
     var pendingNativeDragTokenID: UUID?
     // NSDraggingItem owns the writer while AppKit runs the session. A weak
     // edge prevents the writer's retained owner from forming an
-    // owner → outline → writer cycle when endedAt is delayed.
+    // owner → table → writer cycle when endedAt is delayed.
     weak var activeNativeDragWriter: FilePreviewDragPasteboardWriter?
     var activeNativeDragOwnerships: [FilePreviewNativeDragOwnership] = []
     var activeNativeDragOwnership: FilePreviewNativeDragOwnership? {
@@ -35,6 +33,8 @@ final class FileExplorerSearchResultsTableView: NSOutlineView {
     var onNavigateMatch: ((Int) -> Void)?
     /// Up from the first row returns to the query field.
     var onExitTop: (() -> Void)?
+    /// Left/Right (or H/L) on the selected row.
+    var onDisclosure: ((RightSidebarKeyboardNavigation.DisclosureAction) -> Void)?
     var onModeShortcut: ((RightSidebarMode, NSWindow?) -> Bool)?
 
     override func mouseDown(with event: NSEvent) {
@@ -85,7 +85,7 @@ final class FileExplorerSearchResultsTableView: NSOutlineView {
             return
         }
         if let action = RightSidebarKeyboardNavigation.disclosureAction(for: event) {
-            applyDisclosure(action)
+            onDisclosure?(action)
             return
         }
         if RightSidebarKeyboardNavigation.isPlainPrintableText(event) {
@@ -117,29 +117,6 @@ final class FileExplorerSearchResultsTableView: NSOutlineView {
         let target = min(max((current < 0 ? -1 : current) + delta, 0), numberOfRows - 1)
         selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
         scrollRowToVisible(target)
-    }
-
-    private func applyDisclosure(_ action: RightSidebarKeyboardNavigation.DisclosureAction) {
-        let row = selectedRow
-        guard row >= 0, let item = item(atRow: row) else { return }
-        switch action {
-        case .expand:
-            if isExpandable(item), !isItemExpanded(item) {
-                expandItem(item)
-            } else if isItemExpanded(item) {
-                moveSelection(by: 1)
-            }
-        case .collapse:
-            if isExpandable(item), isItemExpanded(item) {
-                collapseItem(item)
-            } else if let parent = parent(forItem: item) {
-                let parentRow = self.row(forItem: parent)
-                if parentRow >= 0 {
-                    selectRowIndexes(IndexSet(integer: parentRow), byExtendingSelection: false)
-                    scrollRowToVisible(parentRow)
-                }
-            }
-        }
     }
 
     private func redrawVisibleRows() {

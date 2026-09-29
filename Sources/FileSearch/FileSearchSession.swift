@@ -7,6 +7,8 @@ import Foundation
 @MainActor
 final class FileSearchSession {
     let engine: FileSearchEngine
+    /// The table rows for `engine.tree`.
+    let rows: FileSearchRowList
     var query = FileSearchQuery()
     var showsDetails = false
     /// A content revision arrived while searching; search again when done.
@@ -24,6 +26,7 @@ final class FileSearchSession {
         engine = FileSearchEngine(clock: clock) { path in
             FileExplorerTerminalPathInsertion.relativePath(for: path, rootPath: root.value)
         }
+        rows = FileSearchRowList(tree: engine.tree)
     }
 
     /// Where the results in `engine.tree` came from.

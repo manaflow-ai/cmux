@@ -4,7 +4,7 @@ import CmuxFoundation
 import UniformTypeIdentifiers
 
 /// Row metrics shared by both result cell kinds. One fixed height keeps the
-/// outline's row geometry O(1), which matters at 100k rows.
+/// table's row geometry O(1), which matters at 100k rows.
 @MainActor
 enum FileSearchResultMetrics {
     static var rowHeight: CGFloat { max(22, ceil(GlobalFontMagnification.scaled(22))) }
@@ -20,14 +20,25 @@ final class FileSearchFileCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("FileSearchFileCell")
     private static var iconCache: [String: NSImage] = [:]
 
+    private let disclosureButton = NSButton()
     private let iconView = NSImageView()
     private let nameLabel = NSTextField(labelWithString: "")
     private let directoryLabel = NSTextField(labelWithString: "")
     private let countLabel = FileSearchCountBadge()
+    /// The disclosure chevron was clicked.
+    var onToggle: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         identifier = Self.reuseIdentifier
+        disclosureButton.translatesAutoresizingMaskIntoConstraints = false
+        disclosureButton.isBordered = false
+        disclosureButton.imagePosition = .imageOnly
+        disclosureButton.refusesFirstResponder = true
+        disclosureButton.target = self
+        disclosureButton.action = #selector(toggle(_:))
+        disclosureButton.contentTintColor = .secondaryLabelColor
+        addSubview(disclosureButton)
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyDown
         for label in [nameLabel, directoryLabel] {
@@ -51,7 +62,11 @@ final class FileSearchFileCellView: NSTableCellView {
         imageView = iconView
         textField = nameLabel
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            disclosureButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            disclosureButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            disclosureButton.widthAnchor.constraint(equalToConstant: 14),
+            disclosureButton.heightAnchor.constraint(equalToConstant: 14),
+            iconView.leadingAnchor.constraint(equalTo: disclosureButton.trailingAnchor, constant: 2),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
@@ -78,12 +93,23 @@ final class FileSearchFileCellView: NSTableCellView {
         if nameLabel.stringValue != name { nameLabel.stringValue = name }
         if directoryLabel.stringValue != directory { directoryLabel.stringValue = directory }
         countLabel.setCount(file.matches.count)
+        let symbol = file.isExpanded ? "chevron.down" : "chevron.right"
+        let label = file.isExpanded
+            ? String(localized: "fileSearch.action.collapseFile", defaultValue: "Collapse")
+            : String(localized: "fileSearch.action.expandFile", defaultValue: "Expand")
+        disclosureButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
+        disclosureButton.setAccessibilityLabel(label)
         iconView.image = Self.icon(forFileName: name)
         toolTip = file.path
         setAccessibilityLabel(ListFormatter.localizedString(byJoining: [
             file.relativePath,
             FileSearchStatusText.resultCount(file.matches.count),
         ]))
+    }
+
+    @objc private func toggle(_ sender: Any?) {
+        onToggle?()
     }
 
     /// File-type icons keyed by extension. Remote paths have no local file,
@@ -156,7 +182,8 @@ final class FileSearchMatchCellView: NSTableCellView {
         addSubview(previewLabel)
         textField = previewLabel
         NSLayoutConstraint.activate([
-            previewLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            // Matches sit under their file's icon.
+            previewLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
             previewLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             previewLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])

@@ -14,7 +14,10 @@ Project-wide search for the right sidebar's Find mode, independent of AppKit.
   processes the command started.
 - `FileSearchEngine` debounces requests with an injected `Clock`, cancels
   superseded searches, and applies streamed batches to `FileSearchResultTree`
-  at most once per frame.
+  at most once per frame. `FileSearchRowList` flattens the tree into table
+  rows: `NSOutlineView` expansion is linear in the rows below each expanded
+  item, which measured several seconds for 100,000 streamed matches, while
+  appending table rows costs microseconds.
 
 ```bash
 swift test --package-path Packages/macOS/CmuxFileSearch

@@ -136,11 +136,11 @@ struct FileSearchPanelTests {
 
         let outline = fixture.panel.resultsView
         #expect(outline.numberOfRows == 6)
-        let fileA = try #require(outline.item(atRow: 0) as? FileSearchFileNode)
+        let fileA = try #require(fixture.panel.item(atRow: 0) as? FileSearchFileNode)
         #expect(fileA.relativePath == "a.swift")
         #expect(fileA.matches.map(\.lineNumber) == [1, 2, 9])
-        #expect((outline.item(atRow: 3) as? FileSearchMatchNode)?.match.lineNumber == 9)
-        #expect((outline.item(atRow: 4) as? FileSearchFileNode)?.relativePath == "b/c.swift")
+        #expect((fixture.panel.item(atRow: 3) as? FileSearchMatchNode)?.match.lineNumber == 9)
+        #expect((fixture.panel.item(atRow: 4) as? FileSearchFileNode)?.relativePath == "b/c.swift")
 
         fixture.panel.setAllExpanded(false)
         #expect(outline.numberOfRows == 2)
@@ -199,13 +199,13 @@ struct FileSearchPanelTests {
         let outline = fixture.panel.resultsView
 
         fixture.panel.navigateMatch(by: 1)
-        #expect((outline.item(atRow: outline.selectedRow) as? FileSearchMatchNode)?.match.lineNumber == 2)
+        #expect((fixture.panel.item(atRow: outline.selectedRow) as? FileSearchMatchNode)?.match.lineNumber == 2)
         fixture.panel.navigateMatch(by: 1)
-        #expect((outline.item(atRow: outline.selectedRow) as? FileSearchMatchNode)?.file.relativePath == "b.swift")
+        #expect((fixture.panel.item(atRow: outline.selectedRow) as? FileSearchMatchNode)?.file.relativePath == "b.swift")
         fixture.panel.navigateMatch(by: 1)
-        #expect((outline.item(atRow: outline.selectedRow) as? FileSearchMatchNode)?.match.lineNumber == 1)
+        #expect((fixture.panel.item(atRow: outline.selectedRow) as? FileSearchMatchNode)?.match.lineNumber == 1)
         fixture.panel.navigateMatch(by: -1)
-        #expect((outline.item(atRow: outline.selectedRow) as? FileSearchMatchNode)?.file.relativePath == "b.swift")
+        #expect((fixture.panel.item(atRow: outline.selectedRow) as? FileSearchMatchNode)?.file.relativePath == "b.swift")
         #expect(opened.count == 4)
     }
 
@@ -347,7 +347,7 @@ struct FileSearchPanelTests {
             "wallMs=\(wall.components.seconds * 1000 + wall.components.attoseconds / 1_000_000_000_000_000)")
         #expect(engine.tree.matchCount == files * perFile)
         #expect(panel.resultsView.numberOfRows == files * (perFile + 1))
-        #expect(slowest < .seconds(1))
+        #expect(slowest < .milliseconds(250), "One frame of streamed rows must not stall the main thread.")
     }
 }
 
