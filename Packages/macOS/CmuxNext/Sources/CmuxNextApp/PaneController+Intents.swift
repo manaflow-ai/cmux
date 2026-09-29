@@ -89,7 +89,7 @@ extension PaneController {
             Task {
                 do {
                     let surface = try await browserTabs.create(handle, url?.absoluteString ?? "about:blank", engine)
-                    _ = surface
+                    pendingSelectSurface = surface
                     if url == nil { pendingAddressBarFocus = surface }
                     apply(snapshot())
                 } catch {

@@ -141,7 +141,7 @@ final class PaneController {
             pendingAddressBarFocus = nil
             entry.chrome.perform(.focusAddressBar)
         }
-        _ = isFocusedInWorkspace
+        if isFocusedInWorkspace { workspace?.publishContext() }
     }
 
     /// This pane is its workspace's focused pane.
