@@ -95,6 +95,11 @@ enum CompatWorkspaceMethods {
         let workspace = try world.resolveWorkspace(raw, refs: call.service.refs)
         guard let key = workspace.key else { throw CompatErrors.unsupported("the bundled cmux-tui lacks workspace-registry-v1") }
         let window = world.window(workspace.windowUUIDs.first) ?? world.activeWindow
+        // cmux-tui close-workspace keeps the workspace's terminal hosts (and
+        // their PTYs) alive; end each terminal first, like closing its tabs.
+        for surface in world.orderedSurfaces(in: workspace) where surface.isTerminal {
+            try? await CompatSurfaceMethods.closeTab(surface, service: call.service)
+        }
         _ = try await call.service.daemon("close-workspace") { try await $0.closeWorkspace(key) }
         return .object(CompatJSON.ids(window: window, workspace: workspace))
     }
