@@ -12,6 +12,9 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
     var stops: [Bool] = []
     var refreshedScopes: [String] = []
     var installFailure: CloudSystemVPNError?
+    var installDelay: Duration?
+    var stopFailuresRemaining = 0
+    var stopAttempts: [Bool] = []
     /// The phase iOS reports once a start is requested.
     var phaseAfterStart: CloudSystemVPNPhase = .connecting
 
@@ -19,11 +22,17 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
 
     func installAndStart(configuration: String, scope: String) async throws {
         if let installFailure { throw installFailure }
+        if let installDelay { try await Task.sleep(for: installDelay) }
         installed.append((configuration, scope))
         phase = phaseAfterStart
     }
 
     func stop(removeConfiguration: Bool) async throws {
+        stopAttempts.append(removeConfiguration)
+        if stopFailuresRemaining > 0 {
+            stopFailuresRemaining -= 1
+            throw CloudSystemVPNError.configuration
+        }
         stops.append(removeConfiguration)
         phase = .off
     }
@@ -43,12 +52,19 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         let manager = FakeSystemVPNManager()
         let controller: CloudSystemVPNController
 
-        @MainActor init() {
+        @MainActor init(
+            operationTimeout: Duration = .seconds(30),
+            cleanupRetryCount: Int = 3,
+            cleanupRetryDelay: Duration = .seconds(1)
+        ) {
             controller = CloudSystemVPNController(
                 service: service,
                 identityStore: store,
                 manager: manager,
-                deviceName: "Aziz's iPhone"
+                deviceName: "Aziz's iPhone",
+                operationTimeout: operationTimeout,
+                cleanupRetryCount: cleanupRetryCount,
+                cleanupRetryDelay: cleanupRetryDelay
             )
         }
     }
@@ -148,6 +164,17 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         #expect(rig.controller.phase != .off)
     }
 
+    @Test func aStalledInstallTimesOutAndLeavesTheSwitchRecoverable() async {
+        let rig = Rig(operationTimeout: .milliseconds(100))
+        rig.manager.installDelay = .seconds(60)
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.controller.phase == .failed(.configuration))
+        #expect(rig.manager.installed.isEmpty)
+    }
+
     @Test func aDeclinedConsentKeepsItsRecoveryState() async {
         let rig = Rig()
         rig.manager.installFailure = .permissionRequired
@@ -197,6 +224,18 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         rig.controller.setScope(nil)
         await rig.controller.waitForPendingOperation()
 
+        #expect(rig.manager.stops == [true])
+        #expect(rig.controller.phase == .off)
+    }
+
+    @Test func signingOutRetriesCleanupAfterATransientRemovalFailure() async {
+        let rig = Rig(cleanupRetryDelay: .milliseconds(1))
+        await signedIn(rig)
+        rig.manager.stopFailuresRemaining = 1
+        rig.controller.setScope(nil)
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.stopAttempts == [true, true])
         #expect(rig.manager.stops == [true])
         #expect(rig.controller.phase == .off)
     }

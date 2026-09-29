@@ -97,7 +97,16 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
     }
 
     public func stop(removeConfiguration: Bool) async throws {
-        if manager == nil { manager = try await load() }
+        if manager == nil {
+            do {
+                manager = try await load()
+            } catch {
+                if removeConfiguration {
+                    try? keychain.remove()
+                }
+                throw error
+            }
+        }
         guard let manager else {
             if removeConfiguration { try keychain.remove() }
             publishStatus()
@@ -108,9 +117,20 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
         manager.isEnabled = false
         manager.isOnDemandEnabled = false
         if removeConfiguration {
-            try await manager.removeFromPreferences()
+            var removalError: Error?
+            do {
+                try await manager.removeFromPreferences()
+            } catch {
+                removalError = error
+            }
             self.manager = nil
-            try keychain.remove()
+            do {
+                try keychain.remove()
+            } catch {
+                if removalError == nil { removalError = error }
+            }
+            publishStatus()
+            if let removalError { throw removalError }
         } else {
             try await manager.saveToPreferences()
             try await manager.loadFromPreferences()
