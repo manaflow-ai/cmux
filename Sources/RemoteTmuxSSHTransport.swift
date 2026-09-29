@@ -369,6 +369,38 @@ actor RemoteTmuxSSHTransport {
             || lowered.contains("not a control client")
     }
 
+    /// Whether a control-stream failure can never be fixed by trying again.
+    ///
+    /// The counterpart to ``indicatesAuthRequired``, and the same reasoning: retrying is only
+    /// honest when the next attempt could differ. A missing binary, a remote helper that is not
+    /// where the transport said it was, or a malformed invocation will fail identically forever, so
+    /// retrying converts a precise error into an opaque attach timeout — measured, after
+    /// end-of-stream stopped implying the session was over: a transport that could not start at all
+    /// produced a 60-second wait and no message.
+    ///
+    /// Deliberately narrow. Anything not listed keeps retrying, because the cost of wrongly
+    /// retrying is a delay while the cost of wrongly giving up is a mirror that never returns.
+    static func indicatesUnrecoverableTransportFailure(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        // The pty allocator could not find the transport binary. `/usr/bin/script` resolves its
+        // argument against the app's PATH, which for a GUI app is not the user's.
+        if lowered.contains("script:"), lowered.contains("no such file or directory") { return true }
+        // posix_spawn / Process launch failures for the transport itself.
+        if lowered.contains("no such file or directory"),
+           lowered.contains("etterminal") || lowered.contains("/et") { return true }
+        // et's own message when its ssh bootstrap cannot start the remote helper — wrong
+        // `--terminal-path`, or a helper missing on the server. Retrying sends the same path.
+        if lowered.contains("error starting et process") { return true }
+        // An argv the transport rejects outright is a bug in what cmux built, not a bad moment.
+        if lowered.contains("unrecognized option") || lowered.contains("unknown option") { return true }
+        // Go's flag package wording for the same thing. Wrappers that front a transport are
+        // routinely written in Go, and without this a mis-ordered argv reads as a bad moment:
+        // cmux would retry the identical rejected command forever. Measured against a real
+        // broker, which answers "flag provided but not defined: -p" and exits 2.
+        if lowered.contains("flag provided but not defined") { return true }
+        return false
+    }
+
     /// Whether a failed non-interactive (`BatchMode=yes`) connect failed because
     /// the host needs **interactive** authentication or host-key confirmation
     /// that batch mode cannot service — a password, an unknown/changed host key,

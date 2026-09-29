@@ -11875,6 +11875,9 @@ struct CMUXCLI {
         var workspaceName: String?
         var focus: Bool?
         var newWindow = false
+        var transport: String?
+        var transportPort: Int?
+        var broker: String?
 
         // Intentional subset of parseSSHCommandOptions: ssh-tmux has no relay,
         // passthrough, --ssh-option, or --window support.
@@ -11903,6 +11906,38 @@ struct CMUXCLI {
                     throw CLIError(message: String(localized: "cli.sshTmux.error.nameRequiresTitle", defaultValue: "ssh-tmux: --name requires a workspace title"))
                 }
                 workspaceName = commandArgs[index + 1]
+                index += 2
+            case "--transport":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --transport requires a value (ssh or et)")
+                }
+                let raw = commandArgs[index + 1].lowercased()
+                guard raw == "ssh" || raw == "et" else {
+                    throw CLIError(message: "ssh-tmux: --transport must be ssh or et")
+                }
+                transport = raw
+                index += 2
+            case "--transport-port":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --transport-port requires a value")
+                }
+                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
+                    throw CLIError(message: "ssh-tmux: --transport-port must be 1-65535")
+                }
+                transportPort = parsed
+                index += 2
+            case "--broker":
+                // A NAME, not a command: it selects one of the brokers declared under
+                // remoteTmux.brokers in cmux.json. Taking an executable here would let anything
+                // that can run the CLI pick what cmux launches.
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --broker requires the name of a broker declared under remoteTmux.brokers in cmux.json")
+                }
+                let name = commandArgs[index + 1].trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty, !name.hasPrefix("-") else {
+                    throw CLIError(message: "ssh-tmux: --broker requires a broker name, for example --broker corp")
+                }
+                broker = name
                 index += 2
             case _ where arg == "--no-focus" || arg == "--focus" || arg.hasPrefix("--focus="):
                 let flag = try Self.openFocusFlag(in: commandArgs, at: index, command: "ssh-tmux")
@@ -11937,6 +11972,9 @@ struct CMUXCLI {
            !trimmedWorkspaceName.isEmpty {
             params["workspace_name"] = trimmedWorkspaceName
         }
+        if let transport { params["transport"] = transport }
+        if let transportPort { params["transport_port"] = transportPort }
+        if let broker { params["transport_broker"] = broker }
         params["activate"] = focus ?? Self.defaultFocusForUserOpen()
         if !newWindow {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
@@ -11976,7 +12014,7 @@ struct CMUXCLI {
                         message: "ssh-tmux: cmux did not return an ssh command for authentication"
                     )
                 }
-                try runInteractiveAuthSSH(sshArgv: sshArgv, destination: destination)
+                try runInteractiveAuthSSH(sshArgv: sshArgv, destination: destination, marksRemoteTmuxAuthentication: true)
                 didAuthenticate = true
                 // Retry while the just-opened ControlMaster is warm.
                 if !jsonOutput {
@@ -19737,7 +19775,8 @@ struct CMUXCLI {
             return Self.moshTmuxCommandUsage
         case "ssh-tmux":
             let help = String(localized: "cli.help.ssh-tmux", defaultValue: """
-            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]
+            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]
+                                 [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]
 
             Mirror a remote host's tmux sessions into the current window's sidebar over
             SSH tmux control mode (tmux -CC). Each session becomes a workspace, each
@@ -19751,18 +19790,30 @@ struct CMUXCLI {
             with no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.
 
             Flags:
-              --port <n>          SSH port
-              --identity <path>   SSH identity file path
-              --name <title>      Set the mirrored workspace's local display title. This is
-                                   cosmetic only: it does not rename the remote tmux session.
-                                   Applies to the first newly-mirrored session when the host
-                                   has more than one.
-              --no-focus          Do not select the mirror workspace or focus its window
+              --port <n>            SSH port
+              --identity <path>     SSH identity file path
+              --name <title>        Set the mirrored workspace's local display title. This is
+                                    cosmetic only: it does not rename the remote tmux session.
+                                    Applies to the first newly-mirrored session when the host
+                                    has more than one.
+              --transport <name>    ssh (default) or et. et carries the control stream over
+                                    EternalTerminal, which reconnects on its own, so the
+                                    mirror survives a network change instead of respawning.
+              --transport-port <n>  Port the transport connects to: sshd's for ssh, etserver's
+                                    for et (default 22 for ssh, 2022 for et)
+              --broker <name>       Reach the host through a broker declared under
+                                    remoteTmux.brokers in cmux.json, instead of connecting
+                                    directly. Names an entry you have already written down;
+                                    it does not take a command. Use this where the host is
+                                    only reachable through a jump host, proxy or wrapper.
+              --no-focus            Do not select the mirror workspace or focus its window
 
             Example:
               cmux ssh-tmux dev@my-host
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh-tmux dev@my-host --name "prod db"
+              cmux ssh-tmux dev@my-host --transport et --transport-port 8080
+              cmux ssh-tmux my-host --transport et --broker corp
             """)
             let newWindowHelp = String(
                 localized: "cli.help.ssh-tmux.newWindow",

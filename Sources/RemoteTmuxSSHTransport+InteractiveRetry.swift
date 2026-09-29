@@ -53,4 +53,35 @@ extension RemoteTmuxSSHTransport {
         indicatesAuthRequired(stderr)
             || indicatesProxyCommandTransportClosed(stderr)
     }
+
+    /// Whether the bytes a transport produced BEFORE control mode are an unanswered
+    /// credential prompt.
+    ///
+    /// Everything else here reads stderr, which is where ssh reports an auth failure. A transport
+    /// that authenticates itself does not report a failure at all: it prints a prompt to its
+    /// terminal and waits. cmux gives it pipes, so the prompt lands in the pre-control output and
+    /// the stream then sits there until it is torn down — measured against a corporate ssh broker,
+    /// which produced a passcode prompt and no error, so the attach failed with nothing to explain
+    /// it and the transport's own log stayed empty.
+    ///
+    /// Matched against the pre-control region only, which is the login banner and prompt before the
+    /// first `%begin`, so ordinary pane output cannot reach it. Deliberately generic: the prompt
+    /// wording belongs to whatever the site's broker uses, and pinning a vendor's phrasing would
+    /// make this stop working the day that changes.
+    static func indicatesUnansweredCredentialPrompt(_ preControlOutput: String) -> Bool {
+        let haystack = preControlOutput.lowercased()
+        // Trailing colon on purpose: these are prompts awaiting input, not prose mentioning them.
+        let prompts = [
+            "passcode:",
+            "password:",
+            "verification code:",
+            "one-time password:",
+            "second factor:",
+            "enter a passcode",
+            "two-factor",
+            "touch your security key",
+            "confirm user presence",
+        ]
+        return prompts.contains { haystack.contains($0) }
+    }
 }

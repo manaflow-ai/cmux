@@ -36,6 +36,14 @@ enum RemoteTmuxReconnectDisposition: Sendable, Equatable {
         if RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {
             return .authRequired
         }
+        // A transport that authenticates itself reports no failure: it prints a prompt and waits.
+        // With pipes instead of a terminal that prompt lands here, in the bytes before control mode,
+        // and the stream just sits there. Reading it as transient meant the attach failed with
+        // nothing to explain it — measured through a corporate ssh broker, whose passcode prompt
+        // produced no stderr at all. An unanswered prompt is exactly the case a login can fix.
+        if RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(preControlOutput) {
+            return .authRequired
+        }
         return .transient
     }
 }

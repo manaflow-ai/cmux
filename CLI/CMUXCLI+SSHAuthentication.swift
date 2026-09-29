@@ -11,7 +11,12 @@ extension CMUXCLI {
     /// The argv is supplied by the app over the authenticated control socket, but
     /// as defense in depth the executable is required to be an `ssh` binary — the
     /// CLI never execs an arbitrary command handed back from a socket response.
-    func runInteractiveAuthSSH(sshArgv: [String], destination: String, passwordCredential: String? = nil) throws {
+    func runInteractiveAuthSSH(
+        sshArgv: [String],
+        destination: String,
+        passwordCredential: String? = nil,
+        marksRemoteTmuxAuthentication: Bool = false
+    ) throws {
         // Interactive auth needs a controlling tty to prompt on. In a non-tty
         // context (script, pipe, URL handler) ssh can't prompt and would hang or
         // fail opaquely, so refuse early with an actionable message.
@@ -48,6 +53,15 @@ extension CMUXCLI {
         process.standardInput = FileHandle.standardInput
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
+        if marksRemoteTmuxAuthentication {
+            // Mark this ssh as cmux's interactive login. It pins cmux's own ControlPath, so a
+            // site's ssh_config hooks (Match exec ProxyCommand/2FA helpers) that would normally
+            // skip work when the user's own shared master is live can see that this connection
+            // cannot ride that master and still needs a full authentication.
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_REMOTE_TMUX_AUTH"] = "1"
+            process.environment = environment
+        }
 
         // Foundation spawns the child in its OWN process group, so ssh starts as a
         // BACKGROUND job of the terminal. ssh's password / host-key / MFA prompt

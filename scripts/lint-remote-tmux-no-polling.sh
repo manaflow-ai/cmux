@@ -74,6 +74,18 @@ ALLOW=(
   "Reconnect backoff for a host that is unreachable. The edge would be 'the host came back', which nothing local can observe; retrying IS the observation."
   "Sources/RemoteTmuxSessionMirror+OutputRouting.swift:schedulePaneSeedDeliveryDeadline:try await ContinuousClock().sleep(for: .seconds(5))"
   "Deadline arm on a pane's readiness wait: the task is cancelled when the surface becomes ready, and on expiry the seed is drained or gracefully deferred rather than retried"
+  "Sources/RemoteTmuxControlConnection+PaneSubscriptions.swift:queryOutcomeWithTimeout:try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))"
+  "Deadline arm racing the reply for this command number; the reply removes the completion and the timeout task finds nothing to resume"
+  "Sources/RemoteTmuxControlConnection.swift:detachAwaitingExit:DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)"
+  "Deadline arm racing the %exit observer registered beside it; the observer ends the wait and cancels the deadline"
+  "Sources/RemoteTmuxControlConnection.swift:detachThenStop:DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: backstop)"
+  "Backstop for a stream that has stopped answering; tmux's own %exit ends the wait and cancels it"
+  "Sources/RemoteTmuxControlConnection.swift:terminateProcessTree:try? await Task.sleep(nanoseconds: 2_000_000_000)"
+  "SIGKILL escalation after SIGTERM. The edge would be 'the process handled the signal', and a process that IGNORES SIGTERM emits nothing at all — the absence of an exit is only observable by giving it a moment and looking again."
+  "Sources/RemoteTmuxController.swift:awaitNewWorkspace:try? await Task.sleep(for: deadline)"
+  "Deadline arm racing the new-workspace signal"
+  "Sources/RemoteTmuxViewConnection.swift:wait:private var timer: DispatchSourceTimer?"
+  "The one-shot timer behind RemoteTmuxRetryDelay, which only scheduleBringupRetry uses for its bounded backoff; cancelling the task releases it"
 )
 if [ -n "${LINT_ALLOW_FILE:-}" ]; then
   ALLOW=()
