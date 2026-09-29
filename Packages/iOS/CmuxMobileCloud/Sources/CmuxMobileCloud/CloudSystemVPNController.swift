@@ -125,12 +125,6 @@ public final class CloudSystemVPNController {
             rememberPendingBrowserTunnelRevocation(browserTunnel)
         }
         scope = newScope
-        // A device that cannot run the VPN never saved one, so there is
-        // nothing to load or remove.
-        guard manager.isAvailable else {
-            cleanupPending = false
-            return
-        }
         let removesExistingConfiguration =
             previousScope != nil || newScope == nil || cleanupPending
         cleanupPending = removesExistingConfiguration
@@ -140,6 +134,13 @@ public final class CloudSystemVPNController {
                 await loadPersistedBrowserTunnelRevocations(
                     scopes: [previousScope, newScope]
                 )
+                await persistPendingBrowserTunnelRevocations()
+                guard manager.isAvailable else {
+                    guard self.isCurrent(generation) else { return }
+                    browserTunnel = nil
+                    cleanupPending = false
+                    return
+                }
                 if !pendingBrowserTunnelRevocations.isEmpty {
                     do {
                         try await revokePendingBrowserTunnel()
@@ -581,6 +582,12 @@ public final class CloudSystemVPNController {
         var fingerprints = await pendingRevocationStore.load(scope: tunnel.scope)
         fingerprints.insert(tunnel.deviceFingerprint)
         await pendingRevocationStore.save(fingerprints, scope: tunnel.scope)
+    }
+
+    private func persistPendingBrowserTunnelRevocations() async {
+        for tunnel in pendingBrowserTunnelRevocations {
+            await persistPendingBrowserTunnelRevocation(tunnel)
+        }
     }
 
     private func rememberAndPersistPendingBrowserTunnelRevocation(
