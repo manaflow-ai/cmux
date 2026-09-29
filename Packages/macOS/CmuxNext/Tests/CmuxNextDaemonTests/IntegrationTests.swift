@@ -63,7 +63,7 @@ enum RealBinary {
     }
 }
 
-@Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .timeLimit(.minutes(2)))
+@Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .timeLimit(.minutes(2)), .liveDaemon)
 struct IntegrationTests {
     @Test func ensureCreateAttachEchoShutdown() async throws {
         let binary = try #require(RealBinary.url)
@@ -92,7 +92,7 @@ struct IntegrationTests {
             let workspace = try await connection.createWorkspace(name: "it")
             let terminal = try await connection.createTerminal(in: workspace.key, cwd: root.path, size: CellSize(cols: 80, rows: 24))
             let surface = try #require(terminal.surface)
-            try await waitUntil("store sees the new tab") { await store.tab(surface: surface) != nil }
+            try await store.waitUntil("store sees the new tab") { store.tab(surface: surface) != nil }
             let resourceID = await store.tab(surface: surface)?.terminalResourceID
             #expect(await store.workspace(key: workspace.key)?.name == "it")
 
@@ -131,7 +131,7 @@ struct IntegrationTests {
             #expect(found, "output: \(String(decoding: output, as: UTF8.self))")
 
             await attachment.resize(cols: 100, rows: 30, pixelWidth: 0, pixelHeight: 0)
-            try await waitUntil("resize reaches the tree") { await store.tab(surface: surface)?.size == CellSize(cols: 100, rows: 30) }
+            try await store.waitUntil("resize reaches the tree") { store.tab(surface: surface)?.size == CellSize(cols: 100, rows: 30) }
             await attachment.detach()
 
             // Window state round-trips through the personal projection.
@@ -149,11 +149,9 @@ struct IntegrationTests {
             // Tab drag: move the tab into a new workspace (fallback path on
             // daemons without tab-to-new-workspace).
             _ = try await connection.moveTabToNewWorkspace(surface, transaction: .generate())
-            try await waitUntil("tab left the old workspace") {
-                await MainActor.run {
-                    let old = store.workspace(key: workspace.key)
-                    return old?.screens.allSatisfy { $0.panes.allSatisfy { $0.tabs.isEmpty } } ?? true
-                }
+            try await store.waitUntil("tab left the old workspace") {
+                let old = store.workspace(key: workspace.key)
+                return old?.screens.allSatisfy { $0.panes.allSatisfy { $0.tabs.isEmpty } } ?? true
             }
         } catch {
             await BranchDaemonHarness.shutDown(connection)
@@ -217,14 +215,5 @@ struct IntegrationTests {
             throw error
         }
         await BranchDaemonHarness.shutDown(connection)
-    }
-
-    private func waitUntil(_ what: String, timeout: Duration = .seconds(10), _ condition: @Sendable () async -> Bool) async throws {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            if await condition() { return }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        throw DaemonError.timedOut(what)
     }
 }

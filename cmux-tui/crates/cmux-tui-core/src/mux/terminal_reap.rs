@@ -295,10 +295,77 @@ impl Mux {
             failures.join("; ")
         );
         if !drained {
-            // Each remaining host record is already under retrying cleanup.
             eprintln!("cmux-tui: some ended terminal hosts had not exited by the close deadline");
         }
+        // A host that missed its close deadline is left to a detached
+        // record-cleanup retry thread, which dies when this daemon exits
+        // after the handoff, so the host would outlive the call. Before
+        // reporting success, prove every host of this session ended.
+        #[cfg(unix)]
+        if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone() {
+            let survivors =
+                end_surviving_terminal_hosts(&root, Instant::now() + END_TERMINALS_SURVIVOR_WAIT);
+            anyhow::ensure!(
+                survivors.is_empty(),
+                "terminal host(s) still running after end_terminals: {}",
+                survivors.join(", ")
+            );
+        }
         Ok(ended)
+    }
+}
+
+/// How long `end_all_terminals` waits for hosts that outlived their close
+/// deadline to die after `SIGKILL`.
+#[cfg(unix)]
+const END_TERMINALS_SURVIVOR_WAIT: Duration = Duration::from_secs(5);
+
+/// Forcibly ends every terminal host of this session (the host root is
+/// per session) that is still running after the cooperative close, and
+/// waits until each is provably dead. Returns the terminal ids of hosts that
+/// are still live or unprovable at `deadline`.
+///
+/// Only a host whose exact incarnation still holds its start-nonce lock is
+/// signaled, so a reused PID is never killed. Records are reloaded on every
+/// pass, so a host that appeared during the shutdown is ended too.
+#[cfg(unix)]
+fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
+    use crate::terminal_host_runtime::{TerminalHostLiveness, terminal_host_record_liveness};
+    let mut signaled = HashSet::new();
+    loop {
+        let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
+            return Vec::new();
+        };
+        let mut survivors = Vec::new();
+        for (path, record) in records {
+            match terminal_host_record_liveness(&path, &record) {
+                Ok(TerminalHostLiveness::Dead) => {
+                    let _ = cleanup_terminal_host_record(&record, &path);
+                }
+                Ok(TerminalHostLiveness::Live) => {
+                    if let Ok(pid) = libc::pid_t::try_from(record.host_pid)
+                        && pid > 0
+                        && signaled.insert(record.incarnation.clone())
+                    {
+                        eprintln!(
+                            "cmux-tui: terminal {} host ignored termination; killing it",
+                            record.terminal_id
+                        );
+                        // SAFETY: the live start-nonce lock proves `pid` is
+                        // this host incarnation; SIGKILL has no other effect.
+                        unsafe { libc::kill(pid, libc::SIGKILL) };
+                    }
+                    survivors.push(record.terminal_id);
+                }
+                Ok(TerminalHostLiveness::Indeterminate) | Err(_) => {
+                    survivors.push(record.terminal_id);
+                }
+            }
+        }
+        if survivors.is_empty() || Instant::now() >= deadline {
+            return survivors;
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 

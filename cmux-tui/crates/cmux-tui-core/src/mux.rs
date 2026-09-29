@@ -11312,6 +11312,12 @@ impl Mux {
         self.control_clients.daemon_handoff_in_progress()
     }
 
+    /// The handoff was acknowledged to its requester; it can no longer be
+    /// cancelled.
+    pub(crate) fn daemon_handoff_committed(&self) -> bool {
+        self.control_clients.daemon_handoff_committed()
+    }
+
     pub fn cancel_daemon_handoff(&self, requesting_client: u64) {
         self.control_clients.cancel_daemon_handoff(requesting_client);
     }

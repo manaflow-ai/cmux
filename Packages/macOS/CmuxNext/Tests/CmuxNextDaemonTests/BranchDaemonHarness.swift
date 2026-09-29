@@ -114,15 +114,6 @@ struct BranchDaemonHarness {
         try await tree().workspaces.flatMap(\.screens).flatMap(\.panes).first { $0.tabs.contains { $0.surface == surface } }
     }
 
-    func waitUntil(_ what: String, timeout: Duration = .seconds(10), _ condition: @Sendable () async throws -> Bool) async throws {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            if try await condition() { return }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        throw DaemonError.timedOut(what)
-    }
-
     /// Types `command` into `surface` and returns output up to `sentinel`.
     func run(_ command: String, in surface: SurfaceID, until sentinel: String) async throws -> String {
         let attachment = try await TerminalAttachment.attach(
