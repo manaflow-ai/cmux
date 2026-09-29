@@ -734,10 +734,9 @@ final class TerminalNotificationStore: ObservableObject {
                     context: nil
                 )
                 content.categoryIdentifier = Self.categoryIdentifier
-                let request = UNNotificationRequest(
+                let request = makeCmuxNotificationRequest(
                     identifier: "cmux.settings.test.\(UUID().uuidString)",
-                    content: content,
-                    trigger: nil
+                    content: content
                 )
                 let result = await userNotificationCenter.add(request)
                 guard let self else { return }
@@ -2487,10 +2486,9 @@ final class TerminalNotificationStore: ObservableObject {
                 for (key, value) in clickActionUserInfo {
                     content.userInfo[key] = value
                 }
-                let request = UNNotificationRequest(
+                let request = makeCmuxNotificationRequest(
                     identifier: notificationId.uuidString,
-                    content: content,
-                    trigger: nil
+                    content: content
                 )
                 let commandTitle = content.title
                 let commandSubtitle = content.subtitle

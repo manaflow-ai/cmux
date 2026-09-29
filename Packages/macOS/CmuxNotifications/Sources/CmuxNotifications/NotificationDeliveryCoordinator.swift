@@ -76,7 +76,8 @@ public final class NotificationDeliveryCoordinator {
 
     /// Presentation options for a notification delivered while the app is in
     /// the foreground. `keepsSoundQuiet` drops the sound for a banner whose
-    /// target pane became focused after the banner was scheduled.
+    /// target pane became focused after the banner was scheduled; macOS owns
+    /// the banner's presentation lifetime.
     public func presentationOptions(
         for content: UNNotificationContent,
         keepsSoundQuiet: Bool = false
