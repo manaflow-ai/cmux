@@ -45,6 +45,10 @@ pub const CONSOLE_MAX_EVENTS: usize = 500;
 pub const CONSOLE_MAX_TEXT_UNITS: usize = 4_000;
 const NETWORK_URL_MAX_UNITS: usize = 2_048;
 const NETWORK_METHOD_MAX_UNITS: usize = 16;
+/// Longest CDP `requestId` the pending-request join remembers. Real ids are
+/// short counters; a frame can carry up to PREVIEW_WS_MAX_MESSAGE_BYTES, and
+/// PENDING_REQUEST_CAP copies of such an id would pin gigabytes.
+const NETWORK_REQUEST_ID_MAX_BYTES: usize = 256;
 /// Most in-flight network requests remembered while their response is
 /// pending (requestWillBeSent -> responseReceived/loadingFailed join).
 const PENDING_REQUEST_CAP: usize = 512;
@@ -213,6 +217,9 @@ fn tee_cdp_frame(ring: &ConsoleRing, raw: &str) -> Option<i64> {
         }
         "Network.requestWillBeSent" => {
             let request_id = params.get("requestId").and_then(Value::as_str)?;
+            if request_id.len() > NETWORK_REQUEST_ID_MAX_BYTES {
+                return None;
+            }
             let request = params.get("request").unwrap_or(&Value::Null);
             let method = request.get("method").and_then(Value::as_str).unwrap_or("GET");
             let url = request.get("url").and_then(Value::as_str).unwrap_or_default();
@@ -529,10 +536,10 @@ async fn handle_request(
             response
         }
         "/__chatmux__/page" if wants_websocket(&request) => {
-            accept_websocket(shared, request, PeerRole::Page)
+            accept_control_websocket(shared, request, PeerRole::Page)
         }
         "/__chatmux__/devtools" if wants_websocket(&request) => {
-            accept_websocket(shared, request, PeerRole::Devtools)
+            accept_control_websocket(shared, request, PeerRole::Devtools)
         }
         "/__chatmux__/page" | "/__chatmux__/devtools" => {
             text_response(400, "websocket upgrade required")
@@ -594,6 +601,76 @@ fn status_response(
 const REPLACED_CLOSE_CODE: u16 = 4001;
 /// Bound cleanup when a displaced peer's TCP writer is stuck.
 const REPLACED_WRITER_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Browsers attach an `Origin` to every WebSocket handshake but apply no
+/// same-origin policy to it, so any page the user visits can dial the
+/// proxy's loopback port and drive the preview page over CDP. Admission:
+///
+/// - no Origin: a non-browser client (the tunnel health checks, tests);
+/// - loopback Host (direct local access): the Origin must be a loopback
+///   origin too, which refuses every public website;
+/// - public Host (the TLS tunnel forwards Host verbatim): the Origin must be
+///   https, which refuses DNS-rebinding pages (they cannot present TLS for
+///   the rebound name). The page connector dials its own host, so the page
+///   channel must also be same-origin. The DevTools frontend is served by
+///   the chatmux web app, whose origin this relay is not told.
+fn control_origin_allowed(headers: &hyper::HeaderMap, role: PeerRole) -> bool {
+    let Some(origin) = headers.get(hyper::header::ORIGIN) else {
+        return true;
+    };
+    let Some(origin) = origin.to_str().ok().and_then(|value| url::Url::parse(value).ok()) else {
+        return false;
+    };
+    if !matches!(origin.scheme(), "http" | "https") {
+        return false;
+    }
+    let Some(host) = headers
+        .get(hyper::header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| url::Url::parse(&format!("https://{value}")).ok())
+    else {
+        return false;
+    };
+    let (Some(origin_host), Some(request_host)) = (origin.host(), host.host()) else {
+        return false;
+    };
+    if is_loopback_host(&request_host) {
+        return is_loopback_host(&origin_host);
+    }
+    if origin.scheme() != "https" {
+        return false;
+    }
+    match role {
+        PeerRole::Page => {
+            origin_host == request_host
+                && origin.port_or_known_default() == host.port_or_known_default()
+        }
+        PeerRole::Devtools => true,
+    }
+}
+
+fn is_loopback_host(host: &url::Host<&str>) -> bool {
+    match host {
+        url::Host::Domain(name) => {
+            let name = name.trim_end_matches('.');
+            name.eq_ignore_ascii_case("localhost")
+                || name.to_ascii_lowercase().ends_with(".localhost")
+        }
+        url::Host::Ipv4(address) => address.is_loopback(),
+        url::Host::Ipv6(address) => address.is_loopback(),
+    }
+}
+
+fn accept_control_websocket(
+    shared: Arc<ProxyShared>,
+    request: hyper::Request<hyper::body::Incoming>,
+    role: PeerRole,
+) -> hyper::Response<ProxyBody> {
+    if !control_origin_allowed(request.headers(), role) {
+        return text_response(403, "origin not allowed");
+    }
+    accept_websocket(shared, request, role)
+}
 
 fn accept_websocket(
     shared: Arc<ProxyShared>,
@@ -1548,6 +1625,37 @@ mod tests {
         .expect("tunneled devtools drawer");
         ws_handshake(proxy, "/__chatmux__/devtools", &[]).await.expect("originless client");
         registry.shutdown().await;
+    }
+
+    #[test]
+    fn control_origin_policy_table() {
+        let cases: &[(Option<&str>, &str, PeerRole, bool)] = &[
+            (None, "127.0.0.1:5000", PeerRole::Devtools, true),
+            (Some("http://127.0.0.1:5000"), "127.0.0.1:5000", PeerRole::Page, true),
+            (Some("http://[::1]:9"), "localhost:5000", PeerRole::Devtools, true),
+            (Some("http://app.localhost:3000"), "127.0.0.1:5000", PeerRole::Devtools, true),
+            (Some("https://evil.example"), "127.0.0.1:5000", PeerRole::Devtools, false),
+            (Some("null"), "127.0.0.1:5000", PeerRole::Page, false),
+            (Some("chrome-extension://abc"), "127.0.0.1:5000", PeerRole::Page, false),
+            (Some("https://p.preview.test"), "p.preview.test", PeerRole::Page, true),
+            (Some("https://p.preview.test"), "p.preview.test:443", PeerRole::Page, true),
+            (Some("https://q.preview.test"), "p.preview.test", PeerRole::Page, false),
+            (Some("https://chatmux.dev"), "p.preview.test", PeerRole::Devtools, true),
+            (Some("http://rebind.example:5000"), "rebind.example:5000", PeerRole::Page, false),
+            (Some("http://rebind.example:5000"), "rebind.example:5000", PeerRole::Devtools, false),
+        ];
+        for (origin, host, role, allowed) in cases {
+            let mut headers = hyper::HeaderMap::new();
+            headers.insert(hyper::header::HOST, host.parse().expect("host"));
+            if let Some(origin) = origin {
+                headers.insert(hyper::header::ORIGIN, origin.parse().expect("origin"));
+            }
+            assert_eq!(
+                control_origin_allowed(&headers, *role),
+                *allowed,
+                "origin {origin:?} host {host}",
+            );
+        }
     }
 
     #[test]
