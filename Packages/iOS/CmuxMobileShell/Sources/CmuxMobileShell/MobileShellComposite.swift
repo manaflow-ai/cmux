@@ -3335,19 +3335,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
-        do {
-            loadedActiveMac = try await pairedMacStore.activeMac(stackUserID: scope.userID, teamID: scope.teamID)
-            if let result = storedMacReconnectInterruptionResult(generation: generation) {
-                return result ? .connected : .superseded
+        if hydratePairedMacs, pairedMacLoadState == .loaded {
+            // `loadPairedMacs()` just populated this cache for the launch UI.
+            // Reusing it avoids a second active-row query and a second full
+            // SQLite read before the first Iroh dial. The backup refresh still
+            // runs in parallel and is awaited by the fallback path below when
+            // the cached route cannot connect.
+            loadedMacs = storedPairedMacsIncludingHidden
+            loadedActiveMac = loadedMacs.first(where: \.isActive)
+        } else {
+            do {
+                loadedActiveMac = try await pairedMacStore.activeMac(stackUserID: scope.userID, teamID: scope.teamID)
+                if let result = storedMacReconnectInterruptionResult(generation: generation) {
+                    return result ? .connected : .superseded
+                }
+                loadedMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
+            } catch {
+                mobileShellLog.error("paired mac store read failed: \(String(describing: error), privacy: .public)")
+                // A read failure means "couldn't determine," not "no mac": keep the
+                // hint so a transient SQLite error doesn't erase a returning user's
+                // paired state.
+                finishStoredMacReconnectAttempt(generation: generation)
+                return .failed(.unknown)
             }
-            loadedMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
-        } catch {
-            mobileShellLog.error("paired mac store read failed: \(String(describing: error), privacy: .public)")
-            // A read failure means "couldn't determine," not "no mac": keep the
-            // hint so a transient SQLite error doesn't erase a returning user's
-            // paired state.
-            finishStoredMacReconnectAttempt(generation: generation)
-            return .failed(.unknown)
         }
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
