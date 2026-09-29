@@ -77,6 +77,7 @@ struct FileSearchPanelTests {
         }
     }
 
+    @MainActor
     private struct Fixture {
         let store: FileExplorerStore
         let container: FileExplorerContainerView
