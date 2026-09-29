@@ -110,6 +110,7 @@ struct CloudDisplayMembershipProjectionTests {
         )
         let workspaceResources = snapshot.cloudWorkspaceResources(on: machine)
         #expect(workspaceResources.filter { $0.id.key == displayID }.count == 2)
+        #expect(workspaceResources.last?.remoteViews?.first?.isCloudDisplayMembershipView == true)
         #expect(!workspaceResources.contains { $0.id.key == "display:99" })
     }
 

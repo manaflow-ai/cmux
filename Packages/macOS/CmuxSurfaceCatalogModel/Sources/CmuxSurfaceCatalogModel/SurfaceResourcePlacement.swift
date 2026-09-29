@@ -17,6 +17,6 @@ public struct SurfaceResourcePlacement: Hashable, Codable, Sendable {
     ) {
         self.resource = resource
         self.remoteWorkspaceID = remoteView?.workspace.id ?? remoteWorkspaceID
-        self.remoteTabID = remoteView?.tabID ?? remoteTabID
+        self.remoteTabID = remoteView?.isCloudDisplayMembershipView == true ? nil : (remoteView?.tabID ?? remoteTabID)
     }
 }

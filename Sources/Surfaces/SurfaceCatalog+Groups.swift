@@ -2,7 +2,6 @@ import CmuxCloud
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
-
 /// A collection of resources that travels as one drag or one "open all": a cmux-tui
 /// workspace on a machine, or a local workspace (the panes it projects). The canonical
 /// payload is typed placements. `resources` and the group workspace id remain as derived
@@ -205,7 +204,8 @@ extension SurfaceCatalog {
         }) {
             return nil
         }
-        if resources[member.resource]?.kind == .display && resources[member.resource]?.remoteViews == nil { return nil }
+        if resources[member.resource]?.kind == .display,
+           resources[member.resource]?.remoteViews?.allSatisfy(\.isCloudDisplayMembershipView) == true { return nil }
         return try remoteView(for: member.resource, workspaceID: workspaceID)
     }
     /// How a group becomes a new local workspace: the machinery a caller injects so the

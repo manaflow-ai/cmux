@@ -81,7 +81,6 @@ final class SurfaceCatalog {
     var pendingRestoredProjections = SurfaceProjectionRestoreStore() { didSet { cloudProjectionIndex = nil } }
     /// Focus/select behavior the app uses to bring an existing projection forward.
     var focusProjection: ((SurfaceProjection) -> Void)?
-
     init(
         abandonedMaterializationTimeout: Duration = SurfaceCatalog.defaultAbandonedMaterializationTimeout,
         retiredMaterializationRetention: Duration = SurfaceCatalog.defaultRetiredMaterializationRetention,
@@ -1287,11 +1286,12 @@ final class SurfaceCatalog {
             return view
         }
         guard let workspaceID else { return nil }
-        let matches = views.filter { $0.workspace.id == workspaceID }
+        let matches = views.filter { !$0.isCloudDisplayMembershipView && $0.workspace.id == workspaceID }
         guard matches.count <= 1 else {
             throw SurfaceCatalogError.ambiguousRemotePlacement(id, workspaceID: workspaceID)
         }
         guard let view = matches.first else {
+            if resource.kind == .display, views.contains(where: \.isCloudDisplayMembershipView) { return nil }
             throw SurfaceCatalogError.unavailable(id, reason: "remote workspace \(workspaceID) has no view of this resource")
         }
         return view
