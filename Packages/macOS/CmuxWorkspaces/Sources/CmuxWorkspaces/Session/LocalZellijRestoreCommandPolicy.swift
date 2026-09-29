@@ -13,7 +13,7 @@ struct LocalZellijRestoreCommandPolicy: Sendable {
     func restorableCommand(_ rawCommand: String?) -> String? {
         guard let command = rawCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty,
-              !containsControlScalar(command),
+              !containsLineBreakingScalar(command),
               let regex = try? NSRegularExpression(pattern: Self.pattern),
               let match = regex.firstMatch(in: command, range: NSRange(command.startIndex..., in: command)),
               match.numberOfRanges == 4 else {
@@ -43,10 +43,13 @@ struct LocalZellijRestoreCommandPolicy: Sendable {
         path.hasPrefix("/") && URL(fileURLWithPath: path).standardizedFileURL.path == path
     }
 
-    private func containsControlScalar(_ command: String) -> Bool {
+    /// Controls and line or paragraph separators could split the command.
+    /// Format characters such as U+200D (inside emoji) are allowed: the
+    /// canonical comparison confines them to single-quoted path values.
+    private func containsLineBreakingScalar(_ command: String) -> Bool {
         command.unicodeScalars.contains { scalar in
             switch scalar.properties.generalCategory {
-            case .control, .format, .lineSeparator, .paragraphSeparator:
+            case .control, .lineSeparator, .paragraphSeparator:
                 return true
             default:
                 return false

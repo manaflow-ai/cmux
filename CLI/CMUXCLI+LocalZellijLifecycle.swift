@@ -113,8 +113,9 @@ extension CMUXCLI {
                     sessionName: LocalZellijCommandBuilder.zellijSessionName(for: record)
                 )
             )
-            let alreadyGone = result.stdout.contains("not found") || result.stderr.contains("not found")
-            guard result.succeeded || alreadyGone else {
+            // zellij's listing, not its message text, says whether a failed
+            // delete left the session behind.
+            guard try result.succeeded || runtime.state(of: record) == .stale else {
                 throw CLIError(message: String(localized: "cli.localZellij.error.closeFailed", defaultValue: "local-zellij close failed"))
             }
         }
