@@ -63,6 +63,11 @@ public struct Action: Identifiable {
     public var shortcut: Shortcut?
     public var isEnabled: @MainActor () -> Bool
     public var handler: @MainActor () -> Void
+    /// Handler for argument-taking actions: the text typed into the palette's
+    /// inline entry, the item picked from a nested list, or the digit of a
+    /// numbered shortcut family. Nil means the action takes no argument and
+    /// `handler` runs instead.
+    public var argumentHandler: (@MainActor (String) -> Void)?
 
     public init(
         id: ActionID,
@@ -70,6 +75,7 @@ public struct Action: Identifiable {
         keywords: [String] = [],
         shortcut: Shortcut? = nil,
         isEnabled: @escaping @MainActor () -> Bool = { true },
+        argumentHandler: (@MainActor (String) -> Void)? = nil,
         handler: @escaping @MainActor () -> Void
     ) {
         self.id = id
@@ -77,6 +83,21 @@ public struct Action: Identifiable {
         self.keywords = keywords
         self.shortcut = shortcut
         self.isEnabled = isEnabled
+        self.argumentHandler = argumentHandler
         self.handler = handler
+    }
+
+    /// A copy of this action under another ID (used to fold legacy IDs into
+    /// their canonical catalog ID).
+    func withID(_ newID: ActionID) -> Action {
+        Action(
+            id: newID,
+            title: title,
+            keywords: keywords,
+            shortcut: shortcut,
+            isEnabled: isEnabled,
+            argumentHandler: argumentHandler,
+            handler: handler
+        )
     }
 }
