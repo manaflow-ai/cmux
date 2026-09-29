@@ -80,7 +80,7 @@ extension BrowserDiscardPageStateRestoreTests {
     }
 
     /// Repeated agent restores detach every app-owned attachment from the dropped web view.
-    func testAutomationRestoreCyclesDetachDroppedWebViews() async throws {
+    func testAutomationRestoreCyclesReleaseDroppedWebViews() async throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let page = try writePlainPage()
@@ -115,7 +115,7 @@ extension BrowserDiscardPageStateRestoreTests {
     }
 
     /// A web view whose content process died while hidden is fully detached when restored.
-    func testAutomationRestoreDetachesWebViewTerminatedWhileHidden() async throws {
+    func testAutomationRestoreReleasesWebViewTerminatedWhileHidden() async throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let page = try writePlainPage()
