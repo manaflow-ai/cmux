@@ -38,11 +38,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await settings.waitForLoad(atLeast: 1)
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+                if let router = control.service?.router { installCompat(on: router) }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// The old `cmux` CLI's v2/v1 verbs (plans/cmux-next/cli-compat.md).
+    private func installCompat(on router: ControlRouter) {
+        let frontend = services.compat!
+        frontend.afterIntent = { [control] in control.publishSnapshotNow() }
+        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.launch.terminalEnvironment) {
+            frontend.currentConnection()
+        }
+        compat.install(on: router)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

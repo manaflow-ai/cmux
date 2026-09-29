@@ -61,7 +61,9 @@ final class ControlSnapshotPublisher {
         }
     }
 
-    private func publishNow() {
+    /// Publishes now. Compat intents call this so a CLI read that follows a
+    /// CLI write sees it (the scheduled publish lands a frame later).
+    func publishNow() {
         guard !isStopped else { return }
         let started = ContinuousClock.now
         let (topology, settings) = withObservationTracking {

@@ -40,6 +40,10 @@ public final class ControlRouter: Sendable {
         var socketPath: String?
         var accessMode: String?
         var watchdog: MainThreadWatchdog?
+        /// Answers v1 plain-text lines other than `ping` (the cmux CLI compat layer).
+        var v1Handler: (@Sendable (String) async -> String?)?
+        /// Typed error for a method nobody registered (compat: `unsupported in cmux-next: …`).
+        var unknownMethod: (@Sendable (String) -> ControlError?)?
     }
 
     public init(
@@ -67,6 +71,16 @@ public final class ControlRouter: Sendable {
                 if state.methods.updateValue(method, forKey: method.name) == nil { state.order.append(method.name) }
             }
         }
+    }
+
+    /// Installs the v1 plain-text handler; it returns nil for lines it does not know.
+    public func registerV1(_ handler: @escaping @Sendable (String) async -> String?) {
+        state.withLock { $0.v1Handler = handler }
+    }
+
+    /// Installs the error for unregistered methods; nil keeps `method_not_found`.
+    public func registerUnknownMethod(_ handler: @escaping @Sendable (String) -> ControlError?) {
+        state.withLock { $0.unknownMethod = handler }
     }
 
     /// Registered method names in registration order.
@@ -111,7 +125,9 @@ public final class ControlRouter: Sendable {
             // v1 plain-text commands: only the liveness probe is kept.
             switch trimmed.split(separator: " ", maxSplits: 1).first.map({ $0.lowercased() }) {
             case "ping": return "PONG"
-            default: return "ERROR: Unknown command '\(trimmed.split(separator: " ").first ?? "")'. cmux-next speaks v2 JSON requests only."
+            default:
+                if let handler = state.withLock({ $0.v1Handler }), let reply = await handler(trimmed) { return reply }
+                return "ERROR: Unknown command '\(trimmed.split(separator: " ").first ?? "")'. cmux-next speaks v2 JSON requests only."
             }
         }
         let request: ControlRequest
@@ -134,6 +150,7 @@ public final class ControlRouter: Sendable {
 
     public func handle(_ request: ControlRequest, connection: ControlConnectionID = .inProcess) async -> Result<JSONValue, ControlError> {
         guard let method = method(named: request.method) else {
+            if let error = state.withLock({ $0.unknownMethod })?(request.method) { return .failure(error) }
             return .failure(ControlError(code: "method_not_found", message: "Unknown method \(request.method)",
                                          data: ["method": .string(request.method)]))
         }

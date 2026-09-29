@@ -19,6 +19,8 @@ final class AppServices {
     private(set) var dragSession: TabDragSession!
     private(set) var palette: PaletteController!
     private(set) var previews: TabPreviewSource!
+    /// App side of the cmux CLI compat layer (window/focus state, intents).
+    private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
@@ -33,6 +35,9 @@ final class AppServices {
         windows = WindowManager(services: self)
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
+        compat = AppCompatFrontend(services: self)
+        let registry = registry
+        daemon.workTracker = { registry.track($0) }
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
         tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))

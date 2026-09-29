@@ -45,6 +45,11 @@ final class AppControl {
         publisher.start()
     }
 
+    /// Publishes the control snapshot synchronously (after compat intents).
+    func publishSnapshotNow() {
+        publisher?.publishNow()
+    }
+
     func stop() {
         publisher?.stop()
         service?.stop()
