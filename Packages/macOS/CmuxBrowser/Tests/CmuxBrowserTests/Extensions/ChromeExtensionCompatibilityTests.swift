@@ -137,6 +137,35 @@ import Testing
         #expect(result.toString() == "active|{}|not_controllable|chrome.notifications.create is not available in cmux|true")
     }
 
+    @Test func prefixesIsolatedContentScriptsOnlyAndIdempotently() throws {
+        // JSON Formatter's shape: one isolated entry, one MAIN-world entry, no background.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-compat-cs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let manifest: [String: Any] = [
+            "manifest_version": 3, "name": "T", "version": "1",
+            "content_scripts": [
+                ["matches": ["<all_urls>"], "js": ["content.js"]],
+                ["matches": ["<all_urls>"], "js": ["page.js"], "world": "MAIN"],
+            ],
+        ]
+        let manifestURL = root.appendingPathComponent("manifest.json")
+        try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
+
+        try ChromeExtensionCompatibility.install(into: root)
+        let first = try Data(contentsOf: manifestURL)
+        try ChromeExtensionCompatibility.install(into: root)
+        #expect(try Data(contentsOf: manifestURL) == first)
+
+        let written = try #require(try JSONSerialization.jsonObject(with: first) as? [String: Any])
+        let scripts = try #require(written["content_scripts"] as? [[String: Any]])
+        #expect(scripts[0]["js"] as? [String] == [ChromeExtensionCompatibility.contentPreambleFile, "content.js"])
+        #expect(scripts[1]["js"] as? [String] == ["page.js"])
+        #expect(written["background"] == nil)
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(ChromeExtensionCompatibility.contentPreambleFile).path))
+    }
+
     @Test func preambleReportsChromeIdentity() {
         #expect(ChromeExtensionCompatibility.chromeUserAgent.contains(" Chrome/\(ChromeExtensionPackage.reportedChromeVersion) "))
         #expect(ChromeExtensionCompatibility.preambleSource.contains("ExecutionWorld"))

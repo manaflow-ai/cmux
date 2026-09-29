@@ -27,6 +27,7 @@ public import Foundation
 /// websites, and the HTTP user agent is unchanged.
 public enum ChromeExtensionCompatibility {
     public static let preambleFile = "cmux-compat.js"
+    public static let contentPreambleFile = "cmux-content-compat.js"
     public static let workerWrapperFile = "cmux-compat-worker.js"
     public static let moduleWorkerWrapperFile = "cmux-compat-worker.mjs"
     static let stateFile = ".cmux-compat.json"
@@ -193,6 +194,65 @@ public enum ChromeExtensionCompatibility {
         """
     }
 
+    /// Loaded before an extension's isolated-world content scripts.
+    public static var contentPreambleSource: String {
+        """
+        // Added by cmux: content scripts run in the extension's isolated world, where
+        // Chrome lets the <style> elements they add ignore the page's style-src
+        // policy. WebKit applies the page policy, so a page with a strict policy
+        // (api.github.com: default-src 'none') leaves them unstyled. Style elements
+        // created from this world are mirrored into constructed style sheets, which
+        // the page policy does not govern. Elements the page creates are untouched.
+        (function () {
+          if (typeof document === "undefined" || typeof CSSStyleSheet !== "function" || !("adoptedStyleSheets" in Document.prototype)) return;
+          if (globalThis.__cmuxContentCompat) return;
+          globalThis.__cmuxContentCompat = true;
+          var ours = new WeakSet();
+          var mirrors = new Map();
+          var create = Document.prototype.createElement;
+          Document.prototype.createElement = function (name) {
+            var element = create.apply(this, arguments);
+            if (element instanceof HTMLStyleElement) ours.add(element);
+            return element;
+          };
+          function sync(style) {
+            var attached = style.isConnected && style.ownerDocument === document;
+            var mirror = mirrors.get(style);
+            if (!attached || style.sheet) {
+              if (mirror) {
+                document.adoptedStyleSheets = document.adoptedStyleSheets.filter(function (s) { return s !== mirror; });
+                mirrors.delete(style);
+              }
+              return;
+            }
+            if (!mirror) {
+              mirror = new CSSStyleSheet();
+              mirrors.set(style, mirror);
+              document.adoptedStyleSheets = document.adoptedStyleSheets.concat([mirror]);
+            }
+            try { mirror.replaceSync(style.textContent || ""); } catch (e) {}
+          }
+          function visit(node) {
+            if (node instanceof HTMLStyleElement) { if (ours.has(node)) sync(node); return; }
+            if (node && node.querySelectorAll) node.querySelectorAll("style").forEach(function (s) { if (ours.has(s)) sync(s); });
+          }
+          new MutationObserver(function (records) {
+            records.forEach(function (record) {
+              if (record.type === "characterData" || (record.type === "childList" && record.target instanceof HTMLStyleElement)) {
+                var style = record.target instanceof HTMLStyleElement ? record.target : record.target.parentNode;
+                if (style instanceof HTMLStyleElement && ours.has(style)) sync(style);
+                return;
+              }
+              record.addedNodes.forEach(visit);
+              record.removedNodes.forEach(function (node) {
+                mirrors.forEach(function (_, style) { if (style === node || (node.contains && node.contains(style))) sync(style); });
+              });
+            });
+          }).observe(document, { childList: true, subtree: true, characterData: true });
+        })();
+        """
+    }
+
     /// Where the original background worker is, so re-applying is idempotent.
     struct State: Codable, Equatable {
         var serviceWorker: String?
@@ -244,12 +304,32 @@ public enum ChromeExtensionCompatibility {
             background["scripts"] = scripts
             changedManifest = true
         }
+        try Data(contentPreambleSource.utf8).write(to: folder.appendingPathComponent(contentPreambleFile), options: .atomic)
+        if let scripts = manifest["content_scripts"] as? [[String: Any]] {
+            let prefixed = prefixingContentScripts(scripts)
+            if !NSArray(array: prefixed).isEqual(to: scripts) {
+                manifest["content_scripts"] = prefixed
+                changedManifest = true
+            }
+        }
         if changedManifest {
-            manifest["background"] = background
+            if !background.isEmpty { manifest["background"] = background }
             let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
             try data.write(to: manifestURL, options: .atomic)
         }
         try injectIntoPages(in: folder, fileManager: fileManager)
+    }
+
+    /// Puts the content preamble first in every isolated-world content script
+    /// entry. Main-world entries run as page code and are left alone.
+    static func prefixingContentScripts(_ scripts: [[String: Any]]) -> [[String: Any]] {
+        scripts.map { entry in
+            guard (entry["world"] as? String)?.uppercased() != "MAIN",
+                  let js = entry["js"] as? [String], !js.isEmpty, js.first != contentPreambleFile else { return entry }
+            var entry = entry
+            entry["js"] = [contentPreambleFile] + js.filter { $0 != contentPreambleFile }
+            return entry
+        }
     }
 
     /// Removes a preamble an earlier load added, so re-applying replaces it.
