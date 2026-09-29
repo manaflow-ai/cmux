@@ -15,6 +15,8 @@ import threading
 import time
 import uuid
 
+from claude_teams_test_utils import FIXTURE_SOCKET_PASSWORD, accept_fixture_socket_authentication
+
 
 def run_case(cli, agent, override=None):
     with tempfile.TemporaryDirectory(prefix="omp-naming-", dir="/tmp") as temporary:
@@ -65,9 +67,7 @@ def run_case(cli, agent, override=None):
                 with connection:
                     stream = connection.makefile("rwb")
                     for raw in stream:
-                        if raw == b"auth fixture-only\n":
-                            stream.write(b"OK\n")
-                            stream.flush()
+                        if accept_fixture_socket_authentication(raw, stream):
                             continue
                         request = json.loads(raw)
                         requests.append(request)
@@ -88,11 +88,10 @@ def run_case(cli, agent, override=None):
                 "CMUX_CLAUDE_HOOK_STATE_PATH": str(store),
                 "CMUX_SOCKET_PATH": socket_path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_SOCKET_PASSWORD": "fixture-only",
-                "CFFIXED_USER_HOME": temporary,
             }
             result = subprocess.run([
-                cli, "--socket", socket_path, "hooks", agent, "auto-name",
+                cli, "--socket", socket_path, "--password", FIXTURE_SOCKET_PASSWORD,
+                "hooks", agent, "auto-name",
                 "--session", session, "--workspace", workspace, "--surface", surface
             ], env=environment, capture_output=True, text=True, timeout=20)
         finally:
