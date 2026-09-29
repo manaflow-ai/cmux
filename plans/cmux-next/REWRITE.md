@@ -33,3 +33,4 @@ Design docs: cmux-tui-contract.md, inventory.md, browser.md, shell.md.
 ## Status
 
 - 2026-09-28: worktree created off main fde44232c35. Research wave launched.
+- 2026-09-28: app shell scaffold landed. `Packages/macOS/CmuxNext` (tools 6.2, Swift 6, `.macOS(.v26)`; modules CmuxNextApp, CmuxNextDesign, CmuxNextActions, CmuxNextDaemon placeholder, CmuxNextTerminal Ghostty host with manual-mirror IO, not yet wired into the window). Xcode target `cmux-next` (added by `scripts/cmux-next/add-xcode-target.py`), `cmux` scheme repointed to it, `cmux-legacy` scheme builds the old app. `swift build` and `xcodebuild -scheme cmux` pass on Xcode 27 and 26.3; no tagged launch or fleet build yet.
