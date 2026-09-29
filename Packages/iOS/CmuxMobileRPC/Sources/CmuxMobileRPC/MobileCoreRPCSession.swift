@@ -601,7 +601,7 @@ actor MobileCoreRPCSession {
             } else if error is CancellationError {
                 if connectionTask?.id == connectionID {
                     connectionTask = nil
-                    await connectAttemptRegistry.finishConnect(lease: connectLease)
+                    await abandonConnectionTask(connecting)
                 }
             } else if connectionTask?.id == connectionID {
                 connectionTask = nil
@@ -844,13 +844,19 @@ actor MobileCoreRPCSession {
             do {
                 try await withTaskCancellationHandler {
                     try Task.checkCancellation()
-                    guard await readiness?.permitsConnection != false else { throw CancellationError() }
+                    guard await readiness?.permitsConnection != false else {
+                        await cancellationClose.start(candidate)
+                        throw CancellationError()
+                    }
                     if let initialSessionPurpose,
                        let updating = candidate as? any CmxByteTransportSessionPurposeUpdating {
                         await updating.updateSessionPurpose(initialSessionPurpose)
                     }
                     try Task.checkCancellation()
-                    guard await readiness?.permitsConnection != false else { throw CancellationError() }
+                    guard await readiness?.permitsConnection != false else {
+                        await cancellationClose.start(candidate)
+                        throw CancellationError()
+                    }
                     try await candidate.connect()
                 } onCancel: {
                     Task.detached { await cancellationClose.start(candidate) }
