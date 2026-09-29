@@ -479,7 +479,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             .union(catalog.pendingRestoredMachineIDs)
             .subtracting(pendingMachineCreationIDs)
             .subtracting(seen)
-        if !staleIDs.isEmpty { machineWasDeleted(staleIDs) }
+        if !staleIDs.isEmpty { machineWasDeleted(staleIDs, invalidatesRefresh: false) }
         await links.retainAddresses(machineIDs: seen)
         guard !isRetired, generation == refreshGeneration else { return nil }
         for summary in page.vms {

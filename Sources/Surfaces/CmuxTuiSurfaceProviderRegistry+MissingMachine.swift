@@ -14,10 +14,11 @@ extension CmuxTuiSurfaceProviderRegistry {
     /// Retires several missing machines after one local workspace scan.
     func machineWasDeleted(
         _ rawIDs: Set<String>,
-        closeLocalWorkspaces: (@MainActor (Set<String>) -> Void)? = nil
+        closeLocalWorkspaces: (@MainActor (Set<String>) -> Void)? = nil,
+        invalidatesRefresh: Bool = true
     ) {
         (closeLocalWorkspaces ?? { AppDelegate.shared?.closeLocalWorkspaces(forCloudVMIDs: $0) })(rawIDs)
-        refreshGeneration &+= 1
+        if invalidatesRefresh { refreshGeneration &+= 1 }
         for rawID in rawIDs { unregisterMachine(rawID) }
     }
 
