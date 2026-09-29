@@ -54,7 +54,7 @@ extension CompatWorld {
         if let uuid = CompatUUID.canonical(text) {
             if let found = surfaces[uuid] { return found }
             let hex = uuid.replacingOccurrences(of: "-", with: "").lowercased()
-            if let found = surfaces.values.first(where: { $0.tab.terminalID?.rawValue == hex }) { return found }
+            if let found = surfaces.values.first(where: { $0.tab.terminalID == hex }) { return found }
         }
         if let (kind, number) = CompatRefRegistry.parse(text) {
             guard kind == .surface else { throw CompatErrors.invalid("expected a surface handle, got \(text)") }
@@ -63,7 +63,7 @@ extension CompatWorld {
             let candidates = scope.map(orderedSurfaces(in:)) ?? []
             if let found = candidates.first(where: { $0.index == index }) { return found }
         } else if let found = surfaces.values.first(where: {
-            $0.modelID == text || $0.tab.terminalResourceID?.rawValue == text || $0.tab.terminalID?.rawValue == text
+            $0.modelID == text || $0.tab.terminalID == text
         }) {
             return found
         }

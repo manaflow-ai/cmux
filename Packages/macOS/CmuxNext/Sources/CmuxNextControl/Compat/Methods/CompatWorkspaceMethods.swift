@@ -5,19 +5,19 @@ import Foundation
 /// window shows is an App intent.
 enum CompatWorkspaceMethods {
     static let table: [String: CompatHandler] = [
-        "workspace.list": list,
-        "workspace.current": current,
-        "workspace.create": create,
-        "workspace.select": select,
-        "workspace.close": close,
-        "workspace.rename": rename,
-        "workspace.next": { call in try await step(call, by: 1) },
-        "workspace.previous": { call in try await step(call, by: -1) },
-        "workspace.reorder": reorder,
+        "workspace.list": .read(list),
+        "workspace.current": .read(current),
+        "workspace.create": .async(create),
+        "workspace.select": .async(select),
+        "workspace.close": .async(close),
+        "workspace.rename": .async(rename),
+        "workspace.next": .async({ call in try await step(call, by: 1) }),
+        "workspace.previous": .async({ call in try await step(call, by: -1) }),
+        "workspace.reorder": .async(reorder),
     ]
 
-    static func list(_ call: CompatCall) async throws -> JSON {
-        let world = try await call.world()
+    static func list(_ call: CompatCall) throws -> JSON {
+        let world = try call.snapshotWorld()
         let window = try call.target(world).window()
         var result = CompatJSON.ids(window: window, include: ["window"])
         result["workspaces"] = .array(world.workspaces.map {
@@ -26,8 +26,8 @@ enum CompatWorkspaceMethods {
         return .object(result)
     }
 
-    static func current(_ call: CompatCall) async throws -> JSON {
-        let world = try await call.world()
+    static func current(_ call: CompatCall) throws -> JSON {
+        let world = try call.snapshotWorld()
         let window = try call.target(world).window()
         guard let workspace = world.currentWorkspace(window: window) else { throw CompatErrors.notFound("workspace", "selected") }
         var result = CompatJSON.ids(window: window, workspace: workspace)
@@ -64,7 +64,7 @@ enum CompatWorkspaceMethods {
         var world = try await call.world()
         let window = try? call.target(world).window()
         if call.wantsFocus {
-            try await service.perform(.showWorkspace(workspaceID: created.key.rawValue, windowID: window?.modelID))
+            try await call.perform(.showWorkspace(workspaceID: created.key.rawValue, windowID: window?.modelID))
             world = try await call.world()
         }
         let workspace = world.workspaces.first { $0.key == created.key }
@@ -83,7 +83,7 @@ enum CompatWorkspaceMethods {
         guard let raw = call.string("workspace_id") else { throw CompatErrors.invalid("Missing or invalid workspace_id") }
         let workspace = try world.resolveWorkspace(raw, refs: call.service.refs)
         let window = try call.target(world).window()
-        try await call.service.perform(.showWorkspace(workspaceID: workspace.modelID, windowID: window?.modelID))
+        try await call.perform(.showWorkspace(workspaceID: workspace.modelID, windowID: window?.modelID))
         let after = try await call.world()
         let shownIn = after.window(window?.uuid) ?? after.window(after.workspace(workspace.uuid)?.windowUUIDs.first)
         return .object(CompatJSON.ids(window: shownIn, workspace: workspace))
@@ -124,7 +124,7 @@ enum CompatWorkspaceMethods {
         }
         let count = world.workspaces.count
         let next = world.workspaces[((current.index + offset) % count + count) % count]
-        try await call.service.perform(.showWorkspace(workspaceID: next.modelID, windowID: window?.modelID))
+        try await call.perform(.showWorkspace(workspaceID: next.modelID, windowID: window?.modelID))
         return .object(CompatJSON.ids(window: window, workspace: next))
     }
 

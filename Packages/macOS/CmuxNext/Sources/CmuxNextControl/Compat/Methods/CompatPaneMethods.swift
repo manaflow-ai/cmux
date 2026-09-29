@@ -4,15 +4,15 @@ import Foundation
 /// `pane.*`: layout forwards to cmux-tui; focus is an App intent.
 enum CompatPaneMethods {
     static let table: [String: CompatHandler] = [
-        "pane.list": list,
-        "pane.surfaces": surfaces,
-        "pane.focus": focus,
-        "pane.create": create,
-        "pane.swap": swap,
+        "pane.list": .read(list),
+        "pane.surfaces": .read(surfaces),
+        "pane.focus": .async(focus),
+        "pane.create": .async(create),
+        "pane.swap": .async(swap),
     ]
 
-    static func list(_ call: CompatCall) async throws -> JSON {
-        let world = try await call.world()
+    static func list(_ call: CompatCall) throws -> JSON {
+        let world = try call.snapshotWorld()
         let target = call.target(world)
         let workspace = try target.workspace()
         var result = CompatJSON.ids(window: try target.window(), workspace: workspace)
@@ -20,8 +20,8 @@ enum CompatPaneMethods {
         return .object(result)
     }
 
-    static func surfaces(_ call: CompatCall) async throws -> JSON {
-        let world = try await call.world()
+    static func surfaces(_ call: CompatCall) throws -> JSON {
+        let world = try call.snapshotWorld()
         let target = call.target(world)
         let pane = try target.pane()
         let workspace = world.workspace(pane.workspaceUUID)
@@ -40,7 +40,7 @@ enum CompatPaneMethods {
         let pane = try target.pane()
         guard let workspace = world.workspace(pane.workspaceUUID) else { throw CompatErrors.notFound("workspace", pane.workspaceUUID) }
         let window = try target.window()
-        try await call.service.perform(.focusPane(paneID: pane.modelID, workspaceID: workspace.modelID, windowID: window?.modelID))
+        try await call.perform(.focusPane(paneID: pane.modelID, workspaceID: workspace.modelID, windowID: window?.modelID))
         return .object(CompatJSON.ids(window: window, workspace: workspace, pane: pane))
     }
 

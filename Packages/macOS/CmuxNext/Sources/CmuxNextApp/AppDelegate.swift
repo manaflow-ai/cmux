@@ -48,8 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The old `cmux` CLI's v2/v1 verbs (plans/cmux-next/cli-compat.md).
     private func installCompat(on control: ControlService) {
         let frontend = services.compat!
-        let compat = CompatService(identity: control.router.identity, frontend: frontend,
-                                   terminalEnvironment: environment.launch.terminalEnvironment) { frontend.currentConnection() }
+        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.launch.terminalEnvironment) {
+            frontend.currentConnection()
+        }
         compat.install(on: control.router)
     }
 

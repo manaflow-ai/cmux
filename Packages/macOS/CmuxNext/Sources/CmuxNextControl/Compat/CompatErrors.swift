@@ -26,6 +26,8 @@ enum CompatErrors {
         invalid("\(method) requires params.\(param)")
     }
 
+    static let stopped = ControlError(code: "unavailable", message: "the control service stopped")
+
     static let notConnected = ControlError(code: "unavailable", message: "cmux-tui daemon is not connected yet")
 
     static func timeout(_ what: String, _ duration: Duration) -> ControlError {

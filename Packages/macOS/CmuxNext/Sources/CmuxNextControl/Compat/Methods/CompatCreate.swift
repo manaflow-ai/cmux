@@ -85,7 +85,7 @@ enum CompatCreate {
         }
         let window = try? call.target(world).window()
         if call.wantsFocus {
-            try await call.service.perform(.selectTab(tabID: surface.modelID, paneID: world.panes[surface.paneUUID]?.modelID ?? "",
+            try await call.perform(.selectTab(tabID: surface.modelID, paneID: world.panes[surface.paneUUID]?.modelID ?? "",
                                                       workspaceID: world.workspace(surface.workspaceUUID)?.modelID ?? "",
                                                       windowID: window?.modelID))
             world = try await call.world()

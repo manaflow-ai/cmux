@@ -6,15 +6,15 @@ import Foundation
 /// has no subtitle field, so a subtitle is folded into the body's first line.
 enum CompatNotificationMethods {
     static let table: [String: CompatHandler] = [
-        "notification.create": create,
-        "notification.create_for_target": create,
-        "notification.create_for_surface": create,
-        "notification.create_for_caller": create,
-        "notification.list": list,
-        "notification.clear": clear,
-        "notification.dismiss": dismiss,
-        "notification.mark_read": dismiss,
-        "notification.jump_to_unread": jumpToUnread,
+        "notification.create": .async(create),
+        "notification.create_for_target": .async(create),
+        "notification.create_for_surface": .async(create),
+        "notification.create_for_caller": .async(create),
+        "notification.list": .async(list),
+        "notification.clear": .async(clear),
+        "notification.dismiss": .async(dismiss),
+        "notification.mark_read": .async(dismiss),
+        "notification.jump_to_unread": .async(jumpToUnread),
     ]
 
     static func create(_ call: CompatCall) async throws -> JSON {
@@ -91,7 +91,7 @@ enum CompatNotificationMethods {
                 scope = [one]
             }
         }
-        let cleared = try await acknowledge(scope.filter { $0.tab.notification?.unread == true }, service: call.service)
+        let cleared = try await acknowledge(scope.filter { $0.tab.unread }, service: call.service)
         guard workspace != nil else { return ["cleared": JSON(cleared)] }
         var result = CompatJSON.ids(workspace: workspace, surface: surface, include: ["workspace", "surface"])
         result["cleared"] = true
@@ -130,9 +130,9 @@ enum CompatNotificationMethods {
 
     static func jumpToUnread(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
-        let unread = world.workspaces.flatMap { world.orderedSurfaces(in: $0) }.first { $0.tab.notification?.unread == true }
+        let unread = world.workspaces.flatMap { world.orderedSurfaces(in: $0) }.first { $0.tab.unread }
         guard let unread else { return ["jumped": false] }
-        try await CompatSurfaceMethods.select(unread, in: world, window: world.activeWindow, service: call.service)
+        try await CompatSurfaceMethods.select(unread, in: world, window: world.activeWindow, call: call)
         var result = CompatJSON.ids(window: world.activeWindow, workspace: world.workspace(unread.workspaceUUID), surface: unread)
         result["jumped"] = true
         return .object(result)

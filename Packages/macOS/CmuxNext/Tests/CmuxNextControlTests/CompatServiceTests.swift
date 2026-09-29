@@ -7,7 +7,7 @@ import Testing
 @Suite struct CompatServiceTests {
     func makeRouter() -> (ControlRouter, CompatService) {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
-        let service = CompatService(identity: testIdentity(), frontend: HeadlessCompatFrontend()) { nil }
+        let service = CompatService(frontend: HeadlessCompatFrontend()) { nil }
         service.install(on: router)
         return (router, service)
     }
@@ -33,8 +33,11 @@ import Testing
             Issue.record("expected failure")
             return
         }
+        // The snapshot has not loaded yet: reads fail fast instead of waiting.
         #expect(error.code == "unavailable")
         #expect(ContinuousClock.now - started < .seconds(1))
+        guard case .failure(let create) = await router.handle(ControlRequest(method: "workspace.create")) else { return }
+        #expect(create.code == "unavailable")
     }
 
     @Test func pingAndCapabilitiesMergeBuiltins() async throws {
@@ -52,7 +55,7 @@ import Testing
         #expect(await router.response(forLine: "ping") == "PONG")
         #expect(await router.response(forLine: "agent_journal_append {}").hasPrefix("ERROR: unsupported in cmux-next"))
         #expect(await router.response(forLine: "report_pwd /tmp") == "OK")
-        #expect(await router.response(forLine: "list_windows").hasPrefix("ERROR: cmux-tui daemon is not connected"))
+        #expect(await router.response(forLine: "list_windows").hasPrefix("ERROR: cmux-next has not loaded"))
         #expect(await router.response(forLine: "bogus_verb").hasPrefix("ERROR: Unknown command 'bogus_verb'"))
     }
 

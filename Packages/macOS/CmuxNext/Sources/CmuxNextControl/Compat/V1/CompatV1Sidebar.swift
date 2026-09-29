@@ -135,16 +135,22 @@ enum CompatV1Sidebar {
         let workspace = try await workspace(line, service)
         let entry = service.sidebar.workspace(workspace.uuid)
         let focus = world.focus(in: workspace)
-        let tab = focus.surface?.tab
-        var lines = [
+        let cwd: String = focus.surface?.tab.cwd ?? "none"
+        let branch: String = focus.surface?.tab.gitBranch.map { "\($0) unknown" } ?? "none"
+        var progress = "none"
+        if let value = entry.progress {
+            progress = String(format: "%.2f", value.value)
+            if let label = value.label { progress += " " + label }
+        }
+        var lines: [String] = [
             "tab=\(workspace.uuid)",
             "color=\(workspace.color ?? "none")",
-            "cwd=\(tab?.cwd ?? "none")",
-            "focused_cwd=\(tab?.cwd ?? "none")",
+            "cwd=\(cwd)",
+            "focused_cwd=\(cwd)",
             "focused_panel=\(focus.surface?.uuid ?? "none")",
-            "git_branch=" + (tab?.gitBranch.map { "\($0) unknown" } ?? "none"),
+            "git_branch=\(branch)",
             "pr=none", "pr_label=none", "ports=none",
-            "progress=" + (entry.progress.map { String(format: "%.2f", $0.value) + ($0.label.map { " \($0)" } ?? "") } ?? "none"),
+            "progress=\(progress)",
             "status_count=\(entry.statuses.count)",
         ]
         lines += sortedStatuses(entry).map { "  " + statusLine($0.key, $0.status) }

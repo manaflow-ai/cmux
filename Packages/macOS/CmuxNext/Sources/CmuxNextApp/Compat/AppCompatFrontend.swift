@@ -6,20 +6,19 @@ import CmuxNextSettings
 import Observation
 import Synchronization
 
-/// The App side of the cmux CLI compat layer (`CompatService`): publishes
-/// window/focus/selection state for off-main CLI reads, and runs the few
+/// The App side of the cmux CLI compat layer (`CompatService`): runs the
 /// CLI requests that change app-local state (show a workspace, focus a
-/// pane, select a tab, window open/focus/close, browser page operations).
+/// pane, select a tab, window open/focus/close) and browser page
+/// operations. CLI reads never come here; they answer from the published
+/// `ControlSnapshot`.
 ///
-/// Reads never touch the main actor: `snapshot()` and the daemon connection
-/// come from lock-protected copies republished on every change.
-/// `perform` runs on the main actor and republishes before returning.
+/// `perform` runs on the main actor through the router's bounded work
+/// queue and is short and synchronous. The daemon connection is mirrored
+/// into a lock so `CompatService` reads it off the main actor.
 @MainActor
 final class AppCompatFrontend: CompatFrontend {
     unowned let services: AppServices
-    private nonisolated let published = Mutex(CompatFrontendSnapshot())
     private nonisolated let connectionBox = Mutex<DaemonConnection?>(nil)
-    private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
 
     init(services: AppServices) {
@@ -30,52 +29,16 @@ final class AppCompatFrontend: CompatFrontend {
                 self?.connectionBox.withLock { $0 = connection }
             }
         }
-        observation = Task { [weak self] in
-            for await snapshot in Observations({ [weak self] in self?.makeSnapshot() ?? CompatFrontendSnapshot() }) {
-                self?.published.withLock { $0 = snapshot }
-            }
-        }
     }
 
     /// For `CompatService`'s connection provider (off-main).
     nonisolated func currentConnection() -> DaemonConnection? { connectionBox.withLock { $0 } }
 
-    nonisolated func snapshot() -> CompatFrontendSnapshot { published.withLock { $0 } }
-
-    /// Republishes now (window list and key-window changes are not observable).
-    func publish() {
-        let snapshot = makeSnapshot()
-        published.withLock { $0 = snapshot }
+    nonisolated func browser(tabID: String, url: String?, operation: CompatBrowserOperation) async throws -> CmuxNextSettings.JSONValue {
+        try await AppCompatBrowser.run(operation, tabID: tabID, url: url, services: services)
     }
 
-    private func makeSnapshot() -> CompatFrontendSnapshot {
-        guard let windows = services.windows else { return CompatFrontendSnapshot() }
-        let store = services.daemon.store
-        let records = windows.controllers.map { controller -> CompatFrontendSnapshot.Window in
-            let state = controller.state
-            var selected: [String: String] = [:]
-            if let workspace = state.workspaceID.flatMap({ id in store.workspaces.first { $0.id == id } }) {
-                for pane in workspace.screens.flatMap(\.panes) {
-                    if let tab = state.selection.selection(in: pane.id) { selected[pane.id] = tab }
-                }
-            }
-            for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
-                if let key = pane.currentTabKey { selected[pane.paneKey] = key }
-            }
-            let focused = state.workspaceID.flatMap { state.focusedPane[$0]?.rawValue }
-            return CompatFrontendSnapshot.Window(
-                id: state.id, workspaceID: state.workspaceID, focusedPaneID: focused, selectedTabs: selected,
-                isKey: controller.window?.isKeyWindow ?? false, isVisible: controller.window?.isVisible ?? false)
-        }
-        return CompatFrontendSnapshot(windows: records, activeWindowID: windows.active?.state.id)
-    }
-
-    nonisolated func perform(_ intent: CompatFrontendIntent) async throws -> CmuxNextSettings.JSONValue {
-        try await performOnMain(intent)
-    }
-
-    private func performOnMain(_ intent: CompatFrontendIntent) async throws -> CmuxNextSettings.JSONValue {
-        defer { publish() }
+    func perform(_ intent: CompatFrontendIntent) throws -> CmuxNextSettings.JSONValue {
         switch intent {
         case .showWorkspace(let workspaceID, let windowID):
             try show(workspaceID: workspaceID, windowID: windowID)
@@ -100,8 +63,6 @@ final class AppCompatFrontend: CompatFrontend {
             services.windows.didActivate(controller)
         case .closeWindow(let windowID):
             try window(windowID).close()
-        case .browser(let tabID, let url, let operation):
-            return try await AppCompatBrowser.run(operation, tabID: tabID, url: url, services: services)
         }
         return [:]
     }

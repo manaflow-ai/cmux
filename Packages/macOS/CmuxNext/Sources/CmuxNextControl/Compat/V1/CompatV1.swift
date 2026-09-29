@@ -107,7 +107,7 @@ enum CompatV1 {
                 scope = [try world.resolveSurface(panel, in: workspace, refs: service.refs)]
             }
         }
-        try await CompatNotificationMethods.acknowledge(scope.filter { $0.tab.notification?.unread == true }, service: service)
+        try await CompatNotificationMethods.acknowledge(scope.filter { $0.tab.unread }, service: service)
         return "OK"
     }
 

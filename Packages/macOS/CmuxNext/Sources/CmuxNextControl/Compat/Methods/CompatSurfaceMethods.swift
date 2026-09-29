@@ -5,21 +5,21 @@ import Foundation
 /// are App intents.
 enum CompatSurfaceMethods {
     static let table: [String: CompatHandler] = [
-        "surface.list": list,
-        "surface.current": current,
-        "surface.create": create,
-        "surface.split": split,
-        "surface.close": close,
-        "surface.focus": focus,
-        "surface.move": move,
-        "surface.reorder": move,
-        "surface.health": health,
-        "surface.action": CompatTabActions.run,
-        "tab.action": CompatTabActions.run,
+        "surface.list": .read(list),
+        "surface.current": .read(current),
+        "surface.create": .async(create),
+        "surface.split": .async(split),
+        "surface.close": .async(close),
+        "surface.focus": .async(focus),
+        "surface.move": .async(move),
+        "surface.reorder": .async(move),
+        "surface.health": .read(health),
+        "surface.action": .async(CompatTabActions.run),
+        "tab.action": .async(CompatTabActions.run),
     ]
 
-    static func list(_ call: CompatCall) async throws -> JSON {
-        let world = try await call.world()
+    static func list(_ call: CompatCall) throws -> JSON {
+        let world = try call.snapshotWorld()
         let target = call.target(world)
         let workspace = try target.workspace()
         var result = CompatJSON.ids(window: try target.window(), workspace: workspace)
@@ -27,8 +27,8 @@ enum CompatSurfaceMethods {
         return .object(result)
     }
 
-    static func current(_ call: CompatCall) async throws -> JSON {
-        let world = try await call.world()
+    static func current(_ call: CompatCall) throws -> JSON {
+        let world = try call.snapshotWorld()
         let target = call.target(world)
         let surface = try target.surface()
         var result = CompatJSON.ids(window: try target.window(), workspace: world.workspace(surface.workspaceUUID),
@@ -72,9 +72,8 @@ enum CompatSurfaceMethods {
     /// tabs through `close-surface`, like the App's tab strip.
     static func closeTab(_ surface: CompatWorld.Surface, service: CompatService) async throws {
         let handle = surface.handle
-        if surface.isTerminal, let terminal = surface.tab.terminalID {
-            let incarnation = surface.tab.terminalIncarnation
-            try await service.daemon("close-terminal") { try await $0.closeTerminal(terminal, incarnation: incarnation) }
+        if surface.isTerminal, let terminal = surface.tab.terminalID.map(TerminalID.init(rawValue:)) {
+            try await service.daemon("close-terminal") { try await $0.closeTerminal(terminal) }
         } else {
             try await service.daemon("close-surface") { try await $0.closeTab(handle) }
         }
@@ -86,12 +85,12 @@ enum CompatSurfaceMethods {
         let target = call.target(world)
         let surface = try target.surface()
         let window = try target.window()
-        try await select(surface, in: world, window: window, service: call.service)
+        try await select(surface, in: world, window: window, call: call)
         return .object(CompatJSON.ids(window: window, workspace: world.workspace(surface.workspaceUUID), surface: surface))
     }
 
-    static func select(_ surface: CompatWorld.Surface, in world: CompatWorld, window: CompatWorld.Window?, service: CompatService) async throws {
-        try await service.perform(.selectTab(tabID: surface.modelID, paneID: world.panes[surface.paneUUID]?.modelID ?? "",
+    static func select(_ surface: CompatWorld.Surface, in world: CompatWorld, window: CompatWorld.Window?, call: CompatCall) async throws {
+        try await call.perform(.selectTab(tabID: surface.modelID, paneID: world.panes[surface.paneUUID]?.modelID ?? "",
                                              workspaceID: world.workspace(surface.workspaceUUID)?.modelID ?? "",
                                              windowID: window?.modelID))
     }
@@ -136,13 +135,13 @@ enum CompatSurfaceMethods {
     static func moved(_ call: CompatCall, surface: CompatWorld.Surface) async throws -> JSON {
         let world = try await call.world()
         let now = world.surfaces[surface.uuid] ?? world.surfaces.values.first { $0.handle == surface.handle } ?? surface
-        if call.bool("focus") == true { try await select(now, in: world, window: world.activeWindow, service: call.service) }
+        if call.bool("focus") == true { try await select(now, in: world, window: world.activeWindow, call: call) }
         return .object(CompatJSON.ids(window: world.activeWindow, workspace: world.workspace(now.workspaceUUID),
                                       pane: world.panes[now.paneUUID], surface: now))
     }
 
-    static func health(_ call: CompatCall) async throws -> JSON {
-        let world = try await call.world()
+    static func health(_ call: CompatCall) throws -> JSON {
+        let world = try call.snapshotWorld()
         let target = call.target(world)
         let workspace = try target.workspace()
         let shown = Set(world.windows.compactMap(\.workspaceUUID))

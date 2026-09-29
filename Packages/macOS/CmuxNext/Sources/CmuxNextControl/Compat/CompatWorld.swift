@@ -61,13 +61,27 @@ struct CompatWorld: Sendable {
         var handle: SurfaceID
         var paneUUID: String
         var workspaceUUID: String
-        var tab: TabSnapshot
+        var tab: Tab
         var selected: Bool
         var focused: Bool
 
-        var isTerminal: Bool { tab.kind == .pty }
-        var typeName: String { tab.kind == .browser ? "browser" : "terminal" }
-        var title: String { tab.displayTitle }
+        var isTerminal: Bool { tab.kind == "terminal" }
+        var isBrowser: Bool { tab.kind == "browser" }
+        var typeName: String { tab.kind }
+        var title: String { tab.title }
+    }
+
+    /// What the CLI needs of a tab (from `ControlTabInfo`).
+    struct Tab: Sendable {
+        var kind: String
+        var title: String
+        var terminalID: String?
+        var cwd: String?
+        var url: String?
+        var gitBranch: String?
+        var pinned: Bool
+        var dead: Bool
+        var unread: Bool
     }
 
     var windows: [Window] = []

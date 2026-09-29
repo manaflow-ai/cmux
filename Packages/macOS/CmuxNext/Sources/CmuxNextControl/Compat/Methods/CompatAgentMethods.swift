@@ -6,15 +6,15 @@ import Foundation
 /// needs process tracking the daemon owns (`list-agents`), not yet mapped.
 enum CompatAgentMethods {
     static let table: [String: CompatHandler] = [
-        "agent.resolve_delivery_target": resolveDeliveryTarget,
+        "agent.resolve_delivery_target": .read(resolveDeliveryTarget),
     ]
 
-    static func resolveDeliveryTarget(_ call: CompatCall) async throws -> JSON {
+    static func resolveDeliveryTarget(_ call: CompatCall) throws -> JSON {
         guard call.string("surface_id") != nil else {
             throw ControlError(code: "not_found", message: "No live delivery target",
                                data: ["reason": "cmux-next resolves delivery targets by surface_id only"])
         }
-        let world = try await call.world()
+        let world = try call.snapshotWorld()
         guard let surface = try? call.target(world).surface() else {
             throw ControlError(code: "not_found", message: "No live delivery target")
         }

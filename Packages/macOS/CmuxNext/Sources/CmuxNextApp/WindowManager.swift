@@ -26,10 +26,7 @@ final class WindowManager {
         return lastActive ?? controllers.first
     }
 
-    func didActivate(_ controller: WindowController) {
-        lastActive = controller
-        services.compat.publish()
-    }
+    func didActivate(_ controller: WindowController) { lastActive = controller }
 
     // MARK: Restore
 
@@ -122,7 +119,6 @@ final class WindowManager {
     func windowWillClose(_ controller: WindowController) {
         controllers.removeAll { $0 === controller }
         controller.teardown()
-        services.compat.publish()
         guard !isTerminating, let windowState = services.daemon.windowState else { return }
         let id = controller.state.id
         Task { try? await windowState.removeWindow(id: id) }
@@ -131,7 +127,6 @@ final class WindowManager {
     // MARK: Persistence
 
     func stateDidChange(_ state: WindowState) {
-        services.compat.publish()
         guard restored, !isTerminating else { return }
         saveTask?.cancel()
         saveTask = Task { [weak self] in
@@ -159,6 +154,8 @@ final class WindowManager {
         saveTask?.cancel()
         await saveNow()
         isTerminating = true
+        // Close Chromium before exit without spinning the run loop (5a).
+        await services.cache.cef.shutdown()
     }
 
     private func currentRecords() -> [WindowRecord] {

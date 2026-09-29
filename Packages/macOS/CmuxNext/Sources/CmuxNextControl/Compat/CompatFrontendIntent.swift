@@ -10,9 +10,6 @@ public enum CompatFrontendIntent: Sendable, Hashable {
     case newWindow(workspaceID: String?)
     case focusWindow(windowID: String)
     case closeWindow(windowID: String)
-    /// Runs a browser operation on the page of a browser tab, creating the
-    /// page if the tab was never shown.
-    case browser(tabID: String, url: String?, operation: CompatBrowserOperation)
 }
 
 public enum CompatBrowserOperation: Sendable, Hashable {

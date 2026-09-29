@@ -53,6 +53,7 @@ final class TerminalEventQueue: @unchecked Sendable {
         items.append(event)
         outputBytes += Self.outputSize(event)
         while armed, !finished, outputBytes > highWater {
+            // concurrency-allow: runs only on the attach connection's dedicated reader thread (LineTransport), never the main thread; this is the designed backpressure that makes the daemon drop a slow view.
             condition.wait()
         }
         condition.unlock()

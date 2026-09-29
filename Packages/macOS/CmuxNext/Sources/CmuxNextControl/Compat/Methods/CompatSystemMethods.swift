@@ -5,37 +5,37 @@ import Foundation
 /// sidebar lists every workspace, so a window "contains" all of them.
 enum CompatSystemMethods {
     static let table: [String: CompatHandler] = [
-        "system.ping": { _ in ["pong": true] },
-        "system.capabilities": capabilities,
-        "system.identify": identify,
-        "system.tree": tree,
-        "window.list": { call in
-            let world = try await call.world()
+        "system.ping": .read({ _ in ["pong": true] }),
+        "system.capabilities": .read(capabilities),
+        "system.identify": .read(identify),
+        "system.tree": .read(tree),
+        "window.list": .read({ call in
+            let world = try call.snapshotWorld()
             return ["windows": .array(world.windows.map { .object(CompatJSON.window($0, in: world)) })]
-        },
-        "window.current": { call in
-            let world = try await call.world()
+        }),
+        "window.current": .read({ call in
+            let world = try call.snapshotWorld()
             guard let window = try call.target(world).window() else { throw CompatErrors.notFound("window", "current") }
             return .object(CompatJSON.ids(window: window, include: ["window"]))
-        },
-        "window.create": { call in try await newWindow(call) },
-        "window.focus": { call in try await windowIntent(call) { .focusWindow(windowID: $0.modelID) } },
-        "window.close": { call in try await windowIntent(call) { .closeWindow(windowID: $0.modelID) } },
+        }),
+        "window.create": .async({ call in try await newWindow(call) }),
+        "window.focus": .async({ call in try await windowIntent(call) { .focusWindow(windowID: $0.modelID) } }),
+        "window.close": .async({ call in try await windowIntent(call) { .closeWindow(windowID: $0.modelID) } }),
     ]
 
-    static func capabilities(_ call: CompatCall) async throws -> JSON {
+    static func capabilities(_ call: CompatCall) throws -> JSON {
         let transport = call.service.router?.transportInfo
         return [
             "protocol": "cmux-socket", "version": 2,
             "socket_path": transport?.socketPath.map(JSON.string) ?? .null,
             "access_mode": transport?.accessMode.map(JSON.string) ?? .null,
             "capabilities": ["cmux-next", "daemon-forwarding"],
-            "methods": .array((call.service.router?.allMethods ?? call.service.methods).sorted().map(JSON.string)),
+            "methods": .array((call.service.router?.methodNames ?? []).sorted().map(JSON.string)),
             "unsupported_namespaces": .array(CompatUnsupported.namespaces.keys.sorted().map(JSON.string)),
         ]
     }
 
-    static func identify(_ call: CompatCall) async throws -> JSON {
+    static func identify(_ call: CompatCall) throws -> JSON {
         let service = call.service
         var result: [String: JSON] = [
             "socket_path": service.router?.transportInfo.socketPath.map(JSON.string) ?? .null,
@@ -47,7 +47,7 @@ enum CompatSystemMethods {
             "tag": service.identity.tag.map(JSON.string) ?? .null, "pid": JSON(Int(service.identity.processID)),
             "focused": .null, "caller": .null,
         ]
-        guard let world = try? await call.world() else { return .object(result) }
+        guard let world = try? call.snapshotWorld() else { return .object(result) }
         let target = call.target(world)
         let window = try? target.window()
         if let workspace = world.currentWorkspace(window: window) {
@@ -75,8 +75,8 @@ enum CompatSystemMethods {
         return CompatJSON.focusObject(window: window, workspace: workspace, pane: pane, surface: surface)
     }
 
-    static func tree(_ call: CompatCall) async throws -> JSON {
-        let world = try await call.world()
+    static func tree(_ call: CompatCall) throws -> JSON {
+        let world = try call.snapshotWorld()
         let target = call.target(world)
         if call.params["window_id"] != nil, call.bool("all_windows") == true {
             throw CompatErrors.invalid("window_id and all_windows are mutually exclusive")
@@ -116,7 +116,7 @@ enum CompatSystemMethods {
     static func newWindow(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
         let workspace = try? call.target(world).workspace()
-        let result = try await call.service.perform(.newWindow(workspaceID: workspace?.modelID))
+        let result = try await call.perform(.newWindow(workspaceID: workspace?.modelID))
         let after = try await call.world()
         let window = result["window_id"]?.stringValue.flatMap { id in after.windows.first { $0.modelID == id } }
         return .object(CompatJSON.ids(window: window, include: ["window"]))
@@ -126,7 +126,7 @@ enum CompatSystemMethods {
         let world = try await call.world()
         guard let raw = call.string("window_id") else { throw CompatErrors.missing("window_id", call.method) }
         let window = try world.resolveWindow(raw, refs: call.service.refs)
-        try await call.service.perform(make(window))
+        try await call.perform(make(window))
         return .object(CompatJSON.ids(window: window, include: ["window"]))
     }
 }

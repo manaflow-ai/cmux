@@ -7,22 +7,22 @@ import Foundation
 /// in the App, so every page operation is an App intent.
 enum CompatBrowserMethods {
     static let table: [String: CompatHandler] = [
-        "browser.open_split": openSplit,
-        "browser.navigate": { call in try await page(call) { .navigate(try call.require("url")) } },
-        "browser.back": { call in try await page(call) { .back } },
-        "browser.forward": { call in try await page(call) { .forward } },
-        "browser.reload": { call in try await page(call) { .reload } },
-        "browser.url.get": { call in try await stateField(call, "url") },
-        "browser.get.url": { call in try await stateField(call, "url") },
-        "browser.get.title": { call in try await stateField(call, "title") },
-        "browser.eval": eval,
-        "browser.snapshot": snapshot,
-        "browser.click": { call in try await action(call, CompatBrowserScripts.click) },
-        "browser.fill": { call in try await action(call, CompatBrowserScripts.fill) },
-        "browser.type": { call in try await action(call, CompatBrowserScripts.type) },
-        "browser.focus": { call in try await action(call, CompatBrowserScripts.focus) },
-        "browser.get.text": { call in try await action(call, CompatBrowserScripts.text) },
-        "browser.get.value": { call in try await action(call, CompatBrowserScripts.value) },
+        "browser.open_split": .async(openSplit),
+        "browser.navigate": .async({ call in try await page(call) { .navigate(try call.require("url")) } }),
+        "browser.back": .async({ call in try await page(call) { .back } }),
+        "browser.forward": .async({ call in try await page(call) { .forward } }),
+        "browser.reload": .async({ call in try await page(call) { .reload } }),
+        "browser.url.get": .async({ call in try await stateField(call, "url") }),
+        "browser.get.url": .async({ call in try await stateField(call, "url") }),
+        "browser.get.title": .async({ call in try await stateField(call, "title") }),
+        "browser.eval": .async(eval),
+        "browser.snapshot": .async(snapshot),
+        "browser.click": .async({ call in try await action(call, CompatBrowserScripts.click) }),
+        "browser.fill": .async({ call in try await action(call, CompatBrowserScripts.fill) }),
+        "browser.type": .async({ call in try await action(call, CompatBrowserScripts.type) }),
+        "browser.focus": .async({ call in try await action(call, CompatBrowserScripts.focus) }),
+        "browser.get.text": .async({ call in try await action(call, CompatBrowserScripts.text) }),
+        "browser.get.value": .async({ call in try await action(call, CompatBrowserScripts.value) }),
     ]
 
     static func browserSurface(_ call: CompatCall) async throws -> (CompatWorld, CompatWorld.Surface, CompatTarget) {
@@ -30,20 +30,25 @@ enum CompatBrowserMethods {
         let target = call.target(world)
         let explicit = call.string("surface_id") ?? call.string("tab_id") ?? call.string("panel_id")
         let surface = try target.surface()
-        guard surface.tab.kind == .browser else {
+        guard surface.isBrowser else {
             throw explicit == nil
                 ? ControlError(code: "not_found", message: "No focused browser surface")
                 : CompatErrors.invalid("Surface is not a browser")
-        }
-        guard surface.tab.isFrontendOwned else {
-            throw CompatErrors.unsupported("daemon-rendered (CDP) browser tabs are driven by cmux-tui browser commands", method: call.method)
         }
         return (world, surface, target)
     }
 
     static func run(_ call: CompatCall, _ surface: CompatWorld.Surface, _ operation: CompatBrowserOperation) async throws -> JSON {
-        try await call.service.perform(.browser(tabID: surface.modelID, url: surface.tab.url, operation: operation),
-                                       within: CompatDeadline.browser)
+        let frontend = call.service.frontend
+        let tabID = surface.modelID
+        let url = surface.tab.url
+        do {
+            return try await frontend.browser(tabID: tabID, url: url, operation: operation)
+        } catch let error as ControlError {
+            throw error
+        } catch {
+            throw ControlError(code: "app_error", message: String(describing: error))
+        }
     }
 
     static func base(_ world: CompatWorld, _ surface: CompatWorld.Surface, _ target: CompatTarget) -> [String: JSON] {

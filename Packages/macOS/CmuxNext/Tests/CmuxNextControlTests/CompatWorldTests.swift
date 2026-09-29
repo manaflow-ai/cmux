@@ -46,11 +46,11 @@ func sampleTree() -> DaemonTree {
 
     @Test func buildOrdersByLayoutAndUsesFrontendFocus() throws {
         let refs = CompatRefRegistry()
-        let frontend = CompatFrontendSnapshot(windows: [
-            .init(id: "win-1", workspaceID: "11111111-1111-4111-8111-111111111111",
-                  focusedPaneID: "pane_00000000000000000000000000000003", isKey: true),
-        ], activeWindowID: "win-1")
-        let world = CompatWorld(tree: sampleTree(), frontend: frontend, refs: refs)
+        var app = ControlTopology()
+        app.windows = [ControlWindowInfo(id: "win-1", workspaceID: "11111111-1111-4111-8111-111111111111", isKey: true,
+                                         isVisible: true, focusedPaneID: "pane_00000000000000000000000000000003")]
+        app.focus = ControlFocus(windowID: "win-1")
+        let world = CompatWorld(topology: CompatFreshTopology.make(tree: sampleTree(), appState: app), refs: refs)
         #expect(world.workspaces.map(\.title) == ["alpha", "Beta!"])
         let alpha = world.workspaces[0]
         let panes = world.orderedPanes(in: alpha)
@@ -60,14 +60,14 @@ func sampleTree() -> DaemonTree {
         // No frontend selection for pane 2: the daemon's active_tab wins.
         #expect(world.surfaces[panes[0].selectedSurfaceUUID ?? ""]?.title == "vim")
         let focus = world.focus(in: alpha)
-        #expect(focus.surface?.typeName == "browser" && focus.surface?.focused == true)
+        #expect(focus.surface?.isBrowser == true && focus.surface?.focused == true)
         #expect(world.currentWorkspace(window: world.activeWindow)?.uuid == alpha.uuid)
         #expect(alpha.windowUUIDs == [world.windows[0].uuid])
     }
 
     @Test func resolvesUUIDsRefsIndexesAndTerminalAliases() throws {
         let refs = CompatRefRegistry()
-        let world = CompatWorld(tree: sampleTree(), frontend: CompatFrontendSnapshot(), refs: refs)
+        let world = CompatWorld(topology: CompatFreshTopology.make(tree: sampleTree(), appState: ControlTopology()), refs: refs)
         let beta = try world.resolveWorkspace("22222222-2222-4222-8222-222222222222", refs: refs)
         #expect(try world.resolveWorkspace(beta.ref, refs: refs).uuid == beta.uuid)
         #expect(try world.resolveWorkspace("1", refs: refs).uuid == beta.uuid)
@@ -76,14 +76,14 @@ func sampleTree() -> DaemonTree {
         #expect(vim.title == "vim")
         let zsh = try world.resolveSurface("AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", in: nil, refs: refs)
         #expect(zsh.title == "zsh")
-        #expect(try world.resolveSurface("tab_00000000000000000000000000000013", in: nil, refs: refs).typeName == "browser")
+        #expect(try world.resolveSurface("tab_00000000000000000000000000000013", in: nil, refs: refs).isBrowser)
         #expect(throws: ControlError.self) { try world.resolvePane("pane:999", in: alpha, refs: refs) }
         #expect(throws: ControlError.self) { try world.resolveWorkspace("pane:1", refs: refs) }
     }
 
     @Test func targetFallsBackFromSurfaceToItsWorkspace() throws {
         let refs = CompatRefRegistry()
-        let world = CompatWorld(tree: sampleTree(), frontend: CompatFrontendSnapshot(), refs: refs)
+        let world = CompatWorld(topology: CompatFreshTopology.make(tree: sampleTree(), appState: ControlTopology()), refs: refs)
         let logs = world.surfaces.values.first { $0.title == "logs" }!
         let target = CompatTarget(world: world, refs: refs, params: ["surface_id": .string(logs.uuid)])
         #expect(try target.workspace().title == "Beta!")

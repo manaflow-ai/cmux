@@ -5,11 +5,11 @@ import Foundation
 /// `read-scrollback`, `clear-history`.
 enum CompatTerminalMethods {
     static let table: [String: CompatHandler] = [
-        "surface.send_text": sendText,
-        "surface.send_key": sendKey,
-        "surface.read_text": readText,
-        "surface.clear_history": clearHistory,
-        "terminal.paste": { call in try await sendText(call, paste: true) },
+        "surface.send_text": .async(sendText),
+        "surface.send_key": .async(sendKey),
+        "surface.read_text": .async(readText),
+        "surface.clear_history": .async(clearHistory),
+        "terminal.paste": .async({ call in try await sendText(call, paste: true) }),
     ]
 
     static func terminal(_ call: CompatCall) async throws -> (CompatWorld, CompatWorld.Surface, CompatTarget) {

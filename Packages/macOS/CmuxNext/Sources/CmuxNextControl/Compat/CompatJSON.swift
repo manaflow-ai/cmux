@@ -72,16 +72,13 @@ enum CompatJSON {
             "selected_in_pane": .bool(surface.selected),
             "pane_id": pane.map { .string($0.uuid) } ?? .null, "pane_ref": pane.map { .string($0.ref) } ?? .null,
             "index_in_pane": JSON(surface.indexInPane),
-            "url": surface.tab.kind == .browser ? .string(surface.tab.url ?? "") : .null,
+            "url": surface.isBrowser ? .string(surface.tab.url ?? "") : .null,
             "tty": .null, "pinned": .bool(surface.tab.pinned),
             "current_directory": surface.tab.cwd.map(JSON.string) ?? .null,
             "git_branch": surface.tab.gitBranch.map(JSON.string) ?? .null,
-            "terminal_id": surface.tab.terminalID.map { .string(CompatUUID.fromHex(Substring($0.rawValue)) ?? $0.rawValue) } ?? .null,
+            "terminal_id": surface.tab.terminalID.map { .string(CompatUUID.fromHex(Substring($0)) ?? $0) } ?? .null,
             "exited": .bool(surface.tab.dead),
         ]
-        if surface.tab.kind == .browser {
-            item["browser_engine"] = surface.tab.browserEngine.map(JSON.string) ?? .null
-        }
         return item
     }
 
@@ -92,7 +89,7 @@ enum CompatJSON {
         out["tab_id"] = out["surface_id"]
         out["tab_ref"] = out["surface_ref"]
         out["surface_type"] = surface.map { .string($0.typeName) } ?? .null
-        out["is_browser_surface"] = .bool(surface?.tab.kind == .browser)
+        out["is_browser_surface"] = .bool(surface?.isBrowser == true)
         return .object(out)
     }
 

@@ -2,60 +2,44 @@ import CmuxNextDaemon
 import Foundation
 
 extension CompatWorld {
-    /// Joins the daemon tree with the App's frontend state. Workspaces keep
-    /// daemon order; panes follow screen order, then layout order; surfaces
-    /// follow pane order, then strip order.
-    init(tree: DaemonTree, frontend: CompatFrontendSnapshot, refs: CompatRefRegistry) {
-        generation = tree.generation?.rawValue
-        var windowByWorkspace: [String: [String]] = [:]
-        for (index, record) in frontend.windows.enumerated() {
-            let uuid = CompatUUID.canonical(record.id) ?? CompatUUID.hashed("window:" + record.id)
-            let workspaceUUID = record.workspaceID.map(Self.workspaceUUID(modelID:))
-            if let workspaceUUID { windowByWorkspace[workspaceUUID, default: []].append(uuid) }
-            windows.append(Window(uuid: uuid, ref: refs.ref(.window, uuid), index: index, modelID: record.id,
-                                  workspaceUUID: workspaceUUID, isKey: record.isKey, isVisible: record.isVisible))
-            if record.id == frontend.activeWindowID { activeWindowUUID = uuid }
+    /// Builds the CLI view of a `ControlTopology`: old-app UUIDs, refs, and
+    /// indexes. Workspaces keep topology order, panes screen then pane
+    /// order, surfaces pane then strip order. Focus and selection come from
+    /// the topology's windows and panes (app-local state), falling back to
+    /// the first pane and tab.
+    init(topology: ControlTopology, refs: CompatRefRegistry) {
+        let activeWindowID = topology.focus.windowID ?? topology.windows.first(where: \.isKey)?.id ?? topology.windows.first?.id
+        var windowsByWorkspace: [String: [String]] = [:]
+        for (index, info) in topology.windows.enumerated() {
+            let uuid = CompatUUID.canonical(info.id) ?? CompatUUID.hashed("window:" + info.id)
+            let workspaceUUID = info.workspaceID.map(Self.workspaceUUID(modelID:))
+            if let workspaceUUID { windowsByWorkspace[workspaceUUID, default: []].append(uuid) }
+            windows.append(Window(uuid: uuid, ref: refs.ref(.window, uuid), index: index, modelID: info.id,
+                                  workspaceUUID: workspaceUUID, isKey: info.isKey, isVisible: info.isVisible))
+            if info.id == activeWindowID { activeWindowUUID = uuid }
         }
-        if activeWindowUUID == nil { activeWindowUUID = windows.first(where: \.isKey)?.uuid ?? windows.first?.uuid }
-
-        for (workspaceIndex, snapshot) in tree.workspaces.enumerated() {
-            let modelID = snapshot.key?.rawValue ?? "handle:\(snapshot.id.rawValue)"
-            let workspaceUUID = Self.workspaceUUID(modelID: modelID)
-            let shownIn = frontend.windows.filter { $0.workspaceID == modelID }
-            let frontFocus = shownIn.first(where: { $0.id == frontend.activeWindowID }) ?? shownIn.first
-            var selectedTabs: [String: String] = [:]
-            for window in shownIn.reversed() { selectedTabs.merge(window.selectedTabs) { _, new in new } }
-            if let frontFocus { selectedTabs.merge(frontFocus.selectedTabs) { _, new in new } }
-
+        for (workspaceIndex, info) in topology.workspaces.enumerated() {
+            let workspaceUUID = Self.workspaceUUID(modelID: info.id)
+            let shownIn = topology.windows.filter { $0.workspaceID == info.id }
+            let front = shownIn.first { $0.id == activeWindowID } ?? shownIn.first
+            let focusedModel = front?.focusedPaneID ?? (topology.focus.workspaceID == info.id ? topology.focus.paneID : nil)
             var paneUUIDs: [String] = []
             var surfaceUUIDs: [String] = []
             var focusedPane: String?
-            let activeScreen = snapshot.screens.firstIndex(where: \.active) ?? 0
-            for (screenIndex, screen) in snapshot.screens.enumerated() {
-                let byID = Dictionary(screen.panes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                var order = screen.columns.isEmpty ? screen.layout.paneIDs : screen.columns.flatMap(\.layout.paneIDs)
-                order += screen.panes.map(\.id).filter { !order.contains($0) }
-                for paneID in order {
-                    guard let pane = byID[paneID], !pane.dead else { continue }
-                    let paneModelID = pane.resourceID?.rawValue ?? "pane:\(pane.id.rawValue)"
-                    let paneUUID = CompatUUID.from(resourceID: paneModelID)
-                    let isFrontFocused = frontFocus?.focusedPaneID == paneModelID
-                    let isDaemonActive = screenIndex == activeScreen && screen.activePane == pane.id
-                    if isFrontFocused || (focusedPane == nil && frontFocus?.focusedPaneID == nil && isDaemonActive) {
-                        focusedPane = paneUUID
-                    }
+            for (screenIndex, screen) in info.screens.enumerated() {
+                for pane in screen.panes {
+                    let paneUUID = CompatUUID.from(resourceID: pane.id)
+                    if pane.id == focusedModel { focusedPane = paneUUID }
                     var paneSurfaces: [String] = []
-                    let selectedModel = selectedTabs[paneModelID]
                     var selectedSurface: String?
                     for (tabIndex, tab) in pane.tabs.enumerated() {
-                        let tabModelID = Self.tabModelID(tab)
-                        let surfaceUUID = CompatUUID.from(resourceID: tabModelID)
-                        let isSelected = selectedModel.map { $0 == tabModelID } ?? (tabIndex == pane.activeTab)
-                        if isSelected { selectedSurface = surfaceUUID }
+                        let surfaceUUID = CompatUUID.from(resourceID: tab.id)
+                        let selected = pane.selectedTabID.map { $0 == tab.id } ?? (tabIndex == 0)
+                        if selected { selectedSurface = surfaceUUID }
                         surfaces[surfaceUUID] = Surface(
                             uuid: surfaceUUID, ref: refs.ref(.surface, surfaceUUID), index: surfaceUUIDs.count,
-                            indexInPane: tabIndex, modelID: tabModelID, handle: tab.surface, paneUUID: paneUUID,
-                            workspaceUUID: workspaceUUID, tab: tab, selected: isSelected, focused: false)
+                            indexInPane: tabIndex, modelID: tab.id, handle: SurfaceID(rawValue: UInt64(tab.surface) ?? 0),
+                            paneUUID: paneUUID, workspaceUUID: workspaceUUID, tab: Self.facts(tab), selected: selected, focused: false)
                         paneSurfaces.append(surfaceUUID)
                         surfaceUUIDs.append(surfaceUUID)
                     }
@@ -64,10 +48,10 @@ extension CompatWorld {
                         surfaces[first]?.selected = true
                     }
                     panes[paneUUID] = Pane(
-                        uuid: paneUUID, ref: refs.ref(.pane, paneUUID), index: paneUUIDs.count, modelID: paneModelID,
-                        handle: pane.id, workspaceUUID: workspaceUUID, screenIndex: screenIndex, name: pane.name,
-                        surfaceUUIDs: paneSurfaces, selectedSurfaceUUID: selectedSurface, focused: false,
-                        zoomed: screen.zoomedPane == pane.id)
+                        uuid: paneUUID, ref: refs.ref(.pane, paneUUID), index: paneUUIDs.count, modelID: pane.id,
+                        handle: PaneID(rawValue: UInt64(pane.handle) ?? 0), workspaceUUID: workspaceUUID, screenIndex: screenIndex,
+                        name: pane.name, surfaceUUIDs: paneSurfaces, selectedSurfaceUUID: selectedSurface, focused: false,
+                        zoomed: screen.zoomedPaneID == pane.id)
                     paneUUIDs.append(paneUUID)
                 }
             }
@@ -76,22 +60,23 @@ extension CompatWorld {
                 panes[focusedPane]?.focused = true
                 if let surface = panes[focusedPane]?.selectedSurfaceUUID { surfaces[surface]?.focused = true }
             }
-            let custom = snapshot.title.flatMap { $0.isEmpty ? nil : $0 }
+            let custom = info.title.flatMap { $0.isEmpty ? nil : $0 }
             workspaces.append(Workspace(
-                uuid: workspaceUUID, ref: refs.ref(.workspace, workspaceUUID), index: workspaceIndex, modelID: modelID,
-                key: snapshot.key, handle: snapshot.id, name: snapshot.name, title: snapshot.displayName, customTitle: custom,
-                color: snapshot.color, icon: snapshot.icon, group: snapshot.group?.rawValue,
-                unreadCount: snapshot.unreadCount ?? 0, paneUUIDs: paneUUIDs, surfaceUUIDs: surfaceUUIDs,
-                focusedPaneUUID: focusedPane, windowUUIDs: windowByWorkspace[workspaceUUID] ?? []))
+                uuid: workspaceUUID, ref: refs.ref(.workspace, workspaceUUID), index: workspaceIndex, modelID: info.id,
+                key: CompatUUID.canonical(info.id) != nil ? WorkspaceKey(rawValue: info.id) : nil,
+                handle: WorkspaceHandle(rawValue: UInt64(info.handle) ?? 0), name: info.name, title: custom ?? info.name,
+                customTitle: custom, color: info.color, icon: info.icon, group: info.groupID, unreadCount: info.unreadCount,
+                paneUUIDs: paneUUIDs, surfaceUUIDs: surfaceUUIDs, focusedPaneUUID: focusedPane,
+                windowUUIDs: windowsByWorkspace[workspaceUUID] ?? []))
         }
+    }
+
+    static func facts(_ tab: ControlTabInfo) -> Tab {
+        Tab(kind: tab.kind, title: tab.title, terminalID: tab.terminalID, cwd: tab.cwd, url: tab.url, gitBranch: tab.gitBranch,
+            pinned: tab.isPinned, dead: tab.isDead, unread: tab.hasUnread)
     }
 
     static func workspaceUUID(modelID: String) -> String {
         CompatUUID.canonical(modelID) ?? CompatUUID.hashed("workspace:" + modelID)
-    }
-
-    /// `TabModel.id`: the durable tab resource id when present.
-    static func tabModelID(_ tab: TabSnapshot) -> String {
-        tab.tabResourceID?.rawValue ?? tab.terminalID.map { "terminal:\($0.rawValue)" } ?? "surface:\(tab.surface.rawValue)"
     }
 }
