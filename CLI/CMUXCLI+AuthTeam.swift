@@ -68,7 +68,7 @@ extension CMUXCLI {
         case "members":
             var params: [String: Any] = [:]
             if let teamID = Self.authTeamOption(commandArgs, "--team") { params["team_id"] = teamID }
-            let response = try client.sendV2(method: "auth.team.members", params: params)
+            let response = try client.sendV2(method: "auth.team.members", params: params, responseTimeout: 60)
             if jsonOutput {
                 print(jsonString(response))
             } else {
@@ -86,7 +86,7 @@ extension CMUXCLI {
                 ))
             }
             params["emails"] = emails
-            let response = try client.sendV2(method: "auth.team.invite", params: params)
+            let response = try client.sendV2(method: "auth.team.invite", params: params, responseTimeout: 60)
             if jsonOutput {
                 print(jsonString(response))
             } else {
@@ -114,7 +114,7 @@ extension CMUXCLI {
             if let uses = Self.authTeamOption(commandArgs, "--max-uses").flatMap(Int.init) {
                 params["max_uses"] = uses
             }
-            let response = try client.sendV2(method: "auth.team.invite_link", params: params)
+            let response = try client.sendV2(method: "auth.team.invite_link", params: params, responseTimeout: 60)
             if jsonOutput {
                 print(jsonString(response))
             } else if let link = response["invite_link"] as? [String: Any], let url = link["url"] as? String {
@@ -134,7 +134,7 @@ extension CMUXCLI {
             } else {
                 params["invitation_id"] = commandArgs[1]
             }
-            let response = try client.sendV2(method: "auth.team.revoke_invite", params: params)
+            let response = try client.sendV2(method: "auth.team.revoke_invite", params: params, responseTimeout: 60)
             if jsonOutput {
                 print(jsonString(response))
             } else {
@@ -149,7 +149,7 @@ extension CMUXCLI {
             }
             var params: [String: Any] = ["user_id": commandArgs[1]]
             if let teamID = Self.authTeamOption(commandArgs, "--team") { params["team_id"] = teamID }
-            let response = try client.sendV2(method: "auth.team.remove_member", params: params)
+            let response = try client.sendV2(method: "auth.team.remove_member", params: params, responseTimeout: 60)
             if jsonOutput {
                 print(jsonString(response))
             } else {
