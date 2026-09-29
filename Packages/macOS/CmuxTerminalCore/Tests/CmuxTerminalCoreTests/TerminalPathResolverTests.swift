@@ -363,6 +363,21 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(resolution.rawToken == "Standard - Consultant Agreement - Form of Consulting Agreement.docx")
     }
 
+    @Test func listLabelWithColumnDelimiterStaysWithinClickedField() throws {
+        let fullPath = "/tmp/cmux-list-column.md"
+        let line = "- \(fullPath)  owner"
+        let resolution = try #require(
+            TerminalPathResolver(fileExists: existsIn([fullPath])).resolveVisibleLinePath(
+                line,
+                column: 5,
+                cwd: "/tmp"
+            )
+        )
+
+        #expect(resolution.path == fullPath)
+        #expect(resolution.rawToken == fullPath)
+    }
+
     @Test func doesNotTreatOverlongRowLocalHitAsPhysicalRightEdge() {
         let existingFile = "/tmp/row-local-longer-than-grid.md"
         let resolver = TerminalPathResolver(fileExists: existsIn([existingFile]))

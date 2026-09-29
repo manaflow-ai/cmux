@@ -204,10 +204,12 @@ extension String {
         // `ls`-style output. Keep the candidate scoped to the path field so a
         // click in a neighboring column cannot resolve the whole row.
         var bodyEnd = characters.count
+        var hasColumnDelimiter = false
         if bodyStart + 1 < characters.count {
             for index in bodyStart..<(characters.count - 1)
             where characters[index] == " " && characters[index + 1] == " " {
                 bodyEnd = index
+                hasColumnDelimiter = true
                 break
             }
         }
@@ -234,6 +236,12 @@ extension String {
                 return suffix
             }
         }
+        // A doubled-space run separates an `ls`-style field from a
+        // neighboring column. Returning the entire first field here would
+        // still swallow text outside the clicked token when the field is
+        // prose or contains multiple paths. Let rawPathSegment constrain the
+        // candidate to the clicked field instead.
+        guard !hasColumnDelimiter else { return nil }
         return body
     }
 
