@@ -40,16 +40,21 @@ function parseArgs(argv) {
 // The reference backend for each dialect. `record` only accepts these.
 const referenceFor = { aside: ["aside", "playwright"], chatgpt: ["chatgpt"] };
 
-function prelude(origins) {
+// `emitFile` routes values through a file for backends whose stdout is not the
+// REPL's own output (the ChatGPT runtime runs behind a Codex model turn).
+function prelude(origins, emitFile) {
+  const line = `${JSON.stringify(MARK)} + JSON.stringify({ k, v: v === undefined ? null : v })`;
   return [
     `const PRIMARY = ${JSON.stringify(origins.primary)};`,
     `const PEER = ${JSON.stringify(origins.peer)};`,
-    `const emit = (k, v) => console.log(${JSON.stringify(MARK)} + JSON.stringify({ k, v: v === undefined ? null : v }));`,
+    emitFile
+      ? `const __emitFs = await import("node:fs"); const emit = (k, v) => __emitFs.appendFileSync(${JSON.stringify(emitFile)}, ${line} + "\\n");`
+      : `const emit = (k, v) => console.log(${line});`,
   ].join("\n");
 }
 
-function wrap(origins, body) {
-  return `${prelude(origins)}\ntry {\n${body}\n} catch (__e) { emit("__error__", String(__e && __e.message || __e).split("\\n")[0]); }\n`;
+function wrap(origins, body, emitFile) {
+  return `${prelude(origins, emitFile)}\ntry {\n${body}\n} catch (__e) { emit("__error__", String(__e && __e.message || __e).split("\\n")[0]); }\n`;
 }
 
 function run(cmd, argv, { input, timeoutMs = 180_000, env } = {}) {
@@ -92,13 +97,15 @@ const backends = {
   // The ChatGPT for Chrome runtime inside Codex's privileged node_repl. It
   // needs a Codex login that uses a ChatGPT account (not an API key); set
   // PARITY_CHATGPT_CODEX_HOME to that CODEX_HOME.
-  async chatgpt(code, { scenarioName }) {
+  async chatgpt(_code, { scenarioName, origins, body }) {
     const client = path.join(
       process.env.HOME,
       ".codex/plugins/cache/openai-bundled/chrome/latest/scripts/browser-client.mjs",
     );
-    const modPath = path.join(fs.mkdtempSync("/private/tmp/parity-chatgpt-"), `${scenarioName}.mjs`);
-    fs.writeFileSync(modPath, `export async function run(agent) {\n${code}\n}\n`);
+    const work = fs.mkdtempSync("/private/tmp/parity-chatgpt-");
+    const modPath = path.join(work, `${scenarioName}.mjs`);
+    const emitFile = path.join(work, "emits.jsonl");
+    fs.writeFileSync(modPath, `export async function run(agent) {\n${wrap(origins, body, emitFile)}\n}\n`);
     const prompt = [
       "Use the MCP server named node_repl (tool js). Run exactly this code in one call and nothing else:",
       `const { setupBrowserRuntime } = await import(${JSON.stringify(client)});`,
@@ -108,7 +115,8 @@ const backends = {
     ].join("\n");
     const env = process.env.PARITY_CHATGPT_CODEX_HOME ? { CODEX_HOME: process.env.PARITY_CHATGPT_CODEX_HOME } : {};
     const r = await run("codex", ["exec", "--skip-git-repo-check", "-s", "danger-full-access", prompt], { env, timeoutMs: 400_000 });
-    return { emits: parseEmits(r.out), raw: r.out + r.err };
+    const emitted = fs.existsSync(emitFile) ? fs.readFileSync(emitFile, "utf8") : "";
+    return { emits: parseEmits(emitted), raw: r.out + r.err };
   },
   // Real Playwright on headless Chrome with Aside's globals shimmed. It is the
   // tie-breaker where Aside deviates from Playwright semantics.
@@ -145,7 +153,7 @@ async function main() {
       for (const file of files) {
         const scenarioName = file.replace(/\.js$/, "");
         const body = fs.readFileSync(path.join(dir, file), "utf8");
-        const result = await run(wrap(server.origins, body), { dialect, scenarioName });
+        const result = await run(wrap(server.origins, body), { dialect, scenarioName, origins: server.origins, body });
         const emits = result.emits.map((e) => ({ k: e.k, v: normalize(e.v, server.origins) }));
         const goldenDir = path.join(root, "goldens", dialect);
         const goldenPath = path.join(goldenDir, `${scenarioName}${args.backend === "playwright" ? ".playwright" : ""}.json`);
