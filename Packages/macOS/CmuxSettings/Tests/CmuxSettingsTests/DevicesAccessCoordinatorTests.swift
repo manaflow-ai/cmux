@@ -141,4 +141,27 @@ struct DevicesAccessCoordinatorTests {
         #expect(!fixture.value(.incomingAccess))
         #expect(fixture.writes.map(\.enabled) == [true, false])
     }
+
+    @Test("A newer disable invalidates an enable waiting for an earlier write")
+    func disableWhileEnableWaitsForWrite() async throws {
+        let fixture = Fixture()
+        fixture.persisted[.incomingAccess] = true
+        fixture.holdWrite = true
+        var started = fixture.writeStarted.makeAsyncIterator()
+        let initialDisable = Task { await fixture.actions.set(false, for: .incomingAccess) }
+        await started.next()
+
+        let enable = Task { await fixture.actions.set(true, for: .incomingAccess) }
+        await Task.yield()
+        let latestDisable = Task { await fixture.actions.set(false, for: .incomingAccess) }
+        await Task.yield()
+
+        fixture.finishWrite()
+        await initialDisable.value
+        await latestDisable.value
+        await enable.value
+        #expect(fixture.confirmations == 0)
+        #expect(fixture.writes == [.init(preference: .incomingAccess, enabled: false)])
+        #expect(!fixture.value(.incomingAccess))
+    }
 }
