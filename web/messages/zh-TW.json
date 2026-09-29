@@ -2075,7 +2075,7 @@
       "data3": "配對和裝置中繼資料，用於將你的手機連線到你的 Mac。",
       "dataNot": "你的互動式終端工作階段、其內容和按鍵，透過你自己的網路在手機和 Mac 之間直接傳輸，不會經由 cmux 伺服器中繼或儲存在其上。唯一的例外是轉發的通知文字，它會經過 cmux 和 Apple 的推送服務到達你的手機，除非你啟用 Hide content（參見上方的通知）。",
       "enterpriseTitle": "企業與自架",
-      "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@manaflow.com</link>。"
+      "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@cmux.com</link>。"
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -4324,7 +4324,7 @@
         "description": "公開回報 bug 和提出功能請求。"
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "偏好使用電子郵件？直接寫信給我們。"
       }
     },
@@ -4346,8 +4346,8 @@
       "privacy": "我們只會使用你的電子郵件地址回覆你的支援請求，不會出售聯絡資訊。",
       "submit": "傳送訊息",
       "submitting": "正在傳送…",
-      "success": "謝謝。我們已收到你的訊息，會從 founders@manaflow.com 回覆到你的電子郵件。",
-      "error": "發生錯誤。請再試一次，或寄電子郵件到 founders@manaflow.com。"
+      "success": "謝謝。我們已收到你的訊息，會從 founders@cmux.com 回覆到你的電子郵件。",
+      "error": "發生錯誤。請再試一次，或寄電子郵件到 founders@cmux.com。"
     }
   },
   "emails": {
