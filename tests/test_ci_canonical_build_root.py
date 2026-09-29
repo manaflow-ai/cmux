@@ -438,7 +438,7 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
     def test_every_scheme_builds_in_checksum_only_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             records, _ = self.run_recipe(Path(tmp))
-        builds = [r for r in records if "build-for-testing" in r["args"]]
+        builds = [r for r in records if {"build", "build-for-testing"} & set(r["args"])]
         sys.path.insert(0, str(ROOT / "scripts" / "ci"))
         import product_input_identity as identity
 
@@ -471,7 +471,7 @@ class BuildEnvironmentTests(SeededBuildFileSystemModeTests):
         with tempfile.TemporaryDirectory() as tmp:
             records, _ = self.run_recipe(Path(tmp))
         resolves = [r for r in records if "-resolvePackageDependencies" in r["args"]]
-        builds = [r for r in records if "build-for-testing" in r["args"]]
+        builds = [r for r in records if {"build", "build-for-testing"} & set(r["args"])]
         self.assertEqual(len(resolves), 1)
         self.assertTrue(builds)
         resolve_env = resolves[0]["env"]
@@ -484,7 +484,7 @@ class BuildEnvironmentTests(SeededBuildFileSystemModeTests):
         with tempfile.TemporaryDirectory() as tmp:
             records, _ = self.run_recipe(Path(tmp))
             caller = self.caller_env
-        builds = [r for r in records if "build-for-testing" in r["args"]]
+        builds = [r for r in records if {"build", "build-for-testing"} & set(r["args"])]
         self.assertTrue(builds)
         for record in builds:
             args = record["args"]
@@ -519,7 +519,7 @@ class BuildPhaseCallerPathTests(unittest.TestCase):
         self.assertEqual(self.path_after(path, None), path)
 
     def test_every_tool_building_script_phase_sources_it(self):
-        for script in ("build-command-palette-nucleo-ffi.sh", "build-diff-sidecar.sh",
+        for script in ("build-diff-sidecar.sh",
                        "build-wireguard-go.sh", "build-app-bundled-resources.sh"):
             with self.subTest(script=script):
                 text = (ROOT / "scripts" / script).read_text()

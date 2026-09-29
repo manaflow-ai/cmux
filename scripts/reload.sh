@@ -34,7 +34,6 @@ PROD_AUTH=0
 AUTH_CREDENTIALS_FILE=""
 AUTH_PROFILE=""
 AUTH_EXPECTED_ACCOUNT=""
-CMUX_TUI_CLIENT_MANIFEST_URL_VALUE=""
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -923,8 +922,6 @@ Options:
   --expected-account <email>
                          Fail before building unless the selected profile/file
                          resolves to this normalized account.
-  --cmux-tui-manifest-url <url>
-                         Install the cmux-tui client from this immutable manifest.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -1020,30 +1017,6 @@ set_plist_url_scheme() {
 tagged_derived_data_path() {
   local slug="$1"
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
-}
-
-# Print the cmux-tui commit whose published client the bundle will carry. A branch
-# that changes cmux-tui has no published client for its own commits, so explain
-# the existing overrides next to the resolver's error.
-resolve_cmux_tui_client_commit() {
-  local commit
-  local -a resolver_args=()
-  if [[ -n "${CMUX_TUI_CLIENT_MAX_FALLBACK:-}" ]]; then
-    resolver_args+=(--max-fallback "$CMUX_TUI_CLIENT_MAX_FALLBACK")
-  fi
-  if ! commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh" ${resolver_args[@]+"${resolver_args[@]}"})"; then
-    cat >&2 <<'EOF'
-error: no published cmux-tui client for this checkout, so the app bundle cannot get one.
-       A branch that changes cmux-tui has no published client for its own commits
-       until they land on main. Point reload at a cmux-tui binary built off this Mac
-       (Blacksmith Testbox, or this branch's CI artifact):
-         CMUX_TUI_CLIENT_LOCAL=/path/to/cmux-tui ./scripts/reload.sh --tag <tag>
-       or install a published manifest with --cmux-tui-manifest-url <url>
-       (or CMUX_TUI_CLIENT_MANIFEST_URL=<url>).
-EOF
-    return 1
-  fi
-  printf '%s\n' "$commit"
 }
 
 # A tag only changes the bundle id, names, socket and state files. None of those
@@ -1286,12 +1259,8 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --cmux-tui-manifest-url)
-      CMUX_TUI_CLIENT_MANIFEST_URL_VALUE="${2:-}"
-      [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]] \
-        || { echo "error: --cmux-tui-manifest-url requires a URL" >&2; exit 1; }
-      [[ "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" == https://* ]] \
-        || { echo "error: --cmux-tui-manifest-url requires HTTPS" >&2; exit 1; }
-      shift 2
+      echo "error: --cmux-tui-manifest-url was removed with the legacy app; the cmux scheme bundles the cmux-tui pinned in scripts/cmux-next/cmux-tui.pin (CMUX_NEXT_TUI_BIN=<path> bundles a local build)" >&2
+      exit 1
       ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
@@ -1421,74 +1390,43 @@ fi
 # feat-cmux-next: the cmux scheme builds cmux-next.app, whose "Bundle cmux-tui"
 # phase (scripts/cmux-next/bundle-cmux-tui.sh) bundles the hosted cmux-tui
 # pinned in scripts/cmux-next/cmux-tui.pin. No published release client exists
-# for these commits, so the legacy resolver and installer below are skipped:
-# the pinned binary is fetched (public URL, sha256-verified, no GitHub
+# for these commits: the pinned binary is fetched (public URL, sha256-verified, no GitHub
 # credentials) before the build and checked in the bundle after it.
-# CMUX_NEXT_TUI_BIN=<path> bundles a local build instead. A checkout whose cmux
-# scheme builds the legacy cmux.app keeps the legacy path unchanged.
-CMUX_NEXT_BUILD=0
-if [[ -f "$PWD/scripts/cmux-next/cmux-tui.pin" ]] \
-    && grep -q 'BuildableName="cmux-next.app"' "$PWD/cmux.xcodeproj/xcshareddata/xcschemes/cmux.xcscheme" 2>/dev/null; then
-  CMUX_NEXT_BUILD=1
+# CMUX_NEXT_TUI_BIN=<path> bundles a local build instead.
+if [[ ! -f "$PWD/scripts/cmux-next/cmux-tui.pin" ]]; then
+  echo "error: scripts/cmux-next/cmux-tui.pin is missing; the cmux scheme cannot bundle cmux-tui" >&2
+  exit 1
 fi
-if [[ "$CMUX_NEXT_BUILD" == "1" ]]; then
-  # cmux-next reads no web API origin, so a local reload provisions no shared
-  # GCP backend stack. An explicit mode or CMUX_DEV_BACKEND_URL (the fleet's
-  # cmux-ci passes one) still wins.
-  if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
-    export CMUX_DEV_BACKEND_MODE=local
-  fi
-  # The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
-  # free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
-  # sized for the legacy app and many agents at once. A cold cmux-next tagged
-  # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
-  # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
-  # own floor, CMUX_NEXT_MIN_FREE_GIB (default 40 GiB, about 4x that peak), and
-  # lift the guard's floor only for this build. The legacy floor is unchanged.
-  cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-40}"
-  [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
-    || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
-  cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
-  if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
-    echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
-    echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
-    exit 1
-  fi
-  if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
-    echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
-    export CMUX_ALLOW_LOW_SPACE_BUILD=1
-  fi
-  if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
-    echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
-  else
-    "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
-  fi
+# cmux-next reads no web API origin, so a local reload provisions no shared
+# GCP backend stack. An explicit mode or CMUX_DEV_BACKEND_URL (the fleet's
+# cmux-ci passes one) still wins.
+if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
+  export CMUX_DEV_BACKEND_MODE=local
 fi
-
-# Resolve the published cmux-tui client before the dev backend, GhosttyKit and
-# xcodebuild, so a checkout without one fails in seconds rather than after a full
-# build. The install step after the build reuses this commit. The same overrides
-# skip it: --cmux-tui-manifest-url, CMUX_TUI_CLIENT_MANIFEST_URL, and
-# CMUX_TUI_CLIENT_LOCAL. CMUX_SKIP_CMUX_TUI_CLIENT=1 defers to the install step,
-# which keeps an existing bundled copy and resolves only when there is none. The
-# resolver's progress lines go to the reload log; they print here only on failure.
-CMUX_TUI_CLIENT_COMMIT=""
-CMUX_TUI_CLIENT_RESOLVE_LOG=""
-if [[ "$CMUX_NEXT_BUILD" != "1" \
-      && "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" != "1" \
-      && -z "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
-      && -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" \
-      && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
-  cmux_tui_resolve_stderr="$(mktemp "${TMPDIR:-/tmp}/cmux-reload-tui-resolve.XXXXXX")"
-  cmux_tui_resolve_rc=0
-  CMUX_TUI_CLIENT_COMMIT="$(resolve_cmux_tui_client_commit 2>"$cmux_tui_resolve_stderr")" \
-    || cmux_tui_resolve_rc=$?
-  CMUX_TUI_CLIENT_RESOLVE_LOG="$(cat "$cmux_tui_resolve_stderr")"
-  rm -f "$cmux_tui_resolve_stderr"
-  if [[ "$cmux_tui_resolve_rc" -ne 0 ]]; then
-    printf '%s\n' "$CMUX_TUI_CLIENT_RESOLVE_LOG" >&2
-    exit 1
-  fi
+# The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
+# free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
+# sized for the legacy app and many agents at once. A cold cmux-next tagged
+# build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
+# free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
+# own floor, CMUX_NEXT_MIN_FREE_GIB (default 40 GiB, about 4x that peak), and
+# lift the guard's floor only for this build.
+cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-40}"
+[[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
+  || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
+cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
+if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
+  echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
+  echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
+  exit 1
+fi
+if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
+  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
+  export CMUX_ALLOW_LOW_SPACE_BUILD=1
+fi
+if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
+  echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
+else
+  "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
@@ -1553,9 +1491,6 @@ fi
 # summary after the body redirect, then redirect bulk output into the log.
 exec 3>&1 4>&2
 exec >>"$RELOAD_LOG" 2>&1
-if [[ -n "$CMUX_TUI_CLIENT_RESOLVE_LOG" ]]; then
-  printf '%s\n' "$CMUX_TUI_CLIENT_RESOLVE_LOG"
-fi
 
 reload_finalize() {
   local rc=$?
@@ -1736,27 +1671,6 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
   XCODEBUILD_ARGS+=(-showBuildTimingSummary)
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
-fi
-if [[ "${CMUX_RELOAD_APP_EMIT_MODULE:-0}" != "1" ]]; then
-  # A dev build runs the app; nothing imports its Swift module (only cmuxTests,
-  # which reload never builds) and no Objective-C includes its generated header.
-  # Xcode's integrated driver still emits the module in a separate job that
-  # type-checks every declaration in the app. The standalone driver with
-  # -no-emit-module-separately emits none, the same change #14364 made for
-  # cmuxTests; the app's Debug configuration generates no Objective-C header.
-  # Settings are per target, so packages and the CLI are unchanged. App edits
-  # rebuild ~13 s faster on a 12-core runner. lldb's po/expr in app frames need
-  # the module: set CMUX_RELOAD_APP_EMIT_MODULE=1 to emit it again.
-  # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
-  XCODEBUILD_ARGS+=(
-    'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_RELOAD_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
-    CMUX_RELOAD_INTEGRATED_DRIVER_cmux=NO
-    'SWIFT_INSTALL_MODULE=$(CMUX_RELOAD_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
-    CMUX_RELOAD_INSTALL_MODULE_cmux=NO
-  )
-  # shellcheck disable=SC2016
-  SWIFT_OTHER_FLAGS+=' $(CMUX_RELOAD_SWIFT_FLAGS_$(TARGET_NAME))'
-  XCODEBUILD_ARGS+=(CMUX_RELOAD_SWIFT_FLAGS_cmux=-no-emit-module-separately)
 fi
 if [[ "$SWIFT_OTHER_FLAGS" != '$(inherited)' ]]; then
   XCODEBUILD_ARGS+=("OTHER_SWIFT_FLAGS=$SWIFT_OTHER_FLAGS")
@@ -2113,57 +2027,18 @@ if [[ -x "$CMUXD_SRC" ]]; then
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
 fi
-# The cmux-tui client the Machines panel uses for cloud sessions ships inside the
-# bundle like the Ghostty helper. Resolve its published inputs from this source
-# history unless CMUX_TUI_CLIENT_MANIFEST_URL / CMUX_TUI_CLIENT_LOCAL overrides it.
-# CMUX_SKIP_CMUX_TUI_CLIENT=1 preserves an existing copy for offline reloads.
-if [[ "$CMUX_NEXT_BUILD" == "1" ]]; then
-  # The Bundle cmux-tui phase already placed it; refuse a release fallback.
-  cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
-  cmux_next_tui_source="$(awk -F= '$1=="source"{print $2}' "$cmux_next_tui_version" 2>/dev/null || true)"
-  case "$cmux_next_tui_source" in
-    pinned-hosted|override)
-      echo "Bundled cmux-tui: $(tr '\n' ' ' < "$cmux_next_tui_version")"
-      ;;
-    *)
-      echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the pinned hosted build; see $cmux_next_tui_version" >&2
-      exit 1
-      ;;
-  esac
-elif [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
-  echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
-else
-  # Local Debug builds run on this Mac; fetch only its client slice. The
-  # installer's universal default remains available to distribution workflows.
-  cmux_tui_install_args=(
-    "$APP_PATH"
-    --arch native
-    --require-capability wireguard-hub
-    --require-capability browser-proxy
-  )
-  if [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]]; then
-    cmux_tui_install_args+=(
-      --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
-    )
-  elif [[ -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
-    # Resolved before the build unless CMUX_SKIP_CMUX_TUI_CLIENT=1 deferred it.
-    if [[ -z "$CMUX_TUI_CLIENT_COMMIT" ]]; then
-      CMUX_TUI_CLIENT_COMMIT="$(resolve_cmux_tui_client_commit)" || exit 1
-    fi
-    cmux_tui_manifest_base="${CMUX_TUI_CLIENT_MANIFEST_BASE:-https://files.cmux.com/cmux-tui}"
-    cmux_tui_install_args+=(
-      --manifest-url "${cmux_tui_manifest_base%/}/$CMUX_TUI_CLIENT_COMMIT/manifest.json"
-      --expected-commit "$CMUX_TUI_CLIENT_COMMIT"
-    )
-  fi
-  # The installer verifies the published manifest's build-provenance attestation
-  # through gh. A dev Mac without an authenticated gh is the one explicit
-  # exception; the installer prints the unattested warning in that case.
-  if ! command -v gh >/dev/null 2>&1 || ! gh auth token >/dev/null 2>&1; then
-    cmux_tui_install_args+=(--allow-unattested)
-  fi
-  "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
-fi
+# The Bundle cmux-tui phase already placed the pinned cmux-tui; refuse anything else.
+cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
+cmux_next_tui_source="$(awk -F= '$1=="source"{print $2}' "$cmux_next_tui_version" 2>/dev/null || true)"
+case "$cmux_next_tui_source" in
+  pinned-hosted|override)
+    echo "Bundled cmux-tui: $(tr '\n' ' ' < "$cmux_next_tui_version")"
+    ;;
+  *)
+    echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the pinned hosted build; see $cmux_next_tui_version" >&2
+    exit 1
+    ;;
+esac
 "$PWD/scripts/install-coderouter-client.sh" "$APP_PATH"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true

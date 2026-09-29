@@ -87,10 +87,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_classify_failures.py
 
-      - name: Validate the report-only reverse test impact selector
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_reverse_test_impact.py
-
       - name: Require the R2 public URL wherever the R2 cache actions run
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_public_url.py
@@ -154,10 +150,6 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_build_only_keeps_tagged_app.sh
 
-      - name: Validate reload resolves the cmux-tui client before building
-        if: ${{ matrix.group == 'preflight' }}
-        run: ./tests/test_reload_resolves_cmux_tui_client_before_build.sh
-
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
@@ -190,18 +182,6 @@ jobs:
       - name: Validate reload shared DerivedData default
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
-
-      - name: Validate sidebar extension point generation
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_write_sidebar_extension_point.py
-
-      - name: Test btop agent sidebar example bounds
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_btop_agents_sidebar.py
-
-      - name: Validate settings rows advertise supported cmux.json paths
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_settings_configuration_review_paths.py
 
       - name: Validate cmux.json schema covers supported settings and shortcut actions
         if: ${{ matrix.group == 'preflight' }}
@@ -348,17 +328,13 @@ jobs:
           python-version: "3.9"
 
       - name: Prepare workflow guard Python dependencies
-        if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}
+        if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-cache' || matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/workflow-guard-venv"
           packages=(PyYAML==6.0.3)
           if [[ "${{ matrix.group }}" == "release-tooling" ]]; then
             packages+=(bashlex==0.18)
-          fi
-          # tests/test_ci_pr_media.py renders PR media with the pr-media.yml Pillow.
-          if [[ "${{ matrix.group }}" == "app-host-execution" ]]; then
-            packages+=(pillow==11.3.0)
           fi
           "$RUNNER_TEMP/workflow-guard-venv/bin/python" -m pip install \
             --disable-pip-version-check \
@@ -420,14 +396,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
-      - name: Validate the scheduled main full-suite run
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_main_full_suite.py
-
-      - name: Validate main full-suite failure attribution
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_main_regression_attribution.py
-
       - name: Validate merge receipts
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
@@ -443,10 +411,6 @@ jobs:
       - name: Validate merge-main's green base and guard failure labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_main.py
-
-      - name: Validate main full-suite failure reruns and bisects
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_main_regression_bisect.py
 
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
@@ -620,37 +584,11 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: |
           bash tests/test_ci_run_and_capture.sh
-          python3 tests/test_ci_app_host_pipe_capture.py
 
       - name: Validate focused test launcher
         if: ${{ matrix.group == 'app-host-execution' }}
         run: |
-          python3 tests/test_run_e2e.py
-          python3 tests/test_ci_e2e_compilation_cache.py
-          python3 tests/test_ci_focused_test_selectors.py
-          python3 tests/test_ci_ui_tests_dispatch.py
-          python3 tests/test_ci_pr_media.py
           python3 tests/test_ci_guard_tests_emit_no_workflow_commands.py
-
-      - name: Validate manual macOS package cache recovery
-        if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_ci_manual_macos_package_cache.py
-
-      - name: Validate test-only app-host rerun planning
-        if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_app_host_test_rerun.py
-
-      - name: Validate app-host xcodebuild retry guard
-        if: ${{ matrix.group == 'app-host-execution' }}
-        run: ./tests/test_ci_app_host_xcodebuild_retry.sh
-
-      - name: Validate app-host xcodebuild attempt budget
-        if: ${{ matrix.group == 'app-host-execution' }}
-        run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
-
-      - name: Validate console-session environment forwarding
-        if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_ci_console_session_env_forwarding.py
 
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
@@ -659,60 +597,6 @@ jobs:
       - name: Validate package test bisect
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_bisect.py
-
-      - name: Validate app-host test failure classification
-        if: ${{ matrix.group == 'app-host-process' }}
-        run: python3 tests/test_ci_app_host_test_output.py
-
-      - name: Validate app-host failure census
-        if: ${{ matrix.group == 'app-host-process' }}
-        run: python3 tests/test_ci_app_host_failure_census.py
-
-      - name: Validate app-host verdict replay
-        if: ${{ matrix.group == 'app-host-process' }}
-        run: python3 tests/test_ci_replay_app_host_verdict.py
-
-      - name: Validate app-host result ratchet
-        if: ${{ matrix.group == 'app-host-process' }}
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-        run: |
-          set -euo pipefail
-          python3 tests/test_ci_app_host_result_accounting.py
-          python3 scripts/ci/app_host_result_accounting.py validate-catalog scripts/ci/app-host-known-failures.json
-
-          if [ -n "${BASE_SHA:-}" ]; then
-            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
-              git fetch --no-tags --depth=1 origin "$BASE_SHA"
-            fi
-            base_catalog="$RUNNER_TEMP/app-host-known-failures-base.json"
-            catalog_path="scripts/ci/app-host-known-failures.json"
-            if ! base_path="$(git ls-tree -r --name-only "$BASE_SHA" -- "$catalog_path")"; then
-              echo "Unable to inspect the base app-host known-failure catalog." >&2
-              exit 1
-            elif [ -z "$base_path" ]; then
-              echo "Bootstrapping app-host known-failure catalog; future changes are subset-only."
-            else
-              git show "$BASE_SHA:$catalog_path" >"$base_catalog"
-              python3 scripts/ci/app_host_result_accounting.py catalog-diff --base "$base_catalog" --current "$catalog_path"
-            fi
-          fi
-
-      - name: Validate app-host user configuration isolation
-        if: ${{ matrix.group == 'app-host-process' }}
-        run: python3 tests/test_ci_app_host_home_isolation.py
-
-      - name: Validate app-host identity and cleanup confirmation
-        if: ${{ matrix.group == 'app-host-process' }}
-        run: bash tests/test_ci_app_host_identity.sh
-
-      - name: Validate app-host process receipts
-        if: ${{ matrix.group == 'app-host-process' }}
-        run: bash tests/test_ci_app_host_processes.sh
-
-      - name: Validate isolated app-host home cleanup
-        if: ${{ matrix.group == 'app-host-process' }}
-        run: bash tests/test_ci_app_host_home_cleanup.sh
 
       - name: Validate Xcode SourcePackages cache sanitizer
         if: ${{ matrix.group == 'app-host-cache' }}
@@ -812,12 +696,6 @@ jobs:
         if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ios_selected_test_execution.py
 
-      - name: Validate cmuxTests sharding
-        if: ${{ matrix.group == 'quality-sharding' }}
-        run: |
-          python3 scripts/ci/cmux_unit_test_shard.py --validate
-          python3 tests/test_ci_cmux_unit_test_shard.py
-
       - name: Validate GhosttyKit checksum verification
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
@@ -857,10 +735,6 @@ jobs:
       - name: Validate bundled-resource incremental outputs
         if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_build_app_bundled_resources.sh
-
-      - name: Validate virtual display lock
-        if: ${{ matrix.group == 'quality-runtime' }}
-        run: ./tests/test_ci_virtual_display_lock.sh
 
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
@@ -959,7 +833,6 @@ jobs:
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
           python3 tests/test_e2e_warm_derived_data.py
-          python3 tests/test_e2e_sibling_build.py
           python3 tests/test_seed_derived_data.py
           python3 tests/test_seed_decide.py
           python3 tests/test_ci_product_publication.py
@@ -980,10 +853,6 @@ jobs:
       - name: Validate Sparkle monotonic guard modes
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_sparkle_build_monotonic_modes.sh
-
-      - name: Validate release tunnel extension identifiers
-        if: ${{ matrix.group == 'release-ios' }}
-        run: ./tests/test_ci_release_tunnel_identifiers.sh
 
       - name: Validate Sparkle appcast generation without previous archives
         if: ${{ matrix.group == 'release-notary' }}
@@ -1013,10 +882,6 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_swift_warning_budget.sh
 
-      - name: Validate auxiliary window close shortcut lint
-        if: ${{ matrix.group == 'quality-determinism' }}
-        run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
-
       - name: Validate bash shell integration job control
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
@@ -1034,10 +899,6 @@ jobs:
       - name: Validate shell surface-scoped environment keys
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_shell_surface_scoped_keys.py
-
-      - name: Validate focused Dock shortcut routing guard
-        if: ${{ matrix.group == 'quality-determinism' }}
-        run: python3 tests/test_dock_shortcut_routing_guard.py
 
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         if: ${{ matrix.group == 'quality-determinism' }}
@@ -1141,7 +1002,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [sidebar-layout, dispatch-ownership]
+        group: [dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -1163,16 +1024,8 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
 
       - name: Validate source-lint guard structure
-        if: ${{ matrix.group == 'sidebar-layout' }}
-        run: python3 tests/test_ci_source_lint_guard_structure.py
-
-      - name: Validate sidebar lazy-layout guard
-        if: ${{ matrix.group == 'sidebar-layout' }}
-        run: python3 tests/test_ci_sidebar_lazy_layout_guard.py
-
-      - name: Initialize Bonsplit for deferred-work ownership guard
         if: ${{ matrix.group == 'dispatch-ownership' }}
-        run: git submodule update --init --depth 1 vendor/bonsplit
+        run: python3 tests/test_ci_source_lint_guard_structure.py
 
       - name: Validate stored DispatchWorkItem ownership
         if: ${{ matrix.group == 'dispatch-ownership' }}

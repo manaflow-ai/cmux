@@ -394,9 +394,11 @@ for expected in '--expected-commit' '--require-capability' 'required cmux-tui ca
   fi
 done
 
-if ! grep -A8 -F 'cmux_tui_install_args=(' "$ROOT_DIR/scripts/reload.sh" |
-   grep -Fq -- '--require-capability wireguard-hub'; then
-  echo "FAIL: tagged reloads must reject a cmux-tui client without WireGuard hub support"
+# Tagged reloads bundle only the pinned hosted cmux-tui (or an explicit
+# CMUX_NEXT_TUI_BIN override); any other source fails the reload.
+if ! grep -A3 -F 'case "$cmux_next_tui_source" in' "$ROOT_DIR/scripts/reload.sh" |
+   grep -Fq -- 'pinned-hosted|override)'; then
+  echo "FAIL: tagged reloads must reject a cmux-tui that is not the pinned hosted build"
   exit 1
 fi
 

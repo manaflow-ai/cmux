@@ -47,12 +47,6 @@ class SupportedPathsTests(unittest.TestCase):
                 SKILL_ROOT / "references" / "all-keys.md",
                 skill / "references" / "all-keys.md",
             )
-        if layout == "checkout":
-            (root / "Sources").mkdir(exist_ok=True)
-            shutil.copyfile(
-                REPO_ROOT / "Sources" / "CmuxSettingsJSONPathSupport.swift",
-                root / "Sources" / "CmuxSettingsJSONPathSupport.swift",
-            )
         return script
 
     def run_helper(self, script, command):
@@ -88,16 +82,11 @@ class SupportedPathsTests(unittest.TestCase):
             self.assertIn("sidebar.showPorts", result.stdout.splitlines())
         self.assertEqual(checkout.stdout, installed.stdout)
 
-    def test_missing_reference_falls_back_to_checkout_source(self):
+    def test_missing_reference_fails_with_a_reinstall_hint(self):
         script = self.helper("checkout", reference=False)
         result = self.run_helper(script, "list-supported")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("app.workspaceInheritWorkingDirectory", result.stdout.splitlines())
-        self.assertIn("app.openSupportedFilesInCmux", result.stdout.splitlines())
-        self.assertIn("app.preferredEditor", result.stdout.splitlines())
-        self.assertIn("markdown.fontSize", result.stdout.splitlines())
-        self.assertIn("diffViewer.defaultLayout", result.stdout.splitlines())
-        self.assertNotIn("app.notARealSetting", result.stdout.splitlines())
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("reinstall the cmux-settings skill", result.stderr)
 
     def test_list_supported_matches_schema_settings_paths(self):
         schema = json.loads((REPO_ROOT / "web" / "data" / "cmux.schema.json").read_text())

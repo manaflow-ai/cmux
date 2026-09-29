@@ -115,14 +115,11 @@ DIFF_SIDECAR_EXACT = {
     "scripts/generate-diff-sidecar-types.sh",
     "scripts/install-rust-ci.sh",
     "scripts/run-diff-sidecar-cargo.sh",
-    "Sources/Panels/CmuxDiffViewerURLSchemeHandler.swift",
-    "Sources/Panels/DiffSidecarBridge.swift",
     "webviews/bun.lock",
     "webviews/package.json",
 }
 DIFF_SIDECAR_PREFIXES = (
     "Native/DiffSidecar/",
-    "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/DiffViewer/",
     "webviews/bench/",
     "webviews/src/diff/",
 )

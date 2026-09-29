@@ -54,12 +54,6 @@ PINNED_JOB_NAMES = (
         ".github/workflows/ci.yml",
         "changes",
     ),
-    # ... and, for an E2E run, the job that runs e2e_runner_pool.py.
-    (
-        "scripts/ci/owned_pool_rescue.py",
-        ".github/workflows/test-e2e.yml",
-        "runner",
-    ),
     # ... and, for an iOS dispatch, the job that runs ios_runner_pool.py.
     (
         "scripts/ci/owned_pool_rescue.py",

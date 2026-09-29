@@ -46,31 +46,6 @@ def test_compile_admission_publishes_exact_layer_index_outputs():
         step_by_id(job, ident)
 
 
-def test_consumers_prefer_warm_aggregate_then_selective_layers_before_remote_aggregate():
-    for name in ("app-host-unit-tests", "tests-build-and-lag"):
-        job = load()["jobs"][name]
-        labels = [step.get("name") for step in job["steps"]]
-        local = labels.index("Try node-local compiled product cache")
-        peer = labels.index("Try trusted fleet peer artifact source")
-        layers = labels.index("Restore selective app-host product layers")
-        r2 = labels.index("Try shared R2 artifact transport")
-        parallel = labels.index("Try parallel GitHub artifact transport")
-        github = labels.index("Download compiled app-host test product")
-        assert local < peer < layers < r2 < parallel < github
-
-        layer_step = step_by_id(job, "restore-layers")
-        assert layer_step["env"]["CMUX_APP_HOST_LAYER_PROFILE"] == "app-host-tests"
-        assert "steps.node-products.outputs.hit != 'true'" in layer_step["if"]
-        assert "steps.peer-products.outputs.hit != 'true'" in layer_step["if"]
-
-        restore = step_by_name(job, "Restore compiled app-host test product")
-        assert restore["env"]["CMUX_LAYER_RESTORED"] == "${{ steps.restore-layers.outputs.hit }}"
-
-        finalize = step_by_name(job, "Finalize node-local compiled product cache")
-        assert "steps.restore-layers.outputs.hit != 'true'" in finalize["env"]["CMUX_PRODUCT_RESTORE_SUCCEEDED"]
-
-
 if __name__ == "__main__":
     test_aggregate_products_are_default_and_layers_opt_in()
     test_compile_admission_publishes_exact_layer_index_outputs()
-    test_consumers_prefer_warm_aggregate_then_selective_layers_before_remote_aggregate()

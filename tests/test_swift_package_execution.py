@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 LANE = ROOT / "scripts/ci/package-test-lane.sh"
 # The workflow step names, and the lane script phase each one's code lives in.
-PHASES = {"Run Swift package unit tests": "packages", "Run Bonsplit package tests": "bonsplit"}
+PHASES = {"Run Swift package unit tests": "packages"}
 
 
 def package_step(name: str) -> str:
@@ -86,7 +86,7 @@ class SwiftPackageExecutionTests(unittest.TestCase):
         result = self.run_step(
             "error: unexpected binary framework\n"
             "✔ Test run with 0 tests passed after 0.001 seconds.\n",
-            status=1, package="CmuxTerminal",
+            status=1, package="CmuxTerminalCore",
         )
         self.assertNotEqual(result.returncode, 0, result.stdout)
 
@@ -94,7 +94,7 @@ class SwiftPackageExecutionTests(unittest.TestCase):
         result = self.run_step(
             "error: unexpected binary framework\n"
             "✔ Test run with 2 tests in 1 suite passed after 0.001 seconds.\n",
-            status=1, package="CmuxTerminal",
+            status=1, package="CmuxTerminalCore",
         )
         self.assertEqual(result.returncode, 0, result.stdout)
 
@@ -113,17 +113,8 @@ class SwiftPackageExecutionTests(unittest.TestCase):
              + "error: Exited with unexpected signal code 10\n", 1),
         ):
             with self.subTest(output=output, status=status):
-                result = self.run_step(output, status=status, package="CmuxTerminal")
+                result = self.run_step(output, status=status, package="CmuxTerminalCore")
                 self.assertEqual(result.returncode, status, result.stdout)
-
-    def test_bonsplit_also_requires_completed_nonempty_execution(self) -> None:
-        for output, expected in (
-            ("✔ Test run with 0 tests passed after 0.001 seconds.\n", 1),
-            ("✔ Test run with 1 test passed after 0.001 seconds.\n", 0),
-        ):
-            with self.subTest(output=output):
-                result = self.run_step(output, step="Run Bonsplit package tests")
-                self.assertEqual(result.returncode, expected, result.stdout)
 
 
 if __name__ == "__main__":

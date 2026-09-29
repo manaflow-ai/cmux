@@ -23,7 +23,6 @@ Current rules:
 - `swiftpm-package-resolved.md`
 - `swift-actor-isolation.md`
 - `swift-architectural-rethink.md`
-- `swift-auxiliary-window-close-shortcuts.md`
 - `swift-blocking-runtime.md`
 - `swift-concurrency-modernization.md`
 - `swift-concurrent-annotation.md`

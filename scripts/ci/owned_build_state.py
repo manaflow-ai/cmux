@@ -934,7 +934,7 @@ def files_rebuild_app(files: list[str] | None, workspace: Path) -> bool | None:
     """Whether a GitHub compare's FILES change a package source; None if unknown."""
     if files is None:
         return None
-    # A submodule bump (vendor/bonsplit) is listed as the bare submodule
+    # A submodule bump is listed as the bare submodule
     # path, while the local records see the .swift files under it.
     if rebuilds_app(files):
         return True

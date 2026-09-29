@@ -27,7 +27,6 @@ class InfoPlistTests(unittest.TestCase):
             for declaration in info["UTExportedTypeDeclarations"]
         }
         self.assertIn("com.cmux.cloud-sidebar-row", identifiers)
-        self.assertIn("com.splittabbar.tabtransfer", identifiers)
         self.assertIn("com.cmux.sidebar-tab-reorder", identifiers)
 
 

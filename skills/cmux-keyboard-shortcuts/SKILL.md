@@ -9,13 +9,13 @@ Turn a user's workflow preferences into cmux shortcut bindings in `~/.config/cmu
 
 ## Contributor rule: adding a new shortcut
 
-Every new cmux-owned keyboard shortcut must be added to `Sources/KeyboardShortcutSettings.swift`, visible and editable in Settings > Keyboard Shortcuts, supported as `shortcuts.bindings.<actionId>` in `~/.config/cmux/cmux.json`, and documented in `web/app/[locale]/(landing)/docs/keyboard-shortcuts/page.tsx` and the configuration docs. All four, not a subset.
+Every new cmux-owned keyboard shortcut is the `defaultShortcut` of its `ActionDescriptor` in `Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog+*.swift`, visible and editable in the Settings shortcut editor, supported as `shortcuts.bindings.<actionId>` in `~/.config/cmux/cmux.json`, and documented in `web/app/[locale]/(landing)/docs/keyboard-shortcuts/page.tsx` and the configuration docs. All four, not a subset.
 
 ## Prerequisites
 
 - Work from a cmux checkout or worktree root when possible.
 - Use `skills/cmux-settings/scripts/cmux-settings` for every read/write. It reads JSONC, writes atomically, and validates JSON plus recognized settings keys.
-- Action IDs: `skills/cmux-settings/references/shortcut-actions.md`. Current defaults: `web/data/cmux-shortcuts.ts` or `Sources/KeyboardShortcutSettings.swift`.
+- Action IDs: `skills/cmux-settings/references/shortcut-actions.md`. Current defaults: `web/data/cmux-shortcuts.ts` or the `defaultShortcut` values in `CmuxNextActions/ActionCatalog+*.swift`.
 
 ```bash
 if [[ -z "${CMUX_SETTINGS:-}" ]]; then

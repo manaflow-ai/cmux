@@ -71,20 +71,6 @@ jobs:
       linux_guard_source: ${{ steps.linux_guards.outputs.linux_guard_source }}
       ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
-      # A canary run (choose_ci_suite.py: the consumer canary, or suites only
-      # the reverse test impact selector reached) only rides on a compile this
-      # run pays for; when either reuse check finds one, it is dropped.
-      unit_suite: ${{ steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true') && 'false' || steps.suite.outputs.unit_suite }}
-      unit_selectors: ${{ !(steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true')) && steps.suite.outputs.unit_selectors || '' }}
-      unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
-      # Only ever true for a changed-suites run the diff selected, which never
-      # takes the canary drop above.
-      # On an owned Mac, compile admission takes the mini's gui token for the
-      # suites itself (take-gui); when it cannot, it leaves them to the one
-      # shard (shard 8), which pr_runner_pool.py still plans for.
-      unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
-      coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
-      ui_selectors: ${{ steps.suite.outputs.ui_selectors }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
       # The macOS pool every pull-request macOS job in this run uses, chosen
@@ -252,16 +238,6 @@ jobs:
               git show "$BASE_SHA:.github/workflows/ci.yml" > /tmp/cmux-ci-base-workflow.yml \
                 || rm -f /tmp/cmux-ci-base-workflow.yml
             fi
-            # The changed lines of cmuxTests/, so choose_ci_suite.py can tell
-            # which declarations a test edit touched, and of ci-macos.yml, so
-            # it can tell whether an edit sits in the app-host shards' job.
-            # Absent reads as "every line of each changed file".
-            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- cmuxTests .github/workflows/ci-macos.yml \
-              > /tmp/cmux-ci-tests.diff || rm -f /tmp/cmux-ci-tests.diff
-            # The changed lines of app code, so choose_ci_suite.py can add the
-            # suites whose tests mention what changed (reverse_test_impact.py).
-            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- Sources Packages/macOS Packages/Shared CLI \
-              > /tmp/cmux-ci-app.diff || rm -f /tmp/cmux-ci-app.diff
 
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
               echo "PR diff is empty; skipping product-area CI."
@@ -654,24 +630,10 @@ jobs:
           PULL_REQUEST_POLICY: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
         run: |
           set -euo pipefail
-          # The diff list is only written for pull_request and merge_group, and
-          # only once the diff could be read. Omitting the flag reports an
-          # unknown diff, which fails closed in coverage_gap().
-          files_args=()
-          if [ -f /tmp/cmux-ci-changed-files.txt ]; then
-            files_args=(--files-from /tmp/cmux-ci-changed-files.txt)
-          fi
-          if [ -f /tmp/cmux-ci-tests.diff ]; then
-            files_args+=(--diff-from /tmp/cmux-ci-tests.diff)
-          fi
-          if [ -f /tmp/cmux-ci-app.diff ]; then
-            files_args+=(--app-diff-from /tmp/cmux-ci-app.diff)
-          fi
           python3 scripts/ci/choose_ci_suite.py \
             --event-name "$EVENT_NAME" \
             --pull-request-policy "$PULL_REQUEST_POLICY" \
             --event-path "$GITHUB_EVENT_PATH" \
-            ${files_args[@]+"${files_args[@]}"} \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Mint the owned-pool routing token
@@ -712,7 +674,7 @@ jobs:
       - name: Choose the pull request macOS pool
         id: macos-pool
         # Fail-safe: any error leaves the outputs empty, which is today's route.
-        # Main's full-suite dispatch (ci-main-full-suite.yml) is routed too,
+        # Main's full-suite workflow_dispatch of ci.yml is routed too,
         # onto the owned pools only, placed like a pull request unless
         # CI_OWNED_MAIN_RESERVE holds machines back for pull requests
         # (pr_runner_pool.py, "Main's full suite"); ci-macos.yml already reads
@@ -750,9 +712,6 @@ jobs:
           # taken only when every job of the run gets a machine at once.
           RUN_MACOS: ${{ steps.detect.outputs.macos }}
           RUN_FULL_SUITE: ${{ steps.suite.outputs.full_suite }}
-          RUN_UNIT_SUITE: ${{ steps.suite.outputs.unit_suite }}
-          RUN_UNIT_IN_ADMISSION: ${{ steps.suite.outputs.unit_in_admission }}
-          RUN_UNIT_SELECTORS: ${{ steps.suite.outputs.unit_selectors }}
           RUN_CLAUDE_WRAPPER: ${{ steps.standalone.outputs.claude_wrapper }}
           RUN_CLI: ${{ steps.detect.outputs.cli }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
@@ -917,7 +876,7 @@ jobs:
                 if [ "$release_only" = true ]; then
                   echo 'linux_guard_test_groups=["preflight","ci","release-ios","release-notary","release-tooling"]'
                 else
-                  echo 'linux_guard_test_groups=["preflight","ci","app-host-execution","app-host-watchdog","app-host-process","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
+                  echo 'linux_guard_test_groups=["preflight","ci","app-host-execution","app-host-watchdog","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
                 fi
               else
                 echo 'linux_guard_test_groups=["ci"]'
@@ -935,9 +894,8 @@ jobs:
       # compile. Each pull request run publishes its build-input fingerprint as
       # an artifact name, and a compile-only run whose fingerprint an earlier run
       # of the same in-org branch already compiled skips compile admission. Runs
-      # with the full suite or unit-ci always compile, because the app-host
-      # shards need the product and only run behind a compile admission that
-      # succeeded in this run.
+      # with the full suite always compile, because the Release lanes run only
+      # behind a compile admission that succeeded in this run.
       # The artifact name carries the run attempt, so a pass only vouches for the
       # fingerprint published in its own attempt. These steps are an optimization:
       # any of them failing leaves compile_admitted unset, which compiles.
@@ -961,7 +919,7 @@ jobs:
       - name: Skip compile when build inputs are unchanged
         id: unchanged_inputs
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' }}
         env:
           # Both steps are pull-request-only, and the xcode= extra exists so the
           # fingerprint moves when the pinned toolchain does. Read the same lane
@@ -1001,7 +959,7 @@ jobs:
       - name: Look for an earlier run that compiled these inputs
         id: admitted
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.head_ref }}
@@ -1010,90 +968,6 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
-
-  # Report only. choose_ci_suite.py in `changes` already adds the suites
-  # reverse_test_impact.py names to the changed-suites run; this job records
-  # the full answer, what was considered and what it would cost, in the step
-  # summary and a 14-day artifact so its recall can be measured against later
-  # failures on main. It is its own job so it never
-  # delays routing: nothing needs it, ci-status does not wait for it, it has
-  # no outputs, and it cannot fail the run (continue-on-error at job level).
-  #
-  # Like the trusted router in `changes`, the selector and everything it
-  # imports come from the merge commit's first parent, into a directory of
-  # their own, so a pull request cannot change what is reported about it and
-  # a new scripts/ci/ file cannot shadow an import. The pull request's tree is
-  # only read as text. Until the selector is on the base there is nothing to
-  # report.
-  reverse-test-impact:
-    name: Reverse test impact (report only)
-    needs: [changes]
-    if: ${{ github.event_name == 'pull_request' && needs.changes.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    continue-on-error: true
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          # The merge commit and its first parent, the trusted base.
-          fetch-depth: 2
-          persist-credentials: false
-
-      - name: Report reverse test impact (report only)
-        continue-on-error: true
-        run: |
-          set -uo pipefail
-          out="$RUNNER_TEMP/reverse-test-impact"
-          rm -rf "$out"
-          mkdir -p "$out/trusted"
-          base="$(git rev-parse -q --verify 'HEAD^1' || true)"
-          if [ -z "$base" ]; then
-            echo "No base revision in this checkout; nothing to report."
-            exit 0
-          fi
-          # A file, not a pipe into grep -q: an early grep exit would SIGPIPE
-          # git on a large diff and pipefail would read that as no match.
-          git diff --no-renames --name-only "$base" HEAD > "$out/names" || true
-          if ! grep -qE '^(Sources/|CLI/|Packages/(macOS|Shared)/[^/]+/Sources/)' "$out/names"; then
-            echo "No app source changes; nothing to report."
-            exit 0
-          fi
-          if ! git archive "$base" -- \
-            scripts/ci/reverse_test_impact.py \
-            scripts/ci/choose_ci_suite.py \
-            scripts/ci/cmux_unit_test_shard.py \
-            scripts/ci/test_impact.py \
-            scripts/ci/ui_tests_dispatch.py \
-            scripts/ci/cmux-unit-test-timings.json \
-            | tar -x -C "$out/trusted" 2>/dev/null; then
-            echo "The base revision has no reverse test impact selector; nothing to report."
-            exit 0
-          fi
-          trusted="$out/trusted"
-          diff_args=(--diff-from "$out/app.diff")
-          if ! git diff --no-renames -U0 "$base" HEAD -- Sources Packages/macOS Packages/Shared CLI > "$out/app.diff"; then
-            # The selector records "diff unavailable" rather than guessing.
-            diff_args=()
-          fi
-          python3 -I "$trusted/scripts/ci/reverse_test_impact.py" \
-            --root "$GITHUB_WORKSPACE" \
-            ${diff_args[@]+"${diff_args[@]}"} \
-            --output "$out/report.json" \
-            --summary "$GITHUB_STEP_SUMMARY" \
-            || echo "::warning::Reverse test impact report failed; routing is unchanged."
-          exit 0
-
-      - name: Upload the reverse test impact report
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: reverse-test-impact-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/reverse-test-impact/report.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   static-preflight:
     name: Fast static checks
@@ -1269,7 +1143,6 @@ jobs:
     needs:
       - changes
       - static-preflight
-      - suite-coverage
       - ghosttykit-release-check
       - browser
       - guards
@@ -1308,7 +1181,7 @@ jobs:
     # admission and would otherwise be skipped whenever the app-host product is
     # already admitted or the macOS area is neutral (a Packages/iOS package
     # outside the desktop closure). Other jobs retain their macos/cli gates.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (((needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.unit_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (((needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
     permissions:
       actions: read
       id-token: write
@@ -1320,10 +1193,6 @@ jobs:
       macos: ${{ needs.changes.outputs.macos }}
       cli: ${{ needs.changes.outputs.cli }}
       full_suite: ${{ needs.changes.outputs.full_suite }}
-      unit_suite: ${{ needs.changes.outputs.unit_suite }}
-      unit_selectors: ${{ needs.changes.outputs.unit_selectors }}
-      unit_strict_steps: ${{ needs.changes.outputs.unit_strict_steps }}
-      unit_in_admission: ${{ needs.changes.outputs.unit_in_admission }}
       swift_packages: ${{ needs.changes.outputs.swift_packages }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
       release_build: ${{ needs.changes.outputs.release_build }}
@@ -1393,14 +1262,9 @@ jobs:
           # and of the macOS area, so it can require the called workflow on its
           # own. Keep this in sync with the `macos` job's own `if:`.
           swift_packages = outputs.get("swift_packages") == "true"
-          # `unit-ci` asks for app-host unit tests without the full suite, so a
-          # routed macOS run is required even when compile admission reused a
-          # product and full_suite stayed false.
-          unit_suite = outputs.get("unit_suite") == "true"
           macos_work_required = swift_packages or (
               (
-                  unit_suite
-                  or outputs.get("cli") == "true"
+                  outputs.get("cli") == "true"
                   or not (full_suite == "false" and compile_admitted == "true")
               )
               and (macos_route == "true" or outputs.get("cli") == "true")
@@ -1533,123 +1397,6 @@ jobs:
               print(f"{name}: {data['result']}")
           PY
 
-  suite-coverage:
-    timeout-minutes: 5
-    # Compile admission builds the test bundle and stops, so a pull request
-    # that edits cmuxTests/ and skips the full suite runs none of the code it
-    # changed. The policy that allows the skip is written for a merge queue
-    # that no longer gates main, so refuse the run here instead of reporting
-    # green on a diff nothing observed. A cmuxTests/ diff selects
-    # `app-host unit tests` by itself (choose_ci_suite.py), so it never lands
-    # here. A cmuxUITests/ diff runs the classes it changed in `ui-tests`. What
-    # lands here is a cmuxUITests/ change that maps to no test class (a helper),
-    # or a diff that could not be read: "no-full-ci" records that skipping it
-    # is deliberate, and for an unread diff "full-ci" runs everything.
-    needs:
-      - changes
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    steps:
-      - name: Require the suite that judges this diff
-        run: |
-          echo "This pull request changes cmuxUITests/ outside any test class (a" >&2
-          echo "helper every class may use), more classes than one focused run takes," >&2
-          echo "or its diff could not be read, so nothing observed it. (A changed UI" >&2
-          echo "test class runs in 'ui-tests', and a cmuxTests/ change runs 'app-host" >&2
-          echo "unit tests', automatically.)" >&2
-          echo >&2
-          echo "Run the affected UI tests with scripts/run-e2e.sh and add the" >&2
-          echo "'no-full-ci' label to record it, or add 'full-ci' when the diff" >&2
-          echo "could not be read." >&2
-          exit 1
-
-  # The UI test classes a pull request changes, run once on its head through
-  # test-e2e.yml: no pull request job executes cmuxUITests/ otherwise. A diff
-  # that touches what the UI fuzzer's checked-in repros exercise (the sidebar,
-  # splits and panes, the main window's size, the fuzzer) also asks for
-  # cmuxUITests/FuzzRegressions, which replays them against the same app
-  # (choose_ci_suite.fuzz_regression_selectors).
-  #
-  # The test run
-  # adopts the app-host product this run compiles for the merge, waiting for
-  # it, so this costs a test run, not a second compile, and routes to an owned
-  # Mac (e2e_runner_pool.py). It waits for the admission gate: the gate holds
-  # the compile it adopts, so the gate must not wait for it, and a fast Linux
-  # failure spends no test run. A run that reuses an earlier compile skips the
-  # gate, and still runs the classes, once static preflight passes: the
-  # dispatch adopts that compile by its product key.
-  #
-  # Dispatching takes actions: write, which no job in this file holds: a
-  # pull_request run takes this file from the pull request. This job validates
-  # the selectors and uploads them as a request; ci-ui-tests.yml, which always
-  # runs from the default branch and which the build controller dispatches when
-  # this job starts (it matches the job name `ui-tests`: keep this id and add
-  # no `name:`), picks the request up, runs main's dispatcher on it, and
-  # cancels the dispatched run if this run ends first. This job then
-  # reports that run's verdict, so the result stays on the pull request and
-  # under ci-status. A fork's request is refused here: ci-ui-tests.yml serves
-  # only same-repository pull requests, so a maintainer runs its classes with
-  # scripts/run-e2e.sh and adds 'no-full-ci'. scripts/ci/ui_tests_dispatch.py
-  # has both halves.
-  ui-tests:
-    needs:
-      - changes
-      - static-preflight
-      - macos-admission-gate
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # A compile wait of up to 50 minutes, then the tests.
-    timeout-minutes: 150
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - name: Refuse a fork
-        if: github.event.pull_request.head.repo.full_name != github.repository
-        env:
-          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
-        run: |
-          echo "::error::This fork pull request changes UI test classes ($SELECTORS), which only a same-repository dispatch can run. A maintainer runs scripts/run-e2e.sh on its head and adds the 'no-full-ci' label."
-          exit 1
-
-      - name: Checkout the request script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          sparse-checkout: scripts/ci/ui_tests_dispatch.py
-          sparse-checkout-cone-mode: false
-
-      # Each selector must be cmuxUITests/<Class>[/<method>];
-      # ci-ui-tests.yml validates the request again before it dispatches.
-      - name: Validate the UI test selectors
-        env:
-          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          MERGE_SHA: ${{ github.sha }}
-        run: python3 scripts/ci/ui_tests_dispatch.py request --out "$RUNNER_TEMP/request.json"
-
-      - name: Request the UI test run
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          # ci-ui-tests.yml waits for this name (ui_tests_dispatch.request_artifact()).
-          name: ui-tests-request-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/request.json
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Wait for the UI test run
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          # Only to find the test run and print what it is doing each minute.
-          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          MERGE_SHA: ${{ github.sha }}
-        run: python3 scripts/ci/ui_tests_dispatch.py await-verdict
-
   dogfood-build:
     # One sticky comment per app pull request with a link to a tagged dev build
     # of this exact head, so anyone can try the change in one click. The build
@@ -1718,8 +1465,6 @@ jobs:
     needs:
       - changes
       - claude-wrapper
-      - suite-coverage
-      - ui-tests
       - static-preflight
       - guards
       - ghosttykit-release-check
@@ -1780,8 +1525,6 @@ jobs:
     needs:
       - changes
       - claude-wrapper
-      - suite-coverage
-      - ui-tests
       - static-preflight
       - guards
       - ghosttykit-release-check

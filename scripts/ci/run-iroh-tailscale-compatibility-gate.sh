@@ -4,78 +4,16 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 result_root="${CMUX_TAILSCALE_COMPAT_RESULT_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-iroh-tailscale-compatibility}"
-derived_data="$result_root/app-host-derived"
-result_bundle="$result_root/app-host.xcresult"
 source_packages="${CMUX_TAILSCALE_COMPAT_SOURCE_PACKAGES:-$repo_root/.ci-source-packages}"
 swift_scratch_root="$result_root/swift-build"
 
 mkdir -p "$result_root" "$source_packages"
-rm -rf "$result_bundle"
 rm -rf "$swift_scratch_root"
 rm -f "$result_root"/*.log
 
-# IrohTailscaleVersionSkewMacGateTests must execute exactly this many tests.
-# It was 6 until IROH v2 (#12326) retired the Mac's legacy TCP listener and its
-# Stack-bearer authorization context, `legacyPrivateNetworkListener`. #12754
-# re-retired them after a merge brought them back. Two tests guarded only that
-# surface and were retired rather than rewritten:
-#   testReleasedIOSWireFrameRemainsAcceptedByLegacyTCPAuthorization
-#   testLegacyCompatibilityPolicyCannotBecomeIrohAdmission
-# Shipped iOS builds are now served by the `cmux/mobile/1` dialect on the v2
-# endpoint, behind Iroh admission. The two Stable listener tests cover that path.
-# See https://github.com/manaflow-ai/cmux/issues/13683.
-app_host_expected_count=4
-
-run_app_host_gate() {
-  rm -rf "$result_bundle"
-  (
-    cd "$repo_root"
-    scripts/ci/xcodebuild_noninteractive.py \
-      xcodebuild \
-      -project cmux.xcodeproj \
-      -scheme cmux-unit \
-      -configuration Debug \
-      -destination "platform=macOS" \
-      -derivedDataPath "$derived_data" \
-      -clonedSourcePackagesDirPath "$source_packages" \
-      -resultBundlePath "$result_bundle" \
-      COMPILER_INDEX_STORE_ENABLE=NO \
-      -only-testing:cmuxTests/IrohTailscaleVersionSkewMacGateTests \
-      test
-  )
-
-  python3 - "$result_bundle" "$app_host_expected_count" <<'PY'
-import json
-import subprocess
-import sys
-
-result_bundle = sys.argv[1]
-summary = json.loads(
-    subprocess.check_output(
-        [
-            "xcrun",
-            "xcresulttool",
-            "get",
-            "test-results",
-            "summary",
-            "--path",
-            result_bundle,
-            "--compact",
-        ]
-    )
-)
-expected = int(sys.argv[2])
-observed = int(summary.get("totalTestCount", 0))
-passed = int(summary.get("passedTests", 0))
-failed = int(summary.get("failedTests", 0))
-if summary.get("result") != "Passed" or observed != expected or passed != expected or failed:
-    raise SystemExit(
-        f"Mac compatibility gate did not execute exactly {expected} passing tests: "
-        f"result={summary.get('result')} total={observed} passed={passed} failed={failed}"
-    )
-print(f"Mac compatibility gate: {expected}/{expected} passed")
-PY
-}
+# The Mac half of this gate (cmuxTests/IrohTailscaleVersionSkewMacGateTests,
+# run through the deleted cmux-unit scheme) went with the legacy app target.
+# The iOS package halves below still pin the released-iOS routing contract.
 
 run_package_gate() {
   local package_path="$1"
@@ -111,8 +49,6 @@ run_package_gate() {
     exit 1
   fi
 }
-
-run_app_host_gate
 
 run_package_gate \
   Packages/iOS/CmuxMobileShell \

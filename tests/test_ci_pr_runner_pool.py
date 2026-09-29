@@ -2421,11 +2421,9 @@ class Wiring(unittest.TestCase):
             # label first.
             "ci.yml": "(contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner "
                       "|| vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
-            # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
-            # tests-build-and-lag each test their own owned_jobs key, and are
-            # root jobs; the side lanes are not. tests-build-and-lag is a GUI
-            # job: the gui label first, where the picker names one.
-            "ci-macos.yml": {warm_lane(), warm_lane("[0]"), gui_lane("' lag '")},
+            # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) tests its
+            # own owned_jobs key and is a root job; the side lanes are not.
+            "ci-macos.yml": {warm_lane(), warm_lane("[0]")},
             "remote-daemon.yml": {side_lane("' remote-daemon '")},
         }
         for name, lane in expected.items():
@@ -2433,13 +2431,13 @@ class Wiring(unittest.TestCase):
             self.assertTrue(lanes, name)
             self.assertEqual(set(lanes), lane if isinstance(lane, set) else {lane}, name)
 
-    def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
-        shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
-                                            "[format('shard-{0}', matrix.shard)] "
-                                            "|| (github.run_attempt > 1 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
-                                            "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
-                                            "|| inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
+    def test_a_rerun_of_failed_jobs_leaves_the_owned_pool(self):
+        cli = self.workflow("ci-macos.yml")["jobs"]["cli-product-tests"]
+        self.assertEqual(cli["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
+                                         "['cli-product'] "
+                                         "|| (github.run_attempt > 1 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
+                                         "' cli-product ')) && inputs.pr_retry_runner "
+                                         "|| inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
         self.assertNotIn("run_attempt == 2", wrapper)
         self.assertIn("github.event_name == 'pull_request' && "
@@ -2494,7 +2492,7 @@ class Wiring(unittest.TestCase):
         main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' "
                          f"&& github.ref == 'refs/heads/main') && {dispatch_lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
         macos = self.workflow("ci-macos.yml")["jobs"]
-        for job in ("macos-compile-admission", "tests-build-and-lag"):
+        for job in ("macos-compile-admission",):
             self.assertEqual(macos[job]["env"]["CMUX_CI_XCODE_APP"], main_dispatch, job)
 
     def test_build_input_fingerprint_keys_on_the_chosen_xcode(self):
@@ -3620,16 +3618,6 @@ class E2EQueueRounds(unittest.TestCase):
         stale["generated_at"] = "2026-09-24T08:00:00Z"
         self.assertEqual(self.choice("2", 0, stale).runner, "")
 
-    def test_the_workflow_and_launchers_pass_the_rounds(self):
-        doc = yaml.safe_load((WORKFLOWS / "test-e2e.yml").read_text())
-        step = next(step for step in doc["jobs"]["runner"]["steps"] if step.get("id") == "pool")
-        self.assertEqual(step["env"]["POOL_QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
-        self.assertIn('--queue-rounds "$POOL_QUEUE_ROUNDS"', step["run"])
-        for name in ("test-macos-suite.yml", "main-regression-bisect.yml"):
-            text = (WORKFLOWS / name).read_text()
-            self.assertIn("CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}", text, name)
-        self.assertIn("pool.QUEUE_ROUNDS_VARIABLE, QUEUE_ROUNDS_ENV",
-                      (ROOT / "scripts/ci/dispatch-focused-test.py").read_text())
 
 class IrohReleaseGateWiring(unittest.TestCase):
     """iroh-release-gate.yml offers its Tailscale job to the owned Macs; simulator-e2e stays on Blacksmith."""

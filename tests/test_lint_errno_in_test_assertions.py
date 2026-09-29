@@ -29,7 +29,7 @@ SPEC.loader.exec_module(LINT)
 
 
 def lines(source: str) -> list:
-    findings = LINT.scan_source(textwrap.dedent(source), "cmuxTests/Fixture.swift")
+    findings = LINT.scan_source(textwrap.dedent(source), "cmuxCLITests/Fixture.swift")
     return [(finding.line, finding.macro) for finding in findings]
 
 
@@ -248,8 +248,8 @@ class CommandLine(unittest.TestCase):
     def test_scans_only_test_sources(self) -> None:
         status, stdout, _ = self.run_lint(
             {
-                "Sources/Probe.swift": "#expect(errno == EAGAIN)\n",
-                "cmuxTests/ProbeTests.swift": "let e = errno\n#expect(e == EAGAIN)\n",
+                "CLI/Probe.swift": "#expect(errno == EAGAIN)\n",
+                "cmuxCLITests/ProbeTests.swift": "let e = errno\n#expect(e == EAGAIN)\n",
             }
         )
         self.assertEqual(status, 0)
