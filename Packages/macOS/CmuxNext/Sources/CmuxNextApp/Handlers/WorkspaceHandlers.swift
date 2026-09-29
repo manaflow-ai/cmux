@@ -64,10 +64,13 @@ enum WorkspaceHandlers {
             guard let connection = services.daemon.connection else { return }
             let created: String
             do {
-                let workspace = try await connection.createWorkspace(name: name)
-                let terminal = try await connection.createTerminal(in: workspace.key, cwd: cwd ?? NSHomeDirectory())
-                try await configure?(connection, terminal)
-                created = workspace.key.rawValue
+                let key = WorkspaceKey.generate()
+                created = try await services.emptyWorkspaces.populating(key) {
+                    let workspace = try await connection.createWorkspace(name: name, key: key)
+                    let terminal = try await connection.createTerminal(in: workspace.key, cwd: cwd ?? NSHomeDirectory())
+                    try await configure?(connection, terminal)
+                    return workspace.key.rawValue
+                }
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 return

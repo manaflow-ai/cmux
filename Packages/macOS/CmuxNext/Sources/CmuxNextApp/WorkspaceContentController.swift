@@ -16,6 +16,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
     private var observation: Task<Void, Never>?
+    private var connectionObservation: Task<Void, Never>?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The first tab of a pane this window just created (split, column);
@@ -34,6 +35,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     func teardown() {
         observation?.cancel()
+        connectionObservation?.cancel()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
         layoutView.removeFromSuperview()
@@ -47,6 +49,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
                 self?.apply(result)
             }
         }
+        // An empty workspace loaded while disconnected is repaired once the
+        // daemon is back, even if the tree itself does not change.
+        let store = services.daemon.store
+        connectionObservation = Task { [weak self] in
+            for await _ in Observations({ store.connectionState }) { self?.repairIfEmpty() }
+        }
     }
 
     /// Re-applies the current store state (after a command response that
@@ -58,6 +66,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private func apply(_ result: LayoutMapping.Result) {
         handles = result.handles
         layoutModel.apply(screens: result.screens)
+        repairIfEmpty()
         if let surface = pendingFocusSurface,
            let pane = workspace.screens.flatMap(\.panes).first(where: { $0.tabs.contains { $0.surface == surface } }) {
             pendingFocusSurface = nil
@@ -68,6 +77,15 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         if let remembered = state.focusedPane[workspace.id], layoutModel.focusedPane != remembered,
            result.screens.contains(where: { $0.layout.contains(remembered) }) {
             layoutModel.focus(remembered)
+        }
+    }
+
+    /// A workspace with no pane gets one terminal, focused when it lands.
+    private func repairIfEmpty() {
+        services.emptyWorkspaces.check(workspace) { [weak self] surface in
+            guard let self else { return }
+            self.pendingFocusSurface = surface
+            self.applyCurrent()
         }
     }
 
