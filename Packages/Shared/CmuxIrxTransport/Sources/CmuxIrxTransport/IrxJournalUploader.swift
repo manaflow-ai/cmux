@@ -141,8 +141,10 @@ public actor IrxJournalUploader {
             return
         }
         var status = await post(body: body, forceToken: false)
+        guard !stopped else { return }
         if status == 401 {
             status = await post(body: body, forceToken: true)
+            guard !stopped else { return }
         }
         switch status {
         case 200..<300:
@@ -172,14 +174,18 @@ public actor IrxJournalUploader {
     }
 
     private func post(body: Data, forceToken: Bool) async -> Int {
+        guard !stopped else { return -1 }
         guard let credential = try? await token(forceToken) else { return -1 }
+        guard !stopped else { return -1 }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer " + credential, forHTTPHeaderField: "Authorization")
         request.httpBody = body
-        return (try? await transport(request)) ?? -1
+        let status = (try? await transport(request)) ?? -1
+        guard !stopped else { return -1 }
+        return status
     }
 
     private let timestampFormatter: ISO8601DateFormatter = {

@@ -101,6 +101,48 @@ import Testing
         #expect(await uploader.uploadedCount == 1)
     }
 
+    @Test func stopPreventsAnInFlightUploadFromSending() async throws {
+        let started = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        let returned = AsyncStream<Void>.makeStream()
+        defer {
+            started.continuation.finish()
+            release.continuation.finish()
+            returned.continuation.finish()
+        }
+
+        let recorder = Recorder(statuses: [200])
+        let uploader = IrxJournalUploader(
+            endpoint: URL(string: "https://api.example.com/api/observability/transport")!,
+            metadata: IrxJournalUploader.ClientMetadata(
+                platform: "mac", clientChannel: "nightly", appVersion: "1.2",
+                endpoint: "10533b43db35", deviceId: "device-1", buildTag: "default"
+            ),
+            token: { _ in
+                started.continuation.yield(())
+                for await _ in release.stream { break }
+                returned.continuation.yield(())
+                return "token"
+            },
+            transport: { request in recorder.record(request) },
+            flushInterval: 600
+        )
+
+        for _ in 0..<50 {
+            uploader.offer(event())
+        }
+        var startedIterator = started.stream.makeAsyncIterator()
+        #expect(await startedIterator.next() != nil)
+        await uploader.stop()
+        release.continuation.yield(())
+        var returnedIterator = returned.stream.makeAsyncIterator()
+        #expect(await returnedIterator.next() != nil)
+        await uploader.flushNow()
+
+        #expect(recorder.sent.isEmpty)
+        #expect(await uploader.uploadedCount == 0)
+    }
+
     @Test func transientFailureRetainsTheBatchAndRejectionDropsIt() async throws {
         let recorder = Recorder(statuses: [503, 200])
         let uploader = uploader(recorder)
