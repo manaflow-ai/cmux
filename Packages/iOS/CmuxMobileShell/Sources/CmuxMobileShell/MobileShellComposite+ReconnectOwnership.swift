@@ -1,3 +1,5 @@
+import Foundation
+
 @MainActor
 extension MobileShellComposite {
     var storedMacReconnectDeadlineTask: Task<DeadlineRaceOutcome<StoredMacReconnectOutcome>, Never>? {

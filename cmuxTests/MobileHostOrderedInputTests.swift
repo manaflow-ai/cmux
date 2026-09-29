@@ -84,7 +84,7 @@ struct MobileHostOrderedInputTests {
         await connection.close(reason: "test complete")
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func orderedInputOnAnotherSurfaceIsNotBlocked() async throws {
         let transport = OrderedInputRecordingTransport()
         let gate = OrderedInputHandlerGate()
@@ -108,8 +108,8 @@ struct MobileHostOrderedInputTests {
                 ("input-2", "terminal.input"),
             ],
             surfaceIDsByRequestID: [
-                "input-1": "surface-1",
-                "input-2": "surface-2",
+                "input-1": "00000000-0000-0000-0000-000000000001",
+                "input-2": "00000000-0000-0000-0000-000000000002",
             ]
         )
 
