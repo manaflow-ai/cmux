@@ -36,3 +36,11 @@ Design docs: cmux-tui-contract.md, inventory.md, browser.md, shell.md.
 - 2026-09-28: app shell scaffold landed. `Packages/macOS/CmuxNext` (tools 6.2, Swift 6, `.macOS(.v26)`; modules CmuxNextApp, CmuxNextDesign, CmuxNextActions, CmuxNextDaemon placeholder, CmuxNextTerminal Ghostty host with manual-mirror IO, not yet wired into the window). Xcode target `cmux-next` (added by `scripts/cmux-next/add-xcode-target.py`), `cmux` scheme repointed to it, `cmux-legacy` scheme builds the old app. `swift build` and `xcodebuild -scheme cmux` pass on Xcode 27 and 26.3; no tagged launch or fleet build yet.
 - 2026-09-28: scaffold landed (feb033d, fc9833c). Feature module stubs + AGENT-BRIEF.md pushed (90c0fdc). Wave 2 running, one branch per module into feat-cmux-next: daemon, terminal, tabs, sidebar, palette, layout, browser. Daemon gaps branch feat-cmux-next-daemon (Rust). CEF spike in ~/fun/cmux2-spike. CEF fork pushed to manaflow-ai/cef (private) branch cmux/8037.
 - Defaults taken (user may override): raw v12 protocol; session `cmux-app` / `cmux-app-<tag>`; WebKit tabs are daemon tab kind; libghostty manual-mirror rendering; no mixed-machine workspaces in v1; keep simulator stream service, drop Mac simulator pane; delete Canvas and custom sidebars; Go remote daemon deleted only after cmux-tui parity; thin new mobile.* compat adapter for shipped iOS.
+
+## Integration notes (for the App wiring wave)
+
+- Layout (PR 15503, merged): replace the "daemon wins on 3rd snapshot after drag" rule with transaction-id echo (LayoutTransactionID round-trips through the daemon). Hacky as merged.
+- Layout animates hosted view frames per frame: debounce/lease PTY resize (only send resize at animation end or on sizing-lease change).
+- Map daemon `stack` nodes to one leaf. App must call `model.focus` when terminal first responder changes.
+- Horizontal trackpad gestures over column screens are captured by layout; terminal apps lose horizontal scroll there. Revisit with a modifier or edge-only policy after dogfood.
+- CEF: lazy init works (external_message_pump + CFRunLoopTimer). Fork patches for clip/scroll/destroy signal in progress on manaflow-ai/cef cmux/8037-clip.
