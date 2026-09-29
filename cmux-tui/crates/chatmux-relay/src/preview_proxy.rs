@@ -1463,6 +1463,107 @@ mod tests {
         assert!(fresh["id"].as_i64().expect("id") >= PROXY_CDP_ID_BASE);
     }
 
+    type TestSocket = tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >;
+
+    async fn ws_handshake(
+        port: u16,
+        path: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<TestSocket, tungstenite::Error> {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+        let mut request =
+            format!("ws://127.0.0.1:{port}{path}").into_client_request().expect("ws request");
+        for (name, value) in headers {
+            request.headers_mut().insert(
+                hyper::header::HeaderName::from_bytes(name.as_bytes()).expect("header name"),
+                hyper::header::HeaderValue::from_str(value).expect("header value"),
+            );
+        }
+        tokio_tungstenite::connect_async(request).await.map(|(socket, _)| socket)
+    }
+
+    fn refused_with_forbidden(outcome: Result<TestSocket, tungstenite::Error>) -> bool {
+        matches!(outcome, Err(tungstenite::Error::Http(response)) if response.status() == 403)
+    }
+
+    #[tokio::test]
+    async fn control_sockets_refuse_cross_site_browser_origins() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_target().await;
+        let proxy = open_proxy(&registry, target).await;
+
+        // A public web page the user visits can dial the loopback port; its
+        // browser stamps the page's Origin on the handshake.
+        for path in ["/__chatmux__/page", "/__chatmux__/devtools"] {
+            for origin in ["https://evil.example", "http://evil.example", "null"] {
+                let outcome = ws_handshake(proxy, path, &[("origin", origin)]).await;
+                assert!(refused_with_forbidden(outcome), "{path} accepted Origin {origin}");
+            }
+        }
+        // DNS rebinding: a plain-http page whose name now resolves to
+        // loopback. Its Host is its own name, and it cannot present TLS.
+        let rebinding_host = format!("rebind.example:{proxy}");
+        let rebinding_origin = format!("http://{rebinding_host}");
+        let outcome = ws_handshake(
+            proxy,
+            "/__chatmux__/devtools",
+            &[("host", &rebinding_host), ("origin", &rebinding_origin)],
+        )
+        .await;
+        assert!(refused_with_forbidden(outcome), "rebinding origin accepted");
+        // Through the TLS tunnel the page channel stays same-origin only.
+        let outcome = ws_handshake(
+            proxy,
+            "/__chatmux__/page",
+            &[("host", "p1.preview.test"), ("origin", "https://chatmux.dev")],
+        )
+        .await;
+        assert!(refused_with_forbidden(outcome), "cross-origin page accepted");
+
+        // The legitimate peers still connect: the injected connector on the
+        // proxy's own origin, a local DevTools frontend, the tunneled page,
+        // the chatmux web app's DevTools drawer, and non-browser clients.
+        let local_origin = format!("http://127.0.0.1:{proxy}");
+        ws_handshake(proxy, "/__chatmux__/page", &[("origin", &local_origin)])
+            .await
+            .expect("same-origin loopback page");
+        ws_handshake(proxy, "/__chatmux__/devtools", &[("origin", "http://localhost:3000")])
+            .await
+            .expect("loopback devtools");
+        ws_handshake(
+            proxy,
+            "/__chatmux__/page",
+            &[("host", "p1.preview.test"), ("origin", "https://p1.preview.test")],
+        )
+        .await
+        .expect("tunneled same-origin page");
+        ws_handshake(
+            proxy,
+            "/__chatmux__/devtools",
+            &[("host", "p1.preview.test"), ("origin", "https://chatmux.dev")],
+        )
+        .await
+        .expect("tunneled devtools drawer");
+        ws_handshake(proxy, "/__chatmux__/devtools", &[]).await.expect("originless client");
+        registry.shutdown().await;
+    }
+
+    #[test]
+    fn oversized_cdp_request_ids_are_not_retained() {
+        let ring = ConsoleRing::new();
+        let request_id = "r".repeat(1024 * 1024);
+        let frame = serde_json::json!({
+            "method": "Network.requestWillBeSent",
+            "params": {"requestId": request_id, "request": {"method": "GET", "url": "http://x/"}},
+        });
+        assert_eq!(tee_cdp_frame(&ring, &frame.to_string()), None);
+        let inner = ring.inner.lock().expect("ring lock");
+        assert!(inner.pending.is_empty(), "an oversized request id was retained");
+        assert!(inner.pending_order.is_empty(), "an oversized request id was queued");
+    }
+
     #[tokio::test]
     async fn bounds_preview_listeners_and_evicts_oldest_target() {
         let registry = PreviewRegistry::new();
