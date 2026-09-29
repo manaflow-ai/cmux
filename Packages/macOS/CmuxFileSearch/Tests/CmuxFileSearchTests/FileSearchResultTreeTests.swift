@@ -79,6 +79,23 @@ struct FileSearchResultTreeTests {
         #expect(tree.previousMatch(before: FileSearchResultPosition(fileIndex: 1, matchIndex: nil)) == a1)
     }
 
+    @Test("Dismissing a file removes its matches and keeps later files addressable")
+    func dismiss() {
+        let tree = makeTree()
+        tree.apply([
+            FileSearchFileMatches(path: "/root/a", matches: matches([1, 2])),
+            FileSearchFileMatches(path: "/root/b", matches: matches([3])),
+        ])
+        let first = tree.files[0]
+        #expect(tree.remove(first))
+        #expect(!tree.remove(first))
+        #expect(tree.files.map(\.relativePath) == ["b"])
+        #expect(tree.matchCount == 1)
+        #expect(tree.index(of: tree.files[0]) == 0)
+        let change = tree.apply([FileSearchFileMatches(path: "/root/b", matches: matches([4]))])
+        #expect(change.grownFiles.map(\.fileIndex) == [0])
+    }
+
     @Test("Navigation on an empty tree finds nothing")
     func emptyNavigation() {
         let tree = makeTree()

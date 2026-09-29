@@ -123,6 +123,19 @@ public final class FileSearchResultTree {
         )
     }
 
+    /// Removes one file and its matches (VS Code's Dismiss).
+    @discardableResult
+    public func remove(_ file: FileSearchFileNode) -> Bool {
+        guard let index = index(of: file) else { return false }
+        files.remove(at: index)
+        matchCount -= file.matches.count
+        fileIndexByPath.removeValue(forKey: file.path)
+        for later in index..<files.count {
+            fileIndexByPath[files[later].path] = later
+        }
+        return true
+    }
+
     public func index(of file: FileSearchFileNode) -> Int? {
         guard let index = fileIndexByPath[file.path], files[index] === file else { return nil }
         return index

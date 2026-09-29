@@ -44,7 +44,7 @@ struct FileSearchProcessTests {
         // The grandchild keeps stdout open; the stream can only end once it dies too.
         let process = try FileSearchProcess(command: FileSearchCommand(
             executablePath: "/bin/sh",
-            arguments: ["-c", "echo ready; /bin/sleep 600 & wait"]
+            arguments: ["-c", "/bin/sleep 600 & echo ready; wait"]
         ))
         var iterator = process.standardOutputChunks().makeAsyncIterator()
         let first = await iterator.next()

@@ -37,7 +37,7 @@ public struct FileSearchFileMatches: Hashable, Sendable {
 extension Array where Element == FileSearchFileMatches {
     /// Appends `other`, merging a leading group into the trailing one when
     /// both name the same file so batches stay grouped across chunk borders.
-    mutating func appendMerging(_ other: [FileSearchFileMatches]) {
+    public mutating func appendMerging(_ other: [FileSearchFileMatches]) {
         for group in other {
             if let lastIndex = indices.last, self[lastIndex].path == group.path {
                 self[lastIndex].matches += group.matches
