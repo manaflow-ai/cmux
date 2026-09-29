@@ -14,8 +14,8 @@ struct RemoteSessionReverseRelayTransportTests {
         let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
             reverseRelayLauncher: launcher,
-            identity: identity,
-            sshOptions: ["ControlPath=\(identity.controlPath)"]
+            sshOptions: ["ControlPath=\(identity.controlPath)"],
+            identity: identity
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
