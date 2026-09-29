@@ -161,6 +161,7 @@ extension CEFRuntime {
         pump?.stop()
         shim.shutdown()
         state = .shutDown
+        logger.notice("CEF shutdown complete")
     }
 }
 

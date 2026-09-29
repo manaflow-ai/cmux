@@ -11,6 +11,8 @@ import Foundation
 ///                                           every change (verification)
 ///   CMUX_NEXT_DEBUG_BROWSER_EVAL=<js>       evaluated after each load; the
 ///                                           result lands in the report
+///   CMUX_NEXT_DEBUG_BROWSER_OPEN_EXTENSION=1 runs the first extension action
+///                                           (opens its popup) once listed
 ///   CMUX_NEXT_NO_ACTIVATE=1                 never activate the app
 public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
     private static var open: [BrowserDebugWindow] = []
@@ -23,6 +25,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
     private let evalScript = ProcessInfo.processInfo.environment["CMUX_NEXT_DEBUG_BROWSER_EVAL"]
     private var evalResult: String?
     private var evaluatedURL: URL?
+    private var openExtension = ProcessInfo.processInfo.environment["CMUX_NEXT_DEBUG_BROWSER_OPEN_EXTENSION"] == "1"
 
     /// Opens the window when `CMUX_NEXT_DEBUG_BROWSER` is set. Returns the
     /// failure text when the engine cannot create a tab.
@@ -116,6 +119,12 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         }
         if let extensions = tab as? any BrowserExtensionActionHosting {
             fields["extensions"] = extensions.extensionActions.map { ["id": $0.id, "name": $0.name, "badge": $0.badge] }
+            if openExtension, !state.isLoading, let first = extensions.extensionActions.first {
+                openExtension = false
+                let width = tab.contentView.bounds.width
+                extensions.runExtensionAction(first.id, anchor: CGRect(x: width - 40, y: 0, width: 32, height: 32))
+                fields["openedExtension"] = first.id
+            }
         }
         Self.writeReport(fields, to: reportURL)
     }
