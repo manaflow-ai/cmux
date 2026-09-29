@@ -119,10 +119,19 @@ public final class CloudSystemVPNController {
     /// A VPN saved under another scope is removed before anything else, so
     /// one account's routes never survive into another's session.
     public func setScope(_ newScope: String?, teamID: String? = nil) {
-        if hasLoadedScope, scope == newScope, cleanupPending, operation != nil {
+        let newScopeTeamID = newScope == nil ? nil : teamID
+        if hasLoadedScope,
+           scope == newScope,
+           scopeTeamID == newScopeTeamID,
+           cleanupPending,
+           operation != nil {
             return
         }
-        guard !hasLoadedScope || scope != newScope || cleanupPending else { return }
+        guard !hasLoadedScope
+            || scope != newScope
+            || scopeTeamID != newScopeTeamID
+            || cleanupPending
+        else { return }
         hasLoadedScope = true
         enableRetryRequested = false
         enableRetryTask?.cancel()
@@ -131,11 +140,13 @@ public final class CloudSystemVPNController {
         cleanupRetryTask?.cancel()
         cleanupRetryTask = nil
         let previousScope = scope
-        if let browserTunnel, browserTunnel.scope != newScope {
+        if let browserTunnel,
+           browserTunnel.scope != newScope
+               || browserTunnel.teamID != newScopeTeamID {
             rememberPendingBrowserTunnelRevocation(browserTunnel)
         }
         scope = newScope
-        scopeTeamID = newScope == nil ? nil : teamID
+        scopeTeamID = newScopeTeamID
         let removesExistingConfiguration =
             previousScope != nil || newScope == nil || cleanupPending
         cleanupPending = removesExistingConfiguration

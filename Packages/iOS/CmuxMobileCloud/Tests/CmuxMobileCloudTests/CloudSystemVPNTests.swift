@@ -726,6 +726,30 @@ import Testing
         #expect(rig.service.calls.revokeCredentials.first?.teamID == "team-1")
     }
 
+    @Test func switchingTeamsForTheSameScopeRevokesTheOldTeamPeer() async {
+        let rig = Rig(credentials: {
+            (accessToken: "old-access", refreshToken: "old-refresh")
+        })
+        rig.controller.setScope("user-1/team-1", teamID: "team-1")
+        await rig.controller.waitForPendingOperation()
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        rig.controller.setScope("user-1/team-1", teamID: "team-2")
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.service.calls.revokeCredentials.count == 1)
+        #expect(rig.service.calls.revokeCredentials.first?.teamID == "team-1")
+        #expect(rig.manager.stops == [true])
+        #expect(
+            rig.manager.refreshedScopes == [
+                "user-1/team-1",
+                "user-1/team-1",
+                "user-1/team-1"
+            ]
+        )
+    }
+
     @Test func pendingBrowserRevocationBlocksReenableUntilCleanupSucceeds() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         let rig = Rig(
