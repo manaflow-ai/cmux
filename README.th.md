@@ -367,7 +367,7 @@ cmux ฟรีและโอเพนซอร์ส และจะเป็�
 
 ### ผมมีคำขอฟีเจอร์หรือพบบั๊ก?
 
-เราอยากได้ยิน เปิด [issue](https://github.com/manaflow-ai/cmux/issues) หรือ [pull request](https://github.com/manaflow-ai/cmux/pulls) บน GitHub หรือ [อีเมลหาเรา](mailto:founders@manaflow.com?subject=cmux%20feature%20request)
+เราอยากได้ยิน เปิด [issue](https://github.com/manaflow-ai/cmux/issues) หรือ [pull request](https://github.com/manaflow-ai/cmux/pulls) บน GitHub หรือ [อีเมลหาเรา](mailto:founders@cmux.com?subject=cmux%20feature%20request)
 
 ## Star History
 
@@ -420,4 +420,4 @@ cmux ฟรี โอเพนซอร์ส และจะเป็นเช�
 
 cmux เป็นโอเพนซอร์สภายใต้ [GPL-3.0-or-later](LICENSE) ซอฟต์แวร์เซิร์ฟเวอร์ของ cmux (`web/`, Cloudflare workers และบริการ relay ที่ระบุใน [LICENSE](LICENSE)) ใช้ [Business Source License 1.1](web/LICENSE) แทน คุณสามารถอ่าน แก้ไข และรันเพื่อการใช้งานที่ไม่ใช่โปรดักชันได้ ส่วนการใช้งานโปรดักชันหรือการโฮสต์เองต้องมีสัญญาอนุญาตเชิงพาณิชย์
 
-หากองค์กรของคุณไม่สามารถปฏิบัติตาม GPL ได้ มีสัญญาอนุญาตเชิงพาณิชย์ให้บริการ ติดต่อ [founders@manaflow.com](mailto:founders@manaflow.com) สำหรับรายละเอียด
+หากองค์กรของคุณไม่สามารถปฏิบัติตาม GPL ได้ มีสัญญาอนุญาตเชิงพาณิชย์ให้บริการ ติดต่อ [founders@cmux.com](mailto:founders@cmux.com) สำหรับรายละเอียด
