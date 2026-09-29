@@ -7890,10 +7890,19 @@ final class cmuxUITests: XCTestCase {
     private func assertTerminalDropdownKeepsBottomScrollDuringRefresh(in app: XCUIApplication) {
         defer { app.terminate() }
 
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("terminal-build", in: app)
+        let initialTitle = app.buttons["MobileTerminalMenuItem-terminal-build"].label
         let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
-        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
+        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before observing refreshes.")
+        capture("tabs-menu-scrolled-to-bottom")
 
         let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
         let deadline = Date().addingTimeInterval(3.0)
@@ -7904,12 +7913,23 @@ final class cmuxUITests: XCTestCase {
             )
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
+        capture("tabs-menu-bottom-after-background-refreshes")
         tapMenuItem(refreshedTarget, in: app)
         let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
         XCTAssertTrue(
             selectedValue.contains("Terminal 24"),
             "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
         )
+        // A long press must take a fresh snapshot too; a tap-only refresh
+        // hook leaves stale titles on the native press-drag opening path.
+        app.buttons["MobileTerminalDropdown"].press(forDuration: 0.6)
+        assertTerminalMenuItemExists("terminal-build", in: app)
+        XCTAssertNotEqual(
+            app.buttons["MobileTerminalMenuItem-terminal-build"].label,
+            initialTitle,
+            "Reopening must show current names and proves refreshes occurred during the first opening."
+        )
+        capture("tabs-menu-reopened-with-current-titles")
     }
 
     @MainActor
@@ -8664,11 +8684,12 @@ final class cmuxUITests: XCTestCase {
         var launchEnvironment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+            "CMUX_UITEST_SUPPRESS_WHATS_NEW": "1",
         ]
         launchEnvironment.merge(environment) { _, new in new }
         let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(app.buttons["MobileTerminalDropdown"], timeout: 8))
         return app
     }
 

@@ -49,9 +49,13 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             store.selectedWorkspaceID = Self.workspaceID
             if Self.usesRefreshingTerminalMenu {
                 store.selectedTerminalID = Self.refreshingTerminalID(0)
-                for generation in 1...80 {
+                // Keep updates running throughout a slow UI test, including
+                // scrolling and reopening. The view's task owns cancellation.
+                var generation = 0
+                while !Task.isCancelled {
                     try? await ContinuousClock().sleep(for: .milliseconds(250))
                     guard !Task.isCancelled else { return }
+                    generation += 1
                     store.replaceForegroundWorkspaceState([Self.refreshingWorkspace(generation: generation)])
                     store.selectedWorkspaceID = Self.workspaceID
                     if ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_MENU_BROWSER_REFRESH"] == "1" {
