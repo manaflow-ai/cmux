@@ -3,6 +3,7 @@ import { TeamApiError } from "./errors";
 import { databaseTeamInviteStore, type TeamInviteStore } from "./repository";
 import { withStackDeadline, type StackSentInvitation } from "./stack";
 import type { TeamInvitation, TeamRole } from "./types";
+import { assertTeamEntitlement, ownerPlanIdFromMetadata } from "./entitlementPolicy";
 
 export const MAX_INVITE_EMAILS = 20;
 
@@ -67,6 +68,8 @@ export async function inviteTeamMembers(
       .filter((email): email is string => email !== null),
   );
   const emails = [...new Set(input.emails.map(normalizeInviteEmail))];
+  const pending = await listStackInvitations(access);
+  assertTeamEntitlement({ ownerPlanId: ownerPlanIdFromMetadata(access.team.clientReadOnlyMetadata), memberCount: access.members.length, pendingInviteCount: pending.length, additionalInviteCount: emails.filter((email) => !memberEmails.has(email)).length });
   const failed: { email: string; code: InviteFailureCode }[] = [];
   const sent: string[] = [];
   const previous = emails.some((email) => !memberEmails.has(email)) ? await listStackInvitations(access) : [];
