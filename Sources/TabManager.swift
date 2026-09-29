@@ -2832,7 +2832,10 @@ class TabManager: ObservableObject {
         // "Don't ask again": no setting may silence the protection pinning
         // asked for.
         let containsPinned = plan.workspaces.contains(where: \.isPinned)
+        let windowDockNeedsConfirmation = plan.willCloseWindow
+            && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let hasActiveProcess = plan.workspaces.contains(where: workspaceNeedsConfirmClose)
+            || windowDockNeedsConfirmation
         let showsBatchConfirmation: Bool
         var dontAskAgain: CloseWarningKinds
         if containsPinned {
@@ -3136,7 +3139,10 @@ class TabManager: ObservableObject {
         // grouped instead of scattering to root. No special anchor prompt is
         // needed; the normal running-process confirmation below still applies.
         let willCloseWindow = tabs.count <= 1
+        let windowDockNeedsConfirmation = willCloseWindow
+            && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
+            || windowDockNeedsConfirmation
         let showsCloseConfirmation = requiresConfirmation
             && (needsCloseConfirmation
                 || shouldConfirmWorkspaceClose(

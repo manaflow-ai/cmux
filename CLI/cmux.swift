@@ -6831,7 +6831,8 @@ struct CMUXCLI {
             guard let target = optionValue(commandArgs, name: "--window"), let windowID = try normalizeWindowHandle(target, client: client) else {
                 throw CLIError(message: "close-window requires --window")
             }
-            let response = try sendV1Command("close_window \(windowID)", client: client)
+            let force = commandArgs.contains("--force")
+            let response = try sendV1Command("close_window \(windowID)\(force ? " --force" : "")", client: client)
             print(response)
 
         case "resize-window":
@@ -19371,12 +19372,13 @@ struct CMUXCLI {
             """
         case "close-window":
             return """
-            Usage: cmux close-window --window <id|ref|index>
+            Usage: cmux close-window --window <id|ref|index> [--force]
 
             Close the specified window.
 
             Flags:
               --window <id|ref|index>   Window to close (required)
+              --force                   Close even when live processes would be terminated
 
             Example:
               cmux close-window --window 0

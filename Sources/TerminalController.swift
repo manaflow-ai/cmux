@@ -12785,10 +12785,21 @@ class TerminalController {
     }
 
     private func closeWindow(_ arg: String) -> String {
-        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
-        return ok ? "OK" : "ERROR: Window not found"
+        let parts = arg.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        guard let windowId = parts.first.flatMap(UUID.init(uuidString:)),
+              parts.dropFirst().allSatisfy({ $0 == "--force" }) else {
+            return "ERROR: Invalid window id"
+        }
+        let force = parts.dropFirst().contains("--force")
+        let outcome = v2MainSync { controlCloseWindow(id: windowId, force: force) }
+        switch outcome {
+        case .resolved:
+            return "OK"
+        case .notFound:
+            return "ERROR: Window not found"
+        case .confirmationRequired:
+            return "ERROR: \(controlWindowCloseStrings().confirmationRequired)"
+        }
     }
 
     private func moveWorkspaceToWindow(_ args: String) -> String {
