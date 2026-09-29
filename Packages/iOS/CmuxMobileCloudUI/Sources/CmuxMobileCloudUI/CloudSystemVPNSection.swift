@@ -32,7 +32,7 @@ struct CloudSystemVPNSection: View {
                         .accessibilityIdentifier("CloudVPNStatus")
                 }
             }
-            .disabled(!isAvailable || phase == .disconnecting)
+            .disabled(isToggleDisabled)
             .accessibilityIdentifier("CloudVPNToggle")
 
             if case .failed(let error) = phase, isAvailable {
@@ -54,6 +54,10 @@ struct CloudSystemVPNSection: View {
                     defaultValue: "System VPN needs a physical iPhone or iPad."
                 ))
         }
+    }
+
+    var isToggleDisabled: Bool {
+        !isAvailable || phase.isTransitioning
     }
 
     private var statusText: String {
