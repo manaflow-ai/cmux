@@ -176,9 +176,7 @@ extension TerminalController {
     private nonisolated func socketWorkerV2ResponseAsync(
         _ request: ControlRequest
     ) async -> String? {
-        if request.method == "auth.team.list"
-            || request.method == "auth.team.use"
-            || request.method == "auth.team.create" {
+        if Self.authTeamSocketMethods.contains(request.method) {
             return await v2AuthTeamResponseAsync(request)
         }
         if request.method == "surface.read_selection" {

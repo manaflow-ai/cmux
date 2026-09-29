@@ -39,6 +39,22 @@ struct CloudTeamPicker: View {
                     )
                 }
             }
+            if accountFlow.confirmedTeamID != nil {
+                teamMenuRow(
+                    title: String(localized: "sidebar.account.invitePeople", defaultValue: "Invite people…"),
+                    systemImage: "person.badge.plus"
+                ) {
+                    accountFlow.showTeamMembers(focusInvite: true)
+                }
+                .accessibilityIdentifier("CloudTeamPickerInviteButton")
+                teamMenuRow(
+                    title: String(localized: "sidebar.account.members", defaultValue: "Members…"),
+                    systemImage: "person.2.badge.gearshape"
+                ) {
+                    accountFlow.showTeamMembers(focusInvite: false)
+                }
+                .accessibilityIdentifier("CloudTeamPickerMembersButton")
+            }
             if isCreatingTeam {
                 createTeamEditor
             } else {

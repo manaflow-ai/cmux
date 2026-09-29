@@ -687,7 +687,7 @@ public final class AuthCoordinator {
     /// flaky team fetch never blocks or unwinds a successful sign-in. Drops
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
     /// not get the old account's teams persisted back.
-    private func refreshTeams(generation: UInt64) async {
+    func refreshTeams(generation: UInt64) async {
         do {
             let client = self.client
             let (teams, serverSelectedTeamID) = try await runPhase(.listTeams, timeout: timeouts.network) {

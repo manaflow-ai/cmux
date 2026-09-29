@@ -30,6 +30,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Cloud requests keep using the confirmed coordinator scope until success.
     var pendingTeamSelection: (requestID: UUID, teamID: String?)?
     var isSelectingTeam: Bool { pendingTeamSelection != nil }
+    /// The one members-and-invites window; released when closed.
+    @ObservationIgnored var teamMembersWindowController: CloudTeamMembersWindowController?
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator

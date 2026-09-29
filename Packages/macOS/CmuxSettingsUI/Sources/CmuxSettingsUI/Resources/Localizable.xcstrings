@@ -7101,6 +7101,28 @@
           }
         }
       }
+    },
+    "settings.account.teamMembers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Members and Invites"
+          }
+        }
+      }
+    },
+    "settings.account.teamMembers.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

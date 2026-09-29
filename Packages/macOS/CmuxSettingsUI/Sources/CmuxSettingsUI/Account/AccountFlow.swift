@@ -27,6 +27,10 @@ public protocol AccountFlow: AnyObject {
     /// - Parameter id: A member team id, or `nil` to clear the explicit choice.
     func selectTeam(id: String?) async throws
 
+    /// Opens the host's members-and-invites surface for the selected team.
+    /// Defaults to a no-op for hosts without team management.
+    func openTeamMembers()
+
     /// Whether the host is currently in the middle of a sign-in or
     /// sign-out network round trip. The UI disables interaction while
     /// this is `true`.
@@ -89,4 +93,5 @@ public protocol AccountFlow: AnyObject {
 
 extension AccountFlow {
     public func prefetchProUpgrade() {}
+    public func openTeamMembers() {}
 }

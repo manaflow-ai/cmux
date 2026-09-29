@@ -35,6 +35,10 @@ public struct AccountSection: View {
                        !(accountFlow?.availableTeams.isEmpty ?? true) {
                         Divider()
                         AccountTeamPicker(flow: accountFlow!)
+                        if accountFlow?.selectedTeamID != nil {
+                            Divider()
+                            AccountTeamMembersRow(flow: accountFlow!)
+                        }
                     }
                 }
             }

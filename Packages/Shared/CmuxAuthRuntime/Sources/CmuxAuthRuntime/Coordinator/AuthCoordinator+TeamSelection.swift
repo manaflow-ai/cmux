@@ -54,4 +54,13 @@ public extension AuthCoordinator {
         try await selectTeam(id: created.id)
         return created
     }
+
+    /// Re-reads team membership from Stack Auth after a membership change made
+    /// outside the selection path (leaving a team, an invitation accepted in
+    /// the browser). Keeps the current selection when it is still a member
+    /// team and falls back like sign-in does otherwise.
+    func refreshTeams() async {
+        guard isAuthenticated else { return }
+        await refreshTeams(generation: sessionGeneration)
+    }
 }
