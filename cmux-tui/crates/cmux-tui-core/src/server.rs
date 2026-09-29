@@ -11372,6 +11372,7 @@ fn terminal_renderer_grant_json(
         "token": grant.token,
         "rights": grant.rights.bits(),
         "protocol_version": grant.protocol_version,
+        "supports_viewer_size_priority": grant.supports_viewer_size_priority,
         "ttl_ms": ttl_ms,
     })
 }

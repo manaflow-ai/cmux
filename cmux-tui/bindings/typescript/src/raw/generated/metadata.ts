@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45. */
+/* cmux-tui mux protocol 12, IR ae8261c5a2aedfc02b773cb21dd71d4f03ae9df72a49f224df61a64c65db47f2. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45" as const;
+export const SDK_IR_SHA256 = "ae8261c5a2aedfc02b773cb21dd71d4f03ae9df72a49f224df61a64c65db47f2" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3821,6 +3821,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      },
+      "supports_viewer_size_priority": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       },
       "terminal_id": {
