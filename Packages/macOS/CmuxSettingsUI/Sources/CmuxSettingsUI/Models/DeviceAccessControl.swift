@@ -1,7 +1,7 @@
 import CmuxSettings
 import Foundation
 
-    /// The effective state and action label used by every device preference control.
+/// The effective state and action label used by every device preference control.
 public struct DeviceAccessControl {
     private let preference: DevicesAccessCoordinator.Preference
     private let managed: Bool
