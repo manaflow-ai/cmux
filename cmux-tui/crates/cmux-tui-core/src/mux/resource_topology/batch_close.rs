@@ -249,10 +249,10 @@ impl Mux {
         };
         self.finish_resource_close(CommittedResourceClose { commit: committed.resource, effects });
         self.notify_terminal_exit_waiters(ended_ids);
-        for runtime in ended_runtimes {
-            self.purge_terminal_runtime_side_tables(&runtime);
-            self.terminate_terminal_runtime(&runtime);
+        for runtime in &ended_runtimes {
+            self.purge_terminal_runtime_side_tables(runtime);
         }
+        self.terminate_terminal_runtimes_deferred(ended_runtimes);
         Ok(outcome)
     }
 
