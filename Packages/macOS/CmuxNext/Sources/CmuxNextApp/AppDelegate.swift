@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextTerminal
 import os
@@ -20,10 +21,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MainWindowController(model: model, registry: registry, environment: environment)
         windowController = controller
         controller.showWindow(nil)
-        NSApp.activate()
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] != "1" {
+            NSApp.activate()
+        }
 
         startDaemon()
         showDebugTerminalIfRequested()
+        showDebugBrowserIfRequested()
+    }
+
+    /// Temporary dev hook until the App maps daemon browser tabs into panes:
+    /// `CMUX_NEXT_DEBUG_BROWSER=cef|webkit` opens a browser window
+    /// (BrowserDebugWindow documents the other variables).
+    private func showDebugBrowserIfRequested() {
+        #if DEBUG
+        if let failure = BrowserDebugWindow.showIfRequested() {
+            logger.error("debug browser failed: \(failure, privacy: .public)")
+        }
+        #endif
     }
 
     /// Temporary dev hook until the App maps daemon terminals into panes:

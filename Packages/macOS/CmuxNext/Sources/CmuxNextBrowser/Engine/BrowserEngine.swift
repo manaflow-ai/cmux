@@ -18,16 +18,21 @@ public nonisolated struct BrowserTabConfiguration: Hashable, Sendable {
     public var initialURL: URL?
     /// Starting zoom, e.g. a per-site zoom the App layer remembers.
     public var zoom: Double
+    /// The pane that shows the tab. Engines that group tabs per pane (CEF:
+    /// one Chromium window per pane) use it; nil gives the tab its own group.
+    public var pane: BrowserPaneID?
 
     public init(
         id: BrowserTabID = .random(),
         profile: BrowserProfileID = .default,
         initialURL: URL? = nil,
-        zoom: Double = 1
+        zoom: Double = 1,
+        pane: BrowserPaneID? = nil
     ) {
         self.id = id
         self.profile = profile
         self.initialURL = initialURL
         self.zoom = zoom
+        self.pane = pane
     }
 }

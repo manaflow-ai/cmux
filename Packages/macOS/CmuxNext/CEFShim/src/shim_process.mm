@@ -1,0 +1,289 @@
+// Process level: library load, fork API, NSApp adoption, CefInitialize with
+// the external message pump, shutdown.
+
+#import <AppKit/AppKit.h>
+#include <dlfcn.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
+
+#include <cstring>
+#include <set>
+
+#include "include/cef_application_mac.h"
+#include "include/wrapper/cef_library_loader.h"
+#include "shim_internal.h"
+
+namespace cmux_shim {
+
+ForkApi& fork_api() {
+  static ForkApi api;
+  return api;
+}
+
+Host& host() {
+  static Host h;
+  return h;
+}
+
+void Emit(int kind, int browser_id, int request, int64_t a, int64_t b,
+          const std::string& s1, const std::string& s2) {
+  Host& h = host();
+  if (!h.event) {
+    return;
+  }
+  h.event(h.ctx, kind, browser_id, request, a, b, s1.c_str(), s2.c_str());
+}
+
+std::map<int, CefRefPtr<CefBrowser>>& browsers() {
+  static std::map<int, CefRefPtr<CefBrowser>> map;
+  return map;
+}
+
+CefRefPtr<CefBrowser> BrowserById(int browser_id) {
+  auto& map = browsers();
+  auto it = map.find(browser_id);
+  return it == map.end() ? nullptr : it->second;
+}
+
+static std::set<int>& host_closes() {
+  static std::set<int> set;
+  return set;
+}
+
+void MarkHostClose(int browser_id) {
+  host_closes().insert(browser_id);
+}
+
+bool TakeHostClose(int browser_id) {
+  return host_closes().erase(browser_id) > 0;
+}
+
+static bool g_extension_developer_mode = false;
+
+namespace {
+
+// Applies per-profile preferences once the profile is loaded.
+class ContextHandler : public CefRequestContextHandler {
+ public:
+  void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override {
+    if (g_extension_developer_mode) {
+      CefRefPtr<CefValue> value = CefValue::Create();
+      value->SetBool(true);
+      CefString error;
+      context->SetPreference("extensions.ui.developer_mode", value, error);
+    }
+  }
+
+ private:
+  IMPLEMENT_REFCOUNTING(ContextHandler);
+};
+
+}  // namespace
+
+static std::map<std::string, CefRefPtr<CefRequestContext>>& request_contexts() {
+  static std::map<std::string, CefRefPtr<CefRequestContext>> map;
+  return map;
+}
+
+CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
+  auto& contexts = request_contexts();
+  if (cache_path.empty()) {
+    return nullptr;
+  }
+  auto it = contexts.find(cache_path);
+  if (it != contexts.end()) {
+    return it->second;
+  }
+  CefRequestContextSettings settings;
+  CefString(&settings.cache_path) = cache_path;
+  // Not persisted: in Chrome style this flag also sets the profile's
+  // "restore on startup" to the last session, and with tabbed windows
+  // Chromium then restores old tabs into the first new window. The daemon
+  // owns tabs; session cookies end with the app, as in Chrome's default.
+  settings.persist_session_cookies = false;
+  CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, new ContextHandler());
+  contexts[cache_path] = context;
+  return context;
+}
+
+static void ForkObserver(void*, int event, int window_id, int browser_id, int a) {
+  Emit(CMUX_SHIM_TAB_EVENT, browser_id, event, window_id, a);
+}
+
+void InstallForkObserver() {
+  // UI thread only, so it runs from OnContextInitialized.
+  if (fork_api().set_observer) {
+    fork_api().set_observer(ForkObserver, nullptr);
+  }
+}
+
+static void BindForkApi(const char* framework_binary) {
+  // The wrapper opens the framework RTLD_LOCAL, so the fork exports are not
+  // visible through RTLD_DEFAULT. Reopen the same image by path.
+  void* image = dlopen(framework_binary, RTLD_NOLOAD | RTLD_LAZY);
+  if (!image) {
+    return;
+  }
+  auto version = reinterpret_cast<int (*)()>(dlsym(image, "cmux_cef_api_version"));
+  if (!version) {
+    return;
+  }
+  ForkApi& api = fork_api();
+  api.version = version();
+#define CMUX_BIND(field, name) api.field = reinterpret_cast<decltype(api.field)>(dlsym(image, name))
+  CMUX_BIND(free_string, "cmux_cef_free");
+  CMUX_BIND(set_observer, "cmux_tab_set_observer");
+  CMUX_BIND(tab_add, "cmux_tab_add");
+  CMUX_BIND(tab_activate, "cmux_tab_activate");
+  CMUX_BIND(tab_window_id, "cmux_tab_window_id");
+  CMUX_BIND(ext_actions, "cmux_ext_actions");
+  CMUX_BIND(ext_action_run, "cmux_ext_action_run");
+  CMUX_BIND(ext_action_hide_popup, "cmux_ext_action_hide_popup");
+  CMUX_BIND(ext_action_context_menu, "cmux_ext_action_context_menu");
+  CMUX_BIND(window_count, "cmux_browser_window_count");
+#undef CMUX_BIND
+}
+
+// MARK: - NSApp adoption
+
+// Chromium requires NSApp to implement CefAppProtocol before CefInitialize.
+// cmux creates a plain NSApplication at launch (CEF is lazy), so the shim adds
+// the protocol and its two methods to NSApp's class and wraps -sendEvent: to
+// maintain the flag. It does not change NSApp's isa: AppKit already observes
+// NSApp with KVO, whose private subclass must stay in place.
+static BOOL g_handling_send_event = NO;
+static IMP g_original_send_event = nullptr;
+
+static BOOL IsHandlingSendEvent(id, SEL) {
+  return g_handling_send_event;
+}
+
+static void SetHandlingSendEvent(id, SEL, BOOL value) {
+  g_handling_send_event = value;
+}
+
+static void SendEvent(id self, SEL cmd, NSEvent* event) {
+  BOOL previous = g_handling_send_event;
+  g_handling_send_event = YES;
+  reinterpret_cast<void (*)(id, SEL, NSEvent*)>(g_original_send_event)(self, cmd, event);
+  g_handling_send_event = previous;
+}
+
+}  // namespace cmux_shim
+
+using namespace cmux_shim;
+
+extern "C" {
+
+int cmux_shim_abi_version(void) {
+  return CMUX_CEF_SHIM_ABI;
+}
+
+int cmux_shim_load(const char* framework_binary, char* err, size_t err_len) {
+  static bool loaded = false;
+  if (loaded) {
+    return 1;
+  }
+  if (!cef_load_library(framework_binary)) {
+    if (err && err_len) {
+      snprintf(err, err_len, "cef_load_library failed: %s", dlerror() ?: "unknown");
+    }
+    return 0;
+  }
+  loaded = true;
+  BindForkApi(framework_binary);
+  return 1;
+}
+
+void cmux_shim_set_extension_developer_mode(int enabled) {
+  g_extension_developer_mode = enabled != 0;
+}
+
+int cmux_shim_fork_api_version(void) {
+  return fork_api().version;
+}
+
+void cmux_shim_prepare_application(void) {
+  NSApplication* app = [NSApplication sharedApplication];
+  if ([app conformsToProtocol:@protocol(CefAppProtocol)]) {
+    return;
+  }
+  // [app class] hides the KVO subclass; patch the real class.
+  Class cls = [app class];
+  class_addMethod(cls, @selector(isHandlingSendEvent), (IMP)IsHandlingSendEvent, "c@:");
+  class_addMethod(cls, @selector(setHandlingSendEvent:), (IMP)SetHandlingSendEvent, "v@:c");
+  Method send = class_getInstanceMethod(cls, @selector(sendEvent:));
+  g_original_send_event = method_getImplementation(send);
+  // Adds an override when the method is inherited, replaces it otherwise.
+  if (!class_addMethod(cls, @selector(sendEvent:), (IMP)SendEvent, method_getTypeEncoding(send))) {
+    method_setImplementation(send, (IMP)SendEvent);
+  }
+  class_addProtocol(cls, @protocol(CrAppProtocol));
+  class_addProtocol(cls, @protocol(CrAppControlProtocol));
+  class_addProtocol(cls, @protocol(CefAppProtocol));
+}
+
+int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path, const char* subprocess_path,
+                         const char* root_cache_path, const char* log_file, int log_severity,
+                         const char* const* switch_list, void* ctx, cmux_shim_schedule_fn schedule,
+                         cmux_shim_event_fn event, cmux_shim_key_fn key) {
+  Host& h = host();
+  h.ctx = ctx;
+  h.schedule = schedule;
+  h.event = event;
+  h.key = key;
+
+  CefSettings settings;
+  settings.external_message_pump = true;
+  settings.no_sandbox = false;  // helpers enter the sandbox themselves
+  settings.persist_session_cookies = false;  // see RequestContextFor
+  if (log_severity) {
+    settings.log_severity = static_cast<cef_log_severity_t>(log_severity);
+  }
+  CefString(&settings.framework_dir_path) = framework_dir ?: "";
+  CefString(&settings.main_bundle_path) = main_bundle_path ?: "";
+  CefString(&settings.browser_subprocess_path) = subprocess_path ?: "";
+  CefString(&settings.root_cache_path) = root_cache_path ?: "";
+  if (log_file) {
+    CefString(&settings.log_file) = log_file;
+  }
+
+  std::vector<std::string> switches;
+  for (const char* const* it = switch_list; it && *it; ++it) {
+    switches.emplace_back(*it);
+  }
+  CefMainArgs args(0, nullptr);
+  return CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr) ? 1 : 0;
+}
+
+void cmux_shim_do_work(void) {
+  CefDoMessageLoopWork();
+}
+
+void cmux_shim_close_all(void) {
+  // Copy: CloseBrowser can re-enter OnBeforeClose synchronously.
+  auto all = browsers();
+  for (auto& [id, browser] : all) {
+    MarkHostClose(id);
+    browser->GetHost()->CloseBrowser(true);
+  }
+}
+
+int cmux_shim_live_browser_count(void) {
+  return static_cast<int>(browsers().size());
+}
+
+int cmux_shim_window_count(void) {
+  return fork_api().window_count ? fork_api().window_count() : -1;
+}
+
+void cmux_shim_shutdown(void) {
+  if (fork_api().set_observer) {
+    fork_api().set_observer(nullptr, nullptr);
+  }
+  host() = Host();
+  request_contexts().clear();
+  CefShutdown();
+}
+
+}  // extern "C"
