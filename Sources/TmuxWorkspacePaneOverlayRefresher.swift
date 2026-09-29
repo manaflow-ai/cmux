@@ -29,10 +29,15 @@ struct TmuxWorkspacePaneOverlayRefresher: View, Equatable {
             })
             .onReceive(NotificationCenter.default.publisher(for: .workspacePaneGeometryDidChange)) { notification in
                 guard (notification.object as? Workspace)?.id == inputs.workspaceId else { return }
-                coordinator.refresh(builder: builder)
+                coordinator.scheduleGeometryRefresh(builder: builder)
             }
             .onReceive(NotificationCenter.default.publisher(for: .workspaceLayoutModeDidChange)) { notification in
                 guard (notification.object as? Workspace)?.id == inputs.workspaceId else { return }
+                coordinator.refresh(builder: builder)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
+                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                      tabId == inputs.workspaceId else { return }
                 coordinator.refresh(builder: builder)
             }
             .onDisappear { coordinator.detach() }

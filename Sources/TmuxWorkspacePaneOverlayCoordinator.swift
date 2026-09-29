@@ -6,6 +6,7 @@ import AppKit
 final class TmuxWorkspacePaneOverlayCoordinator {
     private weak var window: NSWindow?
     private var lastSnapshot: TmuxWorkspacePaneOverlayRefreshSnapshot?
+    private var geometryRefreshPending = false
 
     /// Refreshes from current model and AppKit values, rebuilding only when
     /// those values differ from the last admitted snapshot.
@@ -33,6 +34,18 @@ final class TmuxWorkspacePaneOverlayCoordinator {
         )
         update(snapshot: snapshot) {
             controller?.update(state: builder.state(for: window))
+        }
+    }
+
+    /// Coalesces divider-driven geometry notifications into one refresh per
+    /// main-actor turn before layout and AppKit conversion work runs.
+    func scheduleGeometryRefresh(builder: TmuxWorkspacePaneOverlayStateBuilder) {
+        guard !geometryRefreshPending else { return }
+        geometryRefreshPending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            geometryRefreshPending = false
+            refresh(builder: builder)
         }
     }
 

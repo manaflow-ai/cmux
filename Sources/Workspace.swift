@@ -3002,16 +3002,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             syncPanelDerivedWorkspaceUnread()
         }
     }
+    /// Observable source for restored panel indicators; legacy views read its
+    /// computed projections while SwiftUI tracks `panelUnread` directly.
     private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] {
         get { panelUnread.restoredIndicators }
         set {
-            guard newValue != panelUnread.restoredIndicators else { return }
-            objectWillChange.send()
+            guard restoredUnreadPanelIndicators != newValue else { return }
             panelUnread.restoredIndicators = newValue
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    var restoredUnreadPanelIds: Set<UUID> { Set(restoredUnreadPanelIndicators.keys) }
+    var restoredUnreadPanelIds: Set<UUID> { panelUnread.restoredPanelIds }
 
     var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
     /// Not `@Published`. The geometry callback posts `.workspacePaneGeometryDidChange`
