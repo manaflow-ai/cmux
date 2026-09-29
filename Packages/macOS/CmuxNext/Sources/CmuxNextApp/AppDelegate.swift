@@ -63,6 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let services else { return .terminateNow }
+        // Quit (menu, Cmd-Q, socket) never waits on an open sheet.
+        SheetDismissal.endAll()
         Task {
             await services.windows.prepareForTermination()
             sender.reply(toApplicationShouldTerminate: true)
