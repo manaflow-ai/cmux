@@ -36,11 +36,12 @@ extension TerminalController {
         }
     }
 
-    /// The npm note for a machine whose network policy blocks the registry.
-    /// Best effort: an unreadable policy leaves the note out, never fails the change.
+    /// The note for a machine whose network policy blocks a host the updates
+    /// reach. Best effort: an unreadable policy leaves the note out, never
+    /// fails the change.
     private nonisolated static func socketWorkerAgentUpdatesNetworkNote(id: String, setting: CloudAgentUpdates) async -> String? {
         guard setting == .latest, let status = try? await VMClient.shared.networkPolicy(id: id) else { return nil }
-        return setting.networkNote(for: status.policy)
+        return setting.networkNote(for: status.policy, catalog: status.catalog)
     }
 
     nonisolated static func socketWorkerAgentUpdatesPayload(id: String, setting: CloudAgentUpdates, note: String?) -> [String: Any] {

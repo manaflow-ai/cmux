@@ -18,15 +18,28 @@ public struct CloudNetworkPresetCatalog: Codable, Equatable, Sendable {
     public let presets: [CloudNetworkPreset]
     public let requiredDomains: [String]
     public let defaultPolicy: CloudNetworkPolicy
+    /// The hosts coding-agent updates reach (`GUEST_AGENT_UPDATE_DOMAINS`).
+    /// A server that predates the field updated agents through npm, so its
+    /// catalog means the npm registry.
+    public let agentUpdateDomains: [String]
+
+    /// What an older server's agent updates needed.
+    public static let legacyAgentUpdateDomains = ["registry.npmjs.org"]
 
     private enum CodingKeys: String, CodingKey {
-        case presets, requiredDomains, defaultPolicy
+        case presets, requiredDomains, defaultPolicy, agentUpdateDomains
     }
 
-    public init(presets: [CloudNetworkPreset], requiredDomains: [String], defaultPolicy: CloudNetworkPolicy = .default) {
+    public init(
+        presets: [CloudNetworkPreset],
+        requiredDomains: [String],
+        defaultPolicy: CloudNetworkPolicy = .default,
+        agentUpdateDomains: [String] = Self.legacyAgentUpdateDomains
+    ) {
         self.presets = presets
         self.requiredDomains = requiredDomains
         self.defaultPolicy = defaultPolicy
+        self.agentUpdateDomains = agentUpdateDomains
     }
 
     public init(from decoder: Decoder) throws {
@@ -34,6 +47,7 @@ public struct CloudNetworkPresetCatalog: Codable, Equatable, Sendable {
         presets = try container.decodeIfPresent([CloudNetworkPreset].self, forKey: .presets) ?? []
         requiredDomains = try container.decodeIfPresent([String].self, forKey: .requiredDomains) ?? []
         defaultPolicy = try container.decodeIfPresent(CloudNetworkPolicy.self, forKey: .defaultPolicy) ?? .default
+        agentUpdateDomains = try container.decodeIfPresent([String].self, forKey: .agentUpdateDomains) ?? Self.legacyAgentUpdateDomains
     }
 }
 
@@ -69,16 +83,25 @@ public struct CloudNetworkPolicyStatus: Codable, Equatable, Sendable {
     public let presets: [CloudNetworkPreset]
     public let requiredDomains: [String]
     public let applied: CloudNetworkApplied?
+    /// See `CloudNetworkPresetCatalog.agentUpdateDomains`.
+    public let agentUpdateDomains: [String]
 
-    public init(policy: CloudNetworkPolicy, presets: [CloudNetworkPreset], requiredDomains: [String], applied: CloudNetworkApplied?) {
+    public init(
+        policy: CloudNetworkPolicy,
+        presets: [CloudNetworkPreset],
+        requiredDomains: [String],
+        applied: CloudNetworkApplied?,
+        agentUpdateDomains: [String] = CloudNetworkPresetCatalog.legacyAgentUpdateDomains
+    ) {
         self.policy = policy
         self.presets = presets
         self.requiredDomains = requiredDomains
         self.applied = applied
+        self.agentUpdateDomains = agentUpdateDomains
     }
 
     private enum CodingKeys: String, CodingKey {
-        case policy, presets, requiredDomains, applied
+        case policy, presets, requiredDomains, applied, agentUpdateDomains
     }
 
     public init(from decoder: Decoder) throws {
@@ -87,10 +110,12 @@ public struct CloudNetworkPolicyStatus: Codable, Equatable, Sendable {
         presets = try container.decodeIfPresent([CloudNetworkPreset].self, forKey: .presets) ?? []
         requiredDomains = try container.decodeIfPresent([String].self, forKey: .requiredDomains) ?? []
         applied = try container.decodeIfPresent(CloudNetworkApplied.self, forKey: .applied)
+        agentUpdateDomains = try container.decodeIfPresent([String].self, forKey: .agentUpdateDomains)
+            ?? CloudNetworkPresetCatalog.legacyAgentUpdateDomains
     }
 
     public var catalog: CloudNetworkPresetCatalog {
-        CloudNetworkPresetCatalog(presets: presets, requiredDomains: requiredDomains)
+        CloudNetworkPresetCatalog(presets: presets, requiredDomains: requiredDomains, agentUpdateDomains: agentUpdateDomains)
     }
 
     /// The socket and `--json` payload: exactly the server's shape.

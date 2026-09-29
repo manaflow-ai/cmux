@@ -5978,12 +5978,7 @@ struct CMUXCLI {
                 if let memoryMb { params["memory_mb"] = memoryMb }
                 if let machineName, !machineName.isEmpty { params["display_name"] = machineName }
                 if let networkPolicy { params["network_policy"] = networkPolicy.object }
-                if let agentUpdates {
-                    params["agent_updates"] = agentUpdates
-                    if let note = Self.vmAgentUpdatesNetworkNote(setting: agentUpdates, policy: networkPolicy?.object) {
-                        FileHandle.standardError.write(Data("\(note)\n".utf8))
-                    }
-                }
+                if let agentUpdates { params["agent_updates"] = agentUpdates }
                 // Freestyle is the default and only deployed provider. It does not support
                 // persistent home volumes, so leave both volume flags out of this request.
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)

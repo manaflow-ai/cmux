@@ -2,12 +2,13 @@ import Foundation
 
 /// Whether a Cloud machine keeps its image's coding-agent versions or updates
 /// them, the wire value of `agentUpdates` (`web/services/vms/agentUpdates.ts`).
-/// With `.latest` the machine installs npm's newest Claude Code, Codex,
-/// OpenCode, and Pi when you connect, at most once a day.
+/// With `.latest` the machine installs the newest Claude Code, Codex,
+/// OpenCode, Pi, and agent-browser releases (each tool's own GitHub release,
+/// public for 3 days) when you connect, at most once a day.
 public enum CloudAgentUpdates: String, Codable, CaseIterable, Sendable {
     /// The versions the machine's image baked (the default).
     case image
-    /// npm's `latest` release, checked on attach at most once a day.
+    /// Each agent's newest eligible release, checked on attach at most once a day.
     case latest
 
     /// Decodes a wire value; nil for a missing field (an older server) or an
@@ -24,35 +25,32 @@ public enum CloudAgentUpdates: String, Codable, CaseIterable, Sendable {
     public var keepsAgentsUpdated: Bool { self == .latest }
 
     /// The note shown next to the choice when the machine's network policy
-    /// would block the update. Nil when there is nothing to warn about.
-    public func networkNote(for policy: CloudNetworkPolicy) -> String? {
-        guard self == .latest, !policy.allowsNpmRegistry else { return nil }
-        return Self.npmBlockedNote
+    /// would block the update: the catalog's update hosts the policy does not
+    /// allow. Nil when there is nothing to warn about.
+    public func networkNote(for policy: CloudNetworkPolicy, catalog: CloudNetworkPresetCatalog) -> String? {
+        guard self == .latest else { return nil }
+        let blocked = catalog.agentUpdateDomains.filter { !policy.allows($0, catalog: catalog) }
+        guard !blocked.isEmpty else { return nil }
+        return Self.blockedNote(domains: blocked)
     }
 
-    public static var npmBlockedNote: String {
-        String(
-            localized: "cloud.agentUpdates.npmBlocked",
-            defaultValue: "Updates need npm registry access. Add the npm preset or they will fail."
+    public static func blockedNote(domains: [String]) -> String {
+        let format = String(
+            localized: "cloud.agentUpdates.hostsBlocked",
+            defaultValue: "Agent updates need %@, which this network policy blocks. Allow it or updates will fail."
         )
+        return String(format: format, domains.joined(separator: ", "))
     }
 }
 
 extension CloudNetworkPolicy {
-    /// The preset (`NETWORK_POLICY_PRESETS` id) that allows the npm registry.
-    public static let npmPresetID = "npm"
-    /// The host agent updates download from.
-    public static let npmRegistryDomain = "registry.npmjs.org"
-
-    /// Whether the machine can reach the npm registry that agent updates use:
-    /// always with full internet, never with none, and in allowlist mode only
-    /// through the npm preset or the registry's domain.
-    public var allowsNpmRegistry: Bool {
-        switch mode {
-        case .full: return true
-        case .none: return false
-        case .allowlist:
-            return presets.contains(Self.npmPresetID) || domains.contains(Self.npmRegistryDomain)
-        }
+    /// Whether the policy lets the machine reach `domain` over HTTPS: always
+    /// with full internet, and otherwise when cmux always allows it or, in
+    /// allowlist mode, when it is listed or in a selected preset.
+    public func allows(_ domain: String, catalog: CloudNetworkPresetCatalog) -> Bool {
+        if mode == .full || catalog.requiredDomains.contains(domain) { return true }
+        guard mode == .allowlist else { return false }
+        return domains.contains(domain)
+            || catalog.presets.contains { presets.contains($0.id) && $0.domains.contains(domain) }
     }
 }

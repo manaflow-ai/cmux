@@ -211,11 +211,14 @@ cmux vm new --agent-updates latest      # choose at create
 
 `latest` makes each attach start a detached updater on the machine that installs
 the newest Claude Code, Codex, OpenCode, Pi, and agent-browser releases that have
-been public for 3 days, at most once a day; attach never waits for it. The New
-Machine sheet checks it by default. Switching back to `image` stops further updates
-but does not downgrade what is installed. Updates need `registry.npmjs.org`: with
-`cmux vm network` mode `none`, or an allowlist without the `npm` preset, they fail
-and are retried on the next attach (the CLI prints a note when you set `latest`).
+been public for 3 days, at most once a day; attach never waits for it. Each comes
+from the tool's own GitHub release asset, checked against its sha256 digest; npm
+is never used, and a machine baked with npm installs migrates on its first
+update. The New Machine sheet checks it by default. Switching back to `image`
+stops further updates but does not downgrade what is installed. Updates reach
+only `api.github.com`, `github.com` and GitHub's release-asset host, which every
+`cmux vm network` mode allows; a failed check (for example a GitHub rate limit)
+is retried on the next attach.
 On the machine, `/etc/cmux/agent-updates.state` records the last check and
 `/var/log/cmux-agent-updates.log` its output. Socket methods
 `vm.agent_updates_get {id}` and `vm.agent_updates_set {id, agent_updates}`; the
