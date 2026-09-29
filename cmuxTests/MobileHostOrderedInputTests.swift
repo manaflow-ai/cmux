@@ -102,14 +102,16 @@ struct MobileHostOrderedInputTests {
         // input-1 is held on surface s1; input-2 targets surface s2 and must
         // run concurrently: ordering is a per-PTY property, and one surface's
         // slow request must not block typing on another.
+        let surface1 = "00000000-0000-0000-0000-000000000001"
+        let surface2 = "00000000-0000-0000-0000-000000000002"
         let batch = try Self.framedBatch(
             [
                 ("input-1", "terminal.input"),
                 ("input-2", "terminal.input"),
             ],
             surfaceIDsByRequestID: [
-                "input-1": "surface-1",
-                "input-2": "surface-2",
+                "input-1": surface1,
+                "input-2": surface2,
             ]
         )
 
