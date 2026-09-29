@@ -75,6 +75,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                         .frame(width: isSuperCompact ? 14 : 18, height: isSuperCompact ? 14 : 18)
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .safeHelp(String(localized: "sidebar.extension.inspectWorkspace", defaultValue: "Workspace tools"))
                 .popover(isPresented: $showsInspector, arrowEdge: .trailing) {
                     CmuxExtensionWorkspaceInspectorView(
@@ -198,6 +199,7 @@ struct CmuxExtensionWorkspaceInspectorView: View {
                         .frame(width: 20, height: 20)
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .safeHelp(String(localized: "sidebar.extension.openWindow", defaultValue: "Open window"))
             }
             .padding(10)

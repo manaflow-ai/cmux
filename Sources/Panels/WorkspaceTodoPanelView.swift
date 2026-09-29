@@ -260,6 +260,7 @@ private struct WorkspaceTodoPaneContent: View {
                     .contentShape(Rectangle().inset(by: -3))
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
                 .background(
                     SidebarWorkspaceTodoPopoverHost(
                         isPresented: $isStatusPopoverPresented,
@@ -570,6 +571,7 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             .safeHelp(
                 isCompleted

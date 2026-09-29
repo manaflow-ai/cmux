@@ -5,6 +5,17 @@ import AppKit
 final class FilePreviewPDFShareButtonControl: NSButton {
     private(set) var shareActivation: FilePreviewPDFShareActivation = .nonPointer
 
+    override var isEnabled: Bool {
+        didSet {
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: isEnabled ? .pointingHand : .arrow)
+    }
+
     override func mouseDown(with event: NSEvent) {
         shareActivation = .pointerDown
         defer { shareActivation = .nonPointer }

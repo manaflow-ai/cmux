@@ -409,6 +409,7 @@ struct ComputerUseOnboardingView: View {
                 .opacity(isButtonEnabled ? 1 : 0.5)
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .disabled(!isButtonEnabled)
             .accessibilityHint(
                 permissionAllowAccessibilityHint(for: permissionStep)
@@ -731,6 +732,7 @@ struct ComputerUsePermissionCompanionView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .foregroundStyle(.primary.opacity(0.72))
                 .frame(
                     width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,

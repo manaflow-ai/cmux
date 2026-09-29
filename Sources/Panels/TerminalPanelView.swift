@@ -338,6 +338,7 @@ private struct AgentHibernationPlaceholderView: View {
                     onAction()
                 }
                 .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
                 .controlSize(.small)
                 .accessibilityIdentifier(
                     mode == .failed

@@ -45,6 +45,7 @@ struct ProjectPanelView: View {
                         .cmuxFont(size: 11, weight: .semibold)
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
                 .safeHelp(String(localized: "projectPanel.reload", defaultValue: "Reload Project"))
                 .accessibilityLabel(String(localized: "projectPanel.reload", defaultValue: "Reload Project"))
             }
@@ -67,6 +68,7 @@ struct ProjectPanelView: View {
                             .cmuxFont(size: 9)
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                     .safeHelp(String(localized: "projectPanel.dismissReloadErrors", defaultValue: "Dismiss Errors"))
                     .accessibilityLabel(String(localized: "projectPanel.dismissReloadErrors", defaultValue: "Dismiss Errors"))
                 }
@@ -170,6 +172,7 @@ struct ProjectPanelView: View {
                         .foregroundStyle(panel.activeTab == tab ? Color.white : Color.primary)
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
             }
             Spacer(minLength: 0)
         }

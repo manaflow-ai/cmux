@@ -155,6 +155,15 @@ def read_lines(path: Path) -> list[str]:
     return [line.rstrip("\n") for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+def clean_wrapper_test_environment() -> dict[str, str]:
+    """Start wrapper probes without state inherited from the hosting cmux shell."""
+    environment = os.environ.copy()
+    for key in list(environment):
+        if key.startswith(("CMUX_", "CLAUDE_")) or key == "CLAUDECODE":
+            environment.pop(key, None)
+    return environment
+
+
 def parse_settings_arg(argv: list[str]) -> dict:
     if "--settings" not in argv:
         return {}
@@ -299,7 +308,7 @@ exit 0
             test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             test_socket.bind(socket_path)
 
-        env = os.environ.copy()
+        env = clean_wrapper_test_environment()
         sandbox_home = tmp / "home"
         if setup_sandbox is None:
             sandbox_home.mkdir()
@@ -502,7 +511,7 @@ exit 0
                 test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 test_socket.bind(socket_path)
 
-            env = os.environ.copy()
+            env = clean_wrapper_test_environment()
             sandbox_home = tmp / "home"
             sandbox_home.mkdir()
             env["HOME"] = str(sandbox_home)
@@ -1718,7 +1727,12 @@ def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) ->
                     time.sleep(0.01)
                 pids = [int(pid) for pid in read_lines(pid_log)]
                 expect(len(pids) == 2, "cancellation: help process was not reached", failures)
-                os.killpg(proc.pid, interrupt)
+                try:
+                    os.killpg(proc.pid, interrupt)
+                except ProcessLookupError:
+                    # The wrapper may finish the lookup between the poll and
+                    # the signal. Its child cleanup is still checked below.
+                    pass
                 proc.communicate(timeout=15)
                 expect(read_lines(Path(env["FAKE_REAL_ARGS_LOG"])) == ["--help"],
                        f"cancellation {interrupt}: interrupted discovery launched a prompt", failures)

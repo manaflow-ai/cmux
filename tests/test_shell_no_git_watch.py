@@ -191,7 +191,12 @@ _cmux_report_git_branch_for_path "$PWD"
                     # could otherwise stop these jobs after a broken prompt.
                     body = "add-zsh-hook -d zshexit _cmux_zshexit\n" if shell == "zsh" else ""
                     body += "\n".join(f"{name}={job.pid}" for name, job in jobs.items())
-                    body += "\nexport CMUX_NO_GIT_WATCH=1\n_test_prompt\n"
+                    body += "\nexport CMUX_NO_GIT_WATCH=1\n"
+                    if shell == "bash":
+                        # Exercise the transport-unavailable path: prompt
+                        # cleanup must stop tracked jobs after socket loss.
+                        body += "rm -f \"$CMUX_SOCKET_PATH\"\n"
+                    body += "_test_prompt\n"
                     self.run_shell(shell, body, value=None)
                     for name, job in jobs.items():
                         self.assertLess(job.wait(timeout=3), 0, f"{shell}: {name} was not stopped")

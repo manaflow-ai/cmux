@@ -34,6 +34,7 @@ struct MachinesFreeAccessBanner: View {
                 }
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .foregroundColor(isExpired ? Color.orange : .secondary)
             .accessibilityLabel(text)
             .layoutPriority(1)
@@ -94,6 +95,7 @@ struct MachinesChromeIconButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .foregroundColor(isHovered ? .primary : .secondary)
         .background(
             RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)

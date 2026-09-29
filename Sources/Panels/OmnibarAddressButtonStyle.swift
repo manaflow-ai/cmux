@@ -28,6 +28,7 @@ private struct OmnibarAddressButtonStyleBody: View {
             .onHover { hovering in
                 isHovered = hovering
             }
+            .backport.pointerStyle(.link)
             .chromeRevealAnimation(isVisible: isHovered, fadeOut: .easeOut(duration: 0.12))
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }

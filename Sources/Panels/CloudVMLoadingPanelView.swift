@@ -77,6 +77,7 @@ struct CloudVMLoadingPanelView: View {
                                 .cmuxFont(size: 12, weight: .semibold)
                             }
                             .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
                             .controlSize(.small)
 
                             Button {
@@ -89,6 +90,7 @@ struct CloudVMLoadingPanelView: View {
                                 .cmuxFont(size: 12, weight: .semibold)
                             }
                             .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                             .controlSize(.small)
                         }
                         Text(String(format: String(

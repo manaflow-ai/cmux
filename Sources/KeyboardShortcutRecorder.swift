@@ -69,6 +69,7 @@ struct KeyboardShortcutRecorder: View {
                         .imageScale(.medium)
                 }
                 .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
                 .disabled(isDisabled || (shortcut.isUnbound && restoreShortcut == nil))
                 .safeHelp(
                     canRestoreShortcut
@@ -97,12 +98,14 @@ struct KeyboardShortcutRecorder: View {
                     if let validationButtonTitle, let onValidationButtonPressed {
                         Button(validationButtonTitle, action: onValidationButtonPressed)
                             .buttonStyle(.link)
+            .backport.pointerStyle(.link)
                             .cmuxFont(.caption)
                     }
 
                     if let undoButtonTitle, let onUndoButtonPressed {
                         Button(undoButtonTitle, action: onUndoButtonPressed)
                             .buttonStyle(.link)
+            .backport.pointerStyle(.link)
                             .cmuxFont(.caption)
                     }
                 }

@@ -75,6 +75,7 @@ struct FeedHistoryLoadMoreRow: View {
             .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .disabled(isLoading)
     }
 

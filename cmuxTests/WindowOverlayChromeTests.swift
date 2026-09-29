@@ -105,14 +105,19 @@ struct WindowOverlayChromeTests {
         // surface keeps the glass root the test installed. That leaves the
         // portals as the only thing that could replace it.
         let defaults = UserDefaults.standard
+        // App-host runners can enable Reduce Transparency globally. That
+        // accessibility setting intentionally replaces window glass with an
+        // opaque fill, so make the glass variant follow the effective policy
+        // instead of asserting that the test setup can override macOS.
+        let expectsGlass = useGlass && !DisplayAccessibilityOptions.current.reduceTransparency
         let savedBlendMode = defaults.object(forKey: "sidebarBlendMode")
         let savedGlassEnabled = defaults.object(forKey: "bgGlassEnabled")
         defer {
             defaults.set(savedBlendMode, forKey: "sidebarBlendMode")
             defaults.set(savedGlassEnabled, forKey: "bgGlassEnabled")
         }
-        defaults.set(useGlass ? "behindWindow" : "withinWindow", forKey: "sidebarBlendMode")
-        defaults.set(useGlass, forKey: "bgGlassEnabled")
+        defaults.set(expectsGlass ? "behindWindow" : "withinWindow", forKey: "sidebarBlendMode")
+        defaults.set(expectsGlass, forKey: "bgGlassEnabled")
 
         let window = makeWindow(withBrowserHost: true)
         defer { window.orderOut(nil) }

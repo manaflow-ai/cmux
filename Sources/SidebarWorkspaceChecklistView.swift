@@ -294,6 +294,7 @@ struct SidebarWorkspaceChecklistSection: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
         .safeHelp(
             presentsPopover
                 ? String(localized: "sidebar.checklist.popoverTooltip", defaultValue: "Show checklist")
@@ -359,6 +360,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             .safeHelp(
                 isCompleted
@@ -481,6 +483,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
         .safeHelp(String(localized: "sidebar.checklist.removeItemTooltip", defaultValue: "Remove item"))
         .opacity(isHovered ? 1 : 0)
         .allowsHitTesting(isHovered)
@@ -532,6 +535,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .accessibilityIdentifier("SidebarChecklistAddItemRow")
         }
     }

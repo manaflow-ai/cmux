@@ -260,6 +260,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             .safeHelp(
                 isCompleted
@@ -383,6 +384,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
         .safeHelp(String(localized: "sidebar.checklist.removeItemTooltip", defaultValue: "Remove item"))
         .opacity(isHovered ? 1 : 0)
         .allowsHitTesting(isHovered)
@@ -496,6 +498,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                 toggleHighlighted(in: visible)
             } label: { Color.clear.frame(width: 0, height: 0) }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
                 .accessibilityHidden(true)
         }
@@ -597,6 +600,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
         .accessibilityIdentifier("SidebarChecklistPopoverOpenAsPane")
     }
 }

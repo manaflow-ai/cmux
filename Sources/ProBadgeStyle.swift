@@ -268,6 +268,7 @@ struct ProBadgeView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .safeHelp(helpTitle)
                 .accessibilityLabel(helpTitle)
                 .accessibilityIdentifier("ProBadgeButton")
@@ -290,6 +291,7 @@ struct ProBadgeView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .allowsHitTesting(isHovered)
                 .safeHelp(dismissTitle)
                 .accessibilityLabel(dismissTitle)
@@ -374,6 +376,7 @@ private struct ProBadgeDebugView: View {
                         )
                     }
                     .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 }
             }
             .padding(12)

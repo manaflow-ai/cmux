@@ -2549,6 +2549,8 @@
 		298ED225758EC15A89E008F9 /* PiHookNeedsInputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B0A2A7DE77E3E17F144879 /* PiHookNeedsInputRegressionTests.swift */; };
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
 		C12758000000000000000008 /* PlainPastePTYFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000009 /* PlainPastePTYFixture.swift */; };
+		F70160010000000000000001 /* PointingHandCursorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70160010000000000000002 /* PointingHandCursorPolicy.swift */; };
+		CD7A3246D7B5520B143D7A5C /* PointingHandCursorPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44BB70FB70635A4C30E45CEC /* PointingHandCursorPolicyTests.swift */; };
 		5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */; };
 		5B0C00010000000000000101 /* PortalDividerOverlayRepaintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000102 /* PortalDividerOverlayRepaintTests.swift */; };
 		B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */; };
@@ -6661,6 +6663,8 @@
 		F9B0A2A7DE77E3E17F144879 /* PiHookNeedsInputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PiHookNeedsInputRegressionTests.swift"; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		C12758000000000000000009 /* PlainPastePTYFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlainPastePTYFixture.swift; sourceTree = "<group>"; };
+		F70160010000000000000002 /* PointingHandCursorPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PointingHandCursorPolicy.swift; sourceTree = "<group>"; };
+		44BB70FB70635A4C30E45CEC /* PointingHandCursorPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PointingHandCursorPolicyTests.swift"; sourceTree = "<group>"; };
 		5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerCursorOcclusionTests.swift; sourceTree = "<group>"; };
 		5B0C00010000000000000102 /* PortalDividerOverlayRepaintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerOverlayRepaintTests.swift; sourceTree = "<group>"; };
 		4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalHitTestingPerformanceTests.swift; sourceTree = "<group>"; };
@@ -9493,6 +9497,7 @@
 					C0DE70580000000000000001 /* MenuBarProfilingProgressWindowLayout.swift */,
 					C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */,
 					2F0C07000000000000000001 /* CmuxMainWindow.swift */,
+					F70160010000000000000002 /* PointingHandCursorPolicy.swift */,
 				AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */,
 				A6D1F0200000000000000001 /* WindowCloseObserver.swift */,
 				A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */,
@@ -12481,6 +12486,7 @@
 				69E7B296E21540A441CC2265 /* CloudPortRecoveryTests.swift */,
 				3718948C68AF1E2610D73490 /* CloudVPNSetupTests.swift */,
 				897C92FDDD87D135FC939E94 /* SurfaceMachineInfoPortStateTests.swift */,
+				44BB70FB70635A4C30E45CEC /* PointingHandCursorPolicyTests.swift */,
 				787B6BD93E69D2D1157A3AF8 /* GhosttyWorkspaceActionTestHarness.swift */,
 				5C9035917ADD1609A214451A /* GhosttyWorkspaceActionTests.swift */,
 				382F96CE151B2550BECC488E /* GhosttyHostKeybindDefaultsTests.swift */,
@@ -14650,6 +14656,7 @@
 				D1F0A0990000000000000001 /* PhoneReplyInboxClient.swift in Sources */,
 				D1F0A0990000000000000003 /* PhoneReplyInboxCoordinator.swift in Sources */,
 				B79500210000000000000001 /* PIDPresence.swift in Sources */,
+				F70160010000000000000001 /* PointingHandCursorPolicy.swift in Sources */,
 				D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */,
 				D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */,
 				B79500310000000000000001 /* PortLsofScanResult.swift in Sources */,
@@ -16879,6 +16886,7 @@
 				298ED225758EC15A89E008F9 /* PiHookNeedsInputRegressionTests.swift in Sources */,
 				B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 				C12758000000000000000008 /* PlainPastePTYFixture.swift in Sources */,
+				CD7A3246D7B5520B143D7A5C /* PointingHandCursorPolicyTests.swift in Sources */,
 				5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */,
 				5B0C00010000000000000101 /* PortalDividerOverlayRepaintTests.swift in Sources */,
 					B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */,

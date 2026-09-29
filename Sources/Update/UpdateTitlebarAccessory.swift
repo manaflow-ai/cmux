@@ -915,6 +915,7 @@ private struct TitlebarControlButtonStyleBody: View {
                     isHovering = hovering
                 }
             }
+            .backport.pointerStyle(.link)
     }
 
     private var foregroundOpacity: Double {
@@ -2521,6 +2522,7 @@ private struct NotificationsPopoverView: View {
                 .padding(.vertical, 4)
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .background(
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color.secondary.opacity(hasUnreadNotifications ? 0.12 : 0.05))
@@ -2542,6 +2544,7 @@ private struct NotificationsPopoverView: View {
                     .padding(.vertical, 4)
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .background(
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color.secondary.opacity(notificationStore.notificationMenuSnapshot.hasNotifications ? 0.12 : 0.05))
@@ -2573,6 +2576,7 @@ private struct NotificationsPopoverView: View {
             .padding(.vertical, 9)
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .accessibilityIdentifier("notificationsPopover.phoneForwarding")
         .safeHelp(
             String(

@@ -642,6 +642,7 @@ private struct NativePricingButtonStyle: ButtonStyle {
             .background(isPrimary ? Color.primary.opacity(configuration.isPressed ? 0.82 : 1) : Color.clear)
             .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.7)))
             .opacity(configuration.isPressed ? 0.82 : 1)
+            .backport.pointerStyle(.link)
     }
 }
 

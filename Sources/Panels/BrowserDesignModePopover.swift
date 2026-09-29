@@ -108,6 +108,7 @@ struct BrowserDesignModePopover: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .safeHelp(help)
         .accessibilityLabel(help)
         .accessibilityAddTraits(controller.interactionMode == mode ? .isSelected : [])
@@ -144,6 +145,7 @@ struct BrowserDesignModePopover: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .keyboardShortcut(.return, modifiers: .command)
         .disabled(!controller.canCopy)
         .safeHelp(

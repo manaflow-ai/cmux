@@ -36,6 +36,7 @@ extension MobilePairingView {
             .cmuxFont(.caption)
         }
         .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
         .controlSize(.small)
     }
 

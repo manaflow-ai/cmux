@@ -73,6 +73,7 @@ private struct AccountSignInIdleView: View {
             .multilineTextAlignment(.center)
             Button(String(localized: "account.signIn.start", defaultValue: "Sign In"), action: onSignIn)
                 .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
                 .accessibilityIdentifier("AccountSignInStartButton")
         }
     }
@@ -133,6 +134,7 @@ private struct AccountSignInFailureView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Button(String(localized: "account.signIn.tryAgain", defaultValue: "Try Again"), action: onTryAgain)
                 .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
                 .accessibilityIdentifier("AccountSignInRetryButton")
             if hasFallbackLink {
                 AccountSignInFallbackActions(

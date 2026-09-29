@@ -131,6 +131,7 @@ struct MachinesListStatusNotice: View {
             if let action = presentation.action {
                 Button(action.title) { perform(action) }
                     .buttonStyle(.link)
+                    .backport.pointerStyle(.link)
                     .cmuxFont(size: 11)
                     .accessibilityIdentifier(action.accessibilityIdentifier)
             }
@@ -186,9 +187,11 @@ struct MachinesListStatusEmptyState: View {
         }
         if action == .retry {
             button
+                .backport.pointerStyle(.link)
         } else {
             button
                 .buttonStyle(.borderedProminent)
+                .backport.pointerStyle(.link)
                 .controlSize(.small)
         }
     }

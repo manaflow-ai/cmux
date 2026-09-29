@@ -39,6 +39,8 @@ struct CloudMachineOrderingTests {
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: target, proposedChildIndex: NSOutlineViewDropOnItemIndex) == .move)
         #expect(fixture.base.defaults.data(forKey: CloudMachinePinStore.defaultsKey) == before)
+        // Cloud machine drags intentionally draw no sidebar hint. The drop
+        // geometry still drives ordering while the outline remains silent.
         expectNoReorderIndicator(outline)
         #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: after ? 5 : 1))
         #expect(fixture.order == (after ? ["b", "c", "d", "a"] : ["d", "a", "b", "c"]))

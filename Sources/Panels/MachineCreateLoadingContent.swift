@@ -35,8 +35,10 @@ struct MachineCreateLoadingContent: View {
                 HStack(spacing: 8) {
                     Button(String(localized: "machines.pending.retry", defaultValue: "Retry")) { actions.retry(operation.id) }
                         .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
                     Button(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) { actions.dismiss(operation.id) }
                         .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                 }
             } else {
                 Text(String(localized: "machines.new.background.note", defaultValue: "Creation continues in the Machines panel."))

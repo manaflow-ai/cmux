@@ -3570,6 +3570,7 @@ struct ContentView: View {
                     \.workspaceAttentionColor,
                     WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
                 )
+                .cmuxPointingHandButtons()
                 .cmuxAppearanceColorScheme(appearanceMode)
         )
     }
@@ -4068,6 +4069,7 @@ struct ContentView: View {
                 EmptyView()
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .keyboardShortcut(.cancelAction)
             .frame(width: 0, height: 0)
             .opacity(0)
@@ -4223,6 +4225,7 @@ struct ContentView: View {
                 EmptyView()
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .keyboardShortcut(.defaultAction)
             .frame(width: 0, height: 0)
             .opacity(0)
@@ -4264,6 +4267,7 @@ struct ContentView: View {
                 EmptyView()
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .keyboardShortcut(.defaultAction)
             .frame(width: 0, height: 0)
             .opacity(0)
@@ -13668,6 +13672,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 .padding(.vertical, 7)
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .safeHelp(String(localized: "sidebar.browserStack.newTab", defaultValue: "New Tab"))
 
             ExtensionSidebarBrowserStackEmptyArea(
@@ -13759,6 +13764,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
         .frame(maxWidth: .infinity)
         .safeHelp(row.title)
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
@@ -13846,6 +13852,7 @@ struct VerticalTabsSidebar: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
         .sidebarPointerFrameReporting(
             onFrameChange: { [pointerInteractionMonitor, workspaceId = row.workspaceId] frame in
@@ -14064,6 +14071,7 @@ struct VerticalTabsSidebar: View, Equatable {
                         .offset(y: -0.5)
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .safeHelp(String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"))
 
                 Text(extensionSidebarTreeSectionTitle(section.treeSection))
@@ -14085,6 +14093,7 @@ struct VerticalTabsSidebar: View, Equatable {
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                     .disabled(extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id))
                     .safeHelp(String(localized: "sidebar.extension.createWorktree", defaultValue: "Create worktree"))
                     .accessibilityIdentifier("ExtensionSidebarCreateWorktreeButton.\(section.id)")
@@ -15844,6 +15853,7 @@ private struct SidebarHelpMenuButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 
@@ -16214,6 +16224,7 @@ struct TabItemView: View, Equatable {
                             .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
                         }
                         .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
                         .foregroundColor(activeSecondaryColor(0.9))
                         .safeHelp(String(
                             format: String(
@@ -16619,6 +16630,7 @@ struct TabItemView: View, Equatable {
                         if settings.makesPullRequestsClickable {
                             Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
                                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                                 .tint(pullRequestForegroundColor)
                                 .safeHelp(
                                     String(
@@ -16648,6 +16660,7 @@ struct TabItemView: View, Equatable {
                                 .underline()
                         }
                         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                         .safeHelp(portTooltip)
                     }
                     Spacer(minLength: 0)
@@ -17158,6 +17171,7 @@ private struct SidebarMetadataRows: View {
                     }
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .cmuxFont(size: 10 * fontScale, weight: .semibold)
                 .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -17200,11 +17214,13 @@ private struct SidebarMetadataEntryRow: View {
                     rowContent(underlined: true)
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .safeHelp(url.absoluteString)
             } else {
                 rowContent(underlined: false)
                     .contentShape(Rectangle())
                     .onTapGesture { onFocus() }
+                    .backport.pointerStyle(.link)
             }
         }
     }
@@ -17321,6 +17337,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                     }
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .cmuxFont(size: 10 * fontScale, weight: .semibold)
                 .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -17373,6 +17390,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
+        .backport.pointerStyle(.link)
     }
 
     private var foregroundColor: Color {

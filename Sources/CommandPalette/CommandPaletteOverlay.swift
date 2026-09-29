@@ -162,6 +162,7 @@ struct CommandPaletteCommandListRowsView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .backport.pointerStyle(.link)
                         // The command id lives in the identifier (not the spoken value)
                         // so UI tests can find rows without VoiceOver reading internal ids.
                         .accessibilityIdentifier("CommandPaletteResultRow.\(index).\(row.id)")

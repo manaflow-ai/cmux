@@ -151,6 +151,7 @@ private struct FeedSecondaryFilterButton: View {
             )
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .onHover { isHovered = $0 }
         .help(filter.label)
     }
@@ -1683,6 +1684,8 @@ struct FeedButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
+        .disabled(dimmed)
         .onHover { hovering in
             handleHover(hovering)
         }
@@ -2803,6 +2806,7 @@ private struct QuestionActionArea: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .disabled(!status.isPending)
     }
 
@@ -3850,6 +3854,7 @@ private struct TodoListBody: View {
                             .padding(.leading, 22)
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                 }
                 if expanded && done.count > 2 {
                     Button { expanded = false } label: {
@@ -3859,6 +3864,7 @@ private struct TodoListBody: View {
                             .padding(.leading, 22)
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                 }
             }
         }

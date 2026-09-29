@@ -76,6 +76,7 @@ private struct DevWindowDisplayDebugView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .backport.pointerStyle(.link)
                     }
                 }
                 .padding(6)

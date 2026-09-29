@@ -82,6 +82,7 @@ struct ProjectSchemesTabView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
     }
 
     @ViewBuilder

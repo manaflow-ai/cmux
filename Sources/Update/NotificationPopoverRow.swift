@@ -35,6 +35,7 @@ struct NotificationPopoverRow: View, Equatable {
                     )
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             // Identifier/action live on the Button itself so XCUITest's
             // `app.buttons["NotificationPopoverRow.<id>"]` query keeps matching. A previous
             // pass put them on the combined outer ZStack, which exposed the row as a
@@ -160,6 +161,7 @@ struct NotificationPopoverRow: View, Equatable {
             .frame(width: 20, height: 20)
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .safeHelp(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
         .accessibilityLabel(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
     }
