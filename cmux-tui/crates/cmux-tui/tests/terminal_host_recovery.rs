@@ -536,19 +536,34 @@ fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart
     );
     assert!(history["rows"].is_array(), "kept terminal lost its history: {history}");
 
-    // Input to the dead PTY is a harmless no-op, not an error.
-    resource_request(
+    // `terminal.input.write` confirms delivery to the PTY owner. A kept
+    // terminal's process is gone, so the write fails before any effect with a
+    // known, non-retryable error instead of claiming the bytes arrived; the
+    // exit receipt and the final screen are untouched by the attempt.
+    // (Interactive keystrokes to the final screen are still dropped silently.)
+    let dead_write = request_response(
         &harness.socket,
-        "keep-dead-write",
-        "terminal.input.write",
         serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "terminal":terminal,
-            "text":"ignored\n",
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-dead-write",
+            "operation":"terminal.input.write",
+            "idempotency_key":"keep-dead-write",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal,
+                "text":"ignored\n",
+            },
         }),
-        Some("keep-dead-write"),
     );
+    assert_eq!(dead_write["ok"], false, "input to an exited PTY was acknowledged: {dead_write}");
+    assert_eq!(dead_write["error"]["code"], "operation.failed", "{dead_write}");
+    assert_eq!(
+        dead_write["error"]["details"]["reason"], "terminal_input_delivery_failed",
+        "{dead_write}"
+    );
+    assert_eq!(dead_write["error"]["retryable"], false, "{dead_write}");
     let latched = resource_request(
         &harness.socket,
         "keep-wait-again",
