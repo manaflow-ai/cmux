@@ -16,8 +16,8 @@ struct SSHConnectionSharingOptionsTests {
 
     @Test("Default control path is stable across workspace relay identities")
     func stableDefaultControlPath() {
-        let first = options.mergingDefaults(into: ["StrictHostKeyChecking=accept-new"])
-        let second = options.mergingDefaults(into: ["StrictHostKeyChecking=accept-new"])
+        let first = options.mergingDefaults(into: ["RequestTTY=auto"])
+        let second = options.mergingDefaults(into: ["RequestTTY=auto"])
 
         #expect(first == second)
         #expect(first.contains("ControlMaster=auto"))
@@ -144,6 +144,22 @@ struct SSHConnectionSharingOptionsTests {
         ])
         #expect(!merged.contains(where: { $0.hasPrefix("ControlPath=") }))
         #expect(!merged.contains("ControlMaster=auto"))
+    }
+
+    @Test("Host-key policy options disable default sharing")
+    func hostKeyPolicyOptionsDoNotShareAHostStableSocket() {
+        for option in [
+            "StrictHostKeyChecking=no",
+            "CheckHostIP=no",
+            "VerifyHostKeyDNS=yes",
+            "UpdateHostkeys=no",
+            "KnownHostsCommand=/usr/local/bin/known-hosts %H %p",
+            "RevokedHostKeys=/Users/alice/.ssh/revoked",
+        ] {
+            let merged = options.mergingDefaults(into: [option])
+            #expect(!merged.contains(where: { $0.hasPrefix("ControlPath=") }), "\(option)")
+            #expect(!merged.contains("ControlMaster=auto"), "\(option)")
+        }
     }
 
     @Test("Route-specific ssh_config settings disable cmux default sharing")
