@@ -470,6 +470,9 @@ describe("SEO metadata helpers", () => {
         ["/docs/cloud/networking", "cloudNetworking"],
         ["/docs/cloud/cli", "cloudCli"],
         ["/docs/cloud/troubleshooting", "cloudTroubleshooting"],
+        ["/docs/coderouter", "coderouterOverview"],
+        ["/docs/coderouter/agents", "coderouterAgents"],
+        ["/docs/coderouter/cli", "coderouterCli"],
       ] as const;
       for (const [path, pageKey] of auditedDocsPages) {
         if (pageKey === "remoteTmux" && locale !== "en" && locale !== "ja") {
