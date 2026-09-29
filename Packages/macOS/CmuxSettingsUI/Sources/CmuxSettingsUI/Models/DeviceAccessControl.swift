@@ -4,6 +4,7 @@ import Foundation
     /// The effective state and action label used by every device preference control.
 public struct DeviceAccessControl {
     private let preference: DevicesAccessCoordinator.Preference
+    private let managed: Bool
     /// Whether the preference is on after applying availability and managed policy.
     public let isOn: Bool
     /// Whether the control may request a change.
@@ -22,6 +23,7 @@ public struct DeviceAccessControl {
         unavailable: Bool = false
     ) {
         self.preference = preference
+        self.managed = managed
         isEnabled = !managed && !unavailable
         isOn = enabled && isEnabled
     }
