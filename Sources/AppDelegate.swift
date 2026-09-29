@@ -2936,6 +2936,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
+        func intValue(_ value: Any?) -> Int? {
+            if let value = value as? Int {
+                return value
+            }
+            if let value = value as? NSNumber {
+                return value.intValue
+            }
+            return nil
+        }
+
         func pointFromPayload(_ key: String, in terminalPanel: TerminalPanel) -> NSPoint? {
             guard let payload = tokenPointPayload?[key] as? [String: Any],
                   let x = doubleValue(payload["x"]),
@@ -2955,15 +2965,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         func pointForTokenColumnOffset(_ offset: Int, in terminalPanel: TerminalPanel) -> NSPoint? {
-            guard let selectionStart = pointFromPayload("tokenSelectionStartInTerminal", in: terminalPanel),
-                  let tokenCellMetrics = tokenPointPayload?["tokenCellMetrics"] as? [String: Any],
-                  let cellWidth = doubleValue(tokenCellMetrics["cellWidth"]) else {
+            guard let tokenCellMetrics = tokenPointPayload?["tokenCellMetrics"] as? [String: Any],
+                  let cellWidth = doubleValue(tokenCellMetrics["cellWidth"]),
+                  let cellHeight = doubleValue(tokenCellMetrics["cellHeight"]),
+                  let columns = intValue(tokenCellMetrics["columns"]),
+                  let rows = intValue(tokenCellMetrics["rows"]),
+                  let matchedRowFromTop = intValue(tokenCellMetrics["matchedRowFromTop"]),
+                  let matchedColumnStart = intValue(tokenCellMetrics["matchedColumnStart"]),
+                  let xInset = doubleValue(tokenCellMetrics["xInset"]),
+                  let yInset = doubleValue(tokenCellMetrics["yInset"]),
+                  offset >= 0,
+                  columns > 0,
+                  rows > 0,
+                  cellWidth > 0,
+                  cellHeight > 0 else {
                 return nil
             }
 
-            let unclampedX = selectionStart.x + (CGFloat(offset) * CGFloat(cellWidth))
-            let clampedX = min(max(unclampedX, 1), max(terminalPanel.hostedView.bounds.width - 1, 1))
-            return NSPoint(x: clampedX, y: selectionStart.y)
+            // The displayed token can cross a physical terminal row. Map the
+            // requested character offset through the same grid geometry the
+            // app uses for command-click resolution instead of clamping all
+            // offsets beyond the right edge onto the final visible cell.
+            let absoluteColumn = matchedColumnStart + offset
+            let row = matchedRowFromTop + (absoluteColumn / columns)
+            let column = absoluteColumn % columns
+            guard row >= 0, row < rows else { return nil }
+
+            let bounds = terminalPanel.hostedView.bounds
+            let rawX = CGFloat(xInset) + (CGFloat(column) + 0.5) * CGFloat(cellWidth)
+            let rawYFromTop = CGFloat(yInset) + (CGFloat(row) + 0.5) * CGFloat(cellHeight)
+            let x = min(max(rawX, 1), max(bounds.width - 1, 1))
+            let yFromTop = min(max(rawYFromTop, 1), max(bounds.height - 1, 1))
+            return NSPoint(x: x, y: bounds.height - yFromTop)
         }
 
         func commandPoint(
@@ -3230,7 +3263,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             var payload: [String: Any] = [
                 "lastCommandId": commandID,
                 "lastCommandAction": action,
-                "lastCommandSucceeded": "0"
+                "lastCommandSucceeded": "0",
+                "lastCommandOpenedPath": NSNull(),
+                "lastCommandOpenedURL": NSNull()
             ]
 
             switch action {

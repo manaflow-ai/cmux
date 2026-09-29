@@ -9386,6 +9386,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if ghostty_surface_quicklook_word(surface, &text) {
             defer { ghostty_surface_free_text(surface, &text) }
             var quicklookResolution: WordPathResolution?
+            var quicklookContainsPointer = false
             if text.text_len > 0, let ptr = text.text {
                 let wordData = Data(bytes: ptr, count: Int(text.text_len))
                 if let decodedWord = String(bytes: wordData, encoding: .utf8) {
@@ -9404,6 +9405,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
 
+            // Ghostty's quicklook word is a logical token and can span
+            // multiple physical rows. It is safe as a fallback only when the
+            // supplied pointer is inside the range Ghostty reported; using it
+            // for an adjacent separator cell would reopen the whole token.
+            if snapshotPoint != nil, text.offset_len > 0,
+               let metrics = currentGridMetrics(),
+               let cell = snapshotPoint.flatMap({ gridCell(at: $0, metrics: metrics) }) {
+                let pointOffset = (UInt64(cell.row) * UInt64(metrics.columns)) + UInt64(cell.column)
+                let wordStart = UInt64(text.offset_start)
+                let wordEnd = wordStart + UInt64(text.offset_len)
+                quicklookContainsPointer = pointOffset >= wordStart && pointOffset < wordEnd
+            }
+
             var viewportResolution: WordPathResolution?
             if text.offset_len > 0 {
 #if DEBUG
@@ -9419,18 +9433,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
 
-            if let viewportResolution {
-                // The pointer-anchored snapshot is the only source tied directly to the
-                // actual click location. Prefer it over quicklook and viewport offsets,
-                // which can lag or target a sibling entry in multi-column `ls` output.
+            if snapshotPoint != nil {
+                // The pointer-anchored snapshot is the only source tied
+                // directly to the click location. Prefer it over quicklook
+                // and viewport offsets, which can lag or target a sibling
+                // entry in multi-column `ls` output. A logical quicklook word
+                // is allowed only when Ghostty says this cell is inside it.
                 if let pointSnapshotResolution {
                     return pointSnapshotResolution
                 }
-                return viewportResolution
+                return quicklookContainsPointer ? quicklookResolution : nil
             }
 
-            if let pointSnapshotResolution {
-                return pointSnapshotResolution
+            if let viewportResolution {
+                return viewportResolution
             }
 
             if let quicklookResolution {
