@@ -72,14 +72,14 @@ private final class FakeLaneAcceptor: @unchecked Sendable {
 
 // MARK: - Helpers
 
-private func frame(_ text: String) -> Data {
+private func hubFrame(_ text: String) -> Data {
     var length = UInt32(text.utf8.count).bigEndian
     var data = Data(bytes: &length, count: 4)
     data.append(Data(text.utf8))
     return data
 }
 
-private func waitUntil(
+private func hubWaitUntil(
     _ condition: @escaping @Sendable () async -> Bool
 ) async throws -> Bool {
     let reached = try await withIrxDeadline(.seconds(2), onTimeout: {}) {
@@ -143,16 +143,16 @@ struct IrxServerEventLaneHubTests {
 
         // Surface A's large replay has only partly arrived; its lane is
         // waiting for the rest. Surface B's echo must not wait behind it.
-        let replay = frame(String(repeating: "a", count: 64 * 1024))
+        let replay = hubFrame(String(repeating: "a", count: 64 * 1024))
         await busy.push(replay.prefix(10_000))
-        await shared.push(frame("workspace.updated"))
-        await typed.push(frame("echo-b"))
+        await shared.push(hubFrame("workspace.updated"))
+        await typed.push(hubFrame("echo-b"))
 
-        #expect(try await waitUntil { await collector.frames.contains("echo-b") })
+        #expect(try await hubWaitUntil { await collector.frames.contains("echo-b") })
         #expect(await collector.frames.sorted() == ["echo-b", "workspace.updated"])
 
         await busy.push(replay.dropFirst(10_000))
-        #expect(try await waitUntil { await collector.frames.count == 3 })
+        #expect(try await hubWaitUntil { await collector.frames.count == 3 })
         await hub.stop()
     }
 
@@ -168,11 +168,11 @@ struct IrxServerEventLaneHubTests {
         let shared = acceptor.open(IrxLaneDescriptor(lane: .events))
         let laneA = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: surfaceA.uuidString))
         let laneB = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: surfaceB.uuidString))
-        await laneA.push(frame("grid-a1") + frame("grid-a2"))
-        await shared.push(frame("workspace.updated"))
-        await laneB.push(frame("grid-b"))
+        await laneA.push(hubFrame("grid-a1") + hubFrame("grid-a2"))
+        await shared.push(hubFrame("workspace.updated"))
+        await laneB.push(hubFrame("grid-b"))
 
-        #expect(try await waitUntil { await collector.frames.count == 4 })
+        #expect(try await hubWaitUntil { await collector.frames.count == 4 })
         let scoped = await collector.scopedFrames
         #expect(scoped.filter { $0.frame.hasPrefix("grid-a") }.allSatisfy { $0.scope == surfaceA })
         #expect(scoped.first { $0.frame == "grid-b" }?.scope == surfaceB)
@@ -190,9 +190,9 @@ struct IrxServerEventLaneHubTests {
         let shared = acceptor.open(IrxLaneDescriptor(lane: .events))
         let surface = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "S"))
         var surfaceBytes = Data()
-        for index in 0..<20 { surfaceBytes.append(frame("s\(index)")) }
+        for index in 0..<20 { surfaceBytes.append(hubFrame("s\(index)")) }
         var sharedBytes = Data()
-        for index in 0..<20 { sharedBytes.append(frame("e\(index)")) }
+        for index in 0..<20 { sharedBytes.append(hubFrame("e\(index)")) }
         // Interleave odd-sized chunks from both lanes.
         var surfaceOffset = 0
         var sharedOffset = 0
@@ -208,7 +208,7 @@ struct IrxServerEventLaneHubTests {
                 sharedOffset = end
             }
         }
-        #expect(try await waitUntil { await collector.frames.count == 40 })
+        #expect(try await hubWaitUntil { await collector.frames.count == 40 })
         let frames = await collector.frames
         #expect(frames.filter { $0.hasPrefix("s") } == (0..<20).map { "s\($0)" })
         #expect(frames.filter { $0.hasPrefix("e") } == (0..<20).map { "e\($0)" })
@@ -225,7 +225,7 @@ struct IrxServerEventLaneHubTests {
         _ = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "1"))
         _ = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "2"))
         let third = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "3"))
-        #expect(try await waitUntil { await third.stopCodes == [IrxServerEventLaneHub.laneLimitStopCode] })
+        #expect(try await hubWaitUntil { await third.stopCodes == [IrxServerEventLaneHub.laneLimitStopCode] })
         #expect(await hub.activeSurfaceLaneCount() == 2)
         await hub.stop()
     }
@@ -237,14 +237,14 @@ struct IrxServerEventLaneHubTests {
         let consumer = collect(await hub.subscribe(), into: collector)
         defer { consumer.cancel() }
         let first = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "S"))
-        #expect(try await waitUntil { await hub.activeSurfaceLaneCount() == 1 })
-        await first.push(frame("partial").prefix(6))
+        #expect(try await hubWaitUntil { await hub.activeSurfaceLaneCount() == 1 })
+        await first.push(hubFrame("partial").prefix(6))
         await first.end()
-        #expect(try await waitUntil { await hub.activeSurfaceLaneCount() == 0 })
+        #expect(try await hubWaitUntil { await hub.activeSurfaceLaneCount() == 0 })
         // The host reopens the surface on a fresh stream after a failure.
         let reopened = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "S"))
-        await reopened.push(frame("full"))
-        #expect(try await waitUntil { await collector.frames == ["full"] })
+        await reopened.push(hubFrame("full"))
+        #expect(try await hubWaitUntil { await collector.frames == ["full"] })
         #expect(await hub.isAlive)
         await hub.stop()
     }
@@ -255,15 +255,15 @@ struct IrxServerEventLaneHubTests {
         let firstCollector = FrameCollector()
         let first = collect(await hub.subscribe(), into: firstCollector)
         let shared = acceptor.open(IrxLaneDescriptor(lane: .events))
-        await shared.push(frame("one"))
-        #expect(try await waitUntil { await firstCollector.frames == ["one"] })
+        await shared.push(hubFrame("one"))
+        #expect(try await hubWaitUntil { await firstCollector.frames == ["one"] })
 
         let secondCollector = FrameCollector()
         let second = collect(await hub.subscribe(), into: secondCollector)
         defer { second.cancel() }
         await first.value
-        await shared.push(frame("two"))
-        #expect(try await waitUntil { await secondCollector.frames == ["two"] })
+        await shared.push(hubFrame("two"))
+        #expect(try await hubWaitUntil { await secondCollector.frames == ["two"] })
         #expect(await firstCollector.frames == ["one"])
         await hub.stop()
     }
@@ -289,10 +289,10 @@ struct IrxServerEventLaneHubTests {
         defer { consumer.cancel() }
         let bad = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "bad"))
         let good = acceptor.open(IrxSurfaceEventLaneProtocol().descriptor(surfaceID: "good"))
-        await bad.push(frame(String(repeating: "x", count: 64)))
-        await good.push(frame("ok"))
-        #expect(try await waitUntil { await bad.stopCodes == [IrxServerEventLaneHub.malformedFrameStopCode] })
-        #expect(try await waitUntil { await collector.frames == ["ok"] })
+        await bad.push(hubFrame(String(repeating: "x", count: 64)))
+        await good.push(hubFrame("ok"))
+        #expect(try await hubWaitUntil { await bad.stopCodes == [IrxServerEventLaneHub.malformedFrameStopCode] })
+        #expect(try await hubWaitUntil { await collector.frames == ["ok"] })
         await hub.stop()
     }
 }

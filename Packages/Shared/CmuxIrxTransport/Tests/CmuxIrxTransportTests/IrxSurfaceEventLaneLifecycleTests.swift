@@ -27,7 +27,7 @@ struct IrxSurfaceEventLaneLifecycleTests {
         let lanes = makeLanes(opener, configuration: .init(maximumLaneCount: 1))
         let opening = Task<SurfaceLaneSendOutcome, Never> {
             do {
-                try await lanes.send(frame("stale"), surfaceID: "surface", generation: 0)
+                try await lanes.send(surfaceLaneFrame("stale"), surfaceID: "surface", generation: 0)
                 return .completed
             } catch let error as IrxSurfaceEventLanes.LaneError {
                 return .failed(error)
@@ -35,7 +35,7 @@ struct IrxSurfaceEventLaneLifecycleTests {
                 return .failed(.disabled)
             }
         }
-        #expect(try await waitUntil { await opener.openCount == 1 })
+        #expect(try await surfaceLaneWaitUntil { await opener.openCount == 1 })
 
         // A fallback can be brief. Re-enabling must not make the old native
         // open eligible for admission when it finally returns.
@@ -45,7 +45,7 @@ struct IrxSurfaceEventLaneLifecycleTests {
 
         #expect(await opening.value == .failed(.disabled))
         let writer = try #require(await opener.opened.first)
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             await writer.resetCodes == [IrxSurfaceEventLanes.supersededResetCode]
         })
         #expect(await lanes.openSurfaceIDs().isEmpty)
@@ -57,9 +57,9 @@ struct IrxSurfaceEventLaneLifecycleTests {
         await opener.block("surface")
         let lanes = makeLanes(opener)
         let sending = Task {
-            try await lanes.send(frame("blocked"), surfaceID: "surface", generation: 0)
+            try await lanes.send(surfaceLaneFrame("blocked"), surfaceID: "surface", generation: 0)
         }
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             guard let writer = await opener.writers(surfaceID: "surface").first else { return false }
             return await writer.isWriteBlocked
         })
@@ -69,7 +69,7 @@ struct IrxSurfaceEventLaneLifecycleTests {
         await lanes.setEnabled(true)
         let writer = try #require(await opener.writers(surfaceID: "surface").first)
         await writer.failBlockedWrite()
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             await writer.resetCodes == [IrxSurfaceEventLanes.releasedResetCode]
         })
         _ = await sending.result
@@ -81,27 +81,27 @@ struct IrxSurfaceEventLaneLifecycleTests {
         await opener.block("surface-a")
         let lanes = makeLanes(opener, configuration: .init(maximumLaneCount: 1))
         let sending = Task {
-            try await lanes.send(frame("blocked"), surfaceID: "surface-a", generation: 0)
+            try await lanes.send(surfaceLaneFrame("blocked"), surfaceID: "surface-a", generation: 0)
         }
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             guard let writer = await opener.writers(surfaceID: "surface-a").first else { return false }
             return await writer.isWriteBlocked
         })
 
         await lanes.release(surfaceID: "surface-a", belowGeneration: 1)
         await #expect(throws: IrxSurfaceEventLanes.LaneError.laneLimit) {
-            try await lanes.send(frame("too-soon"), surfaceID: "surface-b", generation: 0)
+            try await lanes.send(surfaceLaneFrame("too-soon"), surfaceID: "surface-b", generation: 0)
         }
 
         let oldWriter = try #require(await opener.writers(surfaceID: "surface-a").first)
         await opener.unblock("surface-a")
         await oldWriter.failBlockedWrite()
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             await oldWriter.resetCodes == [IrxSurfaceEventLanes.releasedResetCode]
         })
         _ = await sending.result
 
-        try await lanes.send(frame("after-reset"), surfaceID: "surface-b", generation: 0)
+        try await lanes.send(surfaceLaneFrame("after-reset"), surfaceID: "surface-b", generation: 0)
         #expect(await lanes.openSurfaceIDs() == ["surface-b"])
         await lanes.closeAll()
     }

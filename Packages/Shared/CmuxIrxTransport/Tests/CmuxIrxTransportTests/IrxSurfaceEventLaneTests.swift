@@ -149,7 +149,7 @@ enum SurfaceLaneSendOutcome: Equatable {
     case failed(IrxSurfaceEventLanes.LaneError)
 }
 
-func frame(_ text: String) -> Data {
+func surfaceLaneFrame(_ text: String) -> Data {
     var length = UInt32(text.utf8.count).bigEndian
     var data = Data(bytes: &length, count: 4)
     data.append(Data(text.utf8))
@@ -168,7 +168,7 @@ private func decodeFrames(_ data: Data) -> [String] {
     return result
 }
 
-func waitUntil(
+func surfaceLaneWaitUntil(
     _ condition: @escaping @Sendable () async -> Bool
 ) async throws -> Bool {
     let reached = try await withIrxDeadline(.seconds(2), onTimeout: {}) {
@@ -209,14 +209,14 @@ struct IrxSurfaceEventLanesTests {
         await opener.block("a")
         let lanes = makeLanes(opener)
         await lanes.noteFocused(surfaceID: "B")
-        let stalled = Task { try await lanes.send(frame("replay-a"), surfaceID: "A", generation: 0) }
-        #expect(try await waitUntil {
+        let stalled = Task { try await lanes.send(surfaceLaneFrame("replay-a"), surfaceID: "A", generation: 0) }
+        #expect(try await surfaceLaneWaitUntil {
             guard let writer = await opener.writers(surfaceID: "a").first else { return false }
             return await writer.isWriteBlocked
         })
-        try await lanes.send(frame("echo-b"), surfaceID: "B", generation: 0)
+        try await lanes.send(surfaceLaneFrame("echo-b"), surfaceID: "B", generation: 0)
         let bWriter = try #require(await opener.writers(surfaceID: "b").first)
-        #expect(await bWriter.written == [frame("echo-b")])
+        #expect(await bWriter.written == [surfaceLaneFrame("echo-b")])
         await lanes.closeAll()
         await opener.writers(surfaceID: "a").first?.failBlockedWrite()
         _ = await stalled.result
@@ -227,7 +227,7 @@ struct IrxSurfaceEventLanesTests {
         await opener.block("a")
         let lanes = makeLanes(opener, configuration: .init(stallDeadline: .milliseconds(50)))
         await #expect(throws: IrxSurfaceEventLanes.LaneError.writeStalled) {
-            try await lanes.send(frame("x"), surfaceID: "a", generation: 0)
+            try await lanes.send(surfaceLaneFrame("x"), surfaceID: "a", generation: 0)
         }
         let stalledWriter = try #require(await opener.writers(surfaceID: "a").first)
         #expect(await lanes.openSurfaceIDs().isEmpty)
@@ -235,15 +235,15 @@ struct IrxSurfaceEventLanesTests {
         // The stuck stream's reset waits behind its write, so recovery must
         // not: the next frame goes out on a fresh stream right away.
         await opener.unblock("a")
-        try await lanes.send(frame("full"), surfaceID: "a", generation: 1)
+        try await lanes.send(surfaceLaneFrame("full"), surfaceID: "a", generation: 1)
         let writers = await opener.writers(surfaceID: "a")
         #expect(writers.count == 2)
-        #expect(await writers[1].written == [frame("full")])
+        #expect(await writers[1].written == [surfaceLaneFrame("full")])
         #expect(await stalledWriter.resetCodes.isEmpty)
 
         // Once the stuck write fails, the queued reset lands on the old stream.
         await stalledWriter.failBlockedWrite()
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             await stalledWriter.resetCodes == [IrxSurfaceEventLanes.stalledResetCode]
         })
     }
@@ -260,7 +260,7 @@ struct IrxSurfaceEventLanesTests {
         let sends = surfaceIDs.map { surfaceID in
             Task {
                 do {
-                    try await lanes.send(frame(surfaceID), surfaceID: surfaceID, generation: 0)
+                    try await lanes.send(surfaceLaneFrame(surfaceID), surfaceID: surfaceID, generation: 0)
                     await outcomes.record(.success(()))
                 } catch {
                     await outcomes.record(.failure(error))
@@ -268,7 +268,7 @@ struct IrxSurfaceEventLanesTests {
             }
         }
 
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             let opens = await opener.openCount
             let failures = await outcomes.failures
             return opens + failures == surfaceIDs.count
@@ -285,7 +285,7 @@ struct IrxSurfaceEventLanesTests {
         let lanes = makeLanes(opener, configuration: .init(maximumLaneCount: 2))
         let old = Task<SurfaceLaneSendOutcome, Never> {
             do {
-                try await lanes.send(frame("old"), surfaceID: "surface", generation: 0)
+                try await lanes.send(surfaceLaneFrame("old"), surfaceID: "surface", generation: 0)
                 return .completed
             } catch let error as IrxSurfaceEventLanes.LaneError {
                 return .failed(error)
@@ -293,10 +293,10 @@ struct IrxSurfaceEventLanesTests {
                 return .failed(.released)
             }
         }
-        #expect(try await waitUntil { await opener.openCount == 1 })
+        #expect(try await surfaceLaneWaitUntil { await opener.openCount == 1 })
         let newer = Task<SurfaceLaneSendOutcome, Never> {
             do {
-                try await lanes.send(frame("new"), surfaceID: "surface", generation: 1)
+                try await lanes.send(surfaceLaneFrame("new"), surfaceID: "surface", generation: 1)
                 return .completed
             } catch let error as IrxSurfaceEventLanes.LaneError {
                 return .failed(error)
@@ -304,7 +304,7 @@ struct IrxSurfaceEventLanesTests {
                 return .failed(.released)
             }
         }
-        #expect(try await waitUntil { await opener.openCount == 2 })
+        #expect(try await surfaceLaneWaitUntil { await opener.openCount == 2 })
         await opener.releaseAll()
         #expect(await old.value == .failed(.released))
         #expect(await newer.value == .completed)
@@ -319,7 +319,7 @@ struct IrxSurfaceEventLanesTests {
         )
         let timedOut = Task<SurfaceLaneSendOutcome, Never> {
             do {
-                try await lanes.send(frame("timed-out"), surfaceID: "surface", generation: 0)
+                try await lanes.send(surfaceLaneFrame("timed-out"), surfaceID: "surface", generation: 0)
                 return .completed
             } catch let error as IrxSurfaceEventLanes.LaneError {
                 return .failed(error)
@@ -327,21 +327,21 @@ struct IrxSurfaceEventLanesTests {
                 return .failed(.openTimedOut)
             }
         }
-        #expect(try await waitUntil { await opener.openCount == 1 })
+        #expect(try await surfaceLaneWaitUntil { await opener.openCount == 1 })
         #expect(await timedOut.value == SurfaceLaneSendOutcome.failed(.openTimedOut))
         await #expect(throws: IrxSurfaceEventLanes.LaneError.laneLimit) {
-            try await lanes.send(frame("retry"), surfaceID: "surface", generation: 1)
+            try await lanes.send(surfaceLaneFrame("retry"), surfaceID: "surface", generation: 1)
         }
 
         await opener.releaseAll()
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             guard let writer = await opener.opened.first else { return false }
             return await writer.resetCodes == [IrxSurfaceEventLanes.supersededResetCode]
         })
 
         let recovered = Task<SurfaceLaneSendOutcome, Never> {
             do {
-                try await lanes.send(frame("recovered"), surfaceID: "surface", generation: 1)
+                try await lanes.send(surfaceLaneFrame("recovered"), surfaceID: "surface", generation: 1)
                 return .completed
             } catch let error as IrxSurfaceEventLanes.LaneError {
                 return .failed(error)
@@ -349,7 +349,7 @@ struct IrxSurfaceEventLanesTests {
                 return .failed(.laneLimit)
             }
         }
-        #expect(try await waitUntil { await opener.openCount == 2 })
+        #expect(try await surfaceLaneWaitUntil { await opener.openCount == 2 })
         await opener.releaseAll()
         #expect(await recovered.value == SurfaceLaneSendOutcome.completed)
         await lanes.closeAll()
@@ -361,7 +361,7 @@ struct IrxSurfaceEventLanesTests {
         let lanes = makeLanes(opener, configuration: .init(maximumLaneCount: 1))
         let first = Task<SurfaceLaneSendOutcome, Never> {
             do {
-                try await lanes.send(frame("a"), surfaceID: "surface-a", generation: 0)
+                try await lanes.send(surfaceLaneFrame("a"), surfaceID: "surface-a", generation: 0)
                 return .completed
             } catch let error as IrxSurfaceEventLanes.LaneError {
                 return .failed(error)
@@ -369,13 +369,13 @@ struct IrxSurfaceEventLanesTests {
                 return .failed(.laneLimit)
             }
         }
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             guard let writer = await opener.writers(surfaceID: "surface-a").first else { return false }
             return await writer.isPriorityBlocked
         })
 
         await #expect(throws: IrxSurfaceEventLanes.LaneError.laneLimit) {
-            try await lanes.send(frame("b"), surfaceID: "surface-b", generation: 0)
+            try await lanes.send(surfaceLaneFrame("b"), surfaceID: "surface-b", generation: 0)
         }
         let writer = try #require(await opener.writers(surfaceID: "surface-a").first)
         await writer.releaseBlockedPriority()
@@ -390,7 +390,7 @@ struct IrxSurfaceEventLanesTests {
         let lanes = makeLanes(opener)
         let opening = Task<SurfaceLaneSendOutcome, Never> {
             do {
-                try await lanes.send(frame("old"), surfaceID: "surface", generation: 0)
+                try await lanes.send(surfaceLaneFrame("old"), surfaceID: "surface", generation: 0)
                 return .completed
             } catch let error as IrxSurfaceEventLanes.LaneError {
                 return .failed(error)
@@ -398,7 +398,7 @@ struct IrxSurfaceEventLanesTests {
                 return .failed(.released)
             }
         }
-        #expect(try await waitUntil {
+        #expect(try await surfaceLaneWaitUntil {
             guard let writer = await opener.writers(surfaceID: "surface").first else { return false }
             return await writer.isPriorityBlocked
         })
@@ -416,22 +416,22 @@ struct IrxSurfaceEventLanesTests {
     @Test func newGenerationFinishesTheOldStreamAndOpensAFreshOne() async throws {
         let opener = FakeLaneOpener()
         let lanes = makeLanes(opener)
-        try await lanes.send(frame("1"), surfaceID: "s", generation: 0)
-        try await lanes.send(frame("2"), surfaceID: "s", generation: 0)
-        try await lanes.send(frame("3"), surfaceID: "s", generation: 1)
+        try await lanes.send(surfaceLaneFrame("1"), surfaceID: "s", generation: 0)
+        try await lanes.send(surfaceLaneFrame("2"), surfaceID: "s", generation: 0)
+        try await lanes.send(surfaceLaneFrame("3"), surfaceID: "s", generation: 1)
         let writers = await opener.writers(surfaceID: "s")
         #expect(writers.count == 2)
-        #expect(await writers[0].written == [frame("1"), frame("2")])
-        #expect(try await waitUntil { await writers[0].finished })
-        #expect(await writers[1].written == [frame("3")])
+        #expect(await writers[0].written == [surfaceLaneFrame("1"), surfaceLaneFrame("2")])
+        #expect(try await surfaceLaneWaitUntil { await writers[0].finished })
+        #expect(await writers[1].written == [surfaceLaneFrame("3")])
     }
 
     @Test func focusedSurfaceIsScheduledAboveEveryOtherLane() async throws {
         let opener = FakeLaneOpener()
         let lanes = makeLanes(opener)
         await lanes.noteFocused(surfaceID: "A")
-        try await lanes.send(frame("a"), surfaceID: "a", generation: 0)
-        try await lanes.send(frame("b"), surfaceID: "b", generation: 0)
+        try await lanes.send(surfaceLaneFrame("a"), surfaceID: "a", generation: 0)
+        try await lanes.send(surfaceLaneFrame("b"), surfaceID: "b", generation: 0)
         #expect(await lanes.priority(surfaceID: "a") == 100)
         #expect(await lanes.priority(surfaceID: "b") == 50)
 
@@ -439,15 +439,15 @@ struct IrxSurfaceEventLanesTests {
         #expect(await lanes.priority(surfaceID: "a") == 50)
         #expect(await lanes.priority(surfaceID: "b") == 100)
         let bWriter = try #require(await opener.writers(surfaceID: "b").first)
-        #expect(try await waitUntil { await bWriter.priorities == [50, 100] })
+        #expect(try await surfaceLaneWaitUntil { await bWriter.priorities == [50, 100] })
     }
 
     @Test func notingFocusNeverWaitsForAStalledWrite() async throws {
         let opener = FakeLaneOpener()
         await opener.block("a")
         let lanes = makeLanes(opener)
-        let stalled = Task { try await lanes.send(frame("replay-a"), surfaceID: "a", generation: 0) }
-        #expect(try await waitUntil {
+        let stalled = Task { try await lanes.send(surfaceLaneFrame("replay-a"), surfaceID: "a", generation: 0) }
+        #expect(try await surfaceLaneWaitUntil {
             guard let writer = await opener.writers(surfaceID: "a").first else { return false }
             return await writer.isWriteBlocked
         })
@@ -458,7 +458,7 @@ struct IrxSurfaceEventLanesTests {
         let aWriter = try #require(await opener.writers(surfaceID: "a").first)
         #expect(await aWriter.priorities == [50])
         await aWriter.failBlockedWrite()
-        #expect(try await waitUntil { await aWriter.priorities == [50, 100] })
+        #expect(try await surfaceLaneWaitUntil { await aWriter.priorities == [50, 100] })
         _ = await stalled.result
         await lanes.closeAll()
     }
@@ -466,10 +466,10 @@ struct IrxSurfaceEventLanesTests {
     @Test func laneCountRefusesANewSurfaceInsteadOfEvictingAnother() async throws {
         let opener = FakeLaneOpener()
         let lanes = makeLanes(opener, configuration: .init(maximumLaneCount: 2))
-        try await lanes.send(frame("1"), surfaceID: "one", generation: 0)
-        try await lanes.send(frame("2"), surfaceID: "two", generation: 0)
+        try await lanes.send(surfaceLaneFrame("1"), surfaceID: "one", generation: 0)
+        try await lanes.send(surfaceLaneFrame("2"), surfaceID: "two", generation: 0)
         await #expect(throws: IrxSurfaceEventLanes.LaneError.laneLimit) {
-            try await lanes.send(frame("3"), surfaceID: "three", generation: 0)
+            try await lanes.send(surfaceLaneFrame("3"), surfaceID: "three", generation: 0)
         }
         #expect(await lanes.openSurfaceIDs() == ["one", "two"])
         await lanes.closeAll()
@@ -478,12 +478,12 @@ struct IrxSurfaceEventLanesTests {
     @Test func releasedSurfaceRejectsStaleGenerationBeforeOpening() async throws {
         let opener = FakeLaneOpener()
         let lanes = makeLanes(opener)
-        try await lanes.send(frame("old"), surfaceID: "surface", generation: 0)
+        try await lanes.send(surfaceLaneFrame("old"), surfaceID: "surface", generation: 0)
         await lanes.release(surfaceID: "surface", belowGeneration: 1)
         await #expect(throws: IrxSurfaceEventLanes.LaneError.released) {
-            try await lanes.send(frame("stale"), surfaceID: "surface", generation: 0)
+            try await lanes.send(surfaceLaneFrame("stale"), surfaceID: "surface", generation: 0)
         }
-        try await lanes.send(frame("new"), surfaceID: "surface", generation: 1)
+        try await lanes.send(surfaceLaneFrame("new"), surfaceID: "surface", generation: 1)
         #expect(await opener.writers(surfaceID: "surface").count == 2)
         await lanes.closeAll()
     }
@@ -491,14 +491,14 @@ struct IrxSurfaceEventLanesTests {
     @Test func disabledLanesRefuseToOpen() async throws {
         let opener = FakeLaneOpener()
         let lanes = makeLanes(opener)
-        try await lanes.send(frame("1"), surfaceID: "s", generation: 0)
+        try await lanes.send(surfaceLaneFrame("1"), surfaceID: "s", generation: 0)
         await lanes.setEnabled(false)
         await #expect(throws: IrxSurfaceEventLanes.LaneError.disabled) {
-            try await lanes.send(frame("2"), surfaceID: "s", generation: 0)
+            try await lanes.send(surfaceLaneFrame("2"), surfaceID: "s", generation: 0)
         }
         #expect(await lanes.openSurfaceIDs().isEmpty)
         let writer = try #require(await opener.writers(surfaceID: "s").first)
-        #expect(try await waitUntil { await writer.finished })
+        #expect(try await surfaceLaneWaitUntil { await writer.finished })
     }
 
     @Test func surfaceLaneDescriptorRoundTripsAndSharedLaneHasNoSurface() {
@@ -513,7 +513,7 @@ struct IrxSurfaceEventLanesTests {
 
     @Test func frameAlignerReturnsOnlyCompleteFrames() throws {
         var aligner = IrxEventFrameAligner(maximumFrameByteCount: 1024)
-        let bytes = frame("hello") + frame("world")
+        let bytes = surfaceLaneFrame("hello") + surfaceLaneFrame("world")
         #expect(try aligner.append(bytes.prefix(3)) == nil)
         let first = try #require(try aligner.append(bytes.subdata(in: 3..<12)))
         #expect(decodeFrames(first) == ["hello"])
@@ -524,7 +524,7 @@ struct IrxSurfaceEventLanesTests {
 
         var small = IrxEventFrameAligner(maximumFrameByteCount: 2)
         #expect(throws: IrxEventFrameAligner.Failure.frameTooLarge(5)) {
-            _ = try small.append(frame("hello"))
+            _ = try small.append(surfaceLaneFrame("hello"))
         }
     }
 }
