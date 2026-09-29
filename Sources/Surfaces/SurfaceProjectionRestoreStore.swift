@@ -112,7 +112,11 @@ struct SurfaceProjectionRestoreStore: Sendable {
     }
 
     private mutating func rebuildMachineIndex(for workspaceID: UUID) {
-        machineIDsByWorkspace[workspaceID] = Set(machineCountsByWorkspace[workspaceID]?.keys ?? [])
+        if let counts = machineCountsByWorkspace[workspaceID] {
+            machineIDsByWorkspace[workspaceID] = Set(counts.keys)
+        } else {
+            machineIDsByWorkspace[workspaceID] = nil
+        }
     }
 
     private mutating func removeIndexedMachine(_ machine: SurfaceMachineID, from workspaceID: UUID) {
