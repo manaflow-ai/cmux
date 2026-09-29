@@ -28,12 +28,24 @@ public struct SSHTuiConnection: Sendable {
     /// Includes the SSH account and configuration so aliases with different routes never share a link.
     public var id: String { "ssh:" + identityDigest }
     public var identityDigest: String {
+        digest(includeAgentSocket: false)
+    }
+
+    /// Includes the authentication agent so separate credentials never share a master.
+    private var routeIdentityDigest: String {
+        digest(includeAgentSocket: true)
+    }
+
+    private func digest(includeAgentSocket: Bool) -> String {
         let resolver = SSHAgentSocketResolver(environment: [:])
         let persistentOptions = configuration.sshOptions.filter {
             !["controlmaster", "controlpersist", "controlpath"].contains(resolver.optionKey($0) ?? "")
         }
-        let components = [configuration.destination, configuration.port.map(String.init) ?? "",
+        var components = [configuration.destination, configuration.port.map(String.init) ?? "",
                           configuration.identityFile ?? ""] + persistentOptions
+        if includeAgentSocket {
+            components.append(configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+        }
         return SHA256.hash(data: Data(components.joined(separator: "\0").utf8))
             .map { String(format: "%02x", $0) }.joined()
     }
@@ -64,10 +76,14 @@ public struct SSHTuiConnection: Sendable {
     /// options, so without this a restored carrier opens its own connection,
     /// which batch mode can't log in on a password-only host.
     private var sshOptions: [String] {
-        SSHConnectionSharingOptions().mergingDefaults(
+        var routeSensitiveOptions = configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+        if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines), !agent.isEmpty {
+            routeSensitiveOptions.append("IdentityAgent=\(agent)")
+        }
+        return SSHConnectionSharingOptions().mergingDefaults(
             into: configuration.sshOptions,
-            routeSensitiveOptions: configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? [],
-            routeIdentifier: identityDigest
+            routeSensitiveOptions: routeSensitiveOptions,
+            routeIdentifier: routeIdentityDigest
         )
     }
 

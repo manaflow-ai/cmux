@@ -42,6 +42,17 @@ struct SSHTuiPreflightTests {
         #expect(connection.preflightArguments.contains("ControlMaster=auto"))
     }
 
+    @Test("Different SSH agent sockets use different route-specific control masters")
+    func agentSocketsDoNotShareRouteSpecificControlMaster() throws {
+        let first = SSHTuiConnection(configuration: configuration(identityFile: nil, agent: "/tmp/agent-a.sock"))
+        let second = SSHTuiConnection(configuration: configuration(identityFile: nil, agent: "/tmp/agent-b.sock"))
+        let firstPath = first.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+        let secondPath = second.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+
+        #expect(first.id == second.id)
+        #expect(firstPath != secondPath)
+    }
+
     @Test("Passes the configured agent socket like the carrier")
     func passesTheAgentSocket() async throws {
         let commands = ScriptedPreflightCommands(exitStatus: 0)
@@ -104,9 +115,9 @@ struct SSHTuiPreflightTests {
             CloudMachineLink.LinkError.exited(status: 1, output: "mkdir: /home/alice/.cmux: Permission denied")))
     }
 
-    private func configuration(options: [String] = [], agent: String? = nil) -> WorkspaceRemoteConfiguration {
+    private func configuration(options: [String] = [], agent: String? = nil, identityFile: String? = "/tmp/key") -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
-            destination: "alice@example.invalid", port: 2222, identityFile: "/tmp/key", sshOptions: options,
+            destination: "alice@example.invalid", port: 2222, identityFile: identityFile, sshOptions: options,
             localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
             terminalStartupCommand: nil, agentSocketPath: agent
         )
