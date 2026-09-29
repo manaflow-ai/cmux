@@ -7,11 +7,13 @@ import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 import { locales } from "../i18n/routing";
 
 /** The driver's real refusal for a machine created before the attach contract. */
-async function preContractAttachRefusal(): Promise<unknown> {
+async function preContractAttachRefusal(
+  providerMetadata: Record<string, unknown> = { networkIpv4: "10.4.0.8" },
+): Promise<unknown> {
   const client = { vms: { ref: () => ({}) } } as unknown as Freestyle;
   const provider = new FreestyleProvider({ client: () => client });
   try {
-    await provider.openCmuxRemote("vm-pre-contract", { providerMetadata: { networkIpv4: "10.4.0.8" } });
+    await provider.openCmuxRemote("vm-pre-contract", { providerMetadata });
   } catch (error) {
     return error;
   }
@@ -49,6 +51,21 @@ describe("attach to a machine that predates the attach contract", () => {
       ui: { title: "Recreate this machine" },
     });
     expect(JSON.stringify(payload)).not.toMatch(/snapshot-v2|freestyle|10\.4\.0\.8/);
+  });
+
+  test("refuses a contracted machine with no recorded address", async () => {
+    const client = { vms: { ref: () => ({}) } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    let cause: unknown;
+    try {
+      await provider.openCmuxRemote("vm-pre-contract", { providerMetadata: { cmuxTuiContract: "snapshot-v2" } });
+    } catch (error) {
+      cause = error;
+    }
+    expect(cause).toBeDefined();
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({ provider: "freestyle", operation: "openCmuxRemote", cause }));
+    expect(response?.status).toBe(409);
+    expect((await response?.json()).error).toBe("vm_recreate_required");
   });
 
   test("is localized for every locale", async () => {
