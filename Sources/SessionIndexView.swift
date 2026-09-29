@@ -1252,10 +1252,10 @@ struct SessionTranscriptPreviewView: View {
             CmuxSystemSymbolImage(magnified: "xmark", pointSize: 11, weight: .semibold, tint: closeIsHovered ? .primary : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                         .fill(closeIsHovered ? Color.primary.opacity(0.08) : Color.clear)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
                 .onHover { closeIsHovered = $0 }
                 .onTapGesture {
                     onDismiss()
