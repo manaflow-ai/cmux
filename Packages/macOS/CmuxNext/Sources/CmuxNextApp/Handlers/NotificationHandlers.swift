@@ -45,7 +45,7 @@ enum NotificationHandlers {
             acknowledge([latest.tab.surface], context)
         }
         registry.bind("notificationCopy") {
-            guard context.connection() != nil else { return }
+            guard context.connection() != nil, supportsAck(context) else { return }
             context.daemon.send("copy-notification") { connection in
                 guard let entry = try await connection.notificationLedger(limit: 1).first else { return }
                 let text = entry.body.isEmpty ? entry.title : "\(entry.title)\n\(entry.body)"
@@ -73,14 +73,25 @@ enum NotificationHandlers {
     }
 
     /// Shows the tab and acknowledges its notification: focusing it reads it.
+    /// On daemons without notification-ack-v1 the reveal still happens.
     static func open(_ located: LocatedTab, _ context: AppActionContext) {
         guard context.connection() != nil else { return }
         context.reveal(tab: located.tab, pane: located.pane, workspace: located.workspace)
-        acknowledge([located.tab.surface], context)
+        if context.daemon.supports(DaemonCapabilities.notificationAck) { acknowledge([located.tab.surface], context) }
+    }
+
+    /// Whether the daemon can acknowledge and list notifications; reports a
+    /// failure when it cannot.
+    static func supportsAck(_ context: AppActionContext) -> Bool {
+        guard context.daemon.supports(DaemonCapabilities.notificationAck) else {
+            context.fail(HandlerStrings.notificationAck)
+            return false
+        }
+        return true
     }
 
     static func acknowledge(_ surfaces: [SurfaceID], _ context: AppActionContext) {
-        guard context.connection() != nil else { return }
+        guard context.connection() != nil, supportsAck(context) else { return }
         context.daemon.send("ack-tab-notifications") { connection in
             for surface in surfaces { _ = try await connection.acknowledgeNotifications(of: surface) }
         }

@@ -34,6 +34,7 @@ enum HandlerStrings {
     static var markUnread: String { String(localized: "handlers.failed.markUnread", defaultValue: "The daemon cannot mark a notification unread.", table: "Handlers", bundle: .module) }
     static var noAgentSession: String { String(localized: "handlers.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "Handlers", bundle: .module) }
     static var forkClaudeOnly: String { String(localized: "handlers.failed.forkClaudeOnly", defaultValue: "Forking is supported for Claude sessions only.", table: "Handlers", bundle: .module) }
+    static var notificationAck: String { String(localized: "handlers.failed.notificationAck", defaultValue: "The connected cmux-tui daemon does not support notification acknowledgement (notification-ack-v1).", table: "Handlers", bundle: .module) }
     static var noFile: String { String(localized: "handlers.failed.noFile", defaultValue: "No file is focused.", table: "Handlers", bundle: .module) }
     static func appNotFound(_ app: String) -> String {
         String(format: String(localized: "handlers.failed.appNotFound", defaultValue: "No app named %@ was found.", table: "Handlers", bundle: .module), app)
