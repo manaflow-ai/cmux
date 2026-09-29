@@ -184,6 +184,35 @@ import Testing
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
+    @Test func anOlderSignOutTeardownDoesNotClearANewerBrowserPeer() async {
+        let rig = Rig()
+        var replacement = Fixtures.enrollment
+        replacement.deviceFingerprint = "ios-def"
+        rig.service.enrollmentSequence = [Fixtures.enrollment, replacement]
+        await signedIn(rig)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        rig.service.revocationsToHold = 1
+        let teardown = rig.controller.serverTeardown()
+        let olderTeardown = Task { await teardown("captured-access", "captured-refresh") }
+        await rig.service.waitForRevocationStart()
+
+        rig.manager.report(.off)
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+        #expect(rig.service.calls.enroll.count == 2)
+
+        await rig.service.releaseHeldRevocation()
+        await olderTeardown.value
+
+        let newerTeardown = rig.controller.serverTeardown()
+        await newerTeardown("captured-access", "captured-refresh")
+
+        #expect(rig.service.calls.revoke.count == 2)
+        #expect(rig.service.calls.revoke.last?.fingerprint == "ios-def")
+    }
+
     @Test func signOutWithoutCapturedCredentialsPersistsBrowserRevocation() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         let rig = Rig(pendingRevocationStore: pendingStore)
