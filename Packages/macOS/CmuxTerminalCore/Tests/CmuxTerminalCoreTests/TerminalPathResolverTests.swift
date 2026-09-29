@@ -398,7 +398,7 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         let resolver = TerminalPathResolver(fileExists: existsIn([fullPath, suffixPath]))
 
         let resolution = try #require(
-            resolver.resolveVisibleLinePath("- My  File.md", column: 3, cwd: "/tmp")
+            resolver.resolveVisibleLinePath("- My  File.md  File.md", column: 3, cwd: "/tmp")
         )
 
         #expect(resolution.path == fullPath)

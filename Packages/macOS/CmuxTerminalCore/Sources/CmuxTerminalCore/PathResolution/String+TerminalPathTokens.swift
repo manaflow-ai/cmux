@@ -205,22 +205,20 @@ extension String {
         guard bodyStart < characters.count, column >= bodyStart else { return [] }
 
         // A run of two or more spaces is the column delimiter in common
-        // `ls`-style output. Keep the candidate scoped to the path field so a
-        // click in a neighboring column cannot resolve the whole row.
-        var bodyEnd = characters.count
-        var hasColumnDelimiter = false
-        if bodyStart + 1 < characters.count {
-            for index in bodyStart..<(characters.count - 1)
-            where characters[index] == " " && characters[index + 1] == " " {
-                bodyEnd = index
-                hasColumnDelimiter = true
-                break
-            }
+        // `ls`-style output, but the same spelling is valid inside a filename.
+        // Keep every prefix ending at a possible delimiter after the click;
+        // the resolver's file-existence probe picks the longest real path.
+        let delimiterStarts = characters.indices.dropFirst(bodyStart).filter {
+            $0 + 1 < characters.count
+                && characters[$0] == " "
+                && characters[$0 + 1] == " "
         }
-        guard column < bodyEnd else { return [] }
+        guard column < characters.count else { return [] }
 
+        let bodyEnd = delimiterStarts.first(where: { column < $0 })
+            ?? characters.count
         let bodyCharacters = Array(characters[bodyStart..<bodyEnd])
-        let body = String(bodyCharacters)
+        let body = String(bodyCharacters).trimmingCharacters(in: .whitespacesAndNewlines)
         if let labelColon = bodyCharacters.firstIndex(of: ":") {
             let prefix = bodyCharacters[..<labelColon]
             let suffixStart = bodyCharacters.index(after: labelColon)
@@ -240,16 +238,17 @@ extension String {
                 return [suffix]
             }
         }
-        guard hasColumnDelimiter else { return hasListMarker ? [body] : [] }
+        guard !delimiterStarts.isEmpty else { return hasListMarker ? [body] : [] }
 
-        // A doubled-space run can be either an `ls`-style column delimiter or
-        // part of a filename. Try the complete list body first so a clicked
-        // filename such as `My  File.md` remains intact. If it is a real
-        // column delimiter, that candidate fails the file-existence probe and
-        // the field-scoped candidate below still resolves the path.
-        let fullBody = String(characters[bodyStart...])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return fullBody == body ? [body] : [fullBody, body]
+        // Try the farthest prefix first so a filename containing doubled
+        // spaces wins over a shorter existing suffix or prefix decoy.
+        let prefixes = delimiterStarts.reversed().compactMap { delimiterStart -> String? in
+            guard column < delimiterStart else { return nil }
+            let prefix = String(characters[bodyStart..<delimiterStart])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return prefix.isEmpty ? nil : prefix
+        }
+        return prefixes + (body.isEmpty ? [] : [body])
     }
 
     private func rawPathSegment(containingColumn column: Int) -> String? {
