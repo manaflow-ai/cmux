@@ -803,7 +803,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let raw = try await runEvaluation(panel, frame, body: body, world: BrowserReplAgentWorld.world, args: [], handles: [element])
         guard let text = (raw as? BrowserReplRawJSON)?.text, let index = Int(text), index >= 0 else { return nil }
         let frames = await BrowserReplFrameTree.frames(of: panel.webView)
-        guard let child = frames.first(where: { $0.parentFrameID == frame.frameID && $0.indexInParent == index }) else {
+        // The main-frame fast path has no tree id; the tree's root is the main frame.
+        let parentID = frame.info == nil ? frames.first?.frameID : frame.frameID
+        guard let child = frames.first(where: { $0.parentFrameID == parentID && $0.indexInParent == index }) else {
             return nil
         }
         return ["frameId": child.frameID]
