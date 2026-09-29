@@ -4,11 +4,14 @@ import Foundation
 import Observation
 import os
 
-/// Process-wide connection to the cmux-tui daemon: launches or finds the
-/// owner, keeps the mirror (`store`) current once per frame, and runs
-/// commands off the main actor with logging.
+/// One machine's cmux-tui daemon connection: the local daemon (launched or
+/// found by `start(launch:)`) or a Cloud machine reached through its link
+/// socket (`start(remote:)`). Keeps the mirror (`store`) current once per
+/// frame and runs commands off the main actor with logging.
 @Observable
 final class DaemonService {
+    /// `local`, or the Cloud machine id (`vm-…`).
+    let machineID: String
     let store = DaemonStore()
     private(set) var connection: DaemonConnection?
     private(set) var windowState: WindowStateStore?
@@ -16,6 +19,17 @@ final class DaemonService {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private let scheduler = DisplayLinkFrameScheduler()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
+
+    init(machineID: String = "local") {
+        self.machineID = machineID
+    }
+
+    var isLocal: Bool { machineID == "local" }
+
+    /// Directory new terminals start in: the Mac's home for the local
+    /// daemon; nil (the machine's own default) on a Cloud machine, where a
+    /// Mac path does not exist.
+    var defaultCwd: String? { isLocal ? NSHomeDirectory() : nil }
 
     func start(launch: LaunchIdentity) {
         guard runTask == nil else { return }
@@ -35,6 +49,42 @@ final class DaemonService {
             } catch {
                 logger.error("cmux-tui daemon unavailable: \(String(describing: error), privacy: .public)")
                 store.markFailed(String(describing: error))
+            }
+        }
+    }
+
+    /// Connects to a remote daemon through `endpoint` (a Cloud machine's link
+    /// socket). The first connect is retried with capped backoff until it
+    /// succeeds or `shutdownConnection()` runs; afterwards the connection
+    /// reconnects by itself, re-asking `endpoint` (which restarts a dead
+    /// link). A connection that ends for good is replaced the same way.
+    func start(remote endpoint: @escaping @Sendable () async throws -> String) {
+        guard runTask == nil else { return }
+        let store = store
+        let machineID = machineID
+        runTask = Task { [weak self, scheduler, logger] in
+            let delays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(10), .seconds(30)]
+            var attempt = 0
+            while !Task.isCancelled {
+                let configuration = DaemonConnection.Configuration(terminalEnvironment: nil)
+                let connection = DaemonConnection(configuration: configuration) { DaemonEndpoint(socketPath: try await endpoint()) }
+                do {
+                    let identity = try await connection.start()
+                    attempt = 0
+                    self?.connection = connection
+                    self?.identity = identity
+                    logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
+                    await store.run(connection: connection, scheduler: scheduler)
+                } catch {
+                    await connection.close()
+                    if Task.isCancelled { return }
+                    logger.error("\(machineID, privacy: .public): daemon unavailable: \(String(describing: error), privacy: .public)")
+                    store.markFailed(String(describing: error))
+                }
+                if Task.isCancelled { return }
+                let delay = delays[min(attempt, delays.count - 1)]
+                attempt += 1
+                do { try await ContinuousClock().sleep(for: delay) } catch { return }
             }
         }
     }
@@ -118,6 +168,8 @@ final class DaemonService {
 
     func shutdownConnection() {
         runTask?.cancel()
+        runTask = nil
         if let connection { Task { await connection.close() } }
+        connection = nil
     }
 }

@@ -22,6 +22,7 @@ public enum ContextMenuCatalog {
         case .terminalSelection: terminalSelection
         case .browserPage: browserPage
         case .link: link
+        case .cloudMachine: cloudMachine
         }
     }
 
@@ -85,6 +86,12 @@ public enum ContextMenuCatalog {
                   "palette.copyWorkspaceLink")
         + [.separator]
         + actions("palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove", "closeWorkspace")
+
+    static let cloudMachine: [ContextMenuEntry] =
+        actions("cloudNewTerminal", "cloudOpenMachine", "cloudRenameMachine") + [.separator]
+        + actions("cloudCopyMachineID", "cloudCopyLink", "cloudCopyPort") + [.separator]
+        + actions("cloudResizeMachine", "palette.cloud.status", "palette.cloud.snapshot", "palette.cloud.fork") + [.separator]
+        + actions("cloudKillMachine")
 
     static let workspaceGroup: [ContextMenuEntry] =
         actions("workspaceGroup.newWorkspace", "workspaceGroup.rename")

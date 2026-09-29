@@ -9,6 +9,8 @@ public enum ActionTargetKind: String, CaseIterable, Sendable, Hashable, Codable 
     case workspace
     case workspaceGroup = "workspace-group"
     case window
+    /// A Cloud machine (`machine:vm-…`); the local daemon is `machine:local`.
+    case machine
 }
 
 /// A reference to one object: what the user right-clicked, what the CLI
@@ -48,6 +50,8 @@ public enum ActionMenuContext: String, CaseIterable, Sendable, Hashable, Codable
     case terminalSelection
     case browserPage
     case link
+    /// A Cloud machine's sidebar section header.
+    case cloudMachine
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -59,6 +63,7 @@ public enum ActionMenuContext: String, CaseIterable, Sendable, Hashable, Codable
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground: nil
+        case .cloudMachine: .machine
         }
     }
 }

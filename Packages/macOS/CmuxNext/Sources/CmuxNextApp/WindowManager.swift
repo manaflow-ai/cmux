@@ -56,8 +56,10 @@ final class WindowManager {
             _ = await createWorkspace()
         }
         let live = Set(store.workspaces.map(\.id))
+        // A window on a Cloud machine is kept: its machine connects after
+        // sign-in restores, and the window waits for it.
         let records = document.windows.sorted { $0.order > $1.order }.filter { record in
-            record.workspaceKey.map { live.contains($0.rawValue) } ?? true
+            record.machine != nil || (record.workspaceKey.map { live.contains($0.rawValue) } ?? true)
         }
         for record in records { open(record: record) }
         if controllers.isEmpty { open(record: nil) }
@@ -66,7 +68,8 @@ final class WindowManager {
     @discardableResult
     func open(record: WindowRecord?, workspaceID: String? = nil) -> WindowController {
         let state = WindowState(id: record?.id ?? UUID().uuidString.lowercased(),
-                                workspaceID: workspaceID ?? record?.workspaceKey?.rawValue)
+                                workspaceID: workspaceID ?? record?.workspaceKey?.rawValue,
+                                machineID: workspaceID.flatMap { services.machines.daemon(forWorkspace: $0)?.machineID } ?? record?.machine)
         for (pane, tab) in record?.selectedTabs ?? [:] { state.selection.select(tab, in: pane) }
         var frame = record?.frame.map { NSRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
         let placement = services.environment.testWindow
@@ -96,29 +99,33 @@ final class WindowManager {
 
     func show(workspaceID: String, in state: WindowState) {
         guard state.workspaceID != workspaceID else { return }
+        if let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
         state.workspaceID = workspaceID
         stateDidChange(state)
     }
 
-    /// Creates a workspace with one terminal. Returns its id.
-    func createWorkspace(cwd: String? = nil) async -> String? {
-        guard let connection = services.daemon.connection else { return nil }
+    /// Creates a workspace with one terminal on `daemon` (default: the local
+    /// daemon). Returns its id.
+    func createWorkspace(cwd: String? = nil, on daemon: DaemonService? = nil) async -> String? {
+        let daemon = daemon ?? services.daemon
+        guard let connection = daemon.connection else { return nil }
+        let repair: EmptyWorkspaceRepair = services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
         do {
             let key = WorkspaceKey.generate()
-            return try await services.emptyWorkspaces.populating(key) {
+            return try await repair.populating(key) {
                 let result = try await connection.createWorkspace(key: key)
-                _ = try await connection.createTerminal(in: result.key, cwd: cwd ?? NSHomeDirectory())
+                _ = try await connection.createTerminal(in: result.key, cwd: cwd ?? daemon.defaultCwd)
                 return result.key.rawValue
             }
         } catch {
-            services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+            daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil
         }
     }
 
-    func newWorkspace(in state: WindowState?) {
+    func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil) {
         Task {
-            guard let id = await createWorkspace() else { return }
+            guard let id = await createWorkspace(on: daemon) else { return }
             if let state { show(workspaceID: id, in: state) } else { open(record: nil, workspaceID: id) }
         }
     }
@@ -152,7 +159,10 @@ final class WindowManager {
     func saveNow() async {
         guard let windowState = services.daemon.windowState else { return }
         let records = currentRecords()
-        let live = Set(services.daemon.store.workspaces.compactMap(\.key))
+        // Keys on every machine, plus those of windows whose machine has not
+        // loaded yet (they must survive until it reconnects).
+        let pendingCloud = records.filter { $0.machine != nil }.compactMap(\.workspaceKey)
+        let live = Set(services.machines.allWorkspaces.compactMap(\.0.key) + pendingCloud)
         do {
             try await windowState.update { document in
                 document.windows = records
@@ -175,7 +185,7 @@ final class WindowManager {
         return controllers.map { controller in
             let state = controller.state
             let frame = controller.window?.frame ?? .zero
-            let workspace = services.daemon.store.workspaces.first { $0.id == state.workspaceID }
+            let workspace = state.workspaceID.flatMap { services.machines.workspace(id: $0)?.0 }
             var selected: [String: String] = [:]
             for pane in workspace?.screens.flatMap(\.panes) ?? [] {
                 if let tab = state.selection.selection(in: pane.id) { selected[pane.id] = tab }
@@ -183,7 +193,8 @@ final class WindowManager {
             let sidebar = controller.sidebar.record
             return WindowRecord(
                 id: state.id,
-                workspaceKey: workspace?.key,
+                workspaceKey: workspace?.key ?? state.workspaceID.map { WorkspaceKey(rawValue: $0) },
+                machine: state.machineID == MachineRegistry.localID ? nil : state.machineID,
                 frame: WindowFrame(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height),
                 isFullScreen: controller.window?.styleMask.contains(.fullScreen) ?? false,
                 sidebarWidth: sidebar.width,

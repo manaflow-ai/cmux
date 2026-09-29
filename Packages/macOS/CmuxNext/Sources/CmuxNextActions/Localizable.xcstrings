@@ -6818,6 +6818,23 @@
         }
       }
     },
+    "argument.port": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート"
+          }
+        }
+      }
+    },
     "argument.size": {
       "extractionState": "manual",
       "localizations": {

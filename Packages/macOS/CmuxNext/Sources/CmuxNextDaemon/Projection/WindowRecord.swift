@@ -27,6 +27,10 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     public var id: String
     /// Workspace this window shows (durable key).
     public var workspaceKey: WorkspaceKey?
+    /// Machine whose daemon holds that workspace: nil for the local daemon,
+    /// else a Cloud machine id. Lets a window wait for its machine to
+    /// reconnect after relaunch instead of falling back to a local workspace.
+    public var machine: String?
     /// Selected screen within that workspace (screen resource id).
     public var screenID: ResourceID?
     /// Screen coordinates (AppKit, bottom-left origin).
@@ -39,11 +43,12 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// Front-to-back order key; lower is further front.
     public var order: Int
 
-    public init(id: String, workspaceKey: WorkspaceKey? = nil, screenID: ResourceID? = nil, frame: WindowFrame? = nil,
+    public init(id: String, workspaceKey: WorkspaceKey? = nil, machine: String? = nil, screenID: ResourceID? = nil, frame: WindowFrame? = nil,
                 isFullScreen: Bool = false, sidebarWidth: Double? = nil, sidebarCollapsed: Bool = false,
                 selectedTabs: [String: String] = [:], order: Int = 0) {
         self.id = id
         self.workspaceKey = workspaceKey
+        self.machine = machine
         self.screenID = screenID
         self.frame = frame
         self.isFullScreen = isFullScreen
@@ -54,7 +59,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, frame, order
+        case id, frame, order, machine
         case workspaceKey = "workspace_key"
         case screenID = "screen_id"
         case isFullScreen = "full_screen"
@@ -67,6 +72,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         workspaceKey = try c.decodeIfPresent(WorkspaceKey.self, forKey: .workspaceKey)
+        machine = try c.decodeIfPresent(String.self, forKey: .machine)
         screenID = try c.decodeIfPresent(ResourceID.self, forKey: .screenID)
         frame = try c.decodeIfPresent(WindowFrame.self, forKey: .frame)
         isFullScreen = try c.decodeIfPresent(Bool.self, forKey: .isFullScreen) ?? false

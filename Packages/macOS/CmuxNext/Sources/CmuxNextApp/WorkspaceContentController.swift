@@ -9,6 +9,8 @@ import Observation
 /// columns into the layout model and turns layout intents into commands.
 final class WorkspaceContentController: LayoutPaneContentProvider {
     let workspace: WorkspaceModel
+    /// The machine daemon that owns `workspace`; every command goes there.
+    let daemon: DaemonService
     let layoutModel = LayoutModel()
     private(set) var layoutView: LayoutRootView!
     unowned let services: AppServices
@@ -27,8 +29,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     var pendingAddressBarFocus: SurfaceID?
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
 
-    init(workspace: WorkspaceModel, services: AppServices, state: WindowState) {
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
         self.workspace = workspace
+        self.daemon = daemon
         self.services = services
         self.state = state
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
@@ -54,7 +57,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
         // An empty workspace loaded while disconnected is repaired once the
         // daemon is back, even if the tree itself does not change.
-        let store = services.daemon.store
+        let store = daemon.store
         connectionObservation = Task { [weak self] in
             for await _ in Observations({ store.connectionState }) { self?.repairIfEmpty() }
         }
@@ -85,11 +88,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     /// A workspace with no pane gets one terminal, focused when it lands.
     private func repairIfEmpty() {
-        services.emptyWorkspaces.check(workspace) { [weak self] surface in
+        emptyWorkspaceRepair.check(workspace) { [weak self] surface in
             guard let self else { return }
             self.pendingFocusSurface = surface
             self.applyCurrent()
         }
+    }
+
+    /// The local daemon's repair, or the owning Cloud machine's.
+    private var emptyWorkspaceRepair: EmptyWorkspaceRepair {
+        services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
     }
 
     // MARK: Focus
@@ -129,8 +137,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     // MARK: LayoutPaneContentProvider
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
-        guard let handle = handles.panes[pane], let model = services.daemon.store.pane(handle) else { return NSView() }
-        let controller = PaneController(pane: model, layoutPaneID: pane, services: services, state: state)
+        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
+        let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
         if let surface = pendingAddressBarFocus, model.tabs.contains(where: { $0.surface == surface }) {
             pendingAddressBarFocus = nil

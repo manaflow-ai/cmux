@@ -16,6 +16,8 @@ import PackageDescription
 //   CmuxNextDesign, CmuxNextActions, CmuxNextDaemon -> system frameworks only
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply)
 //   CmuxNextControl -> Actions, Settings (app control socket; no UI, no daemon)
+//   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
+//     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -47,6 +49,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CmuxGhosttyKit"),
+        .package(path: "../../Shared/CMUXAuthCore"),
+        .package(path: "../../Shared/CmuxAuthRuntime"),
     ],
     targets: [
         .target(
@@ -64,11 +68,27 @@ let package = Package(
                 "CmuxNextBridge",
                 "CmuxNextControl",
                 "CmuxNextSettings",
+                "CmuxNextCloud",
             ],
             resources: [
                 .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
+        ),
+        // Cloud machines: auth, REST client, tunnel and link processes. The
+        // App turns each connected machine's link socket into a DaemonService.
+        .target(
+            name: "CmuxNextCloud",
+            dependencies: [
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCloudTests",
+            dependencies: ["CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
         ),
         // App-layer mapping between daemon records and feature view models,
         // kept out of CmuxNextApp so it links in `swift test` (no GhosttyKit).

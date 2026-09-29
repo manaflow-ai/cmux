@@ -65,14 +65,14 @@ extension PaneController {
     func newTerminalTab(cwd: String? = nil) {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
-        guard let connection = services.daemon.connection else { return }
+        guard let connection = daemon.connection else { return }
         Task {
             do {
                 let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd))
                 pendingSelectSurface = created.surface
                 apply(snapshot())
             } catch {
-                services.daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
+                daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
@@ -93,7 +93,7 @@ extension PaneController {
                     if url == nil { pendingAddressBarFocus = surface }
                     apply(snapshot())
                 } catch {
-                    services.daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
+                    daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
                 }
             }
             return
@@ -129,7 +129,7 @@ extension PaneController {
         let keys = Set(ids.map(\.rawValue))
         Task {
             var failed = false
-            for command in commands where !(await services.daemon.run(command.label, command.run)) { failed = true }
+            for command in commands where !(await daemon.run(command.label, command.run)) { failed = true }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
             if failed { resyncStrip() }
@@ -151,7 +151,7 @@ extension PaneController {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
         Task {
-            let ok = await services.daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
+            let ok = await daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
@@ -161,9 +161,9 @@ extension PaneController {
     func rename(_ id: StripTabID) {
         guard let tab = tab(id), let window = view.window else { return }
         let surface = tab.surface
-        RenamePrompt.run(title: Strings.renameTabTitle, initial: tab.displayTitle, in: window) { [services] name in
+        RenamePrompt.run(title: Strings.renameTabTitle, initial: tab.displayTitle, in: window) { [daemon] name in
             Task {
-                await services.daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+                await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
                     try await connection.renameTab(surface, to: name)
                 }
             }

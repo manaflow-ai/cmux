@@ -110,6 +110,8 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
             [PaletteTargetOption(id: "wg1", title: "cmux", symbol: "folder"), PaletteTargetOption(id: "wg2", title: "Personal", symbol: "folder")]
         case .window:
             [PaletteTargetOption(id: "win1", title: "Main Window", symbol: "macwindow")]
+        case .machine:
+            [PaletteTargetOption(id: "vm-1", title: "devbox", subtitle: "Cloud", symbol: "server.rack")]
         case .pane, .column, .screen:
             [PaletteTargetOption(id: "\(kind.rawValue)1", title: "\(kind.rawValue.capitalized) 1")]
         }
