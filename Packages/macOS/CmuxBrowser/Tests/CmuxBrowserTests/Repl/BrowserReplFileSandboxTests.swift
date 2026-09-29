@@ -86,7 +86,12 @@ struct BrowserReplFileSandboxTests {
     func fileOperations() throws {
         let scratch = try Scratch()
         defer { scratch.remove() }
-        let fs = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root))
+        // The scratch tree lives in the real temporary directory, so point
+        // the temporary root elsewhere to test confinement to the root.
+        let fs = BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: scratch.root),
+            temporaryDirectory: scratch.base + "/tmp"
+        )
         let hello = Data("hello".utf8).base64EncodedString()
 
         #expect(throws: Never.self) { try fs.perform("mkdir", arguments: ["path": "artifacts/nested", "recursive": true]).get() }
@@ -117,8 +122,8 @@ struct BrowserReplFileSandboxTests {
 }
 
 extension BrowserReplFileSandboxTests {
-    @Test("The ChatGPT scope also reaches the temporary directory; the Aside scope does not")
-    func chatgptScopeAddsTemporaryDirectory() throws {
+    @Test("fs also reaches the temporary directory, but never removes its root")
+    func temporaryDirectoryIsASecondRoot() throws {
         let scratch = try Scratch()
         defer { scratch.remove() }
         // `outside/` plays the user's temporary directory.
@@ -128,14 +133,13 @@ extension BrowserReplFileSandboxTests {
         )
         let secret = scratch.outside + "/secret.txt"
 
-        #expect(fs.perform("readFile", arguments: ["path": secret]).failureCode == "EACCES")
-        let read = try fs.perform("readFile", arguments: ["path": secret, "scope": "chatgpt"]).get() as? String
+        let read = try fs.perform("readFile", arguments: ["path": secret]).get() as? String
         #expect(read == Data("secret".utf8).base64EncodedString())
         #expect(throws: Never.self) {
-            try fs.perform("writeFile", arguments: ["path": scratch.outside + "/new.txt", "base64": "", "scope": "chatgpt"]).get()
+            try fs.perform("writeFile", arguments: ["path": scratch.outside + "/new.txt", "base64": ""]).get()
         }
-        #expect(fs.perform("rm", arguments: ["path": scratch.outside, "recursive": true, "scope": "chatgpt"]).failureCode == "EACCES")
-        #expect(fs.perform("readFile", arguments: ["path": scratch.base + "/elsewhere.txt", "scope": "chatgpt"]).failureCode == "EACCES")
+        #expect(fs.perform("rm", arguments: ["path": scratch.outside, "recursive": true]).failureCode == "EACCES")
+        #expect(fs.perform("readFile", arguments: ["path": scratch.base + "/elsewhere.txt"]).failureCode == "EACCES")
     }
 }
 

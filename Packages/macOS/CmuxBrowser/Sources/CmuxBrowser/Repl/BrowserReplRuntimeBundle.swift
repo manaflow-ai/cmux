@@ -17,43 +17,45 @@ public struct BrowserReplRuntimeBundle: Sendable {
     /// The resource directory, for `readResource`.
     public let directory: URL?
 
-    static let defaultReplOrder = [
-        "vendor/acorn.js",
-        "vendor/playwright-locator-utils.js",
-        "runtime-core.js",
-        "dialect-aside.js",
-        "dialect-chatgpt.js",
-        "repl-host.js",
-    ]
-    static let defaultAgentOrder = ["vendor/playwright-injected.js", "page-agent.js"]
-
     public init(replScripts: [Script], agentScripts: [Script], directory: URL? = nil) {
         self.replScripts = replScripts
         self.agentScripts = agentScripts
         self.directory = directory
     }
 
-    /// Loads the bundle from `directory`, honoring `manifest.json`
-    /// (`{ "repl": [...], "agent": [...] }`) when present. Missing files are skipped.
-    public static func load(from directory: URL) -> BrowserReplRuntimeBundle {
-        var replOrder = defaultReplOrder
-        var agentOrder = defaultAgentOrder
-        if let data = try? Data(contentsOf: directory.appendingPathComponent("manifest.json")),
-           let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            if let repl = manifest["repl"] as? [String] { replOrder = repl }
-            if let agent = manifest["agent"] as? [String] { agentOrder = agent }
+    /// Name of the load-order manifest inside the resource directory.
+    public static let manifestName = "manifest.json"
+
+    /// Loads the bundle from `directory` in the order `manifest.json` gives:
+    /// `{ "repl": [...], "agent": [...] }`, paths relative to `directory`.
+    /// - Throws: ``BrowserReplRuntimeBundleError`` when the manifest is
+    ///   missing or malformed, or when it names a file that cannot be read.
+    public static func load(from directory: URL) throws -> BrowserReplRuntimeBundle {
+        let manifestURL = directory.appendingPathComponent(manifestName)
+        guard let data = try? Data(contentsOf: manifestURL) else {
+            throw BrowserReplRuntimeBundleError.manifestMissing(path: manifestURL.path)
         }
-        func read(_ names: [String]) -> [Script] {
-            names.compactMap { name in
-                guard let source = try? String(contentsOf: directory.appendingPathComponent(name), encoding: .utf8) else {
-                    return nil
+        guard let manifest = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let replOrder = manifest["repl"] as? [String],
+              let agentOrder = manifest["agent"] as? [String],
+              !replOrder.isEmpty, !agentOrder.isEmpty else {
+            throw BrowserReplRuntimeBundleError.manifestInvalid(path: manifestURL.path)
+        }
+        let probe = BrowserReplRuntimeBundle(replScripts: [], agentScripts: [], directory: directory)
+        func read(_ names: [String]) throws -> [Script] {
+            try names.map { name in
+                guard let source = probe.readResource(name) else {
+                    throw BrowserReplRuntimeBundleError.scriptMissing(
+                        name: name,
+                        path: directory.appendingPathComponent(name).path
+                    )
                 }
                 return Script(name: name, source: source)
             }
         }
         return BrowserReplRuntimeBundle(
-            replScripts: read(replOrder),
-            agentScripts: read(agentOrder),
+            replScripts: try read(replOrder),
+            agentScripts: try read(agentOrder),
             directory: directory
         )
     }
@@ -93,5 +95,26 @@ public struct BrowserReplRuntimeBundle: Sendable {
         }
         parts.append("})();")
         return parts.joined(separator: "\n")
+    }
+}
+
+/// Why the REPL runtime could not be loaded from its resource directory.
+public enum BrowserReplRuntimeBundleError: Error, Equatable, CustomStringConvertible {
+    /// `manifest.json` does not exist or cannot be read.
+    case manifestMissing(path: String)
+    /// `manifest.json` is not `{ "repl": [...], "agent": [...] }` with both lists non-empty.
+    case manifestInvalid(path: String)
+    /// The manifest names a file that does not exist inside the directory.
+    case scriptMissing(name: String, path: String)
+
+    public var description: String {
+        switch self {
+        case .manifestMissing(let path):
+            return "browser REPL runtime manifest is missing: \(path)"
+        case .manifestInvalid(let path):
+            return "browser REPL runtime manifest is invalid (expected {\"repl\": [...], \"agent\": [...]}): \(path)"
+        case .scriptMissing(let name, let path):
+            return "browser REPL runtime file \(name) listed in manifest.json is missing: \(path)"
+        }
     }
 }

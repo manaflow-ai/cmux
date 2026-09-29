@@ -80,12 +80,14 @@ public final class BrowserReplSession: @unchecked Sendable {
     ///   - bundle: Runtime scripts.
     ///   - driver: Engine driver for the session's tabs.
     ///   - sleeper: Cancellable sleep used for evaluation timeouts.
+    ///   - temporaryDirectory: The second `fs` root; `nil` uses `NSTemporaryDirectory()`.
     public init(
         id: String,
         cwd: String,
         bundle: BrowserReplRuntimeBundle,
         driver: any BrowserReplDriver,
-        sleeper: any BrowserReplSleeping = BrowserReplClockSleeper(clock: ContinuousClock())
+        sleeper: any BrowserReplSleeping = BrowserReplClockSleeper(clock: ContinuousClock()),
+        temporaryDirectory: String? = nil
     ) {
         self.id = id
         self.workingDirectory = cwd
@@ -94,7 +96,10 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.sleeper = sleeper
         self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
         self.fetcher = BrowserReplFetcher(driver: driver)
-        self.fileSystem = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: cwd))
+        self.fileSystem = BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: cwd),
+            temporaryDirectory: temporaryDirectory
+        )
         self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock()) { [weak self] id in
             self?.fireTimer(id)
         }
@@ -124,24 +129,21 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Evaluates one cell. Cells run one at a time in submission order.
     /// - Parameters:
     ///   - code: JavaScript source.
-    ///   - dialect: `aside` or `chatgpt`.
     ///   - cwd: New fs root, or `nil` to keep the current one.
     ///   - timeout: Evaluation timeout.
     public func evaluate(
         code: String,
-        dialect: String,
         cwd: String? = nil,
         timeout: Duration = BrowserReplSession.defaultTimeout
     ) async -> BrowserReplEvalResult {
         await gate.acquire()
-        let result = await evaluateLocked(code: code, dialect: dialect, cwd: cwd, timeout: timeout)
+        let result = await evaluateLocked(code: code, cwd: cwd, timeout: timeout)
         await gate.release()
         return result
     }
 
     private func evaluateLocked(
         code: String,
-        dialect: String,
         cwd: String?,
         timeout: Duration
     ) async -> BrowserReplEvalResult {
@@ -155,7 +157,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         return await withCheckedContinuation { continuation in
             let submitted = thread.perform { [self] in
-                self.beginEval(code: code, dialect: dialect, cwd: cwd, timeout: timeout, continuation: continuation)
+                self.beginEval(code: code, cwd: cwd, timeout: timeout, continuation: continuation)
             }
             if !submitted {
                 continuation.resume(returning: BrowserReplEvalResult(
@@ -193,7 +195,6 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     private func beginEval(
         code: String,
-        dialect: String,
         cwd: String?,
         timeout: Duration,
         continuation: CheckedContinuation<BrowserReplEvalResult, Never>
@@ -204,7 +205,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         if let cwd, cwd != fileSystem.sandbox.root {
             var sandbox = BrowserReplFileSandbox(root: cwd)
             sandbox.inheritReadableFiles(from: fileSystem.sandbox)
-            fileSystem = BrowserReplFileSystem(sandbox: sandbox)
+            fileSystem = BrowserReplFileSystem(sandbox: sandbox, temporaryDirectory: fileSystem.temporaryRoot)
             context?.objectForKeyedSubscript("__cmuxNative")?.setObject(cwd, forKeyedSubscript: "cwd" as NSString)
         }
 
@@ -234,7 +235,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
 
         context.exception = nil
-        let promise = evalFunction.call(withArguments: [code, dialect])
+        let promise = evalFunction.call(withArguments: [code])
         if let exception = context.exception {
             context.exception = nil
             finishEval(id: evalID, error: formatError(exception, in: context))

@@ -8,22 +8,32 @@ final class BrowserReplHost: @unchecked Sendable {
 
     let registry = BrowserReplSessionRegistry()
     private let lock = NSLock()
-    private var cachedBundle: BrowserReplRuntimeBundle?
+    private var cachedBundle: Result<BrowserReplRuntimeBundle, BrowserReplRuntimeBundleError>?
 
-    /// The runtime bundled in the app. `CMUX_BROWSER_REPL_RUNTIME_DIR` points a
-    /// development build at a source checkout instead, re-read per session.
-    var bundle: BrowserReplRuntimeBundle {
+    /// The runtime bundled in the app, in the order its `manifest.json`
+    /// gives. `CMUX_BROWSER_REPL_RUNTIME_DIR` points a development build at a
+    /// source checkout instead, re-read per session.
+    func bundle() -> Result<BrowserReplRuntimeBundle, BrowserReplRuntimeBundleError> {
         if let override = ProcessInfo.processInfo.environment["CMUX_BROWSER_REPL_RUNTIME_DIR"], !override.isEmpty {
-            return BrowserReplRuntimeBundle.load(from: URL(fileURLWithPath: override, isDirectory: true))
+            return Self.load(URL(fileURLWithPath: override, isDirectory: true))
         }
         return lock.withLock {
             if let cachedBundle { return cachedBundle }
-            let loaded = Bundle.main.resourceURL
-                .map { $0.appendingPathComponent("browser-repl", isDirectory: true) }
-                .map(BrowserReplRuntimeBundle.load(from:))
-                ?? BrowserReplRuntimeBundle(replScripts: [], agentScripts: [])
+            let directory = (Bundle.main.resourceURL ?? Bundle.main.bundleURL)
+                .appendingPathComponent("browser-repl", isDirectory: true)
+            let loaded = Self.load(directory)
             cachedBundle = loaded
             return loaded
+        }
+    }
+
+    private static func load(_ directory: URL) -> Result<BrowserReplRuntimeBundle, BrowserReplRuntimeBundleError> {
+        do {
+            return .success(try BrowserReplRuntimeBundle.load(from: directory))
+        } catch let error as BrowserReplRuntimeBundleError {
+            return .failure(error)
+        } catch {
+            return .failure(.manifestMissing(path: directory.appendingPathComponent(BrowserReplRuntimeBundle.manifestName).path))
         }
     }
 }
@@ -74,24 +84,20 @@ extension TerminalController {
                 data: nil
             )
         }
-        let dialect = (params["dialect"] as? String) ?? "aside"
-        guard dialect == "aside" || dialect == "chatgpt" else {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "cli.browser.repl.error.dialect",
-                    defaultValue: "Unknown dialect; use aside or chatgpt"
-                ),
-                data: nil
-            )
-        }
         let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-repl").path
         let timeoutMilliseconds = (params["timeout_ms"] as? NSNumber)?.intValue ?? 120_000
         let named = (params["session"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let sessionID = named ?? "oneshot-\(UUID().uuidString)"
 
-        guard let workspaceID = await v2BrowserReplWorkspaceID(request: request) else {
+        let workspaceID: UUID
+        switch await v2BrowserReplWorkspaceID(params: params) {
+        case .success(let id):
+            workspaceID = id
+        case .failure(.explicitWorkspaceNotFound(let id)):
+            let prefix = String(localized: "cli.browser.repl.error.workspaceNotFound", defaultValue: "Workspace not found")
+            return .err(code: "not_found", message: "\(prefix): \(id.uuidString)", data: nil)
+        case .failure(.noFocusedWorkspace):
             return .err(
                 code: "not_found",
                 message: String(localized: "cli.browser.repl.error.workspace", defaultValue: "No workspace to bind the REPL session to"),
@@ -100,9 +106,15 @@ extension TerminalController {
         }
 
         let host = BrowserReplHost.shared
+        let bundle: BrowserReplRuntimeBundle
+        switch host.bundle() {
+        case .success(let loaded):
+            bundle = loaded
+        case .failure(let error):
+            return .err(code: "unavailable", message: "Error: \(error.description)", data: nil)
+        }
         let session = host.registry.session(named: sessionID) {
-            let bundle = host.bundle
-            return BrowserReplSession(
+            BrowserReplSession(
                 id: sessionID,
                 cwd: cwd,
                 bundle: bundle,
@@ -111,7 +123,6 @@ extension TerminalController {
         }
         let outcome = await session.evaluate(
             code: code,
-            dialect: dialect,
             cwd: cwd,
             timeout: .milliseconds(max(1, timeoutMilliseconds))
         )
@@ -128,14 +139,27 @@ extension TerminalController {
         return .ok(payload)
     }
 
-    /// The workspace a new session binds to: `workspace_id` when given, else
-    /// the selected workspace of the resolved window.
-    private nonisolated func v2BrowserReplWorkspaceID(request: ControlRequest) async -> UUID? {
-        await Task { @MainActor [weak self] () -> UUID? in
-            guard let self else { return nil }
-            let params = request.params.mapValues(\.foundationObject)
-            guard let tabManager = self.v2ResolveTabManager(params: params) else { return nil }
-            return self.v2ResolveWorkspace(params: params, tabManager: tabManager)?.id
+    /// The workspace a new session binds to. `workspace_id` is an explicit
+    /// choice and must exist; `caller_workspace_id` (the CLI's
+    /// `CMUX_WORKSPACE_ID`) falls back to the focused workspace of the key or
+    /// frontmost window when this instance does not know it.
+    private nonisolated func v2BrowserReplWorkspaceID(
+        params: [String: Any]
+    ) async -> Result<UUID, BrowserReplWorkspaceBinding.Failure> {
+        let explicit = v2UUID(params, "workspace_id")
+        let caller = v2UUID(params, "caller_workspace_id")
+        return await Task { @MainActor [weak self] () -> Result<UUID, BrowserReplWorkspaceBinding.Failure> in
+            BrowserReplWorkspaceBinding.resolve(
+                explicit: explicit,
+                caller: caller,
+                exists: { AppDelegate.shared?.workspaceFor(tabId: $0) != nil },
+                focused: {
+                    let manager = AppDelegate.shared?.currentScriptableMainWindow()?.tabManager ?? self?.tabManager
+                    guard let manager, let selected = manager.selectedTabId,
+                          manager.tabs.contains(where: { $0.id == selected }) else { return nil }
+                    return selected
+                }
+            )
         }.value
     }
 }

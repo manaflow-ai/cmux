@@ -59,13 +59,17 @@ const fs = (op, args) => { const r = JSON.parse(__cmuxNative.fs(op, JSON.stringi
 const console = { log: (...a) => __cmuxNative.print("log", a.map(String).join(" ")), error: (...a) => __cmuxNative.print("error", a.map(String).join(" ")) };
 const AsyncFunction = (async () => {}).constructor;
 globalThis.__cmuxFormatError = (e) => `${e.name}: ${e.message}`;
-globalThis.__cmuxReplEval = (code, dialect) =>
-  new AsyncFunction("console", "call", "sleep", "fs", "dialect", "native", code)(console, call, sleep, fs, dialect, __cmuxNative);
+globalThis.__cmuxReplEval = (...args) =>
+  new AsyncFunction("console", "call", "sleep", "fs", "evalArity", "native", args[0])(console, call, sleep, fs, args.length, __cmuxNative);
 """#
 
 @Suite("Browser REPL session")
 struct BrowserReplSessionTests {
-    private func makeSession(driver: RecordingReplDriver, cwd: String? = nil) -> BrowserReplSession {
+    private func makeSession(
+        driver: RecordingReplDriver,
+        cwd: String? = nil,
+        temporaryDirectory: String? = nil
+    ) -> BrowserReplSession {
         BrowserReplSession(
             id: "test-\(UUID().uuidString)",
             cwd: cwd ?? FileManager.default.temporaryDirectory.path,
@@ -73,7 +77,8 @@ struct BrowserReplSessionTests {
                 replScripts: [.init(name: "stub.js", source: stubRuntime)],
                 agentScripts: []
             ),
-            driver: driver
+            driver: driver,
+            temporaryDirectory: temporaryDirectory
         )
     }
 
@@ -86,16 +91,15 @@ struct BrowserReplSessionTests {
         let result = await session.evaluate(
             code: """
             const tabs = await call("tabs.list");
-            console.log(dialect, tabs[0].targetId);
+            console.log(evalArity, tabs[0].targetId);
             await sleep(5);
             console.error("after", (await call("tab.info", { targetId: "t1" })).targetId);
-            """,
-            dialect: "aside"
+            """
         )
 
         #expect(result.error == nil)
         #expect(result.lines == [
-            BrowserReplOutputLine(level: "log", text: "aside t1"),
+            BrowserReplOutputLine(level: "log", text: "1 t1"),
             BrowserReplOutputLine(level: "error", text: "after t1"),
         ])
         #expect(driver.calls == ["tabs.list", "tab.info"])
@@ -107,11 +111,11 @@ struct BrowserReplSessionTests {
         let session = makeSession(driver: driver)
         defer { session.close() }
 
-        let thrown = await session.evaluate(code: "console.log('before'); throw new TypeError('boom');", dialect: "aside")
+        let thrown = await session.evaluate(code: "console.log('before'); throw new TypeError('boom');")
         #expect(thrown.error == "TypeError: boom")
         #expect(thrown.lines == [BrowserReplOutputLine(level: "log", text: "before")])
 
-        let driverError = await session.evaluate(code: "await call('tab.missing');", dialect: "aside")
+        let driverError = await session.evaluate(code: "await call('tab.missing');")
         #expect(driverError.error == "Error: no such tab")
     }
 
@@ -121,10 +125,10 @@ struct BrowserReplSessionTests {
         let session = makeSession(driver: driver)
         defer { session.close() }
 
-        let hung = await session.evaluate(code: "await new Promise(() => {});", dialect: "aside", timeout: .milliseconds(50))
+        let hung = await session.evaluate(code: "await new Promise(() => {});", timeout: .milliseconds(50))
         #expect(hung.error?.contains("timed out") == true)
 
-        let next = await session.evaluate(code: "console.log('alive');", dialect: "aside")
+        let next = await session.evaluate(code: "console.log('alive');")
         #expect(next.lines == [BrowserReplOutputLine(level: "log", text: "alive")])
     }
 
@@ -140,18 +144,19 @@ struct BrowserReplSessionTests {
         try Data("a,b".utf8).write(to: file)
 
         let driver = RecordingReplDriver()
-        let session = makeSession(driver: driver, cwd: work.path)
+        // The scratch tree lives in the real temporary directory; point the
+        // session's temporary root elsewhere so the download starts unreadable.
+        let session = makeSession(driver: driver, cwd: work.path, temporaryDirectory: base.appendingPathComponent("tmp").path)
         defer { session.close() }
 
-        let before = await session.evaluate(code: "fs('readFile', { path: \(quoted(file.path)) });", dialect: "aside")
+        let before = await session.evaluate(code: "fs('readFile', { path: \(quoted(file.path)) });")
         #expect(before.error == "Error: EACCES")
 
         driver.emit("download.finished", #"{"targetId":"t1","downloadId":"d1","path":\#(quoted(file.path))}"#)
         let after = await session.evaluate(
             code: """
             console.log(lastEvent[0], fs('readFile', { path: \(quoted(file.path)) }));
-            """,
-            dialect: "aside"
+            """
         )
         #expect(after.error == nil)
         #expect(after.lines == [BrowserReplOutputLine(level: "log", text: "download.finished YSxi")])
@@ -161,7 +166,7 @@ struct BrowserReplSessionTests {
     func closedSession() async {
         let session = makeSession(driver: RecordingReplDriver())
         session.close()
-        let result = await session.evaluate(code: "1", dialect: "aside")
+        let result = await session.evaluate(code: "1")
         #expect(result.error?.contains("closed") == true)
     }
 

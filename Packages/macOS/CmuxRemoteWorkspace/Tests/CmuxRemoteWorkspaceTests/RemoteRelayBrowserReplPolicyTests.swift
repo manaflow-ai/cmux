@@ -17,7 +17,8 @@ struct RemoteRelayBrowserReplPolicyTests {
         let attempts: [[String: Any]] = [
             [:],
             ["workspace_id": workspace.uuidString],
-            ["code": "await openTab('https://example.com')", "dialect": "aside", "cwd": "/tmp"],
+            ["code": "await tabs.open('https://example.com')", "cwd": "/tmp"],
+            ["code": "console.log(1)", "caller_workspace_id": workspace.uuidString],
             ["code": "console.log(1)", "workspace_id": workspace.uuidString, "session": "s1"],
             ["session": "s1"],
         ]

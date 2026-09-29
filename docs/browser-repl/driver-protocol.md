@@ -135,30 +135,31 @@ structured values cross the boundary as JSON strings.
 | `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
 | `tmpdir`, `homedir` | canonical temporary and home directories, for `node:os` |
 
-`fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd`,
-except files the driver reported through `download.finished`, which are
-readable): `readFile {path}` → base64, `writeFile {path, base64, append?}`,
+`fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
+the user's temporary directory, except files the driver reported through
+`download.finished`, which are readable): `readFile {path}` → base64, `writeFile {path, base64, append?}`,
 `mkdir {path, recursive?}`, `readdir {path}` → `[{ name, type }]`,
 `stat {path}` → `{ size, type: "file"|"directory"|"symlink"|"other", mtimeMs, birthtimeMs }`,
 `rm {path, recursive?, force?}`, `rename {from, to}`, `copyFile {from, to}`,
-`exists {path}` → boolean, `resolve {path}` → absolute path. Every op
-accepts `scope: "chatgpt"`, which also admits the user's temporary directory
-(the ChatGPT dialect's `node:fs`); Aside's `fs` stays inside `cwd`.
+`exists {path}` → boolean, `resolve {path}` → absolute path. `rm` refuses
+`cwd` and the temporary directory themselves.
 
 Entry points the runtime defines, called by the app:
 
-- `__cmuxReplEval(code, dialect)` returns a Promise; the app awaits it with
-  the eval timeout (120 s, as in Aside). Rejection is an uncaught error; the
+- `__cmuxReplEval(code)` returns a Promise; the app awaits it with the eval
+  timeout (120 s by default). Rejection is an uncaught error; the
   app formats it with `__cmuxFormatError(error)` when defined, else
   `error.stack ?? String(error)`, and the CLI exits 1.
 - `__cmuxHostOnEvent(name, payloadJSON)` delivers every driver event.
 - `__cmuxHostOnTimer(id)`, `__cmuxHostOnResult(callId, errorJSON, resultJSON)`.
 
-Script load order: `manifest.json` in `Resources/browser-repl/` when present
-(`{ "repl": [...], "agent": [...] }`, paths relative to that directory),
-otherwise `runtime-core.js`, `dialect-aside.js`, `dialect-chatgpt.js`,
-`repl-host.js` for the REPL context and `vendor/playwright-injected.js`,
-`page-agent.js` for the agent world. Missing files are skipped.
+Script load order: `manifest.json` in `Resources/browser-repl/`,
+`{ "repl": [...], "agent": [...] }`, paths relative to that directory. `repl`
+scripts run in order in the REPL context; `agent` scripts install in order in
+the agent world. A missing or malformed manifest, or a listed file that does
+not exist, fails the evaluation with an error naming the path; nothing is
+skipped. `cmux browser repl guide` prints `guide.md` from the same directory
+when present.
 
 ### Agent world
 

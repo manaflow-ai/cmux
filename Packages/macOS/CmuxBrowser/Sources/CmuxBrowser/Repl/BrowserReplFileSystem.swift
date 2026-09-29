@@ -10,7 +10,7 @@ public struct BrowserReplFileSystem: Sendable {
     /// The sandbox that authorizes every path.
     public var sandbox: BrowserReplFileSandbox
 
-    /// Canonical temporary directory, an extra root for `scope: "chatgpt"` calls.
+    /// Canonical temporary directory, a second root next to the sandbox root.
     public let temporaryRoot: String
 
     /// - Parameter temporaryDirectory: The user's temporary directory;
@@ -35,9 +35,8 @@ public struct BrowserReplFileSystem: Sendable {
 
     private func run(_ operation: String, _ arguments: [String: Any]) throws -> Any {
         let fileManager = FileManager.default
-        // The ChatGPT dialect's `node:fs` may also use the temporary directory;
-        // Aside's `fs` is confined to the working directory.
-        let extraRoots = arguments["scope"] as? String == "chatgpt" ? [temporaryRoot] : []
+        // `fs` reaches the working directory and the temporary directory.
+        let extraRoots = [temporaryRoot]
         func path(_ access: BrowserReplFileSandbox.Access, key: String = "path") throws -> String {
             guard let raw = arguments[key] as? String else {
                 throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: missing '\(key)'")

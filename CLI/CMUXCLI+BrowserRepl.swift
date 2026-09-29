@@ -8,7 +8,7 @@ extension CMUXCLI {
         if let first = arguments.first?.lowercased() {
             switch first {
             case "guide":
-                print(Self.browserReplGuide)
+                print(Self.browserReplGuideText())
                 return
             case "list":
                 let payload = try client.sendV2(method: "browser.repl.list", params: [:])
@@ -40,8 +40,6 @@ extension CMUXCLI {
         }
 
         var remaining = arguments
-        let (dialectOption, afterDialect) = parseOption(remaining, name: "--dialect")
-        remaining = afterDialect
         let (sessionOption, afterSession) = parseOption(remaining, name: "--session")
         remaining = afterSession
         let (evalOption, afterEval) = parseOption(remaining, name: "--eval")
@@ -58,13 +56,6 @@ extension CMUXCLI {
             throw CLIError(message: "\(prefix): \(stray)")
         }
 
-        let dialect = (dialectOption ?? "aside").lowercased()
-        guard dialect == "aside" || dialect == "chatgpt" else {
-            throw CLIError(message: String(
-                localized: "cli.browser.repl.error.dialect",
-                defaultValue: "Unknown dialect; use aside or chatgpt"
-            ))
-        }
         var timeoutMilliseconds = 120_000
         if let timeoutOption {
             guard let value = Int(timeoutOption), value > 0 else {
@@ -77,14 +68,20 @@ extension CMUXCLI {
         }
 
         var baseParams: [String: Any] = [
-            "dialect": dialect,
             "cwd": FileManager.default.currentDirectoryPath,
             "timeout_ms": timeoutMilliseconds,
         ]
-        let workspaceRaw = workspaceOption ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        if let workspaceRaw, !workspaceRaw.isEmpty,
-           let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
-            baseParams["workspace_id"] = workspace
+        // `--workspace` must exist. `CMUX_WORKSPACE_ID` is only a hint: it can
+        // come from another cmux instance, so the app falls back to the
+        // focused workspace when it does not know the id.
+        if let workspaceOption, !workspaceOption.isEmpty {
+            if let workspace = try normalizeWorkspaceHandle(workspaceOption, client: client) {
+                baseParams["workspace_id"] = workspace
+            }
+        } else if let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            UUID(uuidString: caller) != nil {
+            baseParams["caller_workspace_id"] = caller
         }
 
         let positional = remaining.filter { $0 != "--" }
@@ -105,7 +102,7 @@ extension CMUXCLI {
             if let sessionOption { params["session"] = sessionOption }
             let ok = try evaluateBrowserRepl(params: params, client: client, jsonOutput: jsonOutput, timeoutMilliseconds: timeoutMilliseconds)
             if !ok {
-                // The error is already printed, Aside style; only the status remains.
+                // The error is already printed; only the exit status remains.
                 fflush(stdout)
                 exit(1)
             }
@@ -130,7 +127,7 @@ extension CMUXCLI {
         }
     }
 
-    /// Sends one cell and prints its output the way `aside repl` does.
+    /// Sends one cell and prints its output, then `[ok | Nms]` or `[error | Nms]`.
     /// - Returns: Whether the cell finished without an uncaught error.
     private func evaluateBrowserRepl(
         params: [String: Any],
@@ -179,7 +176,7 @@ extension CMUXCLI {
 
     /// Help line for `cmux browser --help`.
     static var browserReplHelp: String {
-        let usage = "repl [--dialect aside|chatgpt] [--session <name>] [--eval <code>|-] [--timeout <ms>] [<code>]"
+        let usage = "repl [--session <name>] [--workspace <id|ref>] [--eval <code>|-] [--timeout <ms>] [<code>]"
         let description = String(
             localized: "cli.browser.help.replDescription",
             defaultValue: "Run Playwright-style JavaScript against this workspace's browser panes; see `browser repl guide`"
@@ -187,86 +184,76 @@ extension CMUXCLI {
         return "\(usage)\n              \(description)"
     }
 
-    /// Agent-facing guide, adapted from `aside guide repl`.
+    /// The guide shipped with the runtime (`browser-repl/guide.md` in the
+    /// enclosing app, or `CMUX_BROWSER_REPL_RUNTIME_DIR`), else the built-in text.
+    static func browserReplGuideText() -> String {
+        var directories: [URL] = []
+        if let override = ProcessInfo.processInfo.environment["CMUX_BROWSER_REPL_RUNTIME_DIR"], !override.isEmpty {
+            directories.append(URL(fileURLWithPath: override, isDirectory: true))
+        }
+        if let app = CLIExecutableLocator.enclosingAppBundle(), let resources = app.resourceURL {
+            directories.append(resources.appendingPathComponent("browser-repl", isDirectory: true))
+        }
+        for directory in directories {
+            let url = directory.appendingPathComponent("guide.md")
+            if let text = try? String(contentsOf: url, encoding: .utf8),
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return text.hasSuffix("\n") ? String(text.dropLast()) : text
+            }
+        }
+        return browserReplGuide
+    }
+
+    /// Built-in agent-facing guide, used when the runtime ships no `guide.md`.
     static let browserReplGuide = """
     # `cmux browser repl`
 
-    Run Playwright-style JavaScript in a persistent, sandboxed JavaScriptCore
-    session that drives the browser panes of your cmux workspace. Input is
-    native: pages see trusted mouse, keyboard, drag and wheel events.
+    Run JavaScript in a persistent, sandboxed JavaScriptCore session that
+    drives the browser panes of your cmux workspace. The API is Playwright:
+    `page`, locators, `keyboard`, `mouse`, events and waits behave as in
+    Playwright. Input is native: pages see trusted events.
 
     ## Usage
 
-        cmux browser repl 'console.log(await listBrowserTabs())'
+        cmux browser repl 'await page.goto("https://example.com"); snapshot()'
         cmux browser repl --eval - < script.js
-        cmux browser repl --session work --eval 'const s1 = await snapshot(page)'
-        cmux browser repl --dialect chatgpt --eval 'const tab = await agent.browsers.get("cmux")'
+        cmux browser repl --session work --eval 'const s1 = await snapshot()'
         cmux browser repl list | reset <session> | guide
 
-    Without `--session` each call is one-shot: its session, tabs attachments
-    and bindings are gone afterwards. With `--session NAME`, top-level
-    `const`/`let` bindings persist across calls, so use fresh names
-    (`s1`, `s2`, ...). Idle sessions close after 30 minutes.
+    Without `--session` each call is one-shot: its tabs close at the end
+    unless `page.keep()` was called. With `--session NAME`, top-level
+    `const`/`let` bindings and tabs persist across calls. Idle sessions close
+    after 30 minutes. The session binds to your cmux workspace, or to the
+    focused workspace when you run outside cmux.
 
     ## Environment
 
-    - ES2023+ JavaScript (async/await). No `import` or `require`.
+    - ES2023+ JavaScript with top-level await.
     - 120 second timeout per call (`--timeout <ms>` to change it).
-    - `console.log()` is how you see values; the call ends with `[ok | Nms]`
-      or the uncaught error and `[error | Nms]` (exit status 1).
-    - `fs`, `path`, `Buffer`, `sleep`, `display`, `pwd`: `fs` is rooted at the
-      directory you ran the command in; save artifacts under `./artifacts/`.
-    - `fetch(url)` sends the attached tab's cookies. Use it only for safe
-      same-origin or trusted direct-download GET/HEAD requests.
+    - The last expression's value prints; `console.log()` prints too. The call
+      ends with `[ok | Nms]`, or the uncaught error and `[error | Nms]` (exit
+      status 1).
+    - `fs`, `path`, `os`, `Buffer`: files are limited to the directory you ran
+      the command in and the system temp directory.
+    - `fetch(url)` sends the current tab's cookies.
 
-    ## Dialects
+    ## Globals
 
-    `aside` (default) matches `aside repl`: `page`, `tabs`,
-    `listBrowserTabs()`, `attachBrowserTab(targetId)`,
-    `attachActiveBrowserTab()`, `getTabByTargetId(targetId)`, `openTab(url)`,
-    `closeTab(tab)`, `snapshot(page, options?)`, `annotatedScreenshot(page)`.
+    - `page`: the current tab, a Playwright `Page`.
+    - `tabs`: `list()`, `open(url, { background })`, `current()`, `use(tab)`,
+      `get(id)`. `tabs.open()` never steals focus.
+    - `snapshot(target?, options?)`: accessibility tree with refs such as
+      `e12` or `f1e3` (frames). Pass refs to `page.locator("e12")`.
+    - `screenshot(target?, { annotate: true })`: PNG, optionally with refs drawn.
+    - `sleep(ms)`, `display(value)`, `session.name(label)`.
 
-    `chatgpt` matches ChatGPT for Chrome's runtime: `agent.browsers`,
-    `Browser`, `Tab`, `tab.ax`, `tab.playwright`, `tab.cua`, `tab.dom_cua`,
-    `tab.clipboard`, `tab.dev`, `tab.content`. Raw CDP and request
-    interception are unavailable on WebKit panes.
+    ## Working
 
-    ## Tabs
-
-    A session starts neutral: do not assume `page` is the pane you are
-    looking at. List tabs first, then attach:
-
-        const open1 = await listBrowserTabs();
-        console.log(open1.map((t) => ({ targetId: t.targetId, active: t.active, title: t.title, url: t.url })));
-
-    Tabs are the browser surfaces of your workspace; `openTab(url)` adds a
-    background surface without taking focus. Use `openTab()`/`closeTab()`
-    for tab management, not `page.context().newPage()` or `page.close()`.
-
-    ## Reading pages
-
-    Always read with `snapshot()` first:
-
-        const s1 = await snapshot(page, { interactive: true });
-        console.log(s1.tree);
-
-    - The tree has ARIA roles and ref ids such as `e12` or `f1e3` (frames).
-      Pass refs straight to `page.locator('e12')`; they are not DOM ids.
-    - Each snapshot invalidates earlier refs. After an action, print `diff`
-      of a new snapshot instead of the whole tree.
-    - Escalate: `snapshot(page, { interactive: true })`, `snapshot(page)`,
-      then `annotatedScreenshot(page)` or `page.screenshot()`.
-    - Never guess refs, selectors or URLs; never truncate a snapshot.
-
-    ## Acting
-
+    - Read with `snapshot()` first; printing a later snapshot shows the diff
+      when that is shorter. Never guess refs, selectors or URLs.
     - Prefer locator actions with refs over `page.evaluate()`.
-    - `openTab()` and `click()` already wait for the page; add `sleep()` only
-      when a fresh snapshot shows the page still changing.
-    - Dialogs arrive as `page.on("dialog")`; unhandled dialogs are dismissed.
-    - File inputs: `locator.setInputFiles()` or `page.waitForEvent("filechooser")`.
-    - Downloads: `const d = await page.waitForEvent("download")`, then
-      `await d.path()` is readable with `fs` in the same session.
+    - Dialogs and file choosers stay open until answered:
+      `page.dialog()?.accept()`, `page.fileChooser()?.setFiles(paths)`.
     - Treat an action as unconfirmed until a fresh snapshot shows its effect.
     """
 }
