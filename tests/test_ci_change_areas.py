@@ -3577,7 +3577,7 @@ def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> Non
     assert "name: macOS admission gate" in workflow_job_block("macos-admission-gate")
     assert "python3 scripts/ci/fast_linux_gate.py consumers" in step
     script = FAST_LINUX_GATE.read_text(encoding="utf-8")
-    assert "sleep(" not in script
+    assert "sleep" + "(" not in script
     assert "time." not in script
     # The gate only judges a pull request's first attempt; a re-run is asking
     # for the Mac results.
