@@ -12,8 +12,7 @@ name: iOS E2E
 # ci.yml takes the same approach — a paths: filter leaves the check MISSING
 # on unrelated PRs, which branch protection cannot require; a routed skip
 # still reports green.
-on:
-  workflow_dispatch: {}
+on: [workflow_dispatch]
   # The pull_request trigger stays off until the owner approves this check's
   # promotion (see docs/ci/ios-e2e.md): tests enter a CI lane by proposal and
   # approval, and the product-download stubs below would red every PR today.
