@@ -372,7 +372,7 @@ class GhosttyApp {
         },
         callSetter: { lease, topRow, rowCount, text, ranges, hostEventID in
             let cRanges = ranges.map {
-                ghostty_external_hover_cell_range_s(
+                cmux_external_hover_cell_range_s(
                     row: $0.row,
                     start_column: $0.startColumn,
                     end_column: $0.endColumn
