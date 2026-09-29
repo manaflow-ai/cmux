@@ -88,10 +88,20 @@ extension MachinesPanelViewModel {
         guard isCloudEnabled() else { pausePolling(); return }
         // Showing the panel or returning online is a recovery; polls are not.
         recoverList()
+        // The stream (re)subscribes under the current team; a same-scope
+        // socket that is already open keeps its cursor.
+        startVMSync()
         guard pollTask == nil else { return }
+        armPollLoop()
+    }
+
+    /// The routine poll loop. The interval is read before every sleep so a
+    /// stream connect or disconnect (which re-arms the loop) takes effect at once.
+    func armPollLoop() {
         pollTask = Task { [weak self, pollingClock] in
             while !Task.isCancelled {
-                do { try await pollingClock.sleep(for: Self.pollInterval) } catch { return }
+                guard let interval = self?.routinePollInterval else { return }
+                do { try await pollingClock.sleep(for: interval) } catch { return }
                 guard !Task.isCancelled, let self else { return }
                 self.refresh(routinePoll: true)
             }

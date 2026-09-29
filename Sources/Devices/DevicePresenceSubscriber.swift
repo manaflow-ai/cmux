@@ -4,14 +4,15 @@ import Foundation
 /// (`GET /v1/presence/subscribe` on `workers/presence`, WebSocket), the same
 /// stream the iOS device tree renders from. Every subscribe delivers a
 /// snapshot first, then online/offline/seen/routes transitions; the same socket
-/// also serves the `devices` sync collection after a `sync.hello`, which is
-/// where device owners come from.
+/// also serves sync collections after a `sync.hello`: `devices` (where device
+/// owners come from) for ``DeviceDirectory``, `vms` (the team's Cloud machine
+/// list) for ``CloudVMSyncSubscriber``.
 ///
 /// One instance is one session: `subscribe()` opens the socket and yields
 /// parsed frames until the server closes it (streams are deadline-bounded by
 /// the token, 15 minutes at most) or the transport fails. Reconnect and
-/// backoff belong to the owner (``DeviceDirectory``), which also decides when a
-/// session should exist at all.
+/// backoff belong to the owner, which also decides when a session should
+/// exist at all.
 actor DevicePresenceSubscriber {
     enum SubscribeError: Error, Equatable {
         case invalidServiceURL
@@ -31,16 +32,21 @@ actor DevicePresenceSubscriber {
     private let credentials: @Sendable () async throws -> Credentials?
     private let session: URLSession
     private let clock: any Clock<Duration>
+    /// The sync collections the hello asks for; `[.devices]` for the device
+    /// directory, `vms` with a cursor for the Cloud machines list.
+    private let collections: [DevicePresenceFrame.SyncCollection]
 
     init(
         serviceBaseURL: URL,
         session: URLSession = .shared,
         clock: any Clock<Duration> = ContinuousClock(),
+        collections: [DevicePresenceFrame.SyncCollection] = [.devices],
         credentials: @escaping @Sendable () async throws -> Credentials?
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.session = session
         self.clock = clock
+        self.collections = collections
         self.credentials = credentials
     }
 
@@ -65,7 +71,7 @@ actor DevicePresenceSubscriber {
         return comps.url
     }
 
-    /// Opens one subscribe session and sends the `devices` sync hello.
+    /// Opens one subscribe session and sends the sync hello for `collections`.
     func subscribe() async throws -> AsyncThrowingStream<DevicePresenceFrame, any Error> {
         guard let url = Self.subscribeURL(serviceBaseURL: serviceBaseURL) else {
             throw SubscribeError.invalidServiceURL
@@ -80,9 +86,9 @@ actor DevicePresenceSubscriber {
         }
         let task = session.webSocketTask(with: request)
         task.resume()
-        // Sent before the first receive so the owner-carrying `devices`
-        // snapshot arrives beside the presence snapshot instead of trailing it.
-        let hello = String(decoding: DevicePresenceFrame.syncHello(), as: UTF8.self)
+        // Sent before the first receive so the collection snapshot arrives
+        // beside the presence snapshot instead of trailing it.
+        let hello = String(decoding: DevicePresenceFrame.syncHello(collections: collections), as: UTF8.self)
         try await task.send(.string(hello))
 
         let clock = clock

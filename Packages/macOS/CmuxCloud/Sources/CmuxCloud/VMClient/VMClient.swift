@@ -265,7 +265,7 @@ private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> St
     return String(singleLine[..<index]) + "..."
 }
 
-public struct VMSummary: Sendable {
+public struct VMSummary: Equatable, Sendable {
     public init(
         id: String,
         provider: String,
@@ -405,7 +405,7 @@ public struct VMListPage: Sendable {
     public let limits: VMPlanLimits?
 }
 
-public struct VMBaseSummary: Sendable {
+public struct VMBaseSummary: Equatable, Sendable {
     public let id: String
     public let name: String
     public let generation: Int
@@ -1138,32 +1138,7 @@ public actor VMClient {
                 )
             }
             let vms = try items.enumerated().map { index, dict -> VMSummary in
-                guard let id = dict["id"] as? String, !id.isEmpty else {
-                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
-                }
-                guard let provider = dict["provider"] as? String, !provider.isEmpty else {
-                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
-                }
-                guard let image = dict["image"] as? String, !image.isEmpty else {
-                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
-                }
-                let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
-                let createdAt = (dict["createdAt"] as? Int64)
-                    ?? Int64((dict["createdAt"] as? Double) ?? 0)
-                var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
-                summary.kind = Self.decodeKind(dict["kind"])
-                summary.capabilities = VMCapabilities(vmResponse: dict)
-                if let label = dict["displayName"] as? String, !label.isEmpty {
-                    summary.displayName = label
-                }
-                summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
-                if let address = dict["address"] as? [String: Any] {
-                    summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                    summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                }
-                return summary
+                try Self.decodeListItem(dict, index: index)
             }
             machineCache.record(hasAnyMachine: !vms.isEmpty)
             // Background discovery also reads resource stats. Register its
@@ -1179,6 +1154,46 @@ public actor VMClient {
             }
             return VMListPage(vms: vms, limits: limits)
         }
+    }
+
+    /// Decodes one `GET /api/vm` list entry into a ``VMSummary``.
+    ///
+    /// The presence worker's `vms` sync collection carries the same entry
+    /// shape (`workers/presence/src/syncVms.ts` `VmRecord`), so the Mac list's
+    /// realtime consumer decodes its records here too; fields only the REST
+    /// list serves (`freeAccessExpiresAt`) stay nil when absent.
+    ///
+    /// - Parameters:
+    ///   - dict: The decoded JSON object of one entry.
+    ///   - index: The entry's position, named in the error for a malformed entry.
+    /// - Throws: ``VMClientError/malformedResponse(_:)`` when `id`, `provider` or `image` is missing.
+    public static func decodeListItem(_ dict: [String: Any], index: Int = 0) throws -> VMSummary {
+        guard let id = dict["id"] as? String, !id.isEmpty else {
+            throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+        }
+        guard let provider = dict["provider"] as? String, !provider.isEmpty else {
+            throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+        }
+        guard let image = dict["image"] as? String, !image.isEmpty else {
+            throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+        }
+        let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+        let createdAt = (dict["createdAt"] as? Int64)
+            ?? Int64((dict["createdAt"] as? Double) ?? 0)
+        var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+        summary.kind = decodeKind(dict["kind"])
+        summary.capabilities = VMCapabilities(vmResponse: dict)
+        if let label = dict["displayName"] as? String, !label.isEmpty {
+            summary.displayName = label
+        }
+        summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        summary.freeAccessExpiresAt = epochMilliseconds(dict["freeAccessExpiresAt"])
+        if let address = dict["address"] as? [String: Any] {
+            summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        return summary
     }
 
     public func listPublications() async throws -> [VMPublication] {
@@ -1642,7 +1657,7 @@ public actor VMClient {
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
-        var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: Self.decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
         summary.capabilities = VMCapabilities(vmResponse: obj)
         machineCache.record(hasAnyMachine: true)
@@ -1661,7 +1676,7 @@ public actor VMClient {
             let createdAt = (obj["createdAt"] as? Int64) ?? Int64((obj["createdAt"] as? Double) ?? 0)
             let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
-            var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+            var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: Self.decodeBaseSummary(obj["base"]))
             summary.kind = Self.decodeKind(obj["kind"])
             summary.capabilities = VMCapabilities(vmResponse: obj)
             if let label = obj["displayName"] as? String, !label.isEmpty {
@@ -2263,7 +2278,7 @@ public actor VMClient {
         }
     }
 
-    private func decodeBaseSummary(_ raw: Any?) -> VMBaseSummary? {
+    private static func decodeBaseSummary(_ raw: Any?) -> VMBaseSummary? {
         guard let obj = raw as? [String: Any] else { return nil }
         guard let id = obj["id"] as? String, !id.isEmpty else { return nil }
         let rawName = (obj["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)

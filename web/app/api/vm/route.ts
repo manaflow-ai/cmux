@@ -84,6 +84,7 @@ import {
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
+import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
 
 
 // Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
@@ -124,9 +125,16 @@ export async function GET(request: Request): Promise<Response> {
         throw err;
       }
 
+      // Taken BEFORE the read: the presence Worker tombstones machines missing
+      // from this list as of this instant, so a machine created after it
+      // (newer row clock) survives the replace published below.
+      const listObservedAtMs = Date.now();
       const listed = await runVmRoute(listUserVms(user.id, billingTeamId), { request });
       if (!listed.ok) return listed.response;
       const entries = listed.value;
+      // Converge the realtime `vms` collection on exactly what this list shows;
+      // best-effort after the response, never on the request path.
+      void publishVmOps(billingTeamId || user.id, [vmSyncReplaceOp(entries, listObservedAtMs)]);
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.
