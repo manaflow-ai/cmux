@@ -575,6 +575,10 @@ path = "tests/test_ci_macos_xcode_selection.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_xcode_pin_audit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_required_checks_drift.py"
 lane = "linux-guard"
 
@@ -1404,11 +1408,19 @@ path = "tests/test_ci_check_repo_variables.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cloud_overflow_switch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_main.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_guard_attribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_main_compile_attribution.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1466,4 +1478,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_btop_agents_sidebar.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_interface_fingerprint.py"
 lane = "linux-guard"
