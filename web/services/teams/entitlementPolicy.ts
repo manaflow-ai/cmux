@@ -5,7 +5,7 @@ export const TEAM_ENTITLEMENTS: Readonly<Record<string, TeamEntitlementConfig>> 
 };
 export class TeamUpgradeRequiredError extends Error {
   readonly code = "upgrade_required" as const; readonly status = 402 as const;
-  constructor(readonly upgradePlanId = TEAM_PLAN_ID) { super("Upgrade required to add more team members."); this.name = "TeamUpgradeRequiredError"; }
+  constructor(readonly upgradePlanId = "team") { super("Upgrade required to add more team members."); this.name = "TeamUpgradeRequiredError"; }
 }
 export function ownerPlanIdFromMetadata(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") return null;
