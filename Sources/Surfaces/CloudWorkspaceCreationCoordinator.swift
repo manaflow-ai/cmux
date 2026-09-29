@@ -65,8 +65,21 @@ final class CloudWorkspaceCreationCoordinator {
               group.placements.allSatisfy({ placement in
                   placement.resource.machine == provider.machine
                       && (placement.remoteWorkspaceID == nil || placement.remoteWorkspaceID == workspace.id)
-              }) else { throw CancellationError() }
+        }) else { throw CancellationError() }
         try validateOperation()
+        if let existing = catalog.cloudWorkspaceProjectionCoordinator.environment.bindings().first(where: { localID, binding in
+            binding.vmID == provider.machine.rawValue
+                && binding.remoteWorkspaceID == workspace.id
+                && Workspace.liveWorkspace(id: localID)?.owningTabManager === host.manager
+        }) {
+            let projections = catalog.projections.filter { $0.workspaceID == existing.key }
+            if !projections.isEmpty {
+                if focus, let local = Workspace.liveWorkspace(id: existing.key) {
+                    host.manager.selectWorkspace(local)
+                }
+                return (existing.key, projections)
+            }
+        }
         if let pending = operations.values.first(where: {
             $0.isExistingWorkspaceOpen && $0.provider === provider
                 && $0.receipt?.workspace.id == workspace.id
@@ -109,6 +122,7 @@ final class CloudWorkspaceCreationCoordinator {
         }?.reservation?.workspaceID
     }
 
+    /// Performs one existing-workspace admission and reconciles its first projection.
     private func performExistingWorkspaceOpen(
         _ operation: CloudWorkspaceCreationOperation,
         focus: Bool,
@@ -122,8 +136,11 @@ final class CloudWorkspaceCreationCoordinator {
             guard let host = operation.host,
                   let receipt = operation.receipt,
                   let group = operation.pendingWorkspaceGroup else { throw CancellationError() }
+            let resourcesByID = Dictionary(
+                uniqueKeysWithValues: catalog.snapshot.resources.map { ($0.id, $0) }
+            )
             let firstTerminal: (resource: SurfaceResource, placement: SurfaceResourcePlacement, view: SurfaceRemoteView?)? = group.placements.compactMap { placement in
-                guard let resource = catalog.snapshot.resources.first(where: { $0.id == placement.resource }),
+                guard let resource = resourcesByID[placement.resource],
                       resource.kind == .terminal else { return nil }
                 let view = operation.existingRemoteView ?? (try? catalog.remoteView(
                     for: resource.id,

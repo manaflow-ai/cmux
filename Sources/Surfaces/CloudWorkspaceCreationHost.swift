@@ -18,6 +18,7 @@ struct CloudWorkspaceCreationHost {
 
     var isAvailable: Bool { manager?.isFinalizedForWindowClose == false }
 
+    /// Reserves a loading workspace and manual terminal pane before attachment.
     func reserve(
         title: String,
         machine: SurfaceMachineID,

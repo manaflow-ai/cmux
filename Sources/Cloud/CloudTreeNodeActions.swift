@@ -105,11 +105,14 @@ struct CloudTreeNodeActions {
                 }
             }
         }
+        /// Runs a Cloud action under the keyed operation controller so cancellation
+        /// reaches the same task that owns local admission.
         @MainActor @discardableResult
         func runKeyed(
             _ key: String,
             _ label: String,
-            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
+            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void,
+            failureDescription: (@MainActor (Error) -> String)? = nil
         ) -> Bool {
             guard let controller = operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController else {
                 _ = run(label, operation)
@@ -129,7 +132,9 @@ struct CloudTreeNodeActions {
                 } catch let failure as CloudDiagnosticFailure {
                     onFailure(failure.label)
                 } catch {
-                    onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+                    onFailure(failureDescription?(error)
+                        ?? (error as? LocalizedError)?.errorDescription
+                        ?? String(describing: error))
                 }
             }
             if !started { onDidMutate() }
@@ -480,7 +485,7 @@ struct CloudTreeNodeActions {
                 format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"),
                 machineName(machine)
             )
-            _ = runKeyed(key, label) { catalog in
+            _ = runKeyed(key, label, { catalog in
                 guard let current = try catalog.currentCloudWorkspace(group),
                       catalog.provider(for: machine) === provider else {
                     throw CancellationError()
@@ -504,7 +509,9 @@ struct CloudTreeNodeActions {
                         }
                     }
                 )
-            }
+            }, failureDescription: { error in
+                CloudDiagnosticFailure.classify(error).label
+            })
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
