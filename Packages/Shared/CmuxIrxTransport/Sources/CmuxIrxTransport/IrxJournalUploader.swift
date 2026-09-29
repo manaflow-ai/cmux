@@ -211,6 +211,7 @@ public actor IrxJournalUploader {
                 let normalized = key.lowercased().replacingOccurrences(
                     of: "[^a-z0-9_]", with: "_", options: .regularExpression)
                 guard !normalized.isEmpty, normalized.count <= 32 else { continue }
+                guard !item.isEmpty else { continue }
                 attributes[normalized] = String(item.prefix(160))
             }
             if !attributes.isEmpty { value["attributes"] = attributes }

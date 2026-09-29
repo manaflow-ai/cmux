@@ -47,11 +47,17 @@ import Testing
         )
     }
 
-    /// `offer` hops onto the actor asynchronously; poll instead of sleeping.
+    /// `offer` hops onto the actor asynchronously; poll until ready or timeout.
     private func drain(_ uploader: IrxJournalUploader, until ready: @Sendable () -> Bool) async throws {
-        for _ in 0..<200 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while !ready() {
             await uploader.flushNow()
             if ready() { return }
+            guard clock.now < deadline else {
+                Issue.record("Timed out waiting for journal uploader readiness")
+                return
+            }
             try await Task.sleep(for: .milliseconds(5))
         }
     }
@@ -59,7 +65,7 @@ import Testing
     @Test func exportsAllowlistedEventsWithMetadataAndBoundedAttributes() async throws {
         let recorder = Recorder(statuses: [200])
         let uploader = uploader(recorder)
-        uploader.offer(event())
+        uploader.offer(event(attributes: ["schema": "relay.request.v1", "empty": ""]))
         // Denied component and denied periodic event never reach the wire.
         uploader.offer(event(component: "terminal-trace"))
         uploader.offer(event(component: "control-plane", event: "pong-sent"))
@@ -80,6 +86,7 @@ import Testing
         #expect(batch.first?["buildTag"] as? String == "default")
         let attributes = batch.first?["attributes"] as? [String: String]
         #expect(attributes?["schema"] == "relay.request.v1")
+        #expect(attributes?["empty"] == nil)
         #expect(await uploader.uploadedCount == 1)
     }
 
