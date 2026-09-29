@@ -290,6 +290,12 @@ struct WorkspaceCloseTabsContextMenuTests {
         try body()
     }
 
+    private func withCleanClosedHistory(_ body: () async throws -> Void) async rethrows {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+        try await body()
+    }
+
     private func waitForMainQueueWork(
         timeout: TimeInterval = 4,
         until condition: () -> Bool
