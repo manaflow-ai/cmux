@@ -29,8 +29,6 @@ extension AppDelegate {
                     // local anchor. Clear its cloud binding and panels instead
                     // of leaving a deleted VM's loading/connected surface
                     // behind when this is the only tab in the window.
-                    workspace.disconnectRemoteConnection(clearConfiguration: true)
-                    workspace.cloudVMBinding = nil
                     workspace.withClosedPanelHistorySuppressed {
                         workspace.teardownAllPanels()
                     }
