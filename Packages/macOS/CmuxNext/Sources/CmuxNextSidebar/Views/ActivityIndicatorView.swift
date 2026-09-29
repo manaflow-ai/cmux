@@ -5,7 +5,7 @@ import QuartzCore
 /// Small agent-activity indicator: spinner (running), amber dot (needs
 /// input), red dot (error).
 final class ActivityIndicatorView: NSView {
-    private let shape = CAShapeLayer()
+    let shape = CAShapeLayer()
     private(set) var activity: AgentActivity = .idle
     /// Whether the window is on screen and not fully covered. The list sets
     /// this from the window's occlusion state; a hidden window runs no

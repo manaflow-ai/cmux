@@ -34,3 +34,26 @@ import Testing
         #expect(running.runningAnimation == .spin)
     }
 }
+
+/// The spinner's shape layer is a sublayer AppKit does not manage; it must
+/// follow the window's backing scale or it renders 1x and blurry on Retina.
+@MainActor @Suite struct ActivityIndicatorScaleTests {
+    final class ScaledWindow: NSWindow {
+        var scale: CGFloat = 2
+        override var backingScaleFactor: CGFloat { scale }
+    }
+
+    @Test func shapeLayerFollowsBackingScale() {
+        let window = ScaledWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let indicator = ActivityIndicatorView(frame: NSRect(x: 0, y: 0, width: 14, height: 14))
+        window.contentView!.addSubview(indicator)
+        indicator.configure(.running)
+        indicator.layoutSubtreeIfNeeded()
+        #expect(indicator.shape.contentsScale == 2)
+        window.scale = 1
+        indicator.viewDidChangeBackingProperties()
+        indicator.layoutSubtreeIfNeeded()
+        #expect(indicator.shape.contentsScale == 1)
+    }
+}
