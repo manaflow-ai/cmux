@@ -17,16 +17,22 @@ struct CloudMachineNotificationDeliveryTests {
     private struct Harness {
         let store: TerminalNotificationStore
         let workspace: Workspace
+        let appDelegate: AppDelegate
         let restore: @MainActor () -> Void
     }
 
     private func makeHarness() -> Harness {
         let store = TerminalNotificationStore.shared
         let originalAppDelegate = AppDelegate.shared
-        let appDelegate = originalAppDelegate ?? AppDelegate()
-        let manager = appDelegate.tabManager ?? TabManager()
+        // Own the singleton for the duration of each fixture. Other app-host
+        // suites construct temporary delegates concurrently, so reusing the
+        // live delegate can make delivery resolve against another manager
+        // between the admission and apply-time target lookups.
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
+        let originalControllerTabManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
         store.replaceNotificationsForTesting([])
@@ -34,9 +40,8 @@ struct CloudMachineNotificationDeliveryTests {
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
-        if AppDelegate.shared == nil {
-            AppDelegate.shared = appDelegate
-        }
+        AppDelegate.shared = appDelegate
+        TerminalController.shared.setActiveTabManager(manager)
         AppFocusState.overrideIsFocused = false
 
         // This suite only exercises delivery ownership, not selection. Avoid
@@ -45,7 +50,7 @@ struct CloudMachineNotificationDeliveryTests {
         // its terminal in the app-host window and can dismiss notifications
         // while their hooks are still resolving.
         let workspace = manager.addWorkspace(select: false)
-        return Harness(store: store, workspace: workspace) {
+        return Harness(store: store, workspace: workspace, appDelegate: appDelegate) {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -54,6 +59,7 @@ struct CloudMachineNotificationDeliveryTests {
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
+            TerminalController.shared.setActiveTabManager(originalControllerTabManager)
             AppDelegate.shared = originalAppDelegate
             AppFocusState.overrideIsFocused = originalAppFocusOverride
         }

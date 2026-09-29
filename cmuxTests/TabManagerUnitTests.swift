@@ -1243,7 +1243,29 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
-    func testInheritedBackgroundWorkspaceFetchesGitBranchWithoutSelection() throws {
+    func testInheritedBackgroundWorkspaceFetchesGitBranchWithoutSelection() async throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let previousShowBranchDirectory = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey)
+        let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        defer {
+            restoreUserDefaultForTabManagerTests(
+                previousWatchGitStatus,
+                key: SidebarWorkspaceDetailDefaults.watchGitStatusKey
+            )
+            restoreUserDefaultForTabManagerTests(
+                previousShowBranchDirectory,
+                key: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey
+            )
+            restoreUserDefaultForTabManagerTests(
+                previousShowPullRequests,
+                key: SidebarWorkspaceDetailDefaults.showPullRequestsKey
+            )
+        }
+
         let fileManager = FileManager.default
         let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-git-inherited-background-\(UUID().uuidString)",
@@ -1293,11 +1315,13 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         }
 
         XCTAssertNotEqual(manager.selectedTabId, backgroundWorkspace.id)
-        XCTAssertTrue(
-            waitForCondition {
-                backgroundWorkspace.panelGitBranches[backgroundPanelId]?.branch == "main"
-            }
-        )
+        // The probe applies its detached snapshot through MainActor.run. An
+        // async wait keeps that hop schedulable instead of blocking the actor
+        // inside XCTWaiter while the fixture is under concurrent app-host load.
+        let didFetch = await waitForConditionSuspending {
+            backgroundWorkspace.panelGitBranches[backgroundPanelId]?.branch == "main"
+        }
+        XCTAssertTrue(didFetch)
         XCTAssertEqual(backgroundWorkspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
     }
 

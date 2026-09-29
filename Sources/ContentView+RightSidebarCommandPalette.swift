@@ -138,7 +138,7 @@ extension ContentView {
         // customSidebar has none yet (a new cmux-owned shortcut carries the
         // full settings/config/docs policy), so it stays out of the palette
         // until that lands. The mode bar, CLI, and socket verb cover it.
-        return RightSidebarMode.availableModes().filter { $0.shortcutAction != nil }.map { mode in
+        return RightSidebarMode.availableModes().filter { $0.shortcutAction != nil || $0 == .reviews }.map { mode in
             let title = mode.shortcutAction?.label ?? mode.label
             return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
@@ -178,6 +178,8 @@ extension ContentView {
             return "palette.showRightSidebarDock"
         case .machines:
             return "palette.showRightSidebarMachines"
+        case .reviews:
+            return "palette.showRightSidebarReviews"
         case .customSidebar:
             return "palette.showRightSidebarCustomSidebar"
         }
@@ -204,6 +206,8 @@ extension ContentView {
             return "palette.openVaultPane"
         case .machines:
             return "palette.openCloudPane"
+        case .reviews:
+            return "palette.openReviewsPane"
         case .feed, .dock, .customSidebar:
             return nil
         }
@@ -219,6 +223,8 @@ extension ContentView {
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
         case .machines:
             return String(localized: "command.openCloudPane.title", defaultValue: "Open Cloud as Pane")
+        case .reviews:
+            return String(localized: "command.openReviewsPane.title", defaultValue: "Open Reviews as Pane")
         case .feed, .dock, .customSidebar:
             return nil
         }

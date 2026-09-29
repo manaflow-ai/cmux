@@ -62,7 +62,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
 
-            for mode in RightSidebarMode.availableModes() {
+            for mode in RightSidebarMode.availableModes() where mode.shortcutAction != nil || mode == .reviews {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
                 let contribution = try XCTUnwrap(
                     contributionsByID[commandID],
@@ -85,7 +85,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             // Machines follows the Cloud Machines beta toggle (pinned off above).
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
             XCTAssertFalse(machinesAvailable)
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertEqual(contributions.count, 5)
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.reviews)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])

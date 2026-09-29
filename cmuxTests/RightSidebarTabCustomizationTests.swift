@@ -47,7 +47,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     func testDefaultOrderIsCanonical() {
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.files, .find, .sessions, .feed, .dock, .machines]
+            [.files, .find, .sessions, .feed, .dock, .machines, .reviews]
         )
     }
 
@@ -55,7 +55,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         defaults.set(["machines", "bogus", "files", "custom-sidebar"], forKey: RightSidebarTabPreferences.orderKey)
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.machines, .files, .find, .sessions, .feed, .dock]
+            [.machines, .files, .find, .sessions, .feed, .dock, .reviews]
         )
     }
 
@@ -65,7 +65,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .find, defaults: defaults))
         XCTAssertEqual(
             RightSidebarMode.visibleModes(defaults: defaults),
-            [.files, .sessions, .feed, .dock, .machines]
+            [.files, .sessions, .feed, .dock, .machines, .reviews]
         )
     }
 
@@ -75,6 +75,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .files, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .find, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .machines, defaults: defaults))
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .reviews, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock, defaults: defaults))
         XCTAssertFalse(
             RightSidebarTabPreferences.setHidden(true, mode: .sessions, defaults: defaults),
@@ -87,7 +88,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         RightSidebarTabPreferences.move(.machines, offset: -5, defaults: defaults)
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.machines, .files, .find, .sessions, .feed, .dock]
+            [.machines, .files, .find, .sessions, .feed, .dock, .reviews]
         )
         RightSidebarTabPreferences.move(.machines, offset: -1, defaults: defaults)
         XCTAssertEqual(
@@ -108,7 +109,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         )
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.machines, .files, .find, .feed, .sessions, .dock],
+            [.machines, .files, .find, .feed, .sessions, .dock, .reviews],
             "hidden Feed keeps its 4th slot while the displayed tabs permute around it"
         )
     }
@@ -138,7 +139,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         RightSidebarTabPreferences.resetToDefaults(defaults: defaults)
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.files, .find, .sessions, .feed, .dock, .machines]
+            [.files, .find, .sessions, .feed, .dock, .machines, .reviews]
         )
         XCTAssertTrue(RightSidebarTabPreferences.hiddenModes(defaults: defaults).isEmpty)
     }
@@ -154,7 +155,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock, defaults: defaults))
         XCTAssertEqual(
             RightSidebarMode.visibleModes(defaults: defaults),
-            [.files, .find, .sessions, .machines]
+            [.files, .find, .sessions, .machines, .reviews]
         )
         XCTAssertEqual(
             KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .machines, defaults: defaults),
