@@ -718,7 +718,12 @@ final class BrowserExtensions: NSObject, ObservableObject {
         popoverExtensionID = nil
     }
 
-    private var extensionPageWindows: [(extensionID: String, window: NSWindow)] = []
+    private var extensionPageWindows: [(extensionID: String, window: NSWindow, url: URL)] = []
+
+    /// Same scheme, host, and path; the query and fragment may differ.
+    nonisolated static func samePage(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme == rhs.scheme && lhs.host == rhs.host && lhs.path == rhs.path
+    }
 
     /// Closes the extension's page windows, or every one when `id` is nil.
     fileprivate func closeExtensionPages(ofExtensionID id: String? = nil) {
@@ -731,6 +736,20 @@ final class BrowserExtensions: NSObject, ObservableObject {
     /// in a window whose web view is built from that extension's
     /// configuration, the only kind WebKit serves extension pages to.
     fileprivate func openExtensionPage(_ url: URL, context: WKWebExtensionContext) {
+        // An extension that opens the same page again (1Password opens its
+        // welcome page on every toolbar click) reuses that page's window.
+        if let index = extensionPageWindows.firstIndex(where: { entry in
+            entry.extensionID == context.uniqueIdentifier
+                && Self.samePage((entry.window.contentView as? WKWebView)?.url ?? entry.url, url)
+        }) {
+            let existing = extensionPageWindows[index]
+            if existing.url != url, let webView = existing.window.contentView as? WKWebView {
+                webView.load(URLRequest(url: url))
+                extensionPageWindows[index].url = url
+            }
+            existing.window.makeKeyAndOrderFront(nil)
+            return
+        }
         guard let configuration = context.webViewConfiguration else { return }
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 700), configuration: configuration)
         #if DEBUG
@@ -746,7 +765,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
         window.title = context.webExtension.displayName ?? context.uniqueIdentifier
         window.contentView = webView
         window.center()
-        extensionPageWindows.append((context.uniqueIdentifier, window))
+        extensionPageWindows.append((context.uniqueIdentifier, window, url))
         var observer: NSObjectProtocol?
         observer = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self, weak window] _ in
             MainActor.assumeIsolated {

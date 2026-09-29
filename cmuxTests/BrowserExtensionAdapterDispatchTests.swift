@@ -56,4 +56,18 @@ struct BrowserExtensionAdapterDispatchTests {
             #expect(BrowserExtensionController.instancesRespond(to: selector), "\(selector)")
         }
     }
+
+    /// Repeated opens of one extension page (1Password's welcome page on every
+    /// toolbar click) reuse its window; different pages get their own.
+    @Test func extensionPageWindowsMatchByPageNotQuery() throws {
+        guard #available(macOS 15.4, *) else { return }
+        let base = "webkit-extension://abc/app/app.html"
+        let welcome = try #require(URL(string: base + "#/page/welcome?language=en"))
+        let again = try #require(URL(string: base + "#/page/welcome?language=fr"))
+        let options = try #require(URL(string: "webkit-extension://abc/options/index.html"))
+        let otherExtension = try #require(URL(string: "webkit-extension://def/app/app.html"))
+        #expect(BrowserExtensions.samePage(welcome, again))
+        #expect(!BrowserExtensions.samePage(welcome, options))
+        #expect(!BrowserExtensions.samePage(welcome, otherExtension))
+    }
 }
