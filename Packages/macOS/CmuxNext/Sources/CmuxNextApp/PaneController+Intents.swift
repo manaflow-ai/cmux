@@ -132,14 +132,23 @@ extension PaneController {
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
         services.registry.track(Task {
-            var failure: String?
+            var failed = false
+            var unknown = false
             for command in commands {
-                if let error = await services.daemon.failure(command.label, command.run) { failure = failure ?? error }
+                switch await services.daemon.runReportingTimeout(command.label, command.run) {
+                case .succeeded: break
+                case .failed: failed = true
+                case .unknown: unknown = true
+                }
             }
+            // A close that missed its deadline under daemon load usually still
+            // lands: keep the tabs hidden until a snapshot ordered after the
+            // closes says which ones remain, instead of flashing them back.
+            if unknown { await services.daemon.reconcile() }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
-            if failure != nil { resyncStrip() }
-            return failure
+            if failed || unknown { resyncStrip() }
+            return failed ? "close failed (see the app log)" : nil
         })
     }
 

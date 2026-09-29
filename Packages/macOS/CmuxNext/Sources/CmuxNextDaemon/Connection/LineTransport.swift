@@ -90,6 +90,8 @@ final class LineTransport: Sendable {
 
     private let state = Mutex(State())
     private let socket: Mutex<Socket>
+    /// Nonblocking, ordered writes (never parks the calling actor's thread).
+    private let writer: SocketWriter
     let path: String
 
     init(path: String) throws(DaemonError) {
@@ -122,9 +124,11 @@ final class LineTransport: Sendable {
             throw .connectFailed(path: path, errno: code)
         }
         socket = Mutex(Socket(fd: fd))
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
     }
 
     deinit {
+        writer.close()
         socket.withLock { socket in
             if socket.fd >= 0 {
                 Darwin.close(socket.fd)
@@ -206,7 +210,9 @@ final class LineTransport: Sendable {
                 state.order.append(id)
             }
             submittedID = id
-            writeFailure = Self.write(payload, fd: socket.fd)
+            var line = payload
+            line.append(0x0A)
+            writeFailure = socket.fd >= 0 ? writer.write(line) : "socket closed"
             return nil
         }
         if let early {
@@ -235,27 +241,6 @@ final class LineTransport: Sendable {
         case .closedByClient: .connectionClosed(reason: "closed by client")
         case .daemonShutdown: .daemonShutdown
         case .lost(let detail): .connectionClosed(reason: detail)
-        }
-    }
-
-    /// Returns an error description on failure. Caller holds the socket lock.
-    private static func write(_ payload: Data, fd: Int32) -> String? {
-        guard fd >= 0 else { return "socket closed" }
-        var bytes = payload
-        bytes.append(0x0A)
-        return bytes.withUnsafeBytes { raw -> String? in
-            guard var pointer = raw.baseAddress else { return nil }
-            var remaining = raw.count
-            while remaining > 0 {
-                let written = Darwin.write(fd, pointer, remaining)
-                if written < 0 {
-                    if errno == EINTR { continue }
-                    return "write: \(String(cString: strerror(errno)))"
-                }
-                remaining -= written
-                pointer = pointer.advanced(by: written)
-            }
-            return nil
         }
     }
 
@@ -320,6 +305,7 @@ final class LineTransport: Sendable {
             return state.sawShutdown ? .daemonShutdown : .lost(closeDetail)
         }
         failAll(reason)
+        writer.close()
         socket.withLock { socket in
             if socket.fd >= 0 {
                 Darwin.close(socket.fd)

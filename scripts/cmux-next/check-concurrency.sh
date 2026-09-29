@@ -53,6 +53,7 @@ MAIN_ACTOR = [
      r"(^|[^.\w]|Darwin\.)(read|write|recv|send|connect|accept|select)\(\s*(fd|descriptor|socket|masterFD|self\.fd|client)\w*\s*,"),
     ("poll on the main actor", r"(^|[^.\w])poll\(&"),
     ("synchronous file read on the main actor", r"\b(Data|String)\(contentsOf(File)?:"),
+    ("synchronous GPU readback on the main actor (CoreImage/Metal wait)", r"\bcreateCGImage\(|\bwaitUntilCompleted\(|\bwaitUntilScheduled\("),
 ]
 
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
