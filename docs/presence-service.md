@@ -128,6 +128,28 @@ pins** are never pruned, so a change to their shape is the one case that
 genuinely requires the versioned-record plus lazy-upgrade treatment. Most
 presence deploys can ship freely; only owner-pin schema changes need care.
 
+## Cloud machine list sync (`vms`)
+
+The Mac machines list no longer needs to poll `GET /api/vm`. The web backend
+publishes list-relevant `cloud_vms` writes to `POST /v1/sync/vms` on the
+presence Worker (`workers/presence/src/syncVms.ts`), and the per-team
+`TeamPresence` DO broadcasts them as `vms` sync deltas over the existing
+`sync.hello` channel on `/v1/presence/subscribe`. Postgres stays the source of
+truth: each op carries the row's `updated_at` as `sourceUpdatedAtMs`, the DO
+rejects older ops, and every list read publishes a full `replace` (with its
+observation time) that tombstones ids missing from the list, so the DO
+converges without a backfill job and a machine created after the observation
+survives. A republish of an unchanged row mints no rev. The publisher on the
+web side is `web/services/vms/presencePublisher.ts`: a decorator around the VM
+repository re-reads a row after each list-relevant write and publishes it
+best-effort after the response (750 ms timeout, never failing the mutation).
+The route is service-to-service only: Worker secret `VMS_PUBLISHER_SECRET`
+must equal web `CMUX_PRESENCE_VMS_PUBLISHER_SECRET` (set once per Worker with
+`wrangler secret put VMS_PUBLISHER_SECRET` on production and on the dev
+instance); the body's `teamId` is the list scope (`ownerTeamId`) and is trusted
+only behind that secret. No new Durable Object migration: the collection adds
+`synced:vms:*` keys next to the existing sync key space.
+
 ## Workspace viewing presence
 
 Workspace viewing is a separate protocol from device reachability. The source

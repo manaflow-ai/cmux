@@ -2,6 +2,8 @@
 # the workers.dev URL (cmux-presence-dev.<account>.workers.dev), NOT the
 # production presence.cmux.dev custom domain. Use:
 #   bunx wrangler deploy --config wrangler.dev.toml
+# Worker secrets are per Worker: provision STACK_*, CONNECTIVITY_INVALIDATION_SECRET
+# and VMS_PUBLISHER_SECRET once on this instance too (see README.md).
 name = "cmux-presence-dev"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"

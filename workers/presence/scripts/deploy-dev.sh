@@ -17,8 +17,8 @@ set -euo pipefail
 #   ./scripts/deploy-dev.sh <slug>     # explicit slug (e.g. a feature name)
 #
 # Required Stack config is read from the shell environment first, then from
-# .dev.vars: STACK_PROJECT_ID, STACK_PUBLISHABLE_CLIENT_KEY, and
-# CONNECTIVITY_INVALIDATION_SECRET. STACK_API_URL is optional and defaults in
+# .dev.vars: STACK_PROJECT_ID, STACK_PUBLISHABLE_CLIENT_KEY,
+# CONNECTIVITY_INVALIDATION_SECRET and VMS_PUBLISHER_SECRET. STACK_API_URL is optional and defaults in
 # code to https://api.stack-auth.com.
 #
 # Do NOT deploy the shared `cmux-presence-dev` from a feature branch: that single
@@ -77,9 +77,11 @@ stack_project_id="$(read_dev_value STACK_PROJECT_ID)"
 stack_client_key="$(read_dev_value STACK_PUBLISHABLE_CLIENT_KEY)"
 stack_api_url="$(read_dev_value STACK_API_URL)"
 connectivity_invalidation_secret="$(read_dev_value CONNECTIVITY_INVALIDATION_SECRET)"
+vms_publisher_secret="$(read_dev_value VMS_PUBLISHER_SECRET)"
 
 if [ -z "$stack_project_id" ] || [ -z "$stack_client_key" ] \
-  || [ "${#connectivity_invalidation_secret}" -lt 32 ]; then
+  || [ "${#connectivity_invalidation_secret}" -lt 32 ] \
+  || [ "${#vms_publisher_secret}" -lt 32 ]; then
   cat >&2 <<'EOF'
 error: missing Stack Auth config for the isolated worker.
 
@@ -87,9 +89,10 @@ Set these in your shell or workers/presence/.dev.vars before deploying:
   STACK_PROJECT_ID=...
   STACK_PUBLISHABLE_CLIENT_KEY=...
   CONNECTIVITY_INVALIDATION_SECRET=... # at least 32 random characters
+  VMS_PUBLISHER_SECRET=...             # at least 32 random characters
 
 Without these Worker secrets, authenticated /v1 presence and paired-Mac backup
-routes or backend-only connectivity publication fail closed.
+routes or backend-only connectivity and machine-list publication fail closed.
 EOF
   exit 1
 fi
@@ -108,6 +111,7 @@ echo "→ Provisioning Stack Auth secrets on ${name}"
 put_worker_secret STACK_PROJECT_ID "$stack_project_id"
 put_worker_secret STACK_PUBLISHABLE_CLIENT_KEY "$stack_client_key"
 put_worker_secret CONNECTIVITY_INVALIDATION_SECRET "$connectivity_invalidation_secret"
+put_worker_secret VMS_PUBLISHER_SECRET "$vms_publisher_secret"
 if [ -n "$stack_api_url" ]; then
   put_worker_secret STACK_API_URL "$stack_api_url"
 fi
@@ -126,6 +130,7 @@ subscribes/backs up must use the SAME worker), then reload:
 Configure the web backend with the same publisher capability:
 
   export CMUX_CONNECTIVITY_INVALIDATION_SECRET=<matching value>
+  export CMUX_PRESENCE_VMS_PUBLISHER_SECRET=<matching VMS_PUBLISHER_SECRET>
 
 The reload scripts inject it into the tagged build, so a normally-tapped dev app
 uses your worker, not the shared one. Unset it to go back to the shared

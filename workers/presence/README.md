@@ -21,6 +21,7 @@ solo-account user id).
 | `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events |
 | `/v1/connectivity/subscribe` | GET | quiet WebSocket isolated by the verified Stack user; carries only route-revision invalidations |
 | `/v1/connectivity/invalidate` | POST | backend-only publication of `{revision}` to every connected Mac and iPhone for the verified Stack user |
+| `/v1/sync/vms` | POST | backend-only Cloud machine list publication `{teamId, ops}`; no user bearer, authenticated by `X-Cmux-Vms-Publisher-Secret` only; the team DO applies the ops and broadcasts `vms` sync deltas |
 | `/v1/control/socket` | GET | account control-plane WebSocket (`AccountControlPlane` DO, one per verified Stack user): revisioned `directory` / `hint_update` / `relay_passes` / `snapshot_complete` facts per the frozen `schemas/control-plane/` contract |
 
 The heartbeat response returns `heartbeatIntervalMs` (15s) and
@@ -57,6 +58,21 @@ Publication also requires the server-only
 `X-Cmux-Connectivity-Publisher-Secret`, matched against the Worker's
 `CONNECTIVITY_INVALIDATION_SECRET`; a native client access token cannot forge
 a revision.
+
+The `vms` sync collection is the realtime Cloud machine list. Postgres stays
+the source of truth: the web backend publishes every list-relevant row write
+(status, name, slug, address, creator) and, after each `GET /api/vm` read, a
+full `replace` of the visible list, so the per-team DO converges without a
+backfill job. Every op carries the row's `updated_at` as `sourceUpdatedAtMs`;
+the DO rejects an op older than what it stores and tombstones list-missing ids
+at the list's observation time, so out-of-order publishers converge on the
+newest row. Unchanged republishes mint no rev. Macs subscribe with the
+existing `sync.hello` (collection `vms`) on `/v1/presence/subscribe`, scoped
+to the same team the list route uses (`ownerTeamId`: the billing team, or the
+user id for a personal account). The publisher is service-to-service only
+(cron writers hold no user token): the Worker secret `VMS_PUBLISHER_SECRET`
+must equal the web server's `CMUX_PRESENCE_VMS_PUBLISHER_SECRET`, and the body's
+`teamId` is trusted only behind that check.
 
 The control plane (`/v1/control/socket`) is the successor channel: instead of
 a bare revision nudge, one `AccountControlPlane` Durable Object per verified
@@ -112,13 +128,20 @@ Required GitHub repository secrets:
 
 The Worker secret `CONNECTIVITY_INVALIDATION_SECRET` and web server secret
 `CMUX_CONNECTIVITY_INVALIDATION_SECRET` must contain the same random value of
-at least 32 characters.
+at least 32 characters. Likewise the Worker secret `VMS_PUBLISHER_SECRET` and
+the web server secret `CMUX_PRESENCE_VMS_PUBLISHER_SECRET` (an independent
+value; `openssl rand -hex 32`). Without it `POST /v1/sync/vms` fails closed
+and the web backend skips publication.
 
-One-time Worker secrets (survive deploys; production Stack project values):
+One-time Worker secrets (survive deploys; production Stack project values).
+Run each once on production (`wrangler.toml`) and once on the dev instance
+(`--config wrangler.dev.toml`):
 
 ```bash
 bunx wrangler secret put STACK_PROJECT_ID
 bunx wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
+bunx wrangler secret put CONNECTIVITY_INVALIDATION_SECRET
+bunx wrangler secret put VMS_PUBLISHER_SECRET
 ```
 
 Set `SENTRY_DSN` once for production and for each isolated dev Worker. The
@@ -175,10 +198,11 @@ developer — multiple people dogfood worker changes simultaneously without
 clobbering each other or the shared baseline. Because Cloudflare secrets are
 scoped to each Worker, the script also provisions the new Worker with the dev
 Stack Auth values from your shell environment or `.dev.vars`
-(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, and
-`CONNECTIVITY_INVALIDATION_SECRET`, plus optional `STACK_API_URL`); it refuses
-to deploy if those values are missing. Configure the web backend's
-`CMUX_CONNECTIVITY_INVALIDATION_SECRET` to the same value. The script prints the
+(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`,
+`CONNECTIVITY_INVALIDATION_SECRET` and `VMS_PUBLISHER_SECRET`, plus optional
+`STACK_API_URL`); it refuses to deploy if those values are missing. Configure
+the web backend's `CMUX_CONNECTIVITY_INVALIDATION_SECRET` and
+`CMUX_PRESENCE_VMS_PUBLISHER_SECRET` to the same values. The script prints the
 worker URL and the env var to export:
 
 ```

@@ -17,6 +17,9 @@
 //   POST /v1/replies                      park one phone inline-notification reply
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
+//   POST /v1/sync/vms                     backend-only Cloud machine list
+//                                         publication ({teamId, ops}); the
+//                                         DO broadcasts `vms` sync deltas
 //
 // Auth on every /v1 route: `Authorization: Bearer <Stack access token>` plus
 // optional `X-Cmux-Team-Id` / `?teamId=` team scoping, verified in auth.ts the
@@ -39,11 +42,13 @@ import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
 import { parseRevocationRequest } from "./controlPlane";
 import {
   isConnectivityPublisherAuthorized,
+  isVmsPublisherAuthorized,
   parseConnectivityInvalidation,
   parseHeartbeat,
   readBoundedJson,
 } from "./validate";
 import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
+import { MAX_VM_PUBLISH_BYTES, parseVmPublish } from "./syncVms";
 import {
   MAX_PHONE_REPLY_BODY_BYTES,
   parsePhoneReply,
@@ -67,6 +72,9 @@ export interface Env extends AuthEnv, ControlPlaneEnv {
   ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
   WORKSPACE_PRESENCE: DurableObjectNamespace<WorkspacePresence>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
+  /** Service secret for `POST /v1/sync/vms`; must equal the web backend's
+   * `CMUX_PRESENCE_VMS_PUBLISHER_SECRET`. */
+  VMS_PUBLISHER_SECRET?: string;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -342,6 +350,22 @@ const worker = {
       );
       if (!result.ok) return json({ error: result.error }, result.status);
       return json(result);
+    }
+
+    if (url.pathname === "/v1/sync/vms") {
+      // Backend-only Cloud machine list publication. Service-to-service auth
+      // only: the web backend (route handlers and cron reconcilers, which
+      // have no user bearer) proves itself with the shared publisher secret
+      // and names the list scope (`ownerTeamId`) in the body. The DO is
+      // derived from that trusted team id exactly like a verified team.
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      if (!await isVmsPublisherAuthorized(request, env.VMS_PUBLISHER_SECRET)) return unauthorized();
+      const body = await readBoundedJson(request, MAX_VM_PUBLISH_BYTES);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parseVmPublish(body.value);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      const stub = env.TEAM_PRESENCE.get(env.TEAM_PRESENCE.idFromName(parsed.teamId));
+      return json(await stub.publishVms(parsed.teamId, parsed.ops));
     }
 
     if (url.pathname === "/v1/presence/snapshot") {
