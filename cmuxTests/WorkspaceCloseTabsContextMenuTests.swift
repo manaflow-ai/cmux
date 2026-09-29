@@ -71,6 +71,7 @@ struct WorkspaceCloseTabsContextMenuTests {
             let tabId = fixture.tabIds[2]
             let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
             fixture.workspace.panelShellActivityStates[panelId] = .commandRunning
+            #expect(fixture.workspace.panelNeedsConfirmClose(panelId: panelId))
             var promptCount = 0
             fixture.manager.confirmCloseHandler = { _, _, _ in
                 promptCount += 1
@@ -100,6 +101,7 @@ struct WorkspaceCloseTabsContextMenuTests {
             let tabId = fixture.tabIds[2]
             let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
             fixture.workspace.panelShellActivityStates[panelId] = .commandRunning
+            #expect(fixture.workspace.panelNeedsConfirmClose(panelId: panelId))
             var promptCount = 0
             fixture.manager.confirmCloseHandler = { _, _, _ in
                 promptCount += 1
