@@ -53,20 +53,20 @@ extension TabHandlers {
     private static func bindTabState(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("palette.toggleTabUnread", unavailable: ctx.needs(DaemonCapabilities.notificationAck), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            guard tab.hasUnread else { return ctx.refuse("needs daemon capability tab-mark-unread (only marking read is supported)") }
+            guard tab.hasUnread else { return ctx.refuse(RefusalStrings.markUnreadUnsupported("tab-mark-unread")) }
             let surface = tab.surface
             ctx.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
         })
         registry.bind("reloadTab", invoke: { invocation in
             guard let (_, content) = ctx.visibleContent(invocation) else { return }
             guard case .browser(let entry) = content else {
-                return ctx.refuse("terminal tabs cannot reload; use Reconnect Pane")
+                return ctx.refuse(RefusalStrings.terminalCannotReload)
             }
             entry.chrome.perform(.reload)
         })
-        registry.bindUnavailable("palette.toggleFullWidthTab", reason: "needs full-width tab support in the cmux-next tab strip")
-        registry.bindUnavailable("toggleTabAudioMute", reason: "needs audio mute support in the cmux-next browser")
-        registry.bindUnavailable("disconnectRemoteTab", reason: "needs daemon capability remote-ssh-tabs")
+        registry.bindUnavailable("palette.toggleFullWidthTab", reason: RefusalStrings.fullWidthTabUnported)
+        registry.bindUnavailable("toggleTabAudioMute", reason: RefusalStrings.audioMuteUnported)
+        registry.bindUnavailable("disconnectRemoteTab", reason: RefusalStrings.needsDaemonCapability("remote-ssh-tabs"))
     }
 
     private static func bindIdentifiers(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -87,7 +87,7 @@ extension TabHandlers {
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             copy("surface_id=\(tab.id)")
         })
-        let noLinks = "needs cmux-next deep link navigation (cmux:// handler)"
+        let noLinks = RefusalStrings.deepLinksUnported
         registry.bindUnavailable("palette.copyPaneLink", reason: noLinks)
         registry.bindUnavailable("palette.copySurfaceLink", reason: noLinks)
     }

@@ -38,7 +38,7 @@ final class AppCompatFrontend: CompatFrontend {
     nonisolated func currentConnection() -> DaemonConnection? { connectionBox.withLock { $0 } }
 
     nonisolated func browser(tabID: String, url: String?, operation: CompatBrowserOperation) async throws -> CmuxNextSettings.JSONValue {
-        try await AppCompatBrowser.run(operation, tabID: tabID, url: url, services: services)
+        try await AppCompatBrowser.run(operation, tabID: tabID, services: services)
     }
 
     func perform(_ intent: CompatFrontendIntent) throws -> CmuxNextSettings.JSONValue {

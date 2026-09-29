@@ -51,6 +51,7 @@ enum AgentHandlers {
         let options = SpawnOptions(cwd: tab.cwd)
         let line = command + "\n"
         let logger = context.daemon.logger
+        let repair = context.services.emptyWorkspaces!
         Task {
             do {
                 let surface: SurfaceID?
@@ -66,9 +67,12 @@ enum AgentHandlers {
                 case .newTab:
                     surface = try await connection.newTab(in: handle, options: options).surface
                 case .newWorkspace:
-                    let created = try await connection.createWorkspace()
-                    workspace = created.key
-                    surface = try await connection.createTerminal(in: created.key, cwd: options.cwd).surface
+                    let key = WorkspaceKey.generate()
+                    workspace = key
+                    surface = try await repair.populating(key) {
+                        let created = try await connection.createWorkspace(key: key)
+                        return try await connection.createTerminal(in: created.key, cwd: options.cwd).surface
+                    }
                 }
                 if let surface { try await connection.send(surface, text: line) }
                 if let workspace { context.window(showing: workspace.rawValue) }

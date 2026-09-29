@@ -6,13 +6,12 @@ import Foundation
 /// Browser page operations for `cmux browser …` on the page a tab shows,
 /// creating the page when the tab was never shown.
 enum AppCompatBrowser {
-    static func run(_ operation: CompatBrowserOperation, tabID: String, url: String?, services: AppServices) async throws -> JSONValue {
+    static func run(_ operation: CompatBrowserOperation, tabID: String, services: AppServices) async throws -> JSONValue {
         guard let (tab, _) = services.locateTab(tabID) else {
             throw ControlError(code: "not_found", message: "Surface not found or not a browser")
         }
-        let initial = (tab.url ?? url).flatMap(URL.init(string:))
-        let entry = services.cache.existingBrowser(tabID)
-            ?? services.cache.browser(for: tabID, url: initial, engine: tab.browserEngine)
+        // The engine the record names, with url/title written back to the record.
+        let entry = services.cache.existingBrowser(tabID) ?? services.cache.browser(for: tab)
         guard let page = entry?.tab else {
             throw ControlError(code: "unavailable", message: "The browser page is still starting; retry")
         }

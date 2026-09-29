@@ -29,10 +29,10 @@ extension PaneHandlers {
         }
         registry.bind("palette.swapWithSession", invoke: { invocation in
             guard let source = ctx.paneController(ActionInvocation(target: invocation.target))?.pane else { return }
-            guard let ref = invocation["pane"]?.targetValue ?? ctx.refuse("a pane argument is required") else { return }
+            guard let ref = invocation["pane"]?.targetValue ?? ctx.refuse(RefusalStrings.paneArgumentRequired) else { return }
             let panes = ctx.services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
-            guard let target = panes.first(where: { $0.id == ref.id }) ?? ctx.refuse("no pane \(ref.id)") else { return }
-            guard target !== source else { return ctx.refuse("a pane cannot swap with itself") }
+            guard let target = panes.first(where: { $0.id == ref.id }) ?? ctx.refuse(RefusalStrings.noPaneID(ref.id)) else { return }
+            guard target !== source else { return ctx.refuse(RefusalStrings.paneCannotSwapWithItself) }
             let from = source.handle, to = target.handle
             ctx.send("swap-pane") { try await $0.swapPane(from, with: .pane(to)) }
         })
@@ -51,7 +51,7 @@ extension PaneHandlers {
                 ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
                 return
             }
-            guard let window = ctx.services.windows.active?.window ?? ctx.refuse("no window for the rename prompt") else { return }
+            guard let window = ctx.services.windows.active?.window ?? ctx.refuse(RefusalStrings.noWindowForRename) else { return }
             RenamePrompt.run(title: HandlerStrings.renamePaneTitle, initial: pane.name ?? "", in: window) { name in
                 ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
             }
@@ -100,27 +100,27 @@ extension PaneHandlers {
                         applied += 1
                     }
                 }
-                if applied == 0 { ctx.refuse("the workspace shows no live terminal") }
+                if applied == 0 { ctx.refuse(RefusalStrings.noLiveTerminal) }
             })
         }
     }
 
     private static func bindUnported(_ registry: ActionRegistry) {
-        let canvas = "needs canvas layout, which cmux-next does not have yet"
+        let canvas = RefusalStrings.canvasUnported
         for id: ActionID in ["toggleCanvasLayout", "canvasOverview", "canvasTidy", "canvasRevealFocusedPane", "canvasZoomIn",
                              "canvasZoomOut", "canvasZoomReset", "canvasAlignLeft", "canvasAlignRight", "canvasAlignTop",
                              "canvasAlignBottom", "canvasEqualizeWidths", "canvasEqualizeHeights",
                              "canvasDistributeHorizontally", "canvasDistributeVertically"] {
             registry.bindUnavailable(id, reason: canvas)
         }
-        let simulator = "needs simulator panes, which cmux-next does not have yet"
+        let simulator = RefusalStrings.simulatorUnported
         for id: ActionID in ["palette.newSimulatorPane", "simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
                              "simulatorToggleAppearance", "simulatorToggleSoftwareKeyboard"] {
             registry.bindUnavailable(id, reason: simulator)
         }
-        registry.bindUnavailable("palette.openFilesPane", reason: "needs the Files panel as a pane (not in cmux-next yet)")
-        registry.bindUnavailable("palette.openFindPane", reason: "needs the Find panel as a pane (not in cmux-next yet)")
-        registry.bindUnavailable("palette.openVaultPane", reason: "needs the Vault panel as a pane (not in cmux-next yet)")
-        registry.bindUnavailable("palette.openCloudPane", reason: "needs the Cloud panel as a pane (not in cmux-next yet)")
+        registry.bindUnavailable("palette.openFilesPane", reason: RefusalStrings.filesPaneUnported)
+        registry.bindUnavailable("palette.openFindPane", reason: RefusalStrings.findPaneUnported)
+        registry.bindUnavailable("palette.openVaultPane", reason: RefusalStrings.vaultPaneUnported)
+        registry.bindUnavailable("palette.openCloudPane", reason: RefusalStrings.cloudPaneUnported)
     }
 }

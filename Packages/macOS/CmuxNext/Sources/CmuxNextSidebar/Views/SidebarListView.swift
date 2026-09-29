@@ -39,6 +39,13 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     /// Clock for the spring-load delay; tests inject a manual clock.
     var springLoadClock: any Clock<Duration> = ContinuousClock()
 
+    /// A title click's collapse toggle waiting out the double-click interval.
+    var pendingGroupToggle: PendingGroupToggle?
+    /// How long a group title click waits for a second click.
+    var groupToggleDelay: Duration = .milliseconds(Int(NSEvent.doubleClickInterval * 1000))
+    /// Clock for the group toggle delay; tests inject a manual clock.
+    var clickClock: any Clock<Duration> = ContinuousClock()
+
     /// Called when the list wants the search field focused (typing while the
     /// list is focused).
     var onTypeToSearch: ((String) -> Void)?
@@ -63,6 +70,34 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
 
     isolated deinit {
         autoscrollLink?.invalidate()
+        pendingGroupToggle?.task.cancel()
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    // MARK: - Window occlusion
+
+    private var observedWindow: NSWindow?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard observedWindow !== window else { return }
+        let center = NotificationCenter.default
+        if let observedWindow { center.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observedWindow) }
+        observedWindow = window
+        if let window {
+            center.addObserver(self, selector: #selector(windowOcclusionChanged), name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        }
+    }
+
+    @objc private func windowOcclusionChanged(_ note: Notification) {
+        setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
+    }
+
+    /// Pauses (or resumes) every row's activity animation.
+    func setWindowVisible(_ visible: Bool) {
+        for row in subviews {
+            for case let indicator as ActivityIndicatorView in row.subviews { indicator.isWindowVisible = visible }
+        }
     }
 
     override var isFlipped: Bool { true }

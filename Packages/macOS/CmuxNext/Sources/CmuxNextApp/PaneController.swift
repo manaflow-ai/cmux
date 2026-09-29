@@ -25,6 +25,9 @@ final class PaneController {
     var pendingClosed: Set<String> = []
     /// A tab this app just created here; selected once the daemon reports it.
     var pendingSelectSurface: SurfaceID?
+    /// A blank browser tab this app just created; its address bar takes
+    /// focus once its page exists (CEF pages arrive asynchronously).
+    var pendingAddressBarFocus: SurfaceID?
     private var observation: Task<Void, Never>?
 
     struct Snapshot: Equatable {
@@ -140,6 +143,16 @@ final class PaneController {
             if let key { services.cache.setVisible(key, isVisible) }
         }
         view.show(content?.view)
+        if let pending = pendingAddressBarFocus, case .browser(let entry) = content, selectedTab?.surface == pending {
+            pendingAddressBarFocus = nil
+            entry.chrome.perform(.focusAddressBar)
+        }
+        if isFocusedInWorkspace { workspace?.publishContext() }
+    }
+
+    /// This pane is its workspace's focused pane.
+    var isFocusedInWorkspace: Bool {
+        workspace?.layoutModel.focusedPane == layoutPaneID
     }
 
     func content(for key: String) -> TabContent? {
@@ -152,7 +165,7 @@ final class PaneController {
         case .pty:
             return .terminal(services.cache.terminal(for: tab))
         case .browser where tab.isFrontendOwned:
-            return services.cache.browser(for: key, url: tab.url.flatMap(URL.init(string:)), engine: tab.browserEngine).map(TabContent.browser)
+            return services.cache.browser(for: tab).map(TabContent.browser)
         default:
             return nil
         }

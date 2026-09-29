@@ -12,6 +12,7 @@ extension WorkspaceContentController {
         case .focus(let pane):
             state.focusedPane[workspace.id] = pane
             if let controller = panes[pane], !controller.containsFirstResponder { controller.focusContent() }
+            publishContext()
         case .setSplitRatio(let split, let ratio, let transaction, let phase):
             guard let handle = handles.splits[split] else { return layoutModel.rejectTransaction(transaction) }
             let daemonTransaction = gestureTransaction(transaction, phase: phase)

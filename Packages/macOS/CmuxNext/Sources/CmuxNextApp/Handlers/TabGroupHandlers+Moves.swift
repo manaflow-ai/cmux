@@ -32,7 +32,7 @@ extension TabGroupHandlers {
             guard let (group, pane) = group(invocation, ctx), let workspace = ctx.workspaceArgument(invocation) else { return }
             let screen = workspace.screens.first
             guard let target = screen?.defaultPane.flatMap({ screen?.pane($0) }) ?? screen?.panes.first
-                ?? ctx.refuse("workspace \(workspace.id) has no pane") else { return }
+                ?? ctx.refuse(RefusalStrings.workspaceHasNoPane(workspace.id)) else { return }
             let handle = target.handle, index = target.tabs.count
             run("move-tab-group", pane: pane, ctx) { c, t in
                 _ = try await c.moveTabGroup(group, to: handle, index: index, transaction: t)
@@ -46,7 +46,7 @@ extension TabGroupHandlers {
         guard let (group, pane) = group(invocation, ctx) else { return }
         let slots = pane.tabs.map { TabGroupReorder.Slot(group: $0.tabGroup?.rawValue, pinned: $0.pinned) }
         guard let index = TabGroupReorder.targetIndex(of: group.rawValue, forward: forward, in: slots) else {
-            return ctx.refuse("the group is already at the edge")
+            return ctx.refuse(RefusalStrings.groupAtEdge)
         }
         let handle = pane.handle
         run("move-tab-group", pane: pane, ctx) { c, t in _ = try await c.moveTabGroup(group, to: handle, index: index, transaction: t) }

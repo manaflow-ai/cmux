@@ -22,11 +22,13 @@ final class AppServices {
     /// App side of the cmux CLI compat layer (window/focus state, intents).
     private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
+    private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     private let terminalDelegate = TerminalHostDelegate()
 
     init(environment: AppEnvironment) {
         self.environment = environment
         cache = TabContentCache(daemon: daemon)
+        emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
         windows = WindowManager(services: self)
         dragSession = TabDragSession(services: self)
