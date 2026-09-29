@@ -32,6 +32,8 @@ public struct TranscriptReducer: Sendable {
     private var turn: TurnState?
     private var pendingLocal: [PendingLocalMessage] = []
     private var lastClosedTurn: (startedSeq: Int?, rowID: String)?
+    /// ACP `messageId` of the message each prose or thought row streams, when the agent sends one.
+    private var messageIDByRow: [String: String] = [:]
 
     private struct TurnState {
         var key: Int
@@ -141,6 +143,7 @@ public struct TranscriptReducer: Sendable {
         rows = []
         indexByID = [:]
         toolRowByCallID = [:]
+        messageIDByRow = [:]
         turn = nil
         lastClosedTurn = nil
         let liveQueue = queue
@@ -270,15 +273,20 @@ public struct TranscriptReducer: Sendable {
         case "agent_message_chunk":
             guard let text = Self.contentText(update["content"]) else { return }
             markOutput()
-            if let last = rows.last, case .assistant(let existing, _) = last.content, isLastRowInCurrentTurn {
+            let messageID = update["messageId"]?.stringValue
+            if let last = rows.last, case .assistant(let existing, _) = last.content, isLastRowInCurrentTurn,
+               continuesMessage(rowID: last.id, messageID: messageID) {
                 updateRow(last.id) { $0 = .assistant(text: existing + text, isStreaming: true) }
                 return
             }
-            appendStreaming(TranscriptRow(id: "msg-\(record.seq)", at: record.at, content: .assistant(text: text, isStreaming: turn != nil)))
+            // A new messageId starts a new bubble; agents that retry resend the whole message.
+            let rowID = "msg-\(record.seq)"
+            if let messageID { messageIDByRow[rowID] = messageID }
+            appendStreaming(TranscriptRow(id: rowID, at: record.at, content: .assistant(text: text, isStreaming: turn != nil)))
         case "agent_thought_chunk":
             guard let text = Self.contentText(update["content"]) else { return }
             markOutput()
-            appendActivity(.thought(text), record: record, mergeThought: true)
+            appendActivity(.thought(text), record: record, mergeThought: true, messageID: update["messageId"]?.stringValue)
         case "user_message_chunk":
             guard turn?.sawUserMessage != true, let text = Self.contentText(update["content"]) else { return }
             if let last = rows.last, case .user(var message) = last.content, last.id.hasPrefix("uchunk-") {
@@ -397,19 +405,27 @@ public struct TranscriptReducer: Sendable {
         turn?.streamingRowIDs.append(row.id)
     }
 
-    private mutating func appendActivity(_ item: TranscriptActivityItem, record: AcpmuxEventRecord, mergeThought: Bool) {
+    private mutating func appendActivity(
+        _ item: TranscriptActivityItem,
+        record: AcpmuxEventRecord,
+        mergeThought: Bool,
+        messageID: String? = nil
+    ) {
         if let last = rows.last, case .activity(var group) = last.content, isLastRowInCurrentTurn {
-            if mergeThought, case .thought(let text)? = group.items.last, case .thought(let more) = item {
+            if mergeThought, case .thought(let text)? = group.items.last, case .thought(let more) = item,
+               continuesMessage(rowID: last.id, messageID: messageID) {
                 group.items[group.items.count - 1] = .thought(text + more)
             } else {
                 group.items.append(item)
             }
+            if mergeThought, let messageID { messageIDByRow[last.id] = messageID }
             if case .tool(let call) = item { toolRowByCallID[call.id] = last.id }
             updateRow(last.id) { $0 = .activity(group) }
             return
         }
         let rowID = "act-\(record.seq)"
         if case .tool(let call) = item { toolRowByCallID[call.id] = rowID }
+        if mergeThought, let messageID { messageIDByRow[rowID] = messageID }
         appendStreaming(TranscriptRow(
             id: rowID,
             at: record.at,
@@ -432,6 +448,12 @@ public struct TranscriptReducer: Sendable {
             }
             content = .activity(group)
         }
+    }
+
+    /// Whether a chunk with `messageID` continues the message streaming into `rowID`.
+    private func continuesMessage(rowID: String, messageID: String?) -> Bool {
+        guard let messageID, let current = messageIDByRow[rowID] else { return true }
+        return current == messageID
     }
 
     // MARK: - Typing indicator and local echoes

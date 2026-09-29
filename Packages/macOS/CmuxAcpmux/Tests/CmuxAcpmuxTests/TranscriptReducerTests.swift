@@ -137,6 +137,34 @@ struct TranscriptReducerTests {
         #expect(paged.firstSeq == 1)
     }
 
+    @Test func newMessageIdStartsNewBubbleAfterAgentRetry() {
+        // Captured shape from a codex turn that retried: the partial message and the
+        // resent message carry different messageIds and must not concatenate.
+        func chunk(_ seq: Int, _ text: String, _ messageID: String) -> AcpmuxEventRecord {
+            AcpmuxEventRecord(
+                sessionId: "s", seq: seq, at: Int64(seq), dir: "in", kind: "agent_message_chunk",
+                msg: .object(["jsonrpc": .string("2.0"), "method": .string("session/update"), "params": .object(["update": .object([
+                    "sessionUpdate": .string("agent_message_chunk"),
+                    "content": .object(["type": .string("text"), "text": .string(text)]),
+                    "messageId": .string(messageID),
+                ])])])
+            )
+        }
+        var reducer = TranscriptReducer()
+        reducer.apply([
+            AcpmuxEventRecord(sessionId: "s", seq: 1, at: 1, dir: "mux", kind: "user_message", msg: .object(["text": .string("ls")])),
+            chunk(2, "The directory contains", "m1"),
+            chunk(3, " a", "m1"),
+            chunk(4, "The directory contains", "m2"),
+            chunk(5, " one file.", "m2"),
+        ])
+        #expect(summaries(reducer.rows) == [
+            "user:ls",
+            "assistant:The directory contains a…",
+            "assistant:The directory contains one file.…",
+        ])
+    }
+
     @Test func queueTracksQueuedAndDequeuedPrompts() {
         var reducer = TranscriptReducer()
         reducer.apply(AcpmuxEventRecord(
