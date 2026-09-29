@@ -84,16 +84,13 @@ jobs:
       # a re-run of failed jobs takes, since it reuses these outputs and must
       # not queue on the owned pool unwatched.
       macos_pr_retry_runner: ${{ steps.macos-pool.outputs.retry_runner }}
-      # Set only for a full suite on a Blacksmith pool: the pool on the same
-      # Xcode its app-host shards take when it has more room for them.
-      macos_pr_shard_runner: ${{ steps.macos-pool.outputs.shard_runner }}
       # Set only when the pool is persistent: the jobs of attempt 1 that take
-      # it (" admission shard-1 ... "); every other job takes the retry runner.
+      # it (" admission cli-product ... "); every other job takes the retry runner.
       macos_pr_owned_jobs: ${{ steps.macos-pool.outputs.owned_jobs }}
       # Set only when the pool is persistent and CI_OWNED_POOL_SLOTS gives it
       # a root count: glaeda-root-<class>-xcode-<version>, the one runner per
       # mini that takes a canonical-root job. The root jobs in
-      # macos_pr_owned_jobs (admission, shards, lag, cli-product) take it in
+      # macos_pr_owned_jobs (admission, cli-product) take it in
       # place of the pool label, on attempt 1 and after a refusal.
       macos_pr_root_runner: ${{ steps.macos-pool.outputs.root_runner }}
       # Set only beside a root runner, when the pool has machines beyond its
@@ -110,9 +107,9 @@ jobs:
       macos_pr_light_side_jobs: ${{ steps.macos-pool.outputs.light_side_jobs }}
       # Set only beside a root runner, when CI_OWNED_POOL_SLOTS gives the gui
       # label a count: glaeda-gui-<class>-xcode-<version>, the one runner per
-      # mini that takes a GUI job (the mini has one gui token). The GUI jobs
-      # in macos_pr_owned_jobs (the shards, lag) take it in place of the root
-      # label, so GitHub never hands a mini a second GUI job to refuse.
+      # mini that takes a gui-token job (the mini has one gui token). The
+      # gui-token job in macos_pr_owned_jobs (cli-product) takes it in place of
+      # the root label, so GitHub never hands a mini a second one to refuse.
       macos_pr_gui_runner: ${{ steps.macos-pool.outputs.gui_runner }}
       # Set only beside a root runner, when the snapshot calls an idle one warm
       # for this run's merge base: ["<root label>", "glaeda-runner-<name>"],
@@ -701,8 +698,6 @@ jobs:
           # other jobs to Blacksmith, instead of all or nothing (off unless 1).
           POOL_OWNED_SPLIT: ${{ vars.CI_PR_POOL_OWNED_SPLIT }}
           OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
-          # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
-          POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           # Machines and root runners main's dispatch leaves free (default 0).
           OWNED_MAIN_RESERVE: ${{ vars.CI_OWNED_MAIN_RESERVE }}
           CMUX_CI_XCODE_APP_PR: ${{ (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CMUX_CI_XCODE_APP_PR || '' }}
@@ -1130,8 +1125,7 @@ jobs:
   # (claude-wrapper, remote-daemon) are already billed and slow, so
   # waiting on them saves nothing. It finishes long before a compile does, and
   # compile admission's last step reads its result once: a declined gate
-  # fails admission, which skips the shards, CLI product tests, lag and
-  # Release lanes. Over those 75 runs it declined 5; each now spends one
+  # fails admission, which skips the CLI product tests and Release lanes. Over those 75 runs it declined 5; each now spends one
   # compile admission (median 655 s) that it used to skip.
   #
   # A failed gate declines by failing this job rather than being skipped:
@@ -1201,7 +1195,6 @@ jobs:
       release_archs: ${{ inputs.release_archs }}
       pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
-      pr_shard_runner: ${{ needs.changes.outputs.macos_pr_shard_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_admission_runner: ${{ needs.changes.outputs.macos_pr_admission_runner }}

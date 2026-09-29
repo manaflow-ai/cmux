@@ -67,10 +67,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
-      - name: Validate machine-failure detection for focused reruns
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_machine_failure.py
-
       - name: Validate the CI timing readout
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -532,10 +528,6 @@ jobs:
           PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
           python3 tests/test_prune_nightly_release_assets.py
 
-      - name: Validate activation benchmark scrollback sizing
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_perf_activation_scrollback_sizing.py
-
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
@@ -731,10 +723,6 @@ jobs:
       - name: Validate GhosttyKit source-build Zig requirement
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_ensure_ghosttykit_zig.py
-
-      - name: Validate bundled-resource incremental outputs
-        if: ${{ matrix.group == 'quality-runtime' }}
-        run: ./tests/test_build_app_bundled_resources.sh
 
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}

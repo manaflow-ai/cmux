@@ -61,7 +61,6 @@ MACOS_JOBS = (
     "release-build",
 )
 CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
-PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
 assert spec and spec.loader
@@ -121,7 +120,7 @@ def test_test_only_changes_skip_the_release_build() -> None:
     for paths in (
         ["cmuxCLITests/CLISocketTests.swift"],
         ["Packages/macOS/CmuxNext/Tests/CmuxNextTests/LayoutTests.swift"],
-        ["Packages/macOS/CmuxTerminalCore/Tests/CmuxTerminalCoreTests/FakeTerminalEngine.swift", "docs/ci.md"],
+        ["Packages/macOS/CmuxTerminalCore/Tests/CmuxTerminalCoreTests/TerminalPathResolverTests.swift", "docs/ci.md"],
     ):
         actual = module.classify_files(paths)
         assert actual.macos is True, (paths, actual)
@@ -388,11 +387,11 @@ def test_routed_lane_names_the_packages_the_job_would_run() -> None:
         ["Packages/macOS/CmuxSudoBroker/Tests/CmuxSudoBrokerTests/Probe.swift"]
     ) == ("CmuxSudoBroker",)
     # A dependency pulls in its dependents, and nothing else.
-    settings = module.swift_package_test_selection(["Packages/macOS/CmuxSettings/Package.swift"])
-    assert "CmuxSettings" in settings
-    # CmuxControlSocket depends on CmuxSettings, so it is a dependent; CmuxSudoBroker is not.
-    assert "CmuxControlSocket" in settings
-    assert "CmuxSudoBroker" not in settings
+    foundation = module.swift_package_test_selection(["Packages/macOS/CmuxFoundation/Package.swift"])
+    assert "CmuxFoundation" in foundation
+    # CmuxSettings depends on CmuxFoundation, so it is a dependent; CmuxSudoBroker is not.
+    assert "CmuxSettings" in foundation
+    assert "CmuxSudoBroker" not in foundation
     assert module.swift_package_test_selection(["CLI/cmux.swift"]) == ()
 
 
@@ -447,9 +446,9 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     body = lane.split("PACKAGES=(", 1)[1].split("\n  )", 1)[0]
     assert set(packages) == set(body.split()), set(packages) ^ set(body.split())
     assert "CmuxSettings" in packages
-    path = "Packages/macOS/CmuxSurfaceCatalogModel/Tests/CmuxSurfaceCatalogModelTests/Probe.swift"
+    path = "Packages/macOS/CmuxSudoBroker/Tests/CmuxSudoBrokerTests/Probe.swift"
     assert module.classify_files([path]).swift_packages is True
-    assert "CmuxSurfaceCatalogModel" in module.swift_package_test_selection([path])
+    assert "CmuxSudoBroker" in module.swift_package_test_selection([path])
     # These macOS packages had test targets but were missing from the list once.
     for name in (
         "CMUXDebugLog",
@@ -1375,7 +1374,6 @@ def test_macos_admission_control_helpers_run_admission_without_web_or_release() 
 def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() -> None:
     for path in (
         "scripts/ci/app_host_test_products.py",
-        "scripts/ci/app_host_layer_transport.py",
         "scripts/ci/parallel_artifact_download.py",
         "scripts/ci/canonical-build-root.sh",
         "scripts/ci/compile-app-host-test-product.sh",
@@ -5090,52 +5088,6 @@ def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> N
     block = workflow_job_block("agent-session-web-resources", WEB_WORKFLOW)
 
     assert "if: ${{ inputs.agent_session_web == 'true' }}" in block
-
-
-def test_perf_activation_runs_for_its_own_workflow_and_not_for_others() -> None:
-    _, outputs = run_detect_step_for_paths([".github/workflows/relay-tls.yml"], PERF_ACTIVATION_WORKFLOW)
-    assert outputs == [
-        "macos=false",
-        "web=false",
-        "agent_session_web=false",
-        "cli=false",
-        "swift_packages=false",
-        "release_build=false",
-    ]
-
-    for path in (".github/workflows/perf-activation.yml", "scripts/ci/subprocess.py"):
-        result, outputs = run_detect_step_for_paths([path], PERF_ACTIVATION_WORKFLOW)
-        assert "CI router changed; running activation benchmark." in result.stdout, path
-        assert outputs[0] == "macos=true", (path, outputs)
-
-
-def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark() -> None:
-    result, outputs = run_detect_step_for_paths(["docs/ci-runners.md"], PERF_ACTIVATION_WORKFLOW)
-
-    assert "Resolved areas: macos=false web=false" in result.stdout
-    assert outputs == [
-        "macos=false",
-        "web=false",
-        "agent_session_web=false",
-        "cli=false",
-        "swift_packages=false",
-        "release_build=false",
-    ]
-
-    benchmark = workflow_job_block("activation-session-benchmark", PERF_ACTIVATION_WORKFLOW)
-    sentinel = workflow_job_block("activation-session", PERF_ACTIVATION_WORKFLOW)
-
-    assert "needs: activation_changes" in benchmark
-    assert "if: ${{ needs.activation_changes.outputs.macos == 'true' }}" in benchmark
-    # The benchmark routes through MACOS_RUNNER_15 (Blacksmith) for all events,
-    # including PRs. Manual runner overrides stay outside required CI.
-    assert "vars.MACOS_RUNNER_15" in benchmark
-
-    assert "      - activation_changes" in sentinel
-    assert "      - activation-session-benchmark" in sentinel
-    assert "if: ${{ always() }}" in sentinel
-    assert 'macos == "true" and benchmark["result"] != "success"' in sentinel
-    assert 'benchmark["result"] not in {"success", "skipped"}' in sentinel
 
 
 def test_guard_bun_setup_runs_only_for_owned_groups() -> None:

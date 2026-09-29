@@ -9,7 +9,6 @@ import plistlib
 import shutil
 import socket
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -345,120 +344,6 @@ def expect_ping_does_not_use_socket(
     return True
 
 
-def python_client_default_bundle_id(extra_env: dict[str, str]) -> str:
-    env = os.environ.copy()
-    env.pop("CMUX_SOCKET_PATH", None)
-    env.pop("CMUX_SOCKET", None)
-    env.pop("CMUX_BUNDLE_ID", None)
-    env.pop("CMUX_TAG", None)
-    env.update(extra_env)
-
-    tests_dir = os.path.dirname(os.path.abspath(__file__))
-    python_path = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = tests_dir if not python_path else f"{tests_dir}{os.pathsep}{python_path}"
-
-    proc = subprocess.run(
-        [sys.executable, "-c", "from cmux import cmux; print(cmux.default_bundle_id())"],
-        text=True,
-        capture_output=True,
-        env=env,
-        timeout=8,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"cmux.py bundle resolution failed: {proc.stderr!r}")
-    return proc.stdout.strip()
-
-
-def python_client_default_socket_path(extra_env: dict[str, str]) -> str:
-    env = os.environ.copy()
-    env.pop("CMUX_SOCKET_PATH", None)
-    env.pop("CMUX_SOCKET", None)
-    env.pop("CMUX_BUNDLE_ID", None)
-    env.pop("CMUX_TAG", None)
-    env.update(extra_env)
-
-    tests_dir = os.path.dirname(os.path.abspath(__file__))
-    python_path = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = tests_dir if not python_path else f"{tests_dir}{os.pathsep}{python_path}"
-
-    proc = subprocess.run(
-        [sys.executable, "-c", "from cmux import cmux; print(cmux.default_socket_path())"],
-        text=True,
-        capture_output=True,
-        env=env,
-        timeout=8,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"cmux.py socket resolution failed: {proc.stderr!r}")
-    return proc.stdout.strip()
-
-
-def test_python_client_ignores_unknown_bundle_env() -> bool:
-    expected_tagged_debug = "com.cmuxterm.app.debug.variant.test.tag"
-    actual = python_client_default_bundle_id({
-        "CMUX_BUNDLE_ID": "com.example.stale.bundle",
-        "CMUX_TAG": "variant-test-tag",
-    })
-    if actual != expected_tagged_debug:
-        print("FAIL: python client trusted unknown CMUX_BUNDLE_ID over CMUX_TAG")
-        print(f"expected={expected_tagged_debug!r}")
-        print(f"actual={actual!r}")
-        return False
-
-    actual = python_client_default_bundle_id({
-        "CMUX_BUNDLE_ID": "com.cmuxterm.app",
-        "CMUX_TAG": "rogue-stable-tag",
-    })
-    if actual != "com.cmuxterm.app":
-        print("FAIL: python client rejected known stable CMUX_BUNDLE_ID")
-        print(f"actual={actual!r}")
-        return False
-
-    print("PASS: python client ignores unknown CMUX_BUNDLE_ID values")
-    return True
-
-
-def test_python_client_treats_stable_override_as_implicit() -> bool:
-    tag = f"python-stale-stable-{os.getpid()}"
-    expected_socket = f"/tmp/cmux-debug-{tag}.sock"
-
-    with temporary_socket_home("cmux-py-") as home:
-        app_support = os.path.join(home, ".local", "state", "cmux")
-        os.makedirs(app_support, exist_ok=True)
-        stable_socket = os.path.join(app_support, "cmux.sock")
-
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            if os.path.exists(stable_socket):
-                os.remove(stable_socket)
-            server.bind(stable_socket)
-            server.listen(1)
-
-            actual = python_client_default_socket_path({
-                "HOME": home,
-                "CFFIXED_USER_HOME": home,
-                "CMUX_SOCKET_PATH": stable_socket,
-                "CMUX_TAG": tag,
-            })
-        finally:
-            server.close()
-            try:
-                os.remove(stable_socket)
-            except OSError:
-                pass
-
-    if actual != expected_socket:
-        print("FAIL: python client followed a stale stable CMUX_SOCKET_PATH")
-        print(f"expected={expected_socket!r}")
-        print(f"actual={actual!r}")
-        return False
-
-    print("PASS: python client treats stable socket overrides as implicit for tagged debug")
-    return True
-
-
 def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
     nightly_slug = f"issue3542-nightly-{pid}"
@@ -656,12 +541,6 @@ def main() -> int:
         return 1
 
     if not test_variant_last_socket_markers(cli_path):
-        return 1
-
-    if not test_python_client_ignores_unknown_bundle_env():
-        return 1
-
-    if not test_python_client_treats_stable_override_as_implicit():
         return 1
 
     print("PASS: cmux ping auto-discovers tagged socket from CMUX_TAG")

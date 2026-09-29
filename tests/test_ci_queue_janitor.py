@@ -58,11 +58,11 @@ def mac_jobs(queued=0, running=0, age=20, running_name="macos / app-host shard",
 
 def doomed_jobs(*, queued=2, running=1, conclusion="failure", failed_age=30, name=None,
                 completed_at=True):
-    """macOS jobs for a run whose app-host shard has already concluded."""
-    jobs = mac_jobs(queued=queued, running=running, running_name="macos / app-host unit tests (4/6)")
+    """macOS jobs for a run whose cli-product-tests job has already concluded."""
+    jobs = mac_jobs(queued=queued, running=running, running_name="macos / swift-package-tests")
     jobs.append({
         "status": "completed", "labels": [MAC], "created_at": iso(60),
-        "name": name or "macos / app-host unit tests (3/6)",
+        "name": name or "macos / CLI product tests",
         "conclusion": conclusion,
         "completed_at": iso(failed_age) if completed_at else None,
     })
@@ -213,13 +213,11 @@ class CategoryTests(unittest.TestCase):
 
 
 class DoomedCategoryTests(unittest.TestCase):
-    """An `app-host unit tests` shard failure decides ci-status by construction.
+    """A `CLI product tests` failure decides ci-status by construction.
 
     ci-status accepts only `success` or `skipped` from the `macos`
-    reusable-workflow call, so one failed shard fails the required check and no
-    later job takes it back. Across the 299 CI runs created between
-    2026-09-22T06:05Z and 17:00Z, 21 runs had such a failure and ci-status
-    concluded `failure` in all 21.
+    reusable-workflow call, so one failed job it wants fails the required
+    check and no later job takes it back.
     """
 
     def classify(self, *, jobs=None, pr=None, run=None):
@@ -229,26 +227,26 @@ class DoomedCategoryTests(unittest.TestCase):
             newer_ci_run_waiting=False, pull_request_policy="compile-only", now=NOW,
         )
 
-    def test_failed_shard_with_macos_jobs_still_held_is_doomed(self):
+    def test_failed_cli_product_tests_with_macos_jobs_still_held_is_doomed(self):
         verdict = self.classify()
         self.assertEqual(verdict[0], "doomed")
-        self.assertIn("app-host unit tests (3/6)", verdict[1])
+        self.assertIn("CLI product tests", verdict[1])
         self.assertIn("3 macOS job(s) still held", verdict[1])
         self.assertIn("PR #1 (feature)", verdict[1])
 
-    def test_earliest_failed_shard_is_the_one_reported(self):
+    def test_earliest_deciding_failure_is_the_one_reported(self):
         jobs = doomed_jobs(failed_age=30)
         jobs.append({"status": "completed", "labels": [MAC], "created_at": iso(60),
-                     "name": "macos / app-host unit tests (5/6)", "conclusion": "failure",
+                     "name": "macos / macOS compile admission", "conclusion": "failure",
                      "completed_at": iso(40)})
-        self.assertIn("(5/6)", self.classify(jobs=jobs)[1])
+        self.assertIn("macOS compile admission", self.classify(jobs=jobs)[1])
 
     def test_no_macos_job_left_to_reclaim_is_kept(self):
         # usage.held == 0 short-circuits every category: cancelling would free
         # nothing and only destroy the Linux results.
         self.assertIsNone(self.classify(jobs=doomed_jobs(queued=0, running=0)))
 
-    def test_macos_jobs_held_without_a_shard_failure_are_kept(self):
+    def test_macos_jobs_held_without_a_deciding_failure_are_kept(self):
         for conclusion in ("success", "skipped", "cancelled"):
             with self.subTest(conclusion=conclusion):
                 self.assertIsNone(self.classify(jobs=doomed_jobs(conclusion=conclusion)))
@@ -637,10 +635,10 @@ class OwnedMarkerRunTests(unittest.TestCase):
         # A person's re-run follows a code failure and may pick the fleet again.
         self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=3), []))
         self.assertTrue(janitor.may_hold_owned_pool(
-            self.run_of(event="workflow_dispatch", path=".github/workflows/test-e2e.yml"), []))
+            self.run_of(event="workflow_dispatch", path=".github/workflows/iroh-release-gate.yml"), []))
         for why, run in {
             "ci.yml dispatch": self.run_of(event="workflow_dispatch"),
-            "e2e as a pull request": self.run_of(path=".github/workflows/test-e2e.yml"),
+            "a dispatch workflow as a pull request": self.run_of(path=".github/workflows/iroh-release-gate.yml"),
             "the bot's third attempt": self.run_of(run_attempt=3, triggering_actor={"login": "github-actions[bot]"}),
             "fork": self.run_of(head_repository={"id": 2}),
             "other workflow": self.run_of(event="workflow_dispatch", path=".github/workflows/nightly.yml"),

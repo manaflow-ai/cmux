@@ -164,9 +164,9 @@ class SignatureTests(unittest.TestCase):
 
 class RunTests(unittest.TestCase):
     JOBS = [
-        job(1, "macos / app-host unit tests (2/7)"),
+        job(1, "macos / CLI product tests"),
         job(2, "macos / swift-package-tests"),
-        job(3, "macos / app-host unit tests (1/7)"),
+        job(3, "macos / remote-daemon-macos-tests"),
         job(4, "macos / macOS compile admission"),
         job(5, "macos / release-build", conclusion="cancelled"),
         job(6, "macos / macOS status"),

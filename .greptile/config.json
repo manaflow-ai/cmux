@@ -29,16 +29,6 @@
       "severity": "high"
     },
     {
-      "id": "cmux-browser-automation-webkit-waits-off-main",
-      "rule": "Flag browser socket automation commands that wait on page JavaScript, WebKit callbacks, WKHTTPCookieStore, screenshots, or injected page hooks while routed through main actor paths. Require socketWorkerMethods, the worker browser automation router, explicit main hops for WebKit/AppKit access or state mutation, and policy tests that prove worker routing. Pass for direct focus/show commands that do not wait and existing debt not worsened.",
-      "scope": [
-        "Sources/TerminalController.swift",
-        "Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift",
-        "Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift"
-      ],
-      "severity": "high"
-    },
-    {
       "id": "cmux-runtime-no-hacky-sleeps",
       "rule": "Flag fixed sleeps, delayed dispatch, timers, polling, or wall-clock waits used as synchronization in production non-Swift app/runtime code across TypeScript, JavaScript, shell, or build/runtime scripts. Fail race repairs for lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state readiness unless they use a real signal or a dedicated cancellation-aware timeout/retry abstraction with tests. Swift files are covered by cmux-swift-blocking-runtime.",
       "scope": [
@@ -262,14 +252,8 @@
       "id": "cmux-cloud-persistent-session-and-early-input",
       "rule": "For Cloud terminal creation and transport, flag a new cmux-tui client or physical transport per request/event, waiting for remote PTY or shell readiness before showing a focused user-created manual Ghostty runtime, losing ordered input ownership during attachment, or weakening auth, idempotency, revision, or attachment lease fences. Permit independent logical streams over one authenticated carrier when they preserve cancellation, geometry, and byte routing. Permit snapshots for cold, stale, missing, or revision-conflict state and measured tests that keep stages separate. Manual renderers must not wait for local command-wrapper installation; keep that work on exec surfaces.",
       "scope": [
-        "Sources/Cloud/**/*.swift",
-        "Sources/Surfaces/**/*.swift",
-        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift",
-        "Sources/AppDelegate*.swift",
-        "Sources/Ghostty*.swift",
-        "cmux-tui/crates/**/src/**/*.rs",
-        "Sources/Workspace*.swift",
-        "Sources/TerminalSurfaceRuntimeWiring.swift"
+        "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/**/*.swift",
+        "cmux-tui/crates/**/src/**/*.rs"
       ],
       "severity": "high"
     }

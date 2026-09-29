@@ -20,9 +20,8 @@ name: Seed DerivedData
 # A push to main also publishes the app-host test product this build compiled,
 # under the artifact name compile admission publishes it under. A pull request
 # whose product inputs equal main's then adopts it in "Reuse exact compatible
-# compiled products" instead of compiling, and so does an E2E dispatch of that
-# commit (scripts/ci/reuse_app_host_products.py trusts only this workflow, on a
-# main push, in this repository).
+# compiled products" instead of compiling (scripts/ci/reuse_app_host_products.py
+# trusts only this workflow, on a main push, in this repository).
 
 on:
   push:
@@ -475,7 +474,7 @@ jobs:
       # Publish the product exactly as ci-macos.yml compile admission does
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
       # rewrite Build/Products, so these follow "Save seed". Only a main push
-      # is a producer pull requests and E2E dispatches trust; a dispatch of
+      # is a producer pull requests trust; a dispatch of
       # this workflow publishes no product: staging, packaging and upload run
       # on a main push only. A failure here
       # costs pull requests the adoption, never the seed. The product does not

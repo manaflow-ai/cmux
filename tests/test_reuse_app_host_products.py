@@ -342,8 +342,8 @@ class ReuseProducts(TestProductHandoff):
 
         # Neighbours that the build does read stay product inputs.
         for path in (
-            "scripts/build-app-bundled-resources.sh",
-            "scripts/build-plain-text-paste-worker.sh",
+            "scripts/build-diff-sidecar.sh",
+            "scripts/build-cmux-cua.sh",
             "scripts/setup.sh",
             "skills/cmux-cua/SKILL.md",
             ".gitattributes",
@@ -358,7 +358,6 @@ class ReuseProducts(TestProductHandoff):
             for name in (
                 "cmux.xcodeproj/project.pbxproj",
                 "scripts/ci/compile-app-host-test-product.sh",
-                "scripts/build-app-bundled-resources.sh",
                 ".github/workflows/ci-macos.yml",
             )
         }
@@ -1460,7 +1459,7 @@ class GateDeclinedProducer(unittest.TestCase):
             "failure",
             ("Compile app-host test product", "success"),
             (reuse.GATE_DECLINE_STEP, "failure"),
-            ("Run changed app-host suites", "skipped"),
+            ("Record compile admission metrics", "success"),
         )
         self.assertTrue(reuse.compile_job_admitted(declined))
         self.assertTrue(reuse.compile_job_admitted(self.job("success")))
@@ -1470,9 +1469,9 @@ class GateDeclinedProducer(unittest.TestCase):
             ("compile failed", self.job(
                 "failure", ("Compile app-host test product", "failure"),
                 (reuse.GATE_DECLINE_STEP, "skipped"))),
-            ("changed suites failed", self.job(
+            ("a later step failed", self.job(
                 "failure", (reuse.GATE_DECLINE_STEP, "success"),
-                ("Run changed app-host suites", "failure"))),
+                ("Record compile admission metrics", "failure"))),
             ("no steps listed", {"status": "completed", "conclusion": "failure"}),
             ("cancelled", self.job("cancelled", (reuse.GATE_DECLINE_STEP, "failure"))),
             ("still running", {**self.job("success"), "status": "in_progress"}),

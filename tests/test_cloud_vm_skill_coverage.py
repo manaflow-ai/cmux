@@ -7,8 +7,7 @@ guard lane):
 
   - every `cmux vm <verb>` (and alias) the dispatcher accepts,
   - every `cmux vm workspace|terminal <sub>` and `cmux surface <sub>`,
-  - the `cmux vm` usage line and its probe in docs/cli-contract.md,
-  - every `vm.*` / `surface.*` socket method the app advertises.
+  - the `cmux vm` usage line and its probe in docs/cli-contract.md.
 
 The check fails when the skill documents a verb that does not exist, when a
 verb exists that the skill does not document, when the "In flight" section
@@ -25,11 +24,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CLI_MAIN = ROOT / "CLI" / "cmux.swift"
 CLI_TUI = ROOT / "CLI" / "CMUXCLI+VMTui.swift"
-CAPABILITIES = ROOT / "Sources" / "TerminalController+Capabilities.swift"
 CONTRACT = ROOT / "docs" / "cli-contract.md"
 SKILL_DIR = ROOT / "skills" / "cmux-cloud-vm"
 COMMANDS_MD = SKILL_DIR / "references" / "commands.md"
-BUNDLED_SKILL = ROOT / "Resources" / "en.lproj" / "cloud-agent-skill.md"
 
 # Every skill file whose `cmux vm …` examples must name real verbs.
 SKILL_FILES = [
@@ -38,7 +35,6 @@ SKILL_FILES = [
     SKILL_DIR / "references" / "agent-workflows.md",
     SKILL_DIR / "references" / "sidebar-parity.md",
     SKILL_DIR / "agents" / "openai.yaml",
-    BUNDLED_SKILL,
 ]
 SKILL_FILES.extend(path for path in sorted(SKILL_DIR.rglob("*.md")) if path not in SKILL_FILES)
 # Verbs the dispatcher accepts but the usage line deliberately omits.
@@ -110,20 +106,6 @@ def contract_probe_verbs(contract: str) -> list[str]:
     if match is None:
         raise RuntimeError("docs/cli-contract.md has no `cmux vm --help` probe")
     return match.group(1).split("|")
-
-
-CLOUD_SURFACE_METHODS = {"surface.catalog", "surface.project", "surface.new_terminal"}
-
-
-def advertised_methods(source: str) -> tuple[set[str], set[str]]:
-    """(cloud methods the reference must cover, every method the app advertises)."""
-    start = source.find('"vm.list",')
-    if start < 0:
-        raise RuntimeError("cannot find the vm.* capabilities list in Sources/TerminalController+Capabilities.swift")
-    end = source.find("]", start)
-    every = set(re.findall(r'"([a-z_]+\.[a-z_.]+)"', source[start:end]))
-    cloud = {method for method in every if method.startswith("vm.")} | (CLOUD_SURFACE_METHODS & every)
-    return cloud, every
 
 
 def code_text(markdown: str) -> str:
@@ -252,15 +234,6 @@ def main() -> int:
             if verb not in vpn_verbs:
                 failures.append(f"{path.relative_to(ROOT)} shows `cmux vpn {verb}`, which the CLI does not have")
 
-    # Socket methods: the reference names every advertised vm.*/surface.* method
-    # and no method the app does not advertise.
-    advertised, every_method = advertised_methods(CAPABILITIES.read_text(encoding="utf-8"))
-    mentioned = set(re.findall(r"\b((?:vm|surface)\.[a-z_]+)\b", shipped))
-    for method in sorted(advertised - mentioned):
-        failures.append(f"{COMMANDS_MD.relative_to(ROOT)} never mentions advertised socket method {method}")
-    for method in sorted(mentioned - every_method):
-        failures.append(f"{COMMANDS_MD.relative_to(ROOT)} mentions {method}, which the app does not advertise")
-
     if failures:
         print("FAIL: cmux-cloud-vm skill drifted from the CLI")
         for failure in failures:
@@ -268,7 +241,7 @@ def main() -> int:
         return 1
     print(
         f"PASS: {len(verbs)} vm verbs, {len(workspace_subs)} workspace and {len(terminal_subs)} terminal sub-verbs, "
-        f"{len(surface_subs)} surface sub-verbs, {len(vpn_verbs)} vpn verbs, {len(advertised)} socket methods covered"
+        f"{len(surface_subs)} surface sub-verbs, {len(vpn_verbs)} vpn verbs covered"
     )
     return 0
 

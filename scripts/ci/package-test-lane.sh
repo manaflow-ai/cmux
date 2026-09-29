@@ -76,7 +76,6 @@ select_packages() {
     CmuxMobileTerminalKit
     CmuxMobileWorkspace
     CmuxSettings
-    CmuxSurfaceCatalogModel
     CmuxSudoBroker
     CmuxTerminalCore
     CmuxTerminalImport

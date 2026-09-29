@@ -34,13 +34,11 @@ class WebValidationTests(unittest.TestCase):
         paths = [
             ".github/workflows/ci-artifact-transport.yml",
             ".github/workflows/ci-macos.yml",
-            "scripts/ci/app_host_layer_transport.py",
             "scripts/ci/parallel_artifact_download.py",
             "scripts/ci/restore-app-host-test-product.sh",
             "tests/test-execution.toml",
             "tests/test_ci_change_areas.py",
             "tests/test_ci_parallel_artifact_transport.py",
-            "tests/test_ci_selective_layer_wiring.py",
         ]
         self.assertFalse(gate.requires_web(paths))
         self.assertTrue(gate.requires_web(paths + ["web/app/page.tsx"]))

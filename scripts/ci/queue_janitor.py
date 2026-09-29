@@ -83,7 +83,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
+from pr_runner_pool import MAX_PLACED_JOBS, MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
@@ -139,30 +139,26 @@ COMPILE_ADMISSION_JOB = re.compile(r"(^|/ )macOS compile admission$")
 
 CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
 
-# The jobs whose failure decides ci-status. ci-macos.yml shards the app-host
-# suite and the reusable-call prefix makes the API name "macos / app-host unit
-# tests (3/6)", so match on the substring. A failed compile admission fails
-# the same `macos` call before any shard starts, and so do the changed suites
-# it runs itself (ci-macos.yml inputs.unit_in_admission, when admission
-# takes its Mac's gui token).
-DOOMED_JOB_NAME = "app-host unit tests"
+# The jobs whose failure decides ci-status. The reusable-call prefix makes the
+# API name "macos / CLI product tests", so match on the substring. A failed
+# compile admission fails the same `macos` call before cli-product-tests starts.
+DOOMED_JOB_NAME = "CLI product tests"
 
 
 def decides_ci_status(name: str) -> bool:
     return DOOMED_JOB_NAME in name or bool(COMPILE_ADMISSION_JOB.search(name))
 
-# How long a shard failure must have stood before the run is a candidate, so a
+# How long a deciding failure must have stood before the run is a candidate, so a
 # run that just turned red keeps its siblings while someone looks at it.
 DOOMED_GRACE = dt.timedelta(minutes=10)
 
-# The shards' own inputs, read off the app-host-unit-tests job block in
-# ci-macos.yml: the XCTest sources it runs, the scripts that shard, compile,
-# isolate and grade them, the known-failure quarantine list and the workflow
-# that defines the job. A run that changes any of these is an attempt to change
-# what the shard does, and its remaining shards are the result someone is
-# waiting for. Sources/ is deliberately absent: the suite exercises it, but
-# nearly every pull request changes it, and a set matching every pull request
-# is not a rule. JANITOR_OPT_OUT_LABEL covers a fix that lives only there.
+# The deciding jobs' own inputs: the workload entrypoints, the scripts that
+# compile, ship and restore the compiled product, and the workflow that defines
+# the jobs. A run that changes any of these is an attempt to change what those
+# jobs do, and its remaining jobs are the result someone is waiting for.
+# Product sources are deliberately absent: nearly every pull request changes
+# them, and a set matching every pull request is not a rule.
+# JANITOR_OPT_OUT_LABEL covers a fix that lives only there.
 DOOMED_INPUT_PREFIXES = ("scripts/ci/workloads/",)
 DOOMED_INPUT_MARKERS = ("app-host", "app_host")
 DOOMED_INPUT_FILES = (
@@ -391,9 +387,9 @@ MAX_ARTIFACT_PAGES = 5
 # pool: macos-pool-persistent-<run>-<attempt>-<jobs>p<placed>-<pool>, where
 # <jobs> is the machines held at peak and <placed> the owned jobs placed
 # (post-admission jobs reuse admission's machine, so placed can exceed jobs).
-# The E2E and iOS markers, and ones uploaded before `p<placed>`, omit it.
+# The dispatch markers, and ones uploaded before `p<placed>`, omit it.
 # workflow_dispatch workflows whose runner job may pick an owned pool and upload it.
-OWNED_DISPATCH_WORKFLOWS = ("/test-e2e.yml", "/test-ios.yml", "/ios-screenshots.yml", "/iroh-release-gate.yml")
+OWNED_DISPATCH_WORKFLOWS = ("/test-ios.yml", "/ios-screenshots.yml", "/iroh-release-gate.yml")
 OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)"
                           r"(?:p(?P<placed>[0-9]+))?-(?P<pool>.+)")
 
@@ -410,7 +406,7 @@ def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int
         if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) <= (run.get("run_attempt") or 1)
                 and owned_pool(match["pool"]) and (best is None or int(match["attempt"]) > best[0])):
             peak = min(int(match["jobs"]), MAX_RUN_JOBS)
-            placed = min(int(match["placed"]), MAX_RUN_JOBS) if match["placed"] is not None else peak
+            placed = min(int(match["placed"]), MAX_PLACED_JOBS) if match["placed"] is not None else peak
             best = int(match["attempt"]), match["pool"], peak, placed
     return best[1:] if best else None
 
@@ -436,9 +432,8 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
 
     Only attempt 1 of a same-repository pull request run of CI, of main's
     full-suite dispatch of CI (pr_runner_pool.py routes it too), or of an
-    E2E, iOS or Iroh release gate dispatch (the runner job of test-e2e.yml,
-    test-ios.yml, ios-screenshots.yml and iroh-release-gate.yml uploads the
-    same marker), can. While
+    iOS or Iroh release gate dispatch (the runner job of test-ios.yml,
+    ios-screenshots.yml and iroh-release-gate.yml uploads the same marker), can. While
     CI_OWNED_LIGHT_RETRY is 1 (`light_retry`), attempt 2 can too: the
     rescue's full re-run picks again and may take the light tier
     (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
@@ -715,7 +710,7 @@ def classify(
 
     # Doomed: ci-status is already decided against this run. Reaching here means
     # the PR is open and this run is still its current head, so unlike the
-    # categories above the run is live and its remaining shards are readable
+    # categories above the run is live and its remaining jobs are readable
     # output. Everything unknown therefore preserves the run.
     if (
         run.get("path") == CI_WORKFLOW_PATH

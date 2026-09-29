@@ -147,7 +147,6 @@ CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
 
 CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
-    "scripts/ci/app_host_layer_transport.py",
     "scripts/ci/parallel_artifact_download.py",
     "scripts/ci/apfs_clone.py",
     "scripts/ci/canonical-build-root.sh",
@@ -1057,8 +1056,6 @@ def is_web_change(path: str) -> bool:
         (
             "web/",
             "webviews/",
-            "Resources/agent-session-react/",
-            "Resources/agent-session-solid/",
             "Resources/markdown-viewer/",
             "config/",
             "workers/",
@@ -1734,8 +1731,6 @@ def is_macos_change(
     if path == "docs/cli-contract.md":
         return True
     if path in {"package.json", "bun.lock", "biome.json"}:
-        return True
-    if path.startswith(("Resources/agent-session-react/", "Resources/agent-session-solid/")):
         return True
     return not is_macos_neutral(path, macos_ios_packages)
 

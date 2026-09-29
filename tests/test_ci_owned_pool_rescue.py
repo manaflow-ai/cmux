@@ -623,17 +623,16 @@ class QueueBudget(unittest.TestCase):
         self.assertIn("for at least 30s", summary)
         self.assertLess(api.cancelled_at, 40 + 30 + rescue.POLL_SECONDS + 1)
 
-    def test_only_ci_test_ios_and_e2e_runs_get_the_expected_wait(self):
-        # iOS screenshots and side-lane runs have no queueing picker.
-        for payload in (e2e_event(path=".github/workflows/ios-screenshots.yml"),):
+    def test_only_ci_and_test_ios_runs_get_the_expected_wait(self):
+        # iOS screenshots, the Iroh release gate and side-lane runs have no queueing picker.
+        for payload in (e2e_event(path=".github/workflows/ios-screenshots.yml"), e2e_event()):
             clock = Clock()
             api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
             _, summary = run_main(api, clock, payload=payload,
                                   env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
             self.assertIn("(budget 30s)", summary, payload["workflow_run"]["path"])
-        # ios_runner_pool.py and e2e_runner_pool.py queue within CI_PR_POOL_QUEUE_ROUNDS.
-        for payload in (e2e_event(path=".github/workflows/test-ios.yml"), event(path=".github/workflows/test-ios.yml"),
-                        e2e_event()):
+        # ios_runner_pool.py queues within CI_PR_POOL_QUEUE_ROUNDS.
+        for payload in (e2e_event(path=".github/workflows/test-ios.yml"), event(path=".github/workflows/test-ios.yml")):
             clock = Clock()
             api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
             _, summary = run_main(api, clock, payload=payload,
@@ -870,7 +869,7 @@ class Rescuing(unittest.TestCase):
 
 
 def e2e_event(**overrides):
-    return event(**{"path": ".github/workflows/test-e2e.yml", "event": "workflow_dispatch",
+    return event(**{"path": ".github/workflows/iroh-release-gate.yml", "event": "workflow_dispatch",
                      "pull_requests": [], **overrides})
 
 
@@ -878,7 +877,9 @@ def e2e_runner(done_at=30):
     return lambda seconds: job("runner", status="completed" if seconds >= done_at else "in_progress")
 
 
-class E2E(unittest.TestCase):
+class Dispatch(unittest.TestCase):
+    """A dispatch run whose runner job picked an owned pool (iroh-release-gate.yml here)."""
+
     def test_only_attempt_1_of_a_same_repository_dispatch(self):
         cases = {
             "not a dispatch": e2e_event(event="push"),
@@ -898,7 +899,7 @@ class E2E(unittest.TestCase):
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
         self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
-        self.assertIn("an E2E dispatch", summary)
+        self.assertIn("a dispatch of .github/workflows/iroh-release-gate.yml", summary)
 
     def test_a_stuck_e2e_job_reruns_only_what_failed_without_a_pull_request(self):
         def jobs(seconds):
@@ -911,10 +912,9 @@ class E2E(unittest.TestCase):
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
         self.assertNotIn("pull", api.calls)
-        # The build never finished, so every job re-runs and the sibling wait looks again.
-        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
+        # Only the failed and cancelled jobs re-run; attempt 2 is on Blacksmith: not watched.
+        self.assertEqual(api.calls[-1], "rerun-failed")
         self.assertIn("cancel", api.calls)
-        self.assertNotIn("rerun-failed", api.calls)
 
     def test_a_refused_e2e_job_is_rerun(self):
         def jobs(seconds):
@@ -926,9 +926,8 @@ class E2E(unittest.TestCase):
         api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
+        self.assertEqual(api.calls[-1], "rerun-failed")  # attempt 2 is on Blacksmith: not watched
         self.assertIn("refused", summary)
-        self.assertIn("so its sibling wait runs again", summary)
 
     def test_an_e2e_run_whose_build_passed_keeps_it(self):
         # Only the test job failed: re-running every job would compile again.
@@ -944,14 +943,6 @@ class E2E(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("rerun-failed", api.calls)
         self.assertNotIn("rerun", api.calls)
-
-    def test_only_e2e_runs_rerun_every_job_for_an_unfinished_build(self):
-        clock = Clock()
-        api = FakeAPI(clock, lambda s: [refused_job("build")])
-        target = rescue.Target(run_id=RUN_ID, attempt=1, head_sha="a" * 40, pr_number=7)
-        self.assertFalse(rescue.e2e_build_unfinished(api, target, clock.sleep, lambda text: None))
-        self.assertEqual(api.calls, [], "a ci.yml run is not read here")
-
 
     def test_a_stuck_e2e_run_that_finished_otherwise_is_not_rerun(self):
         # A newer dispatch of the same group cancelled it; re-running it
@@ -1515,7 +1506,7 @@ class Sweeper(unittest.TestCase):
 
     def test_watches_each_marked_run_once(self):
         runs = [listed(1),
-                listed(2, path=".github/workflows/test-e2e.yml", event="workflow_dispatch", pull_requests=[]),
+                listed(2, path=".github/workflows/iroh-release-gate.yml", event="workflow_dispatch", pull_requests=[]),
                 listed(3, head_repository={"full_name": "someone/cmux"})]  # a fork never takes the fleet
         api = SweepAPI(runs, picker=[1, 2, 3])
         watched, outcomes = self.sweep(api)
