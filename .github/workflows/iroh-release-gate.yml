@@ -258,7 +258,11 @@ jobs:
       matrix:
         mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
-    timeout-minutes: 120
+    # The real relay rollover probe waits through the 30-minute credential
+    # lifetime after the one-hour workload.  Keep enough room for the hosted
+    # build, simulator setup, artifact upload, and runner cleanup so a passing
+    # report is not converted into a cancelled job at the hard deadline.
+    timeout-minutes: 145
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
