@@ -11,6 +11,10 @@ extension CMUXCLI {
     static let vmTransferChunkBytes = 512 * 1024
     /// Bound local staging and transfer time for one operation.
     static let vmTransferMaxBytes = 256 * 1024 * 1024
+    /// Bound on the uncompressed tar stream of one directory pull. The
+    /// transfer cap above bounds only the gzip bytes, and gzip reaches ~1000:1,
+    /// so a machine could otherwise expand 256 MiB into hundreds of GiB here.
+    static let vmPullMaxExpandedBytes: Int64 = 8 * 1024 * 1024 * 1024
     static let vmTransferExecTimeoutMs = 100_000
     static let vmTransferExecResponseTimeout: TimeInterval = 120
     static let vmPushWatchSettleTimeoutSeconds: TimeInterval = 10
@@ -699,7 +703,20 @@ extension CMUXCLI {
                 .appendingPathComponent("cmux-pull-\(UUID().uuidString.prefix(8)).tgz")
             try data.write(to: stagingTar, options: [.atomic])
             defer { try? FileManager.default.removeItem(at: stagingTar) }
+            // Size the expanded stream before tar writes anything: the machine
+            // controls these bytes, so the compressed transfer cap alone does
+            // not bound what lands on the local disk.
+            let expandedBytes = try Self.vmPullExpandedArchiveBytes(
+                stagingTar,
+                limit: Self.vmPullExpandedByteLimit(),
+                vmID: vmID,
+                remotePath: remotePath
+            )
             try FileManager.default.createDirectory(at: localURL, withIntermediateDirectories: true)
+            try Self.requireVMPullDiskSpace(expandedBytes, at: localURL)
+            // /usr/bin/tar is bsdtar: without -P it strips leading "/", refuses
+            // ".." members and refuses to extract through symlinks, which keeps
+            // every member inside localURL. Never add -P here.
             let untar = Process()
             untar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
             untar.arguments = ["-xzf", stagingTar.path, "-C", localURL.path]
@@ -739,6 +756,73 @@ extension CMUXCLI {
             cliWriteStderr(summary + "\n")
         } else {
             print(summary)
+        }
+    }
+
+    /// Test hook: `CMUX_VM_PULL_MAX_EXPANDED_BYTES=<n>` lowers the bound.
+    static func vmPullExpandedByteLimit(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Int64 {
+        if let raw = environment["CMUX_VM_PULL_MAX_EXPANDED_BYTES"],
+           let parsed = Int64(raw), parsed > 0 {
+            return min(parsed, vmPullMaxExpandedBytes)
+        }
+        return vmPullMaxExpandedBytes
+    }
+
+    /// Decompresses `archive` without writing it anywhere and returns the
+    /// uncompressed tar stream length, which bounds the bytes tar can write.
+    /// Stops reading and throws as soon as the stream passes `limit`.
+    static func vmPullExpandedArchiveBytes(
+        _ archive: URL,
+        limit: Int64,
+        vmID: String,
+        remotePath: String
+    ) throws -> Int64 {
+        let gunzip = Process()
+        gunzip.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        gunzip.arguments = ["-dc", archive.path]
+        let output = Pipe()
+        gunzip.standardOutput = output
+        gunzip.standardError = FileHandle.nullDevice
+        try cliRunProcess(gunzip)
+        let reader = output.fileHandleForReading
+        var total: Int64 = 0
+        var exceeded = false
+        while let chunk = try reader.read(upToCount: 1 << 20), !chunk.isEmpty {
+            total += Int64(chunk.count)
+            if total > limit {
+                exceeded = true
+                gunzip.terminate()
+                break
+            }
+        }
+        try? reader.close()
+        gunzip.waitUntilExit()
+        if exceeded {
+            throw CLIError(message: """
+                \(vmID):\(remotePath) expands past \(formatByteCount(Int(clamping: limit))); \
+                vm pull refuses directories that large. Pull smaller subdirectories, \
+                or archive the data on the machine and pull the archive file.
+                """)
+        }
+        guard gunzip.terminationStatus == 0 else {
+            throw CLIError(message: "Could not decompress the archive of \(vmID):\(remotePath) (gzip exit \(gunzip.terminationStatus))")
+        }
+        return total
+    }
+
+    /// Refuses an extraction that would not fit on the destination volume.
+    static func requireVMPullDiskSpace(_ bytes: Int64, at directory: URL) throws {
+        let values = try? directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard let available = values?.volumeAvailableCapacityForImportantUsage, available > 0 else {
+            return
+        }
+        guard bytes <= available else {
+            throw CLIError(message: """
+                Extracting into \(directory.path) needs \(formatByteCount(Int(clamping: bytes))) \
+                but only \(formatByteCount(Int(clamping: available))) is free.
+                """)
         }
     }
 
