@@ -188,10 +188,15 @@ extension FileExplorerPanelView {
             if let renamingPath, store.nodesByPath[renamingPath] == nil { cancelRenaming() }
             withProgrammaticOutlineUpdate {
                 if let parent, outlineView.row(forItem: parent) < 0 || !outlineView.isItemExpanded(parent) {
-                    // A hidden or collapsed folder: refresh its cached children
-                    // and disclosure state; no rows move on screen.
-                    if outlineView.row(forItem: parent) >= 0 {
-                        outlineView.reloadItem(parent, reloadChildren: true)
+                    // A collapsed or hidden folder: no rows move on screen.
+                    // Invalidate AppKit's cached children at the nearest
+                    // on-screen ancestor so the next expansion re-reads them.
+                    var cursor: FileExplorerNode? = parent
+                    while let node = cursor, outlineView.row(forItem: node) < 0 {
+                        cursor = node.parent
+                    }
+                    if let visible = cursor {
+                        outlineView.reloadItem(visible, reloadChildren: true)
                     }
                     return
                 }
