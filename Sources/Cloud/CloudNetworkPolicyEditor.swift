@@ -8,13 +8,12 @@ import SwiftUI
 /// ``CloudNetworkAllowlistDetails``) inside its own rows.
 struct CloudNetworkPolicyEditor: View {
     @Bindable var model: CloudNetworkPolicyEditorModel
-    var modeMenuWidth: CGFloat = 200
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 CloudNetworkModePicker(model: model)
-                    .frame(width: modeMenuWidth)
+                    .fixedSize()
                 CloudSecurityExplainer()
             }
             if model.showsAllowlistDetails {
@@ -117,7 +116,7 @@ struct CloudNetworkAllowlistDetails: View {
     @Bindable var model: CloudNetworkPolicyEditorModel
 
     var body: some View {
-        Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 8, verticalSpacing: 8) {
+        Grid(alignment: .topLeading, horizontalSpacing: 8, verticalSpacing: 8) {
             if !model.presets.isEmpty {
                 GridRow {
                     rowLabel(String(localized: "cloud.network.presets.label", defaultValue: "Quick add"))
@@ -211,11 +210,14 @@ struct CloudNetworkAllowlistDetails: View {
         }
     }
 
+    /// Top-aligned rows; the label drops to the first control's text line.
     private func rowLabel(_ title: String) -> some View {
         Text(title)
             .cmuxFont(size: 11)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            .fixedSize()
+            .padding(.top, 3)
             .gridColumnAlignment(.trailing)
     }
 }

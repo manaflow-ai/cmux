@@ -7,9 +7,9 @@ import SwiftUI
 /// sheet opens so the variants can be compared without a rebuild
 /// (`defaults write <bundle id> cloud.newMachine.layoutVariant B`).
 enum NewMachineSheetLayout: String, CaseIterable {
-    /// Two columns: right-aligned labels, equal-width controls.
+    /// Two columns: right-aligned labels, left-aligned controls.
     case grid = "A"
-    /// One column: a small caps label above each full-width control.
+    /// One column: a small caps label above each left-aligned control.
     case stacked = "B"
     /// One sentence of borderless menus: "8 GB RAM · Full internet · Agents update".
     case sentence = "C"
@@ -32,7 +32,7 @@ enum NewMachineSheetLayout: String, CaseIterable {
     var width: CGFloat {
         switch self {
         case .grid: return 440
-        case .stacked: return 400
+        case .stacked: return 440
         case .sentence: return 480
         case .grouped: return 440
         }
@@ -143,21 +143,19 @@ struct NewMachineSheet: View {
 
     // MARK: A. Grid
 
-    private static let gridControlWidth: CGFloat = 230
-
     private var gridLayout: some View {
         Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 10, verticalSpacing: 12) {
             if showsSizeRow {
                 GridRow {
                     gridLabel(sizeLabel)
-                    sizeMenu.frame(width: Self.gridControlWidth)
+                    sizeMenu.fixedSize()
                 }
             }
             if model.supportsNetworkPolicy {
                 GridRow {
                     gridLabel(networkLabel)
                     HStack(spacing: 6) {
-                        networkMenu.frame(width: Self.gridControlWidth)
+                        networkMenu.fixedSize()
                         CloudSecurityExplainer()
                     }
                 }
@@ -172,12 +170,19 @@ struct NewMachineSheet: View {
         }
     }
 
+    /// The Allowlist summary under the network control, and the lists
+    /// themselves across both columns so they get the sheet's full width.
     @ViewBuilder
     private var allowlistGridRows: some View {
-        if model.networkAvailability == .available, model.network.showsAllowlistDetails {
+        if showsAllowlist {
             GridRow {
                 Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                allowlistDisclosure
+                allowlistToggle
+            }
+            if allowlistExpanded {
+                GridRow {
+                    allowlistDetailsBox.gridCellColumns(2)
+                }
             }
         }
         if model.network.inputError != nil {
@@ -201,13 +206,13 @@ struct NewMachineSheet: View {
     private var stackedLayout: some View {
         VStack(alignment: .leading, spacing: 12) {
             if showsSizeRow {
-                stackedRow(sizeLabel) { sizeMenu.frame(maxWidth: .infinity) }
+                stackedRow(sizeLabel) { sizeMenu.fixedSize() }
             }
             if model.supportsNetworkPolicy {
                 stackedRow(networkLabel) {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
-                            networkMenu.frame(maxWidth: .infinity)
+                            networkMenu.fixedSize()
                             CloudSecurityExplainer()
                         }
                         networkExtras
@@ -480,28 +485,54 @@ struct NewMachineSheet: View {
         }
     }
 
-    private var hasNetworkExtras: Bool {
-        (model.networkAvailability == .available && model.network.showsAllowlistDetails)
-            || model.network.inputError != nil
+    private var showsAllowlist: Bool {
+        model.networkAvailability == .available && model.network.showsAllowlistDetails
     }
 
-    /// The Allowlist disclosure and any input error, under the network row.
+    private var hasNetworkExtras: Bool {
+        showsAllowlist || model.network.inputError != nil
+    }
+
+    /// The Allowlist summary, its lists when expanded, and any input error.
     @ViewBuilder
     private var networkExtras: some View {
-        if model.networkAvailability == .available, model.network.showsAllowlistDetails {
-            allowlistDisclosure
+        if showsAllowlist {
+            allowlistToggle
+            if allowlistExpanded {
+                allowlistDetailsBox
+            }
         }
         CloudNetworkInputError(model: model.network)
     }
 
-    private var allowlistDisclosure: some View {
-        DisclosureGroup(isExpanded: $allowlistExpanded) {
-            CloudNetworkAllowlistDetails(model: model.network)
-                .padding(.top, 6)
+    /// "Presets: 2 · Domains: 3 · IP ranges: 1" with a disclosure chevron.
+    private var allowlistToggle: some View {
+        Button {
+            allowlistExpanded.toggle()
         } label: {
-            CloudNetworkAllowlistSummary(model: model.network)
+            HStack(spacing: 4) {
+                Image(systemName: allowlistExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 10)
+                CloudNetworkAllowlistSummary(model: model.network)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(allowlistExpanded ? .isSelected : [])
         .accessibilityIdentifier("CloudNetworkPolicyEditor.allowlist")
+    }
+
+    /// The lists, grouped in a quiet box at the sheet's full width.
+    private var allowlistDetailsBox: some View {
+        CloudNetworkAllowlistDetails(model: model.network)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+            )
     }
 
     /// A label-less checkbox with a sibling title (see ``CloudCheckboxRow``).

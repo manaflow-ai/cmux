@@ -25,8 +25,12 @@ struct CloudCheckboxRow<Detail: View>: View {
                 .labelsHidden()
                 .accessibilityLabel(accessibilityTitle ?? title)
             VStack(alignment: .leading, spacing: 4) {
+                // One line at its natural width: wrapped text would make the
+                // row's height depend on the offered width again.
                 Text(title)
                     .cmuxFont(size: fontSize)
+                    .lineLimit(1)
+                    .fixedSize()
                     .contentShape(Rectangle())
                     .onTapGesture { isOn.toggle() }
                     .accessibilityHidden(true)

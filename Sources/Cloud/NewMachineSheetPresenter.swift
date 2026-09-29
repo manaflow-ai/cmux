@@ -103,6 +103,9 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         }
         // Fill the model before the first layout so the sheet opens at its
         // final size and never grows during the open animation.
+#if DEBUG
+        let presentStartedAt = ProcessInfo.processInfo.systemUptime
+#endif
         attachCachedData(to: model)
         var allowlistExpanded = false
 #if DEBUG
@@ -139,6 +142,9 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             NSApp.activate(ignoringOtherApps: true)
         }
         let host = NSApp.cmuxMainWindowForModalPresentation(preferring: preferredWindow)
+#if DEBUG
+        let hostingBuiltAt = ProcessInfo.processInfo.systemUptime
+#endif
         if let host, host.attachedSheet == nil {
             hostWindow = host
             host.beginSheet(window) { _ in }
@@ -149,6 +155,14 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             window.center()
             window.makeKeyAndOrderFront(nil)
         }
+#if DEBUG
+        let now = ProcessInfo.processInfo.systemUptime
+        cmuxDebugLog(
+            "cloud.newMachine.timing build_ms=\(Int((hostingBuiltAt - presentStartedAt) * 1000)) " +
+            "begin_sheet_ms=\(Int((now - hostingBuiltAt) * 1000)) " +
+            "size=\(Int(window.frame.width))x\(Int(window.frame.height))"
+        )
+#endif
     }
 
     /// The one path every "New Machine" entrypoint (Machines panel ＋, the
