@@ -57,6 +57,26 @@ struct ReleasingWindowControllerTests {
         #expect(controller.window === secondWindow)
     }
 
+    @Test
+    func featureFlagsWindowOwnsCloseShortcutAndReleasesOnClose() throws {
+        InternalFlagsPresenter.present()
+        let window = try #require(featureFlagsWindow())
+
+        // A panel hides on deactivation and can stay ordered out while AppKit
+        // still counts it as visible, which captures Cmd-` cycling.
+        #expect(!(window is NSPanel))
+        #expect(!window.hidesOnDeactivate)
+        #expect(cmuxWindowShouldOwnCloseShortcut(window))
+
+        window.performClose(nil)
+
+        #expect(featureFlagsWindow() == nil)
+    }
+
+    private func featureFlagsWindow() -> NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue == "cmux.featureFlags" && $0.isVisible }
+    }
+
     private final class CountingReleasingWindowController: ReleasingWindowController {
         var makeWindowCount = 0
         var closedWindowIdentifiers: [String] = []
