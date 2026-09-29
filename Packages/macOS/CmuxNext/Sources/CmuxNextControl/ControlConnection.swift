@@ -42,6 +42,7 @@ final class ControlConnection: @unchecked Sendable {
     private var isClosed = false
     private var continuation: AsyncStream<String>.Continuation?
     private var consumer: Task<Void, Never>?
+    private var hangupWaiters: [CheckedContinuation<Void, Never>] = []
     /// Called once on the connection queue after the descriptor closed.
     var onClosed: (@Sendable () -> Void)?
 
@@ -81,6 +82,22 @@ final class ControlConnection: @unchecked Sendable {
             outbox.append(data)
             flush()
         }
+    }
+
+    /// Returns once the client stopped sending (EOF, error) or the
+    /// connection closed (a failed write to a gone client closes it).
+    func hangup() async {
+        await withCheckedContinuation { waiter in
+            queue.async { [self] in
+                if isInputFinished || isClosed { waiter.resume() } else { hangupWaiters.append(waiter) }
+            }
+        }
+    }
+
+    private func resumeHangupWaiters() {
+        let waiters = hangupWaiters
+        hangupWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 
     /// The consumer finished one line; reading may resume.
@@ -163,6 +180,7 @@ final class ControlConnection: @unchecked Sendable {
     private func finishInput() {
         guard !isInputFinished else { return }
         isInputFinished = true
+        resumeHangupWaiters()
         if let readSource, !isReadSuspended {
             readSource.suspend()
             isReadSuspended = true
@@ -218,6 +236,7 @@ final class ControlConnection: @unchecked Sendable {
         guard !isClosed else { return }
         isClosed = true
         isInputFinished = true
+        resumeHangupWaiters()
         continuation?.finish()
         continuation = nil
         drainTimer?.cancel()

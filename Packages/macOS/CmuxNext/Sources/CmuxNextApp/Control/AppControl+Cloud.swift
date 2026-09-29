@@ -14,6 +14,8 @@ extension AppControl {
                     "signed_in": .bool(cloud.isSignedIn),
                     "restoring": .bool(cloud.auth.isRestoring),
                     "email": user?.primaryEmail.map(JSONValue.string) ?? .null,
+                    // The old app's shape, read by the iOS dogfood launcher.
+                    "user": user.map { .object(["id": .string($0.id), "email": $0.primaryEmail.map(JSONValue.string) ?? .null]) } ?? .null,
                     "user_id": user.map { .string($0.id) } ?? .null,
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
                     "backend": .string(cloud.configuration.apiBaseURL.absoluteString),

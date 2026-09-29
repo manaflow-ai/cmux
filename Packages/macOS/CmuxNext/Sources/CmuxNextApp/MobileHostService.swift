@@ -16,6 +16,9 @@ final class MobileHostService {
     /// Bumped by every start and stop; a start that lost the race drops out.
     private var generation = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.mobile")
+    /// Where usable phone connections are reported (`mobile.rpc.ready` on
+    /// the control socket's event stream); set once the socket starts.
+    let readiness = MobileReadinessRelay()
 
     /// Starts (or restarts for a new account) the phone listener. The Mac's
     /// display name is read off the main actor first (`MacName`).
@@ -33,10 +36,11 @@ final class MobileHostService {
                 logger.error("phone access disabled: no v2 control-plane URL for this environment")
                 return
             }
+            let readiness = self.readiness
             let host = MobileIrxHost(configuration: configuration, auth: auth, makeBackend: { @MainActor in
                 let endpoint = try await daemon.endpoint()
                 return try await DaemonCompatBackend.connect(endpointProvider: { endpoint })
-            })
+            }, onUsable: { readiness.report($0) })
             self.host = host
             await host.start()
             let phase = await host.phase
