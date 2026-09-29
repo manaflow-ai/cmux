@@ -386,9 +386,8 @@ if test "$_cmux_integration_enabled" != 0
 
     # Succeeds when every directory, checked in order, is an absolute path to
     # a real directory (not a symlink) owned by this user that no one else can
-    # write to. With create set to 1, a missing directory is first created
-    # 0700. Anything the shell later runs must come from such a directory,
-    # since a shared TMPDIR lets other users pre-create names in it.
+    # write to, with a safe ancestry. Sticky shared ancestors (such as /tmp)
+    # are safe; a non-sticky writable ancestor can rename a checked child.
     function _cmux_private_dirs --argument-names create
         set -e argv[1]
         test (count $argv) -gt 0; or return 1
@@ -396,13 +395,60 @@ if test "$_cmux_integration_enabled" != 0
             string match -q '/*' -- "$dir"; or return 1
             # A directory mkdir just created is ours and already 0700.
             if test "$create" = 1; and not test -e "$dir"; and not test -L "$dir"
-                /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1; and continue
+                /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1; or return 1
             end
             test -d "$dir"; and not test -L "$dir"; and test -O "$dir"; or return 1
             # fish can't read mode bits; find's -type d uses lstat here.
             set -l private_dir (/usr/bin/find "$dir" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)
             test "$private_dir" = "$dir"; or return 1
+            _cmux_private_path_chain "$dir"; or return 1
         end
+    end
+
+    function _cmux_private_path_chain --argument-names start
+        set -l paths "$start"
+        set -l canonical (_cmux_resolve_path "$start"); or return 1
+        test "$canonical" = "$start"; or set -a paths "$canonical"
+        for chain_start in $paths
+            set -l current "$chain_start"
+            while true
+                _cmux_private_path_node "$current"; or return 1
+                test "$current" = /; and break
+                set current (string replace -r '/[^/]*$' '' -- "$current")
+                test -n "$current"; or set current /
+            end
+        end
+    end
+
+    function _cmux_resolve_path --argument-names path
+        if test -x /usr/bin/realpath
+            /usr/bin/realpath -- "$path"
+        else if test -x /bin/realpath
+            /bin/realpath -- "$path"
+        else if test -x /usr/bin/readlink
+            /usr/bin/readlink -f -- "$path"
+        else
+            return 1
+        end
+    end
+
+    function _cmux_private_path_node --argument-names current
+        set -l owner
+        if test -d "$current"; and not test -L "$current"
+            set owner (/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)
+            test "$owner" = "$current"; or return 1
+            set -l private (/usr/bin/find -P "$current" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)
+            test "$private" = "$current"; and return 0
+            set -l sticky (/usr/bin/find -P "$current" -prune -type d -perm -1000 -print 2>/dev/null)
+            test "$sticky" = "$current"; and return 0
+            return 1
+        end
+        if test -L "$current"
+            set owner (/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)
+            test "$owner" = "$current"
+            return $status
+        end
+        return 1
     end
 
     set -g _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED ""

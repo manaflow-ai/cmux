@@ -329,9 +329,8 @@ _cmux_path_prepend_unique_directory() {
 }
 # Succeeds when every directory, checked in order, is an absolute path to a
 # real directory (not a symlink) owned by this user that no one else can write
-# to. With $1 set to 1, a missing directory is first created 0700. Anything
-# the shell later runs or reads must come from such a directory, since a
-# shared TMPDIR lets other users pre-create names in it.
+# to, with a safe ancestry. Sticky shared ancestors (such as /tmp) are safe;
+# a non-sticky writable ancestor can rename a checked child after this check.
 _cmux_private_dirs() {
     local create="$1"
     shift
@@ -341,13 +340,70 @@ _cmux_private_dirs() {
         [[ "$dir" == /* ]] || return 1
         # A directory mkdir just created is ours and already 0700.
         if [[ "$create" == 1 && ! -e "$dir" && ! -L "$dir" ]] \
-            && /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1; then
-            continue
+            && ! /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1; then
+            return 1
         fi
         [[ -d "$dir" && ! -L "$dir" && -O "$dir" ]] || return 1
         # Bash can't read mode bits; find's -type d uses lstat here.
         [[ "$(/usr/bin/find "$dir" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)" == "$dir" ]] || return 1
+        _cmux_private_path_chain "$dir" || return 1
     done
+}
+
+_cmux_private_path_chain() {
+    local start="$1"
+    local current="$start"
+    local canonical=""
+    while true; do
+        _cmux_private_path_node "$current" || return 1
+        [[ "$current" == "/" ]] && break
+        current="${current%/*}"
+        [[ -n "$current" ]] || current="/"
+    done
+    canonical="$(_cmux_resolve_path "$start")" || return 1
+    [[ "$canonical" == "$start" ]] || _cmux_private_path_chain_resolved "$canonical"
+}
+
+_cmux_private_path_chain_resolved() {
+    local current="$1"
+    while true; do
+        _cmux_private_path_node "$current" || return 1
+        [[ "$current" == "/" ]] && return 0
+        current="${current%/*}"
+        [[ -n "$current" ]] || current="/"
+    done
+}
+
+_cmux_private_path_node() {
+    local current="$1"
+    local owner=""
+    if [[ -d "$current" && ! -L "$current" ]]; then
+        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
+        [[ "$owner" == "$current" ]] || return 1
+        if [[ "$(/usr/bin/find -P "$current" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)" == "$current" ]]; then
+            return 0
+        fi
+        [[ "$(/usr/bin/find -P "$current" -prune -type d -perm -1000 -print 2>/dev/null)" == "$current" ]] || return 1
+        return 0
+    fi
+    if [[ -L "$current" ]]; then
+        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
+        [[ "$owner" == "$current" ]]
+        return $?
+    fi
+    return 1
+}
+
+_cmux_resolve_path() {
+    if [[ -x /usr/bin/realpath ]]; then
+        /usr/bin/realpath -- "$1"
+    elif [[ -x /bin/realpath ]]; then
+        /bin/realpath -- "$1"
+    elif [[ -x /usr/bin/readlink ]]; then
+        /usr/bin/readlink -f -- "$1"
+    else
+        return 1
+    fi
 }
 _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
 _cmux_install_cli_command_shim() {
