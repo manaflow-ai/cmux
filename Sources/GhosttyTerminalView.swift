@@ -5372,6 +5372,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         } else {
             _ = commitOwnBounds()
         }
+        terminalSurface?.rendererPresentationReadinessDidChange()
     }
 
     /// Sizes the Metal drawable for the committed geometry.
