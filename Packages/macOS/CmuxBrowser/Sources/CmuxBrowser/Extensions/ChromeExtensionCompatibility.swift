@@ -200,25 +200,22 @@ public enum ChromeExtensionCompatibility {
         // Added by cmux: content scripts run in the extension's isolated world, where
         // Chrome lets the <style> elements they add ignore the page's style-src
         // policy. WebKit applies the page policy, so a page with a strict policy
-        // (api.github.com: default-src 'none') leaves them unstyled. Style elements
-        // created from this world are mirrored into constructed style sheets, which
-        // the page policy does not govern. Elements the page creates are untouched.
+        // (api.github.com: default-src 'none') leaves them unstyled. A style element
+        // this world creates is copied into a constructed style sheet, which the page
+        // policy does not govern, when this world inserts or edits it. Page script
+        // edits never reach the copy; removing the element drops it.
         (function () {
           if (typeof document === "undefined" || typeof CSSStyleSheet !== "function" || !("adoptedStyleSheets" in Document.prototype)) return;
+          // Only in an extension's isolated world: page-world code has no runtime id.
+          var api = typeof chrome === "object" && chrome;
+          if (!api || !api.runtime || !api.runtime.id) return;
           if (globalThis.__cmuxContentCompat) return;
           globalThis.__cmuxContentCompat = true;
           var ours = new WeakSet();
           var mirrors = new Map();
-          var create = Document.prototype.createElement;
-          Document.prototype.createElement = function (name) {
-            var element = create.apply(this, arguments);
-            if (element instanceof HTMLStyleElement) ours.add(element);
-            return element;
-          };
           function sync(style) {
-            var attached = style.isConnected && style.ownerDocument === document;
             var mirror = mirrors.get(style);
-            if (!attached || style.sheet) {
+            if (!style.isConnected || style.ownerDocument !== document || style.sheet) {
               if (mirror) {
                 document.adoptedStyleSheets = document.adoptedStyleSheets.filter(function (s) { return s !== mirror; });
                 mirrors.delete(style);
@@ -232,23 +229,53 @@ public enum ChromeExtensionCompatibility {
             }
             try { mirror.replaceSync(style.textContent || ""); } catch (e) {}
           }
-          function visit(node) {
+          function touch(node) {
+            if (!node) return;
             if (node instanceof HTMLStyleElement) { if (ours.has(node)) sync(node); return; }
-            if (node && node.querySelectorAll) node.querySelectorAll("style").forEach(function (s) { if (ours.has(s)) sync(s); });
+            if (node.querySelectorAll) node.querySelectorAll("style").forEach(function (s) { if (ours.has(s)) sync(s); });
           }
+          function wrap(proto, name, after) {
+            var original = proto[name];
+            if (typeof original !== "function") return;
+            proto[name] = function () {
+              var result = original.apply(this, arguments);
+              try { after(this, arguments, result); } catch (e) {}
+              return result;
+            };
+          }
+          var create = Document.prototype.createElement;
+          Document.prototype.createElement = function () {
+            var element = create.apply(this, arguments);
+            if (element instanceof HTMLStyleElement) ours.add(element);
+            return element;
+          };
+          // Inserting: the moved nodes, and the target when it is one of our styles.
+          function inserted(target, args) {
+            Array.prototype.forEach.call(args, function (a) { if (a && typeof a === "object") touch(a); });
+            touch(target);
+          }
+          ["appendChild", "insertBefore", "replaceChild"].forEach(function (n) { wrap(Node.prototype, n, inserted); });
+          ["append", "prepend", "before", "after", "replaceWith", "insertAdjacentElement", "insertAdjacentHTML", "insertAdjacentText", "replaceChildren"].forEach(function (n) {
+            wrap(Element.prototype, n, function (target, args) {
+              inserted(target, args);
+              if (target.parentNode) touch(target.parentNode);
+            });
+          });
+          var text = Object.getOwnPropertyDescriptor(Node.prototype, "textContent");
+          if (text && text.set) {
+            Object.defineProperty(Node.prototype, "textContent", {
+              configurable: true, enumerable: text.enumerable, get: text.get,
+              set: function (value) { text.set.call(this, value); touch(this); }
+            });
+          }
+          // Removal by anyone drops the copy; nothing the page does adds to it.
           new MutationObserver(function (records) {
             records.forEach(function (record) {
-              if (record.type === "characterData" || (record.type === "childList" && record.target instanceof HTMLStyleElement)) {
-                var style = record.target instanceof HTMLStyleElement ? record.target : record.target.parentNode;
-                if (style instanceof HTMLStyleElement && ours.has(style)) sync(style);
-                return;
-              }
-              record.addedNodes.forEach(visit);
               record.removedNodes.forEach(function (node) {
                 mirrors.forEach(function (_, style) { if (style === node || (node.contains && node.contains(style))) sync(style); });
               });
             });
-          }).observe(document, { childList: true, subtree: true, characterData: true });
+          }).observe(document, { childList: true, subtree: true });
         })();
         """
     }
@@ -323,13 +350,26 @@ public enum ChromeExtensionCompatibility {
     /// Puts the content preamble first in every isolated-world content script
     /// entry. Main-world entries run as page code and are left alone.
     static func prefixingContentScripts(_ scripts: [[String: Any]]) -> [[String: Any]] {
-        scripts.map { entry in
-            guard (entry["world"] as? String)?.uppercased() != "MAIN",
-                  let js = entry["js"] as? [String], !js.isEmpty, js.first != contentPreambleFile else { return entry }
+        let generated: Set<String> = [preambleFile, contentPreambleFile]
+        return scripts.compactMap { entry in
+            guard var js = entry["js"] as? [String], !js.isEmpty else { return entry }
             var entry = entry
-            entry["js"] = [contentPreambleFile] + js.filter { $0 != contentPreambleFile }
+            if (entry["world"] as? String)?.uppercased() == "MAIN" {
+                // cmux's files never run as page code, even if a manifest names them.
+                js.removeAll { generated.contains(Self.normalizedScriptPath($0)) }
+                if js.isEmpty && ((entry["css"] as? [String]) ?? []).isEmpty { return nil }
+            } else if js.first != contentPreambleFile {
+                js = [contentPreambleFile] + js.filter { Self.normalizedScriptPath($0) != contentPreambleFile }
+            }
+            entry["js"] = js
             return entry
         }
+    }
+
+    private static func normalizedScriptPath(_ path: String) -> String {
+        var path = path
+        while path.hasPrefix("/") || path.hasPrefix("./") { path.removeFirst(path.hasPrefix("/") ? 1 : 2) }
+        return path
     }
 
     /// Removes a preamble an earlier load added, so re-applying replaces it.

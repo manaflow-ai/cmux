@@ -159,6 +159,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
     private var pendingRuntimePrompts: Set<String> = []
     private static let maximumPendingRuntimePrompts = 3
     private var lastRevival: [String: Date] = [:]
+    private var availabilityObserver: NSObjectProtocol?
 
     private override init() {
         WKWebExtension.MatchPattern.registerCustomURLScheme(Self.extensionScheme)
@@ -173,6 +174,15 @@ final class BrowserExtensions: NSObject, ObservableObject {
         stateObservation = objectWillChange
             .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
             .sink { [weak self] in self?.pushStateToPages() }
+        // Turning the embedded browser off (or on) goes through the same
+        // teardown as the URL allowlist, so running extensions stop at once.
+        availabilityObserver = NotificationCenter.default.addObserver(
+            forName: BrowserAvailabilitySettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyURLAllowlistPolicy() }
+        }
     }
 
     // MARK: - Profiles
@@ -718,7 +728,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
         popoverExtensionID = nil
     }
 
-    private var extensionPageWindows: [(extensionID: String, window: NSWindow, url: URL)] = []
+    private var extensionPageWindows: [(extensionID: String, profileKey: String?, window: NSWindow, url: URL)] = []
 
     /// Same scheme, host, and path; the query and fragment may differ.
     nonisolated static func samePage(_ lhs: URL, _ rhs: URL) -> Bool {
@@ -726,8 +736,9 @@ final class BrowserExtensions: NSObject, ObservableObject {
     }
 
     /// Closes the extension's page windows, or every one when `id` is nil.
-    fileprivate func closeExtensionPages(ofExtensionID id: String? = nil) {
-        for entry in extensionPageWindows where id == nil || entry.extensionID == id {
+    fileprivate func closeExtensionPages(ofExtensionID id: String? = nil, profileKey: String? = nil) {
+        for entry in extensionPageWindows
+        where (id == nil || entry.extensionID == id) && (profileKey == nil || entry.profileKey == profileKey) {
             entry.window.close()
         }
     }
@@ -738,8 +749,11 @@ final class BrowserExtensions: NSObject, ObservableObject {
     fileprivate func openExtensionPage(_ url: URL, context: WKWebExtensionContext) {
         // An extension that opens the same page again (1Password opens its
         // welcome page on every toolbar click) reuses that page's window.
+        // Keyed by profile too: each profile's pages use its own data store.
+        let profileKey = controllers.first { $0.value.contexts.values.contains { $0 === context } }?.key
         if let index = extensionPageWindows.firstIndex(where: { entry in
             entry.extensionID == context.uniqueIdentifier
+                && entry.profileKey == profileKey
                 && Self.samePage((entry.window.contentView as? WKWebView)?.url ?? entry.url, url)
         }) {
             let existing = extensionPageWindows[index]
@@ -765,7 +779,7 @@ final class BrowserExtensions: NSObject, ObservableObject {
         window.title = context.webExtension.displayName ?? context.uniqueIdentifier
         window.contentView = webView
         window.center()
-        extensionPageWindows.append((context.uniqueIdentifier, window, url))
+        extensionPageWindows.append((context.uniqueIdentifier, profileKey, window, url))
         var observer: NSObjectProtocol?
         observer = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self, weak window] _ in
             MainActor.assumeIsolated {
@@ -1135,7 +1149,7 @@ final class BrowserExtensionController: NSObject, WKWebExtensionControllerDelega
     func unload(id: String) {
         guard let context = contexts.removeValue(forKey: id) else { return }
         owner.closePopup(ofExtensionID: id)
-        owner.closeExtensionPages(ofExtensionID: id)
+        owner.closeExtensionPages(ofExtensionID: id, profileKey: profileKey)
         owner.stopObservingErrors(of: context)
         try? controller.unload(context)
         owner.objectWillChange.send()

@@ -166,6 +166,33 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(ChromeExtensionCompatibility.contentPreambleFile).path))
     }
 
+    @Test func mainWorldEntriesNeverRunCmuxFiles() {
+        let scripts: [[String: Any]] = [
+            ["matches": ["<all_urls>"], "js": ["/cmux-content-compat.js", "page.js"], "world": "MAIN"],
+            ["matches": ["<all_urls>"], "js": ["./cmux-compat.js"], "world": "MAIN"],
+            ["matches": ["<all_urls>"], "js": ["a.js", "cmux-content-compat.js"]],
+        ]
+        let result = ChromeExtensionCompatibility.prefixingContentScripts(scripts)
+        #expect(result.count == 2)
+        #expect(result[0]["js"] as? [String] == ["page.js"])
+        #expect(result[1]["js"] as? [String] == [ChromeExtensionCompatibility.contentPreambleFile, "a.js"])
+    }
+
+    @Test func contentPreambleRunsOnlyInAnExtensionWorld() throws {
+        // Page-world code has no chrome.runtime.id; the preamble must not patch it.
+        let context = try #require(JSContext())
+        context.evaluateScript("""
+            var globalThis = this;
+            function Document() {} Document.prototype.adoptedStyleSheets = [];
+            var CSSStyleSheet = function () {};
+            var document = {};
+            var chrome = { runtime: {} };
+            var original = Document.prototype.createElement = function () {};
+            """)
+        context.evaluateScript(ChromeExtensionCompatibility.contentPreambleSource)
+        #expect(context.evaluateScript("Document.prototype.createElement === original && !globalThis.__cmuxContentCompat")?.toBool() == true)
+    }
+
     @Test func preambleReportsChromeIdentity() {
         #expect(ChromeExtensionCompatibility.chromeUserAgent.contains(" Chrome/\(ChromeExtensionPackage.reportedChromeVersion) "))
         #expect(ChromeExtensionCompatibility.preambleSource.contains("ExecutionWorld"))
