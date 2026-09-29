@@ -4031,14 +4031,7 @@ struct ContentView: View {
                 }
                 .frame(width: targetWidth)
                 .background(CommandPalettePanelHitRegion())
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.98))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
-                )
+                .ghosttyDialogSurface(cornerRadius: 8)
                 .shadow(color: Color.black.opacity(0.24), radius: 10, x: 0, y: 5)
                 .padding(.top, 40)
             }
@@ -4526,6 +4519,7 @@ struct ContentView: View {
         func updateNSView(_ nsView: CommandPaletteNativeTextField, context: Context) {
             context.coordinator.parent = self
             context.coordinator.parentField = nsView
+            nsView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: context.environment.colorScheme)
             nsView.placeholderString = placeholder
             nsView.font = GlobalFontMagnification.systemFont(ofSize: 13)
 
@@ -5090,6 +5084,7 @@ struct ContentView: View {
 
         func updateNSView(_ nsView: CommandPaletteMultilineTextEditorView, context: Context) {
             context.coordinator.parent = self
+            nsView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: context.environment.colorScheme)
             nsView.placeholder = placeholder
             nsView.maximumHeight = maxHeight
             nsView.textView.setAccessibilityLabel(accessibilityLabel)
