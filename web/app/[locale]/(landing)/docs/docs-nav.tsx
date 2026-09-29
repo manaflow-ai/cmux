@@ -106,17 +106,17 @@ export function DocsNav({
         role="navigation"
         aria-label="Documentation"
         data-pagefind-ignore="all"
-        className={`fixed bottom-0 left-0 top-0 z-50 w-72 overflow-y-auto overscroll-contain border-r border-border bg-background px-5 pb-8 pt-5 transition-transform lg:top-[49px] lg:z-20 lg:translate-x-0 lg:border-r-0 ${
+        className={`fixed bottom-0 left-0 top-0 z-50 w-[16.5rem] overflow-y-auto overscroll-contain border-r border-border bg-background px-5 pb-8 pt-5 transition-transform lg:top-[49px] lg:z-20 lg:translate-x-0 lg:border-r-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <DocsSidebar onNavigate={close} onOpenSearch={openSearch} channel={channel} />
       </aside>
 
-      <div className="flex w-full lg:pl-72">
+      <div className="flex w-full lg:pl-[16.5rem]">
         {/* Content */}
         <main className="min-w-0 flex-1">
-          <div className="mx-auto w-full max-w-[44rem] px-6 pb-16 pt-8 lg:pt-10">
+          <div className="mx-auto w-full max-w-5xl px-6 pb-16 pt-8 lg:max-w-4xl lg:px-8 lg:pt-10">
             <div className="relative" data-pagefind-ignore="all">
               <div className="mb-2.5 h-5 truncate text-[14px] font-medium leading-5 text-muted">
                 {eyebrow}
@@ -147,8 +147,8 @@ export function DocsNav({
         </main>
 
         {/* On this page: pinned to the right edge */}
-        <aside className="hidden w-[18rem] shrink-0 pr-8 xl:block" data-pagefind-ignore="all">
-          <div className="sticky top-[49px] max-h-[calc(100dvh-49px)] overflow-y-auto pb-10 pl-4 pt-10">
+        <aside className="hidden w-[15.5rem] shrink-0 pr-6 xl:block" data-pagefind-ignore="all">
+          <div className="sticky top-[49px] max-h-[calc(100dvh-49px)] overflow-y-auto pb-10 pl-2 pt-10">
             <DocsToc headings={headings} activeId={activeId} onSelect={setActiveId} />
           </div>
         </aside>
