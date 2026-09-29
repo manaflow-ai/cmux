@@ -9050,6 +9050,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let splitWorkingDirectory = cwdResolution.resolvedWorkingDirectory
         let localWorkingDirectory = cwdResolution.localWorkingDirectory
         effectiveStartupEnvironment = cwdResolution.startupEnvironment
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
@@ -9069,7 +9070,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand, initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment,
+            isRemoteTerminal: tracksRemoteTerminalSurface
         )
         configureNewTerminalPanel(
             newPanel,
@@ -9077,7 +9079,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
         if let effectiveRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = effectiveRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: effectiveRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -13155,6 +13156,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialCommand: startupCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
+            isRemoteTerminal: startupCommand != nil,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
