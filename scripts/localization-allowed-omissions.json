@@ -422,6 +422,10 @@
     "class": "format",
     "source": "%1$@ · %2$@"
   },
+  "cloudTree.group.cloudMachines.usage": {
+    "class": "format",
+    "source": "%1$d/%2$d"
+  },
   "cloudTree.stats.cpu": {
     "class": "format",
     "source": "CPU %d%%"

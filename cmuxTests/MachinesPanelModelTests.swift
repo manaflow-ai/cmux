@@ -342,7 +342,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(single?.isSingleMachinePlan, true)
-        XCTAssertEqual(single?.countLabel, "1 of 1 machine")
+        XCTAssertEqual(single?.usage.countLabel, "1 of 1 machine")
         XCTAssertEqual(single?.freeAccessExpiresAt, serverExpiry)
         XCTAssertEqual(single?.freeAccessBanner, .expiresIn(countdown: "2d 1h"))
 
@@ -352,7 +352,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(plural?.isSingleMachinePlan, false)
-        XCTAssertEqual(plural?.countLabel, "2 of 5 machines")
+        XCTAssertEqual(plural?.usage.countLabel, "2 of 5 machines")
         XCTAssertEqual(plural?.freeAccessBanner, MachinePlanSnapshot.FreeAccessBanner.none)
     }
 
