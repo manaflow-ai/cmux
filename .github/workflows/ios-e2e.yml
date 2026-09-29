@@ -368,9 +368,14 @@ jobs:
           CMUX_UITEST_STACK_PASSWORD=$CMUX_DOGFOOD_STACK_PASSWORD
           EOF
           chmod 600 "$credentials"
-          attach_url="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-            "$CMUX_E2E_MAC_SSH_TARGET" "$CMUX_E2E_MAC_MINT_SCRIPT")"
-          test -n "$attach_url"
+          attach_url=""
+          deadline=$(( $(date +%s) + 1200 ))
+          while [[ -z "$attach_url" && $(date +%s) -lt $deadline ]]; do
+            attach_url="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              "$CMUX_E2E_MAC_SSH_TARGET" "$CMUX_E2E_MAC_MINT_SCRIPT" 2>/dev/null || true)"
+            [[ -n "$attach_url" ]] || sleep 5
+          done
+          test -n "$attach_url" || { echo "[infra-preflight] Mac pairing helper did not become reachable" >&2; exit 1; }
           ./scripts/mobile-dev-launch.sh --tag "$CMUX_E2E_TAG" \
             --simulator-id "$CMUX_E2E_SIM_UDID" --auth-profile agent \
             --credentials-file "$credentials" --attach-url "$attach_url" --detach
