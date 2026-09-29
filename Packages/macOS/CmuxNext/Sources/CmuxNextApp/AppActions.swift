@@ -15,6 +15,16 @@ enum AppActions {
         bindLayout(services)
         bindTabGroups(services)
         bindBrowser(services)
+        let registry = services.registry
+        let context = AppActionContext(services: services)
+        WindowHandlers.bind(into: registry, context: context)
+        WorkspaceHandlers.bind(into: registry, context: context)
+        WorkspaceMetadataHandlers.bind(into: registry, context: context)
+        WorkspaceGroupHandlers.bind(into: registry, context: context)
+        SidebarHandlers.bind(into: registry, context: context)
+        SavedGroupHandlers.bind(into: registry, context: context)
+        SettingsHandlers.bind(into: registry, context: context)
+        AppearanceHandlers.bind(into: registry, context: context)
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
@@ -33,8 +43,6 @@ enum AppActions {
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggleHidden() }
-        registry.bind("appearance.density.compact") { DesignSettings.shared.density = .compact }
-        registry.bind("appearance.density.comfortable") { DesignSettings.shared.density = .comfortable }
     }
 
     private static func bindTabs(_ services: AppServices) {
