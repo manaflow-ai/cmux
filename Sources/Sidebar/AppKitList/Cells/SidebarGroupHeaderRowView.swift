@@ -301,8 +301,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 #endif
 
     private func updatePlusVisibility() {
-        let showsHint = model?.shortcutHintText != nil
-        plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !showsHint)
+        let hidesPlus = model?.shortcutHintText != nil || model?.isAutomaticSection == true
+        plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !hidesPlus)
     }
 
     /// Authoritative hover enforcement: the controller sweeps visible cells
@@ -539,7 +539,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         if plusButton.frame.contains(point), !plusButton.isHidden {
             return makePlusMenu()
         }
-        return makeHeaderMenu()
+        return model?.isAutomaticSection == true ? nil : makeHeaderMenu()
     }
 
     // MARK: Menus

@@ -45,6 +45,17 @@ struct SidebarWorkspaceRowInput {
     let inferredTaskStatus: WorkspaceTaskStatus
     let activeTodoOverride: WorkspaceTaskStatus?
     let isTodoStatusHidden: Bool
+    /// Real manual group. Read only when `groupIdIsAutomaticSection` is true.
+    var manualGroupId: UUID?
+    /// True when `groupId` is a drawn automatic Group By section rather than
+    /// the row's manual group.
+    var groupIdIsAutomaticSection = false
+
+    /// The manual group that row menus ("Move to Group", "Remove from Group")
+    /// act on, which is never an automatic section.
+    var menuGroupId: UUID? {
+        groupIdIsAutomaticSection ? manualGroupId : groupId
+    }
 
     @MainActor
     func rowSnapshot(list: SidebarWorkspaceRowsSnapshot) -> SidebarWorkspaceRowSnapshot {

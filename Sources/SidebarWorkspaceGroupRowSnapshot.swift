@@ -47,4 +47,6 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let bottomDropIndicatorVisible: Bool
     let shouldCollectWorkspaceDropTargets: Bool
     let notificationBadgeColorHex: String?
+    /// Section key when this row is a derived automatic Group By section.
+    var automaticSectionKey: String? = nil
 }

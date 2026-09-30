@@ -10,7 +10,7 @@ extension ContentView {
             { _ in value }
         }
 
-        return [
+        var contributions: [CommandPaletteCommandContribution] = [
             CommandPaletteCommandContribution(
                 commandId: "palette.triggerFlash",
                 title: constant(String(localized: "command.triggerFlash.title", defaultValue: "Flash Focused Panel")),
@@ -40,6 +40,35 @@ extension ContentView {
                 keywords: ["sleepy", "screensaver", "caffeinate", "keep awake", "do not sleep", "lock", "pets", "night"]
             ),
         ]
+        let groupBySubtitle = String(localized: "command.sidebarGroupBy.subtitle", defaultValue: "Sidebar")
+        for mode in SidebarGroupByMode.allCases {
+            contributions.append(CommandPaletteCommandContribution(
+                commandId: commandPaletteSidebarGroupByCommandID(mode),
+                title: constant(commandPaletteSidebarGroupByTitle(mode)),
+                subtitle: constant(groupBySubtitle),
+                keywords: ["sidebar", "group", "group by", "sort", "organize", mode.rawValue]
+            ))
+        }
+        return contributions
+    }
+
+    static func commandPaletteSidebarGroupByCommandID(_ mode: SidebarGroupByMode) -> String {
+        switch mode {
+        case .manual: return "palette.sidebarGroupManually"
+        case .host: return "palette.sidebarGroupByHost"
+        case .status: return "palette.sidebarGroupByStatus"
+        }
+    }
+
+    private static func commandPaletteSidebarGroupByTitle(_ mode: SidebarGroupByMode) -> String {
+        switch mode {
+        case .manual:
+            return String(localized: "command.sidebarGroupManually.title", defaultValue: "Sidebar: Group Manually")
+        case .host:
+            return String(localized: "command.sidebarGroupByHost.title", defaultValue: "Sidebar: Group by Host")
+        case .status:
+            return String(localized: "command.sidebarGroupByStatus.title", defaultValue: "Sidebar: Group by Status")
+        }
     }
 
     static func appendViewZoomCommandContributions(
@@ -98,6 +127,11 @@ extension ContentView {
         }
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()
+        }
+        for mode in SidebarGroupByMode.allCases {
+            registry.register(commandId: Self.commandPaletteSidebarGroupByCommandID(mode)) {
+                tabManager.selectSidebarGroupBy(mode)
+            }
         }
     }
 }

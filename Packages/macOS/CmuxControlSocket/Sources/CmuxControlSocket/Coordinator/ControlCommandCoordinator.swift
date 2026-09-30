@@ -75,6 +75,7 @@ public final class ControlCommandCoordinator {
         // methods and returns `nil` for anything else, so the chain falls through
         // to the next domain and finally to the legacy app-side dispatcher.
         if let result = handleWindow(request) { return result }
+        if let result = handleSidebarGroupBy(request) { return result }
         if let result = handleAppFocus(request) { return result }
         if let result = handleFeed(request) { return result }
         if let result = handleNotification(request) { return result }

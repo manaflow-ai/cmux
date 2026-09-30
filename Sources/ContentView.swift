@@ -11335,46 +11335,6 @@ enum CmuxExtensionSidebarSelection {
         guard defaults.object(forKey: defaultsKey) == nil else { return }
         defaults.set(legacyProviderId, forKey: defaultsKey)
     }
-
-    @MainActor
-    static func showMenu(anchorView: NSView, event: NSEvent?) {
-        // The right-click menu switches between the always-available built-in
-        // views (and the hosted extension sidebar when the experimental
-        // Extensions beta is enabled, plus any beta custom sidebars), so it is
-        // shown regardless of the flag.
-        let menu = NSMenu()
-        let persistedProviderId = UserDefaults.standard.string(forKey: defaultsKey) ?? defaultProviderId
-        let selectedProviderId = descriptor(
-            for: effectiveProviderId(persistedProviderId, extensionsEnabled: isEnabled)
-        ).id
-        for descriptor in descriptors {
-            let item = NSMenuItem(
-                title: localizedTitle(for: descriptor),
-                action: #selector(CmuxExtensionSidebarMenuTarget.selectProvider(_:)),
-                keyEquivalent: ""
-            )
-            item.representedObject = descriptor.id
-            item.target = CmuxExtensionSidebarMenuTarget.shared
-            item.state = selectedProviderId == descriptor.id ? .on : .off
-            item.image = NSImage(systemSymbolName: descriptor.systemImageName, accessibilityDescription: nil)
-            menu.addItem(item)
-        }
-        menu.popUp(
-            positioning: nil,
-            at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
-            in: anchorView
-        )
-    }
-}
-
-@MainActor
-private final class CmuxExtensionSidebarMenuTarget: NSObject {
-    static let shared = CmuxExtensionSidebarMenuTarget()
-
-    @objc func selectProvider(_ sender: NSMenuItem) {
-        guard let providerId = sender.representedObject as? String else { return }
-        CmuxExtensionSidebarSelection.setProviderId(providerId)
-    }
 }
 
 @MainActor
@@ -11595,6 +11555,7 @@ struct VerticalTabsSidebar: View, Equatable {
     // publisher bursts cross into SwiftUI once per run-loop batch instead of
     // invalidating the full parent projection once per emitting workspace.
     @State private var workspaceSnapshotRefreshCoalescer = SidebarWorkspaceSnapshotRefreshCoalescer()
+    @State private var autoGroupingObserver = SidebarAutoGroupingObserver()
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
@@ -11903,22 +11864,35 @@ struct VerticalTabsSidebar: View, Equatable {
         let tabIndexById: [UUID: Int]
         let numberedWorkspaceIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
-        let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
         let selectedContextTargetIds: [UUID]
         let selectedRemoteContextMenuWorkspaceIds: [UUID]
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
-        let workspaceGroups: [WorkspaceGroup]
-        let workspaceGroupById: [UUID: WorkspaceGroup]
-        let memberWorkspaceIdsByGroupId: [UUID: [UUID]]
+        /// Drawn groups and membership: manual groups, or synthetic sections in
+        /// an automatic Group By mode. `tabs` always stays in real order.
+        let grouping: SidebarWorkspaceGroupingProjection
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
-        let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
 
         var workspaceIds: [UUID] { tabIds }
+        var workspaceGroupIdByWorkspaceId: [UUID: UUID?] { grouping.groupIdByWorkspaceId }
+        var workspaceGroups: [WorkspaceGroup] { grouping.groups }
+        var workspaceGroupById: [UUID: WorkspaceGroup] { grouping.groupsById }
+        var memberWorkspaceIdsByGroupId: [UUID: [UUID]] { grouping.memberWorkspaceIdsByGroupId }
+        var workspaceRenderItems: [SidebarWorkspaceRenderItem] { grouping.renderItems }
+
+        /// The drawn group holding a workspace, so selection scrolling can
+        /// target a collapsed header in either grouping.
+        @MainActor func drawnGroup(containingWorkspaceId workspaceId: UUID) -> WorkspaceGroup? {
+            let groupId = grouping.mode.isAutomatic
+                ? grouping.groupIdByWorkspaceId[workspaceId] ?? nil
+                : workspaceById[workspaceId]?.groupId
+            return groupId.flatMap { grouping.groupsById[$0] }
+        }
     }
 
     private func activateSidebarInteractions() {
+        autoGroupingObserver.attach(tabManager: tabManager, unreadModel: sidebarUnread)
         if !pointerInteractionMonitor.isActive {
             pointerInteractionMonitor.start(onMiddleClickWorkspace: { workspaceId in
                 guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
@@ -11927,6 +11901,9 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
                 tabManager.closeWorkspaceWithConfirmation(workspace)
             }, onBeginWorkspaceDrag: { dragId, sourceView, event, draggingFrame, dragImage in
+                // Automatic Group By rows are not in `tabs` order, so a reorder
+                // drop would scramble the manual order. Only manual mode drags.
+                guard tabManager.sidebarGroupBy.mode == .manual else { return false }
                 let workspaceId: UUID
                 if tabManager.tabs.contains(where: { $0.id == dragId }) {
                     workspaceId = dragId
@@ -11970,6 +11947,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func deactivateSidebarInteractions() {
+        autoGroupingObserver.detach()
         workspaceSnapshotCache.prune(keeping: [])
         if pointerInteractionMonitor.isActive {
             pointerInteractionMonitor.stop()
@@ -12027,26 +12005,25 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-        let workspaceGroups = isPresented ? tabManager.workspaceGroups : []
-        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        let workspaceGroupIdByWorkspaceId = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
+        let manualWorkspaceGroups = isPresented ? tabManager.workspaceGroups : []
+        // Automatic sections come from the observer's cached inputs, so this
+        // body reads no live workspace state for them; its revision re-runs
+        // this pass when a workspace changes section or section title.
+        let groupByMode = tabManager.sidebarGroupBy.mode
+        let _ = autoGroupingObserver.revision
+        let grouping = SidebarWorkspaceGroupingProjection(
             tabs: tabs,
-            groupsById: workspaceGroupById
+            manualGroups: manualWorkspaceGroups,
+            mode: groupByMode,
+            collapsedSectionKeys: tabManager.sidebarGroupBy.collapsedSectionKeys,
+            automaticInputs: groupByMode.isAutomatic ? autoGroupingObserver.inputs(for: tabs, mode: groupByMode) : []
         )
-        let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(
-            tabs: tabs,
-            groupsById: workspaceGroupById,
-            effectiveMembership: workspaceGroupIdByWorkspaceId
-        )
+        let workspaceGroups = grouping.groups
+        // "Move to Group" lists the real groups in every mode.
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
-            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
+            items: manualWorkspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
-        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: tabs,
-            groupsById: workspaceGroupById,
-            orderedGroups: workspaceGroups,
-            effectiveMembership: workspaceGroupIdByWorkspaceId
-        )
+        let workspaceRenderItems = grouping.renderItems
         let numberedWorkspaceIndexById = SidebarWorkspaceRenderItem.numberedWorkspaceIndexById(
             from: workspaceRenderItems
         )
@@ -12093,16 +12070,12 @@ struct VerticalTabsSidebar: View, Equatable {
             tabIndexById: tabIndexById,
             numberedWorkspaceIndexById: numberedWorkspaceIndexById,
             workspaceById: workspaceById,
-            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
             selectedContextTargetIds: selectedContextTargetIds,
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceGroups: workspaceGroups,
-            workspaceGroupById: workspaceGroupById,
-            memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
+            grouping: grouping,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
-            workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
         let _ = SidebarProfilingSignposts.end(signpost)
@@ -12446,8 +12419,7 @@ struct VerticalTabsSidebar: View, Equatable {
         // the cmux-owned edge in the sidebar layout livelock
         // (https://github.com/manaflow-ai/cmux/issues/2586). No anchor means
         // SwiftUI scrolls the minimum needed to reveal the row.
-        let group = renderContext.workspaceById[selectedWorkspaceId]?.groupId
-            .flatMap { renderContext.workspaceGroupById[$0] }
+        let group = renderContext.drawnGroup(containingWorkspaceId: selectedWorkspaceId)
         proxy.scrollTo(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
             selectedWorkspaceId: selectedWorkspaceId,
             group: group
@@ -12496,8 +12468,7 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         let selectedWorkspaceId = isPresented ? tabManager.selectedTabId : nil
         let selectedScrollTargetWorkspaceId: UUID? = selectedWorkspaceId.map { selectedId in
-            let group = renderContext.workspaceById[selectedId]?.groupId
-                .flatMap { renderContext.workspaceGroupById[$0] }
+            let group = renderContext.drawnGroup(containingWorkspaceId: selectedId)
             return SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
                 selectedWorkspaceId: selectedId,
                 group: group
@@ -12646,7 +12617,7 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceRowsById: workspaceRowInputsById,
             groupRowsById: groupRowSnapshotsById,
             selectedContextTargetIds: renderContext.selectedContextTargetIds,
-            anchorWorkspaceIds: Set(renderContext.workspaceGroups.compactMap(\.liveAnchorWorkspaceId)),
+            anchorWorkspaceIds: renderContext.grouping.manualAnchorWorkspaceIds,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
             notificationIndex: notificationIndex
@@ -12723,10 +12694,11 @@ struct VerticalTabsSidebar: View, Equatable {
                 dragAutoScrollController.stop()
             },
             isValidWorkspaceDrag: {
-                dragState.currentWorkspaceDragId != nil
+                tabManager.sidebarGroupBy.mode == .manual && dragState.currentWorkspaceDragId != nil
             },
             updateWorkspaceDrag: { point, targets, pasteboardWorkspaceId in
-                updateWorkspaceReorderDropForTable(
+                guard tabManager.sidebarGroupBy.mode == .manual else { return nil }
+                return updateWorkspaceReorderDropForTable(
                     point: point,
                     targets: targets,
                     pasteboardWorkspaceId: pasteboardWorkspaceId,
@@ -12799,7 +12771,8 @@ struct VerticalTabsSidebar: View, Equatable {
                         destinationManager: tabManager,
                         focus: true,
                         focusWindow: true,
-                        insertionIndexOverride: insertionIndex
+                        // A drawn-order slot is not a `tabs` index while an automatic Group By shows.
+                        insertionIndexOverride: tabManager.sidebarGroupBy.mode.isAutomatic ? nil : insertionIndex
                       ) else {
                     return nil
                 }
@@ -12835,6 +12808,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 }
             )
         )
+        actions.allowsWorkspaceReorderDrag = { [weak tabManager] in tabManager?.sidebarGroupBy.mode == .manual }
         actions.workspaceGroupAnchorIdsForDrag = { [weak tabManager] in
             guard let tabManager else { return [:] }
             let liveWorkspaceIds = Set(tabManager.tabs.map(\.id))
@@ -13265,6 +13239,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func scheduleWorkspaceSnapshotRefresh(workspaceId: UUID) {
+        autoGroupingObserver.scheduleRecompute(workspaceId: workspaceId)
         workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { workspaceIds in
             refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
         }
@@ -13285,6 +13260,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func refreshWorkspaceSnapshots() {
+        autoGroupingObserver.scheduleFullRecompute()
         let tabs = tabManager.tabs
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
@@ -14384,7 +14360,7 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceRowsById: workspaceRowInputsById,
             groupRowsById: groupRowSnapshotsById,
             selectedContextTargetIds: renderContext.selectedContextTargetIds,
-            anchorWorkspaceIds: Set(renderContext.workspaceGroups.compactMap(\.liveAnchorWorkspaceId)),
+            anchorWorkspaceIds: renderContext.grouping.manualAnchorWorkspaceIds,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
             notificationIndex: notificationIndex
@@ -14500,7 +14476,8 @@ struct VerticalTabsSidebar: View, Equatable {
                         destinationManager: tabManager,
                         focus: true,
                         focusWindow: true,
-                        insertionIndexOverride: insertionIndex
+                        // A drawn-order slot is not a `tabs` index while an automatic Group By shows.
+                        insertionIndexOverride: tabManager.sidebarGroupBy.mode.isAutomatic ? nil : insertionIndex
                       ) else {
                     return nil
                 }
@@ -14528,7 +14505,7 @@ struct VerticalTabsSidebar: View, Equatable {
         SidebarWorkspaceReorderDropOverlay(
             targetBridge: workspaceReorderDropTargetBridge,
             isValidDrag: {
-                dragState.currentWorkspaceDragId != nil
+                tabManager.sidebarGroupBy.mode == .manual && dragState.currentWorkspaceDragId != nil
             },
             updateDrag: { point, targets in
                 updateWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
@@ -14567,6 +14544,9 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: UUID? = nil) -> Bool {
+        // Reorder drops land by drawn position, which differs from `tabs`
+        // order while an automatic Group By mode is showing.
+        guard tabManager.sidebarGroupBy.mode == .manual else { return false }
         // AppKit's retained source callback is the only authority that ends a
         // drag. Pasteboard data may confirm that live session's identity, but
         // residual data must never create one.
@@ -14793,6 +14773,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func performWorkspaceReorderPlan(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+        guard tabManager.sidebarGroupBy.mode == .manual else { return false }
         switch plan.action {
         case .reorderGroup(let targetIndex):
             let groupId = plan.draggedWorkspaceId
@@ -15019,7 +15000,9 @@ struct VerticalTabsSidebar: View, Equatable {
                     group.liveAnchorWorkspaceId.map { (group.id, $0) }
                 }
             )
-            let visibleRangeIds = tabManager.tabs[lower...upper].compactMap { candidate -> UUID? in
+            // An automatic Group By draws rows out of `tabs` order; range over what is drawn.
+            let visibleRangeIds = tabManager.automaticSidebarRangeIds(betweenTabIndex: anchorIndex, and: index)
+                ?? tabManager.tabs[lower...upper].compactMap { candidate -> UUID? in
                 if let groupId = candidate.groupId,
                    collapsedGroupIds.contains(groupId),
                    anchorIdsByGroup[groupId] != candidate.id {
@@ -15275,7 +15258,9 @@ struct VerticalTabsSidebar: View, Equatable {
             contextMenuPinState: contextMenuPinState,
             inferredTaskStatus: workspaceSnapshot.taskStatusInput.inferred,
             activeTodoOverride: workspaceSnapshot.taskStatusInput.activeOverride,
-            isTodoStatusHidden: workspaceSnapshot.taskStatusInput.isHidden
+            isTodoStatusHidden: workspaceSnapshot.taskStatusInput.isHidden,
+            manualGroupId: renderContext.grouping.manualGroupIdByWorkspaceId[tab.id] ?? nil,
+            groupIdIsAutomaticSection: renderContext.grouping.mode.isAutomatic
         )
         return result
     }
@@ -17680,7 +17665,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     /// so the existing drop-indicator and frame-anchor machinery can activate.
     /// The native source completion clears the mirrored presentation.
     private func activateForeignDragIfNeeded() {
-        guard dragState.draggedTabId == nil,
+        guard dragState.draggedTabId == nil, tabManager.sidebarGroupBy.mode == .manual,
               acceptsLiveSidebarPayload(),
               let foreignId = dragState.currentWorkspaceDragId,
               isCrossWindowDrag(foreignId),
@@ -17695,7 +17680,9 @@ struct SidebarTabDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         let hasType = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
-        guard hasType, acceptsLiveSidebarPayload(), let draggedTabId = effectiveDraggedTabId else {
+        // Automatic Group By rows are not in `tabs` order; see onBeginWorkspaceDrag.
+        guard hasType, tabManager.sidebarGroupBy.mode == .manual, acceptsLiveSidebarPayload(),
+              let draggedTabId = effectiveDraggedTabId else {
             #if DEBUG
             cmuxDebugLog(
                 "sidebar.validateDrop target=\(targetTabId?.uuidString.prefix(5) ?? "end") " +
@@ -18052,6 +18039,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     }
 
     func updateDropIndicator(pointerX: CGFloat, pointerY: CGFloat?) {
+        guard tabManager.sidebarGroupBy.mode == .manual else { dragState.clearDropIndicator(); return }
         if let draggedTabId = effectiveDraggedTabId, isCrossWindowDrag(draggedTabId) {
             updateCrossWindowDropIndicator(pointerY: pointerY)
             return

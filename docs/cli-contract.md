@@ -202,6 +202,7 @@ Environment:
 | `clear-log` | Clear sidebar log entries. |
 | `list-log` | List sidebar log entries. |
 | `sidebar-state` | Dump sidebar metadata state. |
+| `sidebar-group-by` | Print or set a window's sidebar Group By mode (`manual`, `host`, `status`). |
 | `claude-hook` | Compatibility alias for Claude Code hook events from stdin JSON. |
 | `codex-hook` | Compatibility alias for Codex hook events from stdin JSON, kept for hooks installed before `cmux hooks`. Outside a cmux terminal, with no `CMUX_SURFACE_ID`/`CMUX_WORKSPACE_ID` and no `--surface`/`--workspace`, it prints `{}` and exits so an old installed hook cannot fail a shell. Hidden from help. |
 | `feed-hook` | Compatibility alias for Feed hook events from stdin JSON, kept for hooks installed before `cmux hooks`. Requires `--source <name>`. Outside a cmux terminal, with no `CMUX_SURFACE_ID`/`CMUX_WORKSPACE_ID` and no `--surface`/`--workspace`, it prints `{}` and exits so an old installed hook cannot fail a shell. Hidden from help. |
@@ -1058,6 +1059,7 @@ the expected text without connecting to a cmux socket.
 - `cmux clear-log --help` -> `Usage: cmux clear-log`
 - `cmux list-log --help` -> `Usage: cmux list-log`
 - `cmux sidebar-state --help` -> `Usage: cmux sidebar-state`
+- `cmux sidebar-group-by --help` -> `Usage: cmux sidebar-group-by`
 - `cmux set-app-focus --help` -> `Usage: cmux set-app-focus`
 - `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`

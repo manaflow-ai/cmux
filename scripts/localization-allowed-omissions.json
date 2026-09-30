@@ -1,4 +1,16 @@
 {
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": "Actions has the same spelling in French; cmux.json and the punctuation are invariant. The translated entry is still required."
+    }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": "Actions has the same spelling in French; cmux.json and the punctuation are invariant. The translated entry is still required."
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {
@@ -3482,6 +3494,24 @@
       "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
       "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
+  },
+  "sidebar.groupBy.mode.manual": {
+    "source": "Manual",
+    "identityLocales": {
+      "es": "Manual is the correct Spanish word for this mode label and is spelled the same as English."
+    }
+  },
+  "sidebar.groupBy.mode.status": {
+    "source": "Status",
+    "identityLocales": {
+      "de": "Status is the standard German word for this grouping label and is spelled the same as English."
+    }
+  },
+  "sidebar.groupBy.section.terminals": {
+    "source": "Terminals",
+    "identityLocales": {
+      "de": "Terminals is the standard German plural of Terminal and is spelled the same as English."
     }
   },
   "terminalSharing.device.mac": {

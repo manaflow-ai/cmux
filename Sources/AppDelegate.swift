@@ -3698,7 +3698,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.portalStats.setup")
     }
 
-
 #endif
 
     private func captureSessionLaunchStateIfNeeded(
@@ -17436,6 +17435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
         guard let tabManager = resolvedTabManager else { return false }
+        if tabManager.sidebarGroupBy.mode.isAutomatic { return tabManager.toggleFocusedAutomaticSidebarSectionCollapsed() }
         guard let focusedId = tabManager.selectedTabId,
               let groupId = tabManager.tabs.first(where: { $0.id == focusedId })?.groupId else {
             // Don't consume the event when the focused workspace isn't in a

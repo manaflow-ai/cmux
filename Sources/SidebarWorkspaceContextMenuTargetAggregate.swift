@@ -43,10 +43,10 @@ struct SidebarWorkspaceContextMenuTargetAggregate: Equatable {
         eligibleGroupTargetIds = targetWorkspaceIds.filter {
             !anchorWorkspaceIds.contains($0) && workspaceRowsById[$0] != nil
         }
-        let eligibleGroupIds = eligibleGroupTargetIds.map { workspaceRowsById[$0]?.groupId }
+        let eligibleGroupIds = eligibleGroupTargetIds.map { workspaceRowsById[$0]?.menuGroupId }
         allEligibleTargetsGroupId = Self.commonGroupId(eligibleGroupIds)
         hasGroupedEligibleTarget = eligibleGroupTargetIds.contains {
-            workspaceRowsById[$0]?.groupId != nil
+            workspaceRowsById[$0]?.menuGroupId != nil
         }
         canMarkRead = targetWorkspaceIds.contains {
             (workspaceRowsById[$0]?.unreadCount ?? 0) > 0

@@ -76,4 +76,14 @@ public protocol ControlWindowContext: AnyObject {
     /// - Returns: The resolved display name and moved window ids, or `nil` when
     ///   the display can't be resolved.
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult?
+
+    /// Reads, and when `mode` is non-nil sets, the workspace sidebar Group By
+    /// mode of the window the routing selectors resolve, for `sidebar.group_by`.
+    /// Must not focus or raise the window.
+    ///
+    /// - Parameters:
+    ///   - routing: The pre-resolved routing selectors.
+    ///   - mode: The lowercased raw mode to apply, or `nil` to only read.
+    /// - Returns: The resolution outcome.
+    func controlSidebarGroupBy(routing: ControlRoutingSelectors, mode: String?) -> ControlSidebarGroupByResolution
 }

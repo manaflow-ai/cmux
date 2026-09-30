@@ -204,6 +204,7 @@ extension CMUXCLI {
         "simulate-app-active",
         "simulator",
         "sidebar",
+        "sidebar-group-by",
         "sidebar-state",
         "split-off",
         "ssh",
