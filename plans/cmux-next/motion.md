@@ -75,7 +75,7 @@ nxmot (MacBook Pro, 120 Hz).
 
 | Fade token | Duration | Used by |
 | --- | --- | --- |
-| `hover` | 0.08 s | tab, chip, button and omnibar hover fills; sidebar hover buttons; divider and resize-handle hover; refused-drop dim |
+| `hover` | 0.08 s | tab, chip, button and omnibar hover fills; tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim |
 | `focus` | 0.10 s | pane focus ring and inactive dim |
 | `fadeIn` | 0.12 s | palette, find bar, notices, hover card, group editor, sidebar pill appear |
 | `fadeOut` | 0.08 s | palette close, find bar, notices, hover card, sidebar pill hide |
