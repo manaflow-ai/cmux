@@ -804,6 +804,24 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(truncated.contains("after"))
     }
 
+    func testLongOSCUsesPostCutScanBudget() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let prefix = "\u{001B}]2;"
+        let payload = String(repeating: "T", count: 1_500)
+        let cutOffset = 1_200
+        let suffixAfterCut = payload.count - cutOffset + 1
+        let filler = String(repeating: "S", count: maxChars - suffixAfterCut)
+        let source = prefix + payload + "\u{0007}" + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("S"))
+        XCTAssertFalse(truncated.contains("\u{0007}"))
+    }
+
     func testMalformedANSIStringScanDoesNotDropDistantRealOutput() {
         let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
         let malformed = "\u{001B}]0;unterminated-title"
