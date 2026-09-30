@@ -98,6 +98,25 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     @Test
+    func closeTabContextActionRespectsDisabledTabClosing() throws {
+        try withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            fixture.workspace.bonsplitController.configuration.allowCloseTabs = false
+            let tabId = fixture.tabIds[2]
+            let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+
+            fixture.workspace.splitTabBar(
+                fixture.workspace.bonsplitController,
+                didRequestTabContextAction: .close,
+                for: tab,
+                inPane: fixture.paneId
+            )
+
+            #expect(fixture.workspace.panelIdFromSurfaceId(tabId) != nil)
+        }
+    }
+
+    @Test
     func activeProcessStillWarnsWhenShortcutWarningIsDisabled() async throws {
         try await withCleanClosedHistory {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()
@@ -111,6 +130,37 @@ struct WorkspaceCloseTabsContextMenuTests {
                 promptCount += 1
                 return true
             }
+            let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+            #expect(!fixture.workspace.splitTabBar(
+                fixture.workspace.bonsplitController,
+                shouldCloseTab: tab,
+                inPane: fixture.paneId
+            ))
+            await waitForMainActorWork(timeout: 4) {
+                promptCount == 1 || fixture.workspace.panelIdFromSurfaceId(tabId) == nil
+            }
+
+            #expect(promptCount == 1)
+            #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
+        }
+    }
+
+    @Test
+    func middleClickUsesTheInlineCloseWarningPath() async throws {
+        try await withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            fixture.manager.closeTabWarningDefaults.set(false, forKey: "warnBeforeClosingTabShortcut")
+            fixture.manager.closeTabWarningDefaults.set(true, forKey: "warnBeforeClosingTabXButton")
+            let tabId = fixture.tabIds[2]
+            let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
+            fixture.workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+            fixture.workspace.markTabStripMiddleClickClose(surfaceId: tabId)
+            var promptCount = 0
+            fixture.manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return true
+            }
+
             let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
             #expect(!fixture.workspace.splitTabBar(
                 fixture.workspace.bonsplitController,

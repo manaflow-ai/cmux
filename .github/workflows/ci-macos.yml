@@ -1783,7 +1783,10 @@ jobs:
     # placed shard takes the admission's runner, which is pr_root_runner
     # when the pool has one.
     runs-on: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
-    timeout-minutes: 75
+    # The 2026-09-25..30 mini sample has p99 31.5m and max 54.8m. Keep
+    # margin for slow hosts and setup, but do not let a stalled shard consume
+    # the old 75-minute ceiling after its 1,800-second test watchdog fires.
+    timeout-minutes: 60
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
       # only needs a verdict, and the first failure already is one.
@@ -2042,6 +2045,9 @@ jobs:
 
       - name: Download compiled app-host test product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        # The ranged transport has a six-minute deadline; cap the single-stream
+        # fallback after the observed 25–50 minute slow-download outliers.
+        timeout-minutes: 15
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -2050,9 +2056,8 @@ jobs:
       # On an owned Mac every GUI job shares the one console session, so the
       # tests need glaeda's gui token. glaeda's hook gives this job none at
       # job start (class gui-step), so the product fetch above leaves the
-      # console to other GUI jobs; the token is taken here, before the restore
-      # step takes the producer's canonical root (the order every GUI job
-      # takes them in), and held until the job ends, through the console
+      # console to other GUI jobs; the token is taken here before the tests
+      # start and held until the job ends, through the console
       # session cleanup. An older hook gave the token at job start, so
       # take-gui returns 0 at once; one without take-gui exits 2 and still
       # gave it at job start. Blacksmith has no helper.
@@ -2856,6 +2861,8 @@ jobs:
 
       - name: Download compiled test product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        # Keep a dead or crawling fallback from consuming the whole job.
+        timeout-minutes: 15
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -3635,6 +3642,8 @@ jobs:
 
       - name: Download compiled app-host test product
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        # Keep a dead or crawling fallback from consuming the whole job.
+        timeout-minutes: 15
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -4344,7 +4353,9 @@ jobs:
       - tests-build-and-lag
       - release-admission
       - release-build
-    if: ${{ always() }}
+    # A cancelled run already has its terminal outcome; avoid spending a
+    # Blacksmith runner on the status rollup.
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:

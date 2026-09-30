@@ -88,6 +88,12 @@ jobs:
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: python3 scripts/ci/fast_guard_status.py
 
+      - name: Propagate failed independent fast guard
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.state == 'failure' }}
+        run: |
+          echo "CI fast guards already reported failure for this revision; skipping duplicate guard execution."
+          exit 1
+
       - name: Validate macOS runner guards
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -317,6 +323,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate CI process-tree cancellation cleanup
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_process_tree_reaping.py
+
       - name: Test Computer Use drag regression harness
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_cmux_cua_drag_cursor_harness.py
@@ -455,6 +465,42 @@ jobs:
       - name: Validate Blacksmith Testbox broker trust boundary
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_testbox_broker_guard.py
+
+      # Keep the Testbox trust checks in the routed CI guard matrix. This
+      # replaces the former always-on testbox-broker-guard workflow, which
+      # repeated this work on every pull request and main push.
+      - name: Validate Testbox cleanup receipt ownership
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_cleanup_receipt_ref.sh
+
+      - name: Lint the Testbox lane helpers
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh
+
+      - name: Test the actionlint downloader without a network outage
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_ci_actionlint_download.sh
+
+      - name: Check that every workflow is linted
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_actionlint_covers_every_workflow.py
+
+      - name: Check that push and pull_request path filters agree
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_workflow_path_filter_parity.py
+
+      - name: Lint every workflow
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+          ACTIONLINT_ASSET_ID: "221573254"
+          # Warnings and errors gate; informational shellcheck findings do not.
+          SHELLCHECK_OPTS: "-S warning"
+        run: |
+          set -euo pipefail
+          ./scripts/ci/install-actionlint.sh
+          "$RUNNER_TEMP/actionlint"
 
       - name: Validate contributor verification receipts and selection
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -986,6 +1032,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_release_homebrew_gate.py
 
+      - name: Validate production-secret jobs run only in the protected release environment
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_production_secrets_protected_env.py
+
       - name: Validate the Homebrew cask update keeps run metadata out of scripts
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_homebrew_untrusted_input.py
@@ -1296,7 +1346,9 @@ jobs:
       - workflow-guard-history
       - workflow-guard-cli-scripts
       - workflow-guard-source-lints
-    if: ${{ always() }}
+    # Preserve the guard verdict after a failure, but do not start a rollup
+    # after GitHub has cancelled the run.
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:

@@ -1,3 +1,4 @@
+import { draftStorage } from "./browser-storage";
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
@@ -27,6 +28,7 @@ export type AgentEvent =
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
+  | { kind: "agent-message"; id: string; from: string; body: string }
   | { kind: "status"; text: string }
   | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "delta"; text: string }
@@ -90,6 +92,7 @@ function nextFilesRevision(blocks: Block[]): string {
 
 export type Block =
   | { kind: "user"; text: string }
+  | { kind: "message"; id: string; from: string; body: string }
   | { kind: "assistant"; text: string; open: boolean }
   | { kind: "thinking"; text: string; open: boolean }
   | { kind: "tool"; toolId: string; name: string; detail?: string; status: "running" | "ok" | "fail"; out?: string }
@@ -165,7 +168,11 @@ export interface SessionSummary {
   mode?: "transcript";
   /** What that agent is waiting on in the terminal (permission, question). */
   attention?: string | null;
+  /** cmux agent messages waiting for that agent. */
+  queuedMessages?: QueuedAgentMessage[];
 }
+
+export interface QueuedAgentMessage { id: string; from: string; body: string }
 
 /** Whether a terminal-backed chat must be answered in the terminal itself. */
 export function transcriptComposerLocked(
@@ -189,6 +196,8 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
   switch (evt.kind) {
     case "user":
       return [...closeStreaming(blocks), { kind: "user", text: evt.text }];
+    case "agent-message":
+      return [...closeStreaming(blocks), { kind: "message", id: evt.id, from: evt.from, body: evt.body }];
     case "delta":
       if (last && last.kind === "assistant" && last.open) {
         return [...blocks.slice(0, -1), { ...last, text: last.text + evt.text }];
@@ -457,7 +466,7 @@ export function useSession(): SessionState {
     if (!pending) return;
     clearPendingStartTimeout();
     pendingStartRef.current = null;
-    restoreComposerDraft(sessionStorage, pending.prompt);
+    restoreComposerDraft(draftStorage, pending.prompt);
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
     sessionIdRef.current = null;
@@ -600,6 +609,11 @@ export function useSession(): SessionState {
             if (msg.sessionId === sessionIdRef.current) {
               serverStatusRef.current = msg.status;
               setSession((s) => (s ? { ...s, status: msg.status } : s));
+            }
+            break;
+          case "session-queued-messages":
+            if (msg.sessionId === sessionIdRef.current) {
+              setSession((s) => (s ? { ...s, queuedMessages: Array.isArray(msg.messages) ? msg.messages : [] } : s));
             }
             break;
           case "session-attention":
