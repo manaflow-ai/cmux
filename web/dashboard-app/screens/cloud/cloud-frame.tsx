@@ -3,6 +3,7 @@
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
+import { RequiresPro } from "@/dashboard-app/components/requires-pro";
 import { RouteSectionError } from "@/dashboard-app/components/route-section-error";
 
 /** Page frame and header, shown while the device list loads. */
@@ -14,6 +15,7 @@ export function CloudPageFrame({ children }: { readonly children: ReactNode }) {
         <h1 className="text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
+      <RequiresPro feature="cloud" />
       {children}
     </div>
   );

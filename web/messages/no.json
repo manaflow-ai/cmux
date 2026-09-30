@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "oversikt",
-      "team": "team",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Oversikt",
+      "team": "Team",
       "mobileDevices": "Mobile enheter",
-      "settings": "innstillinger",
-      "teams": "team"
+      "settings": "Innstillinger",
+      "teams": "Team"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Rute LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
-      "coderouterLink": "åpne coderouter",
+      "coderouterLink": "Åpne coderouter",
       "iosAppName": "iOS-app",
       "iosAppDescription": "Installer cmux iOS-appen via TestFlight (beta-tilgang).",
       "iosLink": "Åpne iOS-appen"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Administrer delte AI-kontoer og rute forespørsler med coderouter.",
-      "title": "coderouter",
-      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
+      "title": "Coderouter",
+      "description": "Coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
       "machines": {
         "title": "Maskiner",
         "description": "coderouter-bruk per maskin for {team} de siste {days} dagene.",
@@ -407,7 +407,8 @@
       "signingOut": "Logger ut…",
       "signOutError": "Kunne ikke logge ut. Prøv igjen.",
       "organizationSwitchError": "Kunne ikke bytte organisasjon. Prøv igjen.",
-      "signIn": "Logg inn"
+      "signIn": "Logg inn",
+      "upgrade": "Oppgrader"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "Opprett et team"
+      },
+      "title": "Plan og fakturering",
+      "picker": {
+        "current": "Nåværende plan",
+        "upgradeTo": "Oppgrader til {plan}",
+        "switchTo": "Bytt til {plan}",
+        "cancelPlan": "Avslutt plan",
+        "resume": "Gjenoppta {plan}",
+        "renewsOn": "Fornyes {date}",
+        "endsOn": "Avsluttes {date}",
+        "perMonth": "per måned",
+        "perSeatMonth": "per plass per måned",
+        "paymentMethod": "Administrer betalingsmåte",
+        "invoices": "Fakturaer",
+        "heading": "Planer",
+        "actionError": "Kunne ikke endre planen. Prøv igjen.",
+        "unavailable": {
+          "cancelScheduled": "Gjenoppta planen for å endre den.",
+          "granted": "Tildelt av cmux. Det er ingenting å endre.",
+          "adminOnly": "Bare teamadministratorer kan endre planen."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Hele cmux-terminalen for macOS",
+            "Hvilken som helst CLI-agent med egne nøkler",
+            "Lokal økthistorikk"
+          ],
+          "go": [
+            "1 aktiv Cloud VM",
+            "40 VM-timer i måneden",
+            "2 lagrede VM-er"
+          ],
+          "pro": [
+            "Skyagenter på Cloud VMs",
+            "24 GB RAM og 6 vCPU-er delt mellom VM-er",
+            "cmux-appen for iOS"
+          ],
+          "max": [
+            "64 GB RAM og 16 vCPU-er delt mellom VM-er",
+            "Større maskinstørrelser",
+            "Alt i Pro"
+          ],
+          "team": [
+            "Alt i Pro for hvert medlem",
+            "Én faktura for hele teamet",
+            "Prioritert støtte"
+          ]
+        },
+        "billedAnnually": "faktureres årlig"
+      },
+      "change": {
+        "title": "Bytte til {plan}?",
+        "upgradeBody": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per måned.",
+        "downgradeBody": "{plan} starter nå. Den ubrukte delen av nåværende plan, {credit}, krediteres de neste fakturaene. Neste faktura, {date}, er på {amount}.",
+        "confirm": "Bytt til {plan}",
+        "keep": "Behold nåværende plan",
+        "switching": "Bytter…",
+        "previewError": "Kunne ikke beregne prisen. Prøv igjen.",
+        "paymentFailed": "Kortet ble avvist. Oppdater betalingsmåten, og prøv igjen.",
+        "error": "Kunne ikke bytte plan. Prøv igjen."
+      },
+      "cancelDialog": {
+        "title": "Avslutte {plan}?",
+        "body": "Du beholder {plan} til {date}. Etter det mister du:",
+        "bodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Etter det mister du:",
+        "reasonLabel": "Hvorfor avslutter du? (valgfritt)",
+        "otherPlaceholder": "Fortell oss mer (valgfritt)",
+        "confirm": "Avslutt plan",
+        "keep": "Behold {plan}",
+        "error": "Kunne ikke avslutte planen. Prøv igjen.",
+        "resumeError": "Kunne ikke gjenoppta planen. Prøv igjen.",
+        "reasons": {
+          "too_expensive": "For dyrt",
+          "missing_feature": "Mangler en funksjon jeg trenger",
+          "not_using": "Bruker det ikke nok",
+          "other": "Annet"
+        }
+      },
+      "welcome": {
+        "title": "Velkommen til {plan}",
+        "body": "Planen er aktiv. Prøv dette først:",
+        "ios": "Installer iOS-appen",
+        "cloud": "Åpne Cloud",
+        "team": "Opprett et team",
+        "banner": "Du bruker nå {plan}.",
+        "bannerLink": "Plan og fakturering"
       }
     },
     "mobileDevices": {
@@ -467,7 +561,7 @@
       "relaySettings": "Relay-innstillinger",
       "relaySettingsDescription": "Velg relay-serverne som dette teamet bruker. Skriv inn én URL per linje.",
       "saveRelaySettings": "Lagre relay-innstillinger",
-      "eyebrow": "sky / enheter",
+      "eyebrow": "Sky / enheter",
       "scopeActive": "Viser dette teamet",
       "emptyTitle": "Ingen tilkoblede enheter ennå",
       "emptyDescription": "Når en cmux-enhet pares med dette teamet, vises den her med plattform, versjon og tilgangskontroller.",
@@ -488,7 +582,10 @@
         "account": "Konto",
         "billing": "Fakturering",
         "teamsGroup": "Team",
-        "createTeam": "Opprett team"
+        "createTeam": "Opprett team",
+        "accountGroup": "Konto",
+        "billingGroup": "Fakturering",
+        "planBilling": "Plan og fakturering"
       },
       "ui": {
         "save": "Lagre",
@@ -1015,8 +1112,8 @@
       "apiKeySecretBody": "Denne hemmeligheten vises ikke igjen.",
       "apiKeyCopy": "Kopier API-nøkkel",
       "apiKeyCopied": "Kopiert",
-      "apiKeyCreatedAt": "opprettet {at}",
-      "apiKeyLastUsed": "sist brukt {at}",
+      "apiKeyCreatedAt": "Opprettet {at}",
+      "apiKeyLastUsed": "Sist brukt {at}",
       "apiKeyRevoked": "Tilbakekalt",
       "apiKeyLabelPlaceholder": "For eksempel CI eller produksjon",
       "createApiKeyAction": "Opprett API-nøkkel",
@@ -1026,11 +1123,13 @@
       "revokingApiKeyAction": "Tilbakekaller",
       "apiKeyRevokeError": "API-nøkkelen kunne ikke tilbakekalles.",
       "revokeApiKeyConfirmTitle": "Tilbakekall denne API-nøkkelen?",
-      "apiKeyUsageDetail": "siste 30 dager: {completions} fullføringer · {tokens} tokens ({input} inn / {output} ut) · {value} API-ekvivalent",
+      "apiKeyUsageDetail": "Siste 30 dager: {completions} fullføringer · {tokens} tokens ({input} inn / {output} ut) · {value} API-ekvivalent",
       "apiKeyUsageUnavailable": "Bruk er ikke tilgjengelig",
       "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart.",
       "apiKeysEmptyTitle": "Ingen API-nøkler ennå",
-      "apiKeysEmptyHint": "Opprett en for å autentisere en CodeRouter-klient."
+      "apiKeysEmptyHint": "Opprett en for å autentisere en CodeRouter-klient.",
+      "unavailableTitle": "Delte kontoer er ikke tilgjengelige",
+      "unavailableBody": "cmux får ikke kontakt med tjenesten for delte kontoer akkurat nå. Kontoer lagt til med cr add, og Anthropic- og Bedrock-kontoer, fungerer fortsatt."
     },
     "notFound": {
       "title": "Fant ikke siden",
@@ -1050,6 +1149,14 @@
       },
       "retry": "Prøv igjen",
       "retrying": "Prøver igjen …"
+    },
+    "upgrade": {
+      "title": "Krever Pro",
+      "cloud": "Cloud VMs og skyagenter er en del av Pro.",
+      "testflight": "cmux-appen for iOS er en del av Pro.",
+      "mobileDevices": "Tilkobling av telefon og nettbrett er en del av Pro.",
+      "action": "Oppgrader til Pro",
+      "comparePlans": "Sammenlign planer"
     }
   },
   "community": {
@@ -2041,6 +2148,8 @@
       "customActionsDesc": "En <actions>actions</actions>-oppføring er den gjenbrukbare tingen cmux kjører. Bruk handlinger når samme oppførsel skal være tilgjengelig fra Command Palette, overflatefanelinjen, snarveier eller plussknappmenyen. Behold <commands>commands</commands> for gjenbrukbare shell-kommandoer og arbeidsområdeoppsett. Sett <palette>palette</palette> til false når en handling ikke skal vises i Command Palette.",
       "actionTypes": "Handlingstyper",
       "actionTypeBuiltin": "Alias til en innebygd cmux-handling som cmux.newTerminal, cmux.newBrowser, cmux.splitRight eller cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Innebygde kopihandlinger: cmux.copyWorkingDirectory kopierer terminalens arbeidsmappe, cmux.copyProjectRoot kopierer roten av git-repositoriet (eller arbeidsmappen utenfor et repository), og cmux.copyScreen kopierer den synlige skjermen.",
+      "actionTypeBuiltinCopyRemote": "I et SSH-, sky- eller eksternt tmux-arbeidsområde kopierer cmux.copyProjectRoot den eksterne arbeidsmappen, fordi cmux ikke kan slå opp git-repositoriet på den andre verten.",
       "actionTypeCommand": "Kjører shell-tekst i en terminal. Bruk target for å velge gjeldende terminal eller en ny fane i gjeldende panel.",
       "actionTypeAgent": "Starter en støttet kodeagent. I dag støttes codex og claude, med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kjører en navngitt arbeidsområdedefinisjon fra commands. Bruk dette for flerpane-layouter, egendefinerte arbeidsmapper og oppstartskommandoer.",

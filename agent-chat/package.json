@@ -24,6 +24,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-test-renderer": "19.1.0",
-    "react-test-renderer": "19.2.3"
+    "react-test-renderer": "19.2.3",
+    "typescript": "5.9.2"
   }
 }
