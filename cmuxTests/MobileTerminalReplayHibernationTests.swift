@@ -145,7 +145,8 @@ struct MobileTerminalReplayHibernationTests {
                 return
             }
             #expect(code == "surface_unavailable")
-            #expect(data?["reason"] as? String == "awaiting_restore")
+            let errorData = data as? [String: Any]
+            #expect(errorData?["reason"] as? String == "awaiting_restore")
         }
     }
 
