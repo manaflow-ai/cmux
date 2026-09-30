@@ -134,3 +134,54 @@ test("loads an explicitly selected Freestyle provider from the extra environment
   assert.equal(apiKey, "explicit-freestyle-key");
   assert.equal(provider, "freestyle");
 });
+
+function sourcedNetworkNamespace(env) {
+  const home = mkdtempSync(path.join(tmpdir(), "cmux-load-dev-env-ns-"));
+  const secrets = path.join(home, ".secrets");
+  const envFile = path.join(secrets, "cmuxterm-dev.env");
+  mkdirSync(secrets, { recursive: true });
+  writeFileSync(envFile, "", { mode: 0o600 });
+  const inherited = { ...process.env };
+  delete inherited.CMUX_VM_NETWORK_NAMESPACE;
+  delete inherited.DATABASE_URL;
+  delete inherited.CMUX_DEV_USE_EXTERNAL_DATABASE_URL;
+  try {
+    return execFileSync(
+      "bash",
+      ["-c", `source "$1"; printf '%s:%s' "\${CMUX_VM_NETWORK_NAMESPACE+set}" "\${CMUX_VM_NETWORK_NAMESPACE-}"`, "bash", scriptPath],
+      {
+        encoding: "utf8",
+        env: { ...inherited, HOME: home, CMUXTERM_ENV_FILE: envFile, CMUXTERM_EXTRA_ENV_FILE: "", ...env },
+      },
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+test("each dev database gets its own Cloud network namespace", () => {
+  const stackA = sourcedNetworkNamespace({
+    CMUX_DEV_USE_EXTERNAL_DATABASE_URL: "1",
+    DATABASE_URL: "postgres://cmux:stack-a-password@postgres:5432/cmux",
+  });
+  const stackB = sourcedNetworkNamespace({
+    CMUX_DEV_USE_EXTERNAL_DATABASE_URL: "1",
+    DATABASE_URL: "postgres://cmux:stack-b-password@postgres:5432/cmux",
+  });
+  const local = sourcedNetworkNamespace({ CMUX_PORT: "3811" });
+  for (const value of [stackA, stackB, local]) {
+    assert.match(value, /^set:dev-[0-9a-f]{10}$/);
+  }
+  assert.notEqual(stackA, stackB);
+  assert.notEqual(stackA, local);
+  assert.equal(stackA, sourcedNetworkNamespace({
+    CMUX_DEV_USE_EXTERNAL_DATABASE_URL: "1",
+    DATABASE_URL: "postgres://cmux:stack-a-password@postgres:5432/cmux",
+  }));
+  assert.equal(stackA.includes("stack-a-password"), false);
+});
+
+test("an explicit Cloud network namespace, even empty, is kept", () => {
+  assert.equal(sourcedNetworkNamespace({ CMUX_VM_NETWORK_NAMESPACE: "staging" }), "set:staging");
+  assert.equal(sourcedNetworkNamespace({ CMUX_VM_NETWORK_NAMESPACE: "" }), "set:");
+});
