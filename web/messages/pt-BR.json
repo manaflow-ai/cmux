@@ -2033,7 +2033,8 @@
           "ampIntegration": "Liga ou desliga os hooks do cmux para o Amp. Quando desligados, o plugin incluído continua instalado, mas inativo.",
           "suppressSubagentNotifications": "Suprime notificações visíveis de conclusão e alterações de status de agentes filhos aninhados do Codex ou Claude, mantendo seus eventos na telemetria do Feed.",
           "workspaceAutoNaming": "Nomeação automática opcional de espaços de trabalho e abas por IA a partir do conteúdo das conversas do agente. Quando ativada, o cmux resume as sessões de agentes compatíveis em títulos curtos usando o binário próprio de cada agente; renomeações manuais sempre prevalecem.",
-          "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha."
+          "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Controla quando o cmux pede confirmação antes de sair. Builds DEV sempre saem imediatamente, independentemente desta configuração. O app.warnBeforeQuit legado ainda é aceito como fallback booleano.",
@@ -2084,7 +2085,12 @@
           "compactAgentStatus": "Mostrar cada workspace em uma única linha: um ícone colorido antes do título indica o estado do agente, dos não lidos e da pull request e substitui as linhas de status dos agentes (por exemplo, Em execução ou Precisa de entrada), a linha de branch e diretório e as linhas de pull request, cujos detalhes passam para a dica do ícone. As outras entradas de status mantêm suas linhas.",
           "compactStatusIcons": "Nomes de SF Symbols que substituem o glifo de compactAgentStatus para cada estado, por exemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Estados não definidos mantêm o símbolo integrado, e um nome que não pode ser exibido volta para ele.",
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
-          "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica."
+          "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica.",
+          "beta": {
+            "conversations": {
+              "enabled": "Mostrar a visualização unificada de conversas no seletor da barra lateral."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Configurações do explorador de arquivos (árvore de arquivos) na barra lateral direita.",
@@ -2153,6 +2159,12 @@
       "actionTypeCommand": "Executa texto shell em um terminal. Use target para escolher o terminal atual ou uma nova aba no painel atual.",
       "actionTypeAgent": "Inicia um agente de programação compatível. Hoje oferece suporte a codex e claude, com argumentos opcionais.",
       "actionTypeWorkspaceCommand": "Executa uma definição de workspace nomeada em commands. Use para layouts com vários painéis, diretórios de trabalho personalizados e comandos de inicialização.",
+      "actionTypeSetting": "Altera uma configuração no seu cmux.json global, por exemplo para alternar uma configuração true/false ou percorrer uma lista de valores. Veja Ações de configuração abaixo.",
+      "actionTypeSettingPreset": "Aplica de uma vez um grupo nomeado de configurações definido em settingPresets.",
+      "settingActions": "Ações de configuração",
+      "settingActionsDesc": "Uma ação de configuração indica o <path>path</path> de uma configuração e exatamente um entre <set>set</set> (grava um valor), <toggle>toggle: true</toggle> (alterna uma configuração true/false), <cycle>cycle</cycle> (avança para o próximo valor de uma lista, voltando ao primeiro depois do último) ou <unset>unset: true</unset> (remove a chave do cmux.json, para que valha o valor da janela Configurações ou o padrão). toggle e cycle partem do valor que o cmux está usando, inclusive um definido na janela Configurações. Uma ação settingPreset aplica uma entrada de <presets>settingPresets</presets>, um cmux.json parcial cujos objetos aninhados são mesclados chave por chave. O cmux valida cada alteração com o esquema antes de salvar, mantém seus comentários e as demais chaves e aplica a alteração na hora. Ações de configuração e presets só rodam a partir do seu cmux.json global e dos pacotes que ele referencia; configurações de projeto não podem declará-los.",
+      "settingActionsCli": "As mesmas alterações funcionam a partir de um terminal: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> e <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Com <confirm>confirm: true</confirm>, o cmux pergunta antes de salvar e mostra o comando cmux config equivalente. Os caminhos são divididos em cada \".\", então uma chave que contém \".\" (como uma entrada de <byCwd>workspaceGroups.byCwd</byCwd> para ~/src/app.web) não pode ser alterada dessa forma. Edite-a diretamente no cmux.json.",
       "actionFields": "Campos da ação",
       "actionFieldTitle": "Título da linha na Command Palette, rótulo do botão, título do item de menu e título do prompt de confiança, a menos que uma entrada substitua.",
       "actionFieldSubtitle": "Texto secundário na Command Palette. description é aceito como alias de subtitle.",
@@ -2284,7 +2296,8 @@
         "wn-reload": "Recarregar configuração",
         "wn-quit": "Sair"
       },
-      "metaTitle": "Atalhos de teclado"
+      "metaTitle": "Atalhos de teclado",
+      "fileEditorWordWrap": "Alternar quebra de linha no editor de arquivos (Option+Z)."
     },
     "api": {
       "title": "Referência da CLI",
@@ -2723,7 +2736,8 @@
       "maxLinesSetting": "TextBox Max Lines limita a altura do TextBox antes que o conteúdo comece a rolar.",
       "configTitle": "cmux.json",
       "configDesc": "Defina os mesmos padrões em ~/.config/cmux/cmux.json dentro de terminal:",
-      "focusNote": "Sessões restauradas mantêm a visibilidade e o estado de foco do TextBox salvos. Esses padrões se aplicam apenas a superfícies de terminal recém-criadas."
+      "focusNote": "Sessões restauradas mantêm a visibilidade e o estado de foco do TextBox salvos. Esses padrões se aplicam apenas a superfícies de terminal recém-criadas.",
+      "betaCallout": "TextBox é um recurso beta. Seus padrões e comportamento podem mudar durante os testes."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multiagente no cmux",

@@ -133,6 +133,22 @@ struct ControlCommandExecutionPolicyTests {
         )
     }
 
+    @Test func windowCaptureRunsOnTheWorkerAndIsNotMainThreadCallable() {
+        // A recording samples the window for as long as the clip lasts, and a
+        // still waits on the same capture once, so these verbs must never be
+        // callable inline on the main thread: the window being captured has to
+        // keep drawing while ScreenCaptureKit answers.
+        for method in [
+            "window.record.start", "window.record.stop", "window.record.status",
+            "window.record.note", "window.record.list",
+            "window.screenshot",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forMethod: method)
+            #expect(policy == .socketWorker(mainThreadCallable: false), "\(method)")
+            #expect(policy.runsOnSocketWorker, "\(method)")
+        }
+    }
+
     @Test func v2ResolutionReadsRunOnTheWorkerAndAreMainThreadCallable() {
         // Tranche D (issue #5757): the implicit handle-normalization reads.
         // One controlResolveOnMain hop (refresh + witness + ref minting),
@@ -203,6 +219,7 @@ struct ControlCommandExecutionPolicyTests {
         // that formatting inline on the main thread, which is exactly the
         // stall the lane move removes, and no in-process caller needs it.
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.input_state") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_selection") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }

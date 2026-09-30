@@ -2033,7 +2033,8 @@
           "ampIntegration": "开启或关闭 cmux 的 Amp 钩子。关闭后，捆绑的插件仍保持安装，但处于闲置状态。",
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。",
           "workspaceAutoNaming": "可选的 AI 自动命名：根据代理对话内容自动命名工作区和标签页。启用后，cmux 会使用各受支持代理自己的二进制文件将会话总结为简短标题；手动重命名始终优先。",
-          "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。"
+          "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
@@ -2084,7 +2085,12 @@
           "compactAgentStatus": "每个工作区只显示一行：标题前的单个彩色图标表示代理、未读和拉取请求状态，取代代理状态行（例如“运行中”或“需要输入”）、分支和目录行以及拉取请求行，这些详细信息移到图标的提示中。其他状态条目保留各自的行。",
           "compactStatusIcons": "按状态替换 compactAgentStatus 字形的 SF Symbol 名称，例如 {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}。未设置的状态使用内置符号，无法显示的名称也会回退到内置符号。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
-          "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
+          "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。",
+          "beta": {
+            "conversations": {
+              "enabled": "在侧边栏选择器中显示统一的对话视图。"
+            }
+          }
         },
         "fileExplorer": {
           "description": "右侧边栏文件浏览器（文件树）设置。",
@@ -2153,6 +2159,12 @@
       "actionTypeCommand": "在终端中运行 shell 文本。使用 target 选择当前终端或当前面板中的新标签。",
       "actionTypeAgent": "启动受支持的编码代理。目前支持 codex 和 claude，并可传入可选参数。",
       "actionTypeWorkspaceCommand": "运行 commands 中的命名工作区定义。用于多面板布局、自定义工作目录和启动命令。",
+      "actionTypeSetting": "修改全局 cmux.json 中的一项设置，例如切换 true/false 设置，或在一组值之间循环。请参阅下方的设置操作。",
+      "actionTypeSettingPreset": "一次性应用 settingPresets 中的一组命名设置。",
+      "settingActions": "设置操作",
+      "settingActionsDesc": "设置操作需指定设置的 <path>path</path>，并且只能指定以下其中一项：<set>set</set>（写入一个值）、<toggle>toggle: true</toggle>（切换 true/false 设置）、<cycle>cycle</cycle>（切换到列表中的下一个值，到末尾后回到开头）或 <unset>unset: true</unset>（从 cmux.json 中删除该键，改用设置窗口中的值或默认值）。toggle 和 cycle 从 cmux 当前使用的值开始，包括你在设置窗口中设定的值。settingPreset 操作会应用 <presets>settingPresets</presets> 中的一个条目，即一份部分 cmux.json，其中的嵌套对象按键逐一合并。cmux 在保存前会按 schema 检查每项更改，保留你的注释和其他键，并立即应用更改。设置操作和预设只能从全局 cmux.json 及其引用的包中运行，项目配置不能声明它们。",
+      "settingActionsCli": "同样的更改也可以在终端中完成：<set>cmux config set terminal.scrollSpeed 1.4</set>、<toggle>cmux config toggle fileEditor.wordWrap</toggle> 和 <preset>cmux config preset sidebar.quiet</preset>。",
+      "settingActionsLimits": "设置 <confirm>confirm: true</confirm> 后，cmux 会在保存前询问，并显示对应的 cmux config 命令。路径会在每个 \".\" 处拆分，因此本身包含 \".\" 的键（例如 ~/src/app.web 对应的 <byCwd>workspaceGroups.byCwd</byCwd> 条目）无法用这种方式修改。请直接在 cmux.json 中编辑。",
       "actionFields": "操作字段",
       "actionFieldTitle": "Command Palette 行标题、表面按钮标签、菜单项标题以及信任提示标题，除非条目自行覆盖。",
       "actionFieldSubtitle": "Command Palette 中的副标题文本。description 可作为 subtitle 的别名。",
@@ -2285,7 +2297,8 @@
         "wn-reload": "重新加载配置",
         "wn-quit": "退出"
       },
-      "metaTitle": "键盘快捷键"
+      "metaTitle": "键盘快捷键",
+      "fileEditorWordWrap": "切换文件编辑器自动换行 (Option+Z)."
     },
     "api": {
       "title": "CLI 参考",
@@ -2724,7 +2737,8 @@
       "maxLinesSetting": "TextBox Max Lines 会限制 TextBox 在内容滚动前的最大高度。",
       "configTitle": "cmux.json",
       "configDesc": "也可以在 ~/.config/cmux/cmux.json 的 terminal 下设置相同默认值：",
-      "focusNote": "恢复的会话会保留已保存的 TextBox 可见性和焦点状态。这些默认值只适用于新建的终端界面。"
+      "focusNote": "恢复的会话会保留已保存的 TextBox 可见性和焦点状态。这些默认值只适用于新建的终端界面。",
+      "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。"
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode：在 cmux 中运行 OpenCode 多 agent",
