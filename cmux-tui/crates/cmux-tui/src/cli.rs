@@ -614,7 +614,8 @@ USAGE
   cmux workspace group list
   cmux workspace group create --name <value> [--color <token|#hex>] [--id <id>] [--index <n>] [--collapse]
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color] [--collapse|--expand]
-  cmux workspace group <group> delete|move --index <n>
+  cmux workspace group <group> delete
+  cmux workspace group <group> move --index <n>
   cmux workspace group <group> add --workspace <key|id> [--index <n>]
   cmux workspace group remove --workspace <key|id>
   Nested panes support split --right or --down.

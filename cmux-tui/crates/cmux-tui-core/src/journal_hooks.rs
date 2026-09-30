@@ -494,6 +494,10 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
             continue;
         }
 
+        // Taken before the pending query: a retry that comes due after this
+        // instant was invisible to the query, and its deadline must stay in
+        // the future of `now` so the wait below returns for it.
+        let now = Instant::now();
         let mut start_failed = false;
         if active.len() < workers.capacity {
             let capacity = workers.capacity - active.len();
@@ -570,7 +574,6 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
         // that is already due but waits for a worker or a per-hook slot
         // starts when a completion wakes the journal, so a past deadline
         // must not become an immediate re-loop.
-        let now = Instant::now();
         if !start_failed {
             failure_backoff.reset();
         }
