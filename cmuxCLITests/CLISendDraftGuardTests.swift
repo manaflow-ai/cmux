@@ -222,7 +222,12 @@ struct CLISendDraftGuardTests {
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "/goal resume"],
             inputStates: [Self.empty, Self.draft, Self.empty],
-            screenText: "❯ /goal resume\n/goal  resume"
+            screenTexts: [
+                "Claude Code\n❯\u{00A0}/goal resume\n/goal resume",
+                "Claude Code\n❯\u{00A0}/goal resume\n/goal resume",
+                "Claude Code\n❯\u{00A0}/goal resume\n/goal resume",
+                "Claude Code\n❯\u{00A0}",
+            ]
         )
 
         #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))

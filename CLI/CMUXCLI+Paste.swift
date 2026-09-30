@@ -331,7 +331,8 @@ extension CMUXCLI {
                         idFormat: idFormat
                     )
                 }
-                guard !agent || Self.sendComposerMatches(screen, text: text, agentKind: state?["agent_kind"] as? String) else {
+                let popupVisible = (currentPopupState(lastState) || Self.screenShowsSlashPopup(screen))
+                guard !agent || popupVisible || Self.sendComposerMatches(screen, text: text, agentKind: state?["agent_kind"] as? String) else {
                     return try sendSubmitUnconfirmed(
                         command: command,
                         target: target,
@@ -387,7 +388,7 @@ extension CMUXCLI {
                 ((lastState["state"] as? String) == "empty"
                     || (lastState["state"] as? String) == "queued"
                     || (lastState["queued"] as? Bool) == true),
-                (!popupStillVisible || !slashPopupBeforeKey || attempt > 0) {
+                !popupStillVisible && (!slashPopupBeforeKey || attempt > 0) {
                 return printSubmitResult(
                     status: sendSubmitStatus(lastState, key: key),
                     payload: lastState,
@@ -466,6 +467,10 @@ extension CMUXCLI {
         }
         let kind = (state?["agent_kind"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return kind?.isEmpty == false ? "submitted" : "sent"
+    }
+
+    private func currentPopupState(_ state: [String: Any]?) -> Bool {
+        (state?["slash_command_popup"] as? Bool) == true
     }
 
     private func sendStateIsConfirmed(_ state: [String: Any]?, screen: String?) -> Bool {
