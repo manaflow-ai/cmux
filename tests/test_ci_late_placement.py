@@ -454,11 +454,13 @@ class Workflow(unittest.TestCase):
                 fork_pr = (
                     "(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
                     " != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner"
-                    " || 'blacksmith-6vcpu-macos-15') || "
+                    " || 'blacksmith-6vcpu-macos-26') || "
                 )
+                # ci-macos-15.yml's macos_15_lane pins a literal label next.
+                lane = "inputs.macos_15_lane == 'true' && 'blacksmith-6vcpu-macos-15' || "
                 self.assertTrue(spec["runs-on"].startswith("${{ " + late)
                                 or spec["runs-on"].startswith(owner + late)
-                                or spec["runs-on"].startswith(owner + fork_pr + late),
+                                or spec["runs-on"].startswith(owner + lane + fork_pr + late),
                                 spec["runs-on"][:200])
                 # The job-level if never requires late-placement, so a skipped or failed one
                 # leaves the consumer running where the picker put it.

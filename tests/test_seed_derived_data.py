@@ -873,6 +873,7 @@ def github_context(event_name, ref="refs/heads/main", **variables):
             "MACOS_RUNNER_15": "pool-15-paid",
             "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-pr.app",
             "CMUX_CI_XCODE_APP_MACOS_15": "/Applications/Xcode-15.app",
+            "CMUX_CI_XCODE_APP_MACOS_26": "/Applications/Xcode-26.app",
             **variables,
         },
         "inputs": {"cache_backend": "default", "owned_head_repos": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
@@ -986,7 +987,7 @@ class Wiring(unittest.TestCase):
         self.assertIs(job["strategy"]["fail-fast"], False)
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         pools = {evaluate(pool, context) for pool in seed_pools()}
-        # macOS 15 too: pull requests overflow there, on its own Xcode.
+        # macOS 15 too, on its own Xcode, for ci-macos-15.yml's dispatches.
         self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26",
                                  "blacksmith-6vcpu-macos-15"})
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
@@ -1021,10 +1022,12 @@ class Wiring(unittest.TestCase):
         # entry alone publishes the app-host product.
         runs_on, own, _ = seed_pools()
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
-        larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
+        larger = ("(vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26') == 'blacksmith-6vcpu-macos-26'"
+                  " && 'blacksmith-12vcpu-macos-26'")
         self.assertIn(larger, runs_on)
-        # Any other pool value is admission's pull-request pool, unchanged.
-        fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
+        # Any other pool value is admission's pull-request pool, unchanged;
+        # unset is 6vcpu macOS 26 on both sides.
+        fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26'"
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
         self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
         self.assertIn(fallback, admission)
@@ -1182,7 +1185,7 @@ class Wiring(unittest.TestCase):
         self.assertIn("::warning::glaeda holds no root", run(2)[2])
         self.assertNotEqual(run(1)[0], 0)
 
-    def test_the_macos_15_pool_seeds_with_the_xcode_an_overflowed_run_compiles_with(self):
+    def test_the_macos_15_pool_seeds_with_the_xcode_ci_macos_15_compiles_with(self):
         import sys as _sys
         _sys.path.insert(0, str(ROOT / "scripts" / "ci"))
         import pr_runner_pool
@@ -1194,7 +1197,15 @@ class Wiring(unittest.TestCase):
         self.assertEqual(pool, pr_runner_pool.MACOS_15_RUNNER)
         context["matrix"] = {"pool": pool}
         self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-15.app")
-        self.assertEqual(pr_runner_pool.POOLS[pool], "CMUX_CI_XCODE_APP_MACOS_15")
+        # Not a pull-request pool: pull requests test on main's macOS 26.
+        self.assertNotIn(pool, pr_runner_pool.POOLS)
+        # ci-macos-15.yml puts admission there, on the same Xcode, on any event.
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
+        for event in ("schedule", "workflow_dispatch"):
+            lane = github_context(event)
+            lane["inputs"]["macos_15_lane"] = "true"
+            self.assertEqual(evaluate(admission["runs-on"], lane), pool, event)
+            self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], lane), "/Applications/Xcode-15.app")
         # Only the first entry publishes the product, never this one.
         self.assertNotEqual(seed_pools()[0], overflow)
 
@@ -1352,12 +1363,22 @@ class Wiring(unittest.TestCase):
                     evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
                     evaluate(seeder["env"]["CMUX_CI_XCODE_APP"], context),
                 )
-        # Pull requests already compile there; other events keep their lane.
+        # Pull requests already compile there. A merge group can carry fork
+        # code: the picker's Blacksmith pool or 6vcpu macOS 26, never
+        # MACOS_RUNNER_PR (which may name an owned Mac), on the lane's Xcode.
         pull_request = github_context("pull_request", ref="refs/pull/1/merge")
         self.assertEqual(evaluate(admission["runs-on"], pull_request), "pool-pr")
         merge_group = github_context("merge_group", ref="refs/heads/gh-readonly-queue/main/x", CI_PAID_MACOS_OVERFLOW="1")
-        self.assertEqual(evaluate(admission["runs-on"], merge_group), "pool-15-paid")
-        self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], merge_group), "/Applications/Xcode-15.app")
+        self.assertEqual(evaluate(admission["runs-on"], merge_group), "blacksmith-6vcpu-macos-26")
+        self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], merge_group), "/Applications/Xcode-pr.app")
+        merge_group["inputs"]["pr_runner"] = "blacksmith-12vcpu-macos-26"
+        self.assertEqual(evaluate(admission["runs-on"], merge_group), "blacksmith-12vcpu-macos-26")
+        merge_group["inputs"]["pr_runner"] = "glaeda-std-xcode-26.6"
+        self.assertEqual(evaluate(admission["runs-on"], merge_group), "blacksmith-6vcpu-macos-26")
+        # Only another event (ci-macos-15.yml's schedule) reaches macOS 15.
+        schedule = github_context("schedule")
+        self.assertEqual(evaluate(admission["runs-on"], schedule), "blacksmith-6vcpu-macos-15")
+        self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], schedule), "/Applications/Xcode-15.app")
         branch_dispatch = github_context("workflow_dispatch", ref="refs/heads/topic")
         self.assertEqual(evaluate(admission["runs-on"], branch_dispatch), "pool-pr")
 
@@ -1367,11 +1388,11 @@ class Wiring(unittest.TestCase):
         # and never reads the pull-request lane's Xcode pin.
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
         for head, picked, runner in (
-            ("someone/cmux", "", "blacksmith-6vcpu-macos-15"),
+            ("someone/cmux", "", "blacksmith-6vcpu-macos-26"),
             ("someone/cmux", "blacksmith-12vcpu-macos-26", "blacksmith-12vcpu-macos-26"),
-            ("someone/cmux", "owned-mac", "blacksmith-6vcpu-macos-15"),
+            ("someone/cmux", "owned-mac", "blacksmith-6vcpu-macos-26"),
             # A deleted head repository reads as null and counts as a fork.
-            (None, "", "blacksmith-6vcpu-macos-15"),
+            (None, "", "blacksmith-6vcpu-macos-26"),
             ("manaflow-ai/cmux", "", "pool-pr"),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
@@ -1383,7 +1404,7 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
                 self.assertEqual(
                     evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
-                    "/Applications/Xcode-pr.app" if head == "manaflow-ai/cmux" else "/Applications/Xcode-15.app",
+                    "/Applications/Xcode-pr.app" if head == "manaflow-ai/cmux" else "/Applications/Xcode-26.app",
                 )
 
     def test_a_rerun_of_an_owned_pool_run_takes_the_retry_runner(self):

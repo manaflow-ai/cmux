@@ -74,8 +74,8 @@ jobs:
           XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           # The pools that seed; see the seed job. Each decides alone, so one
           # pool's failing seed never makes every push rebuild the others.
-          SEED_POOL_1: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
-          SEED_POOL_2: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          SEED_POOL_1: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26') == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
+          SEED_POOL_2: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
           SEED_POOL_3: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
           # The owned std minis compile at -j14, and a j12 seed re-emits
           # every module there (cmuxterm-hq#590). Their j14 seed comes from a
@@ -133,10 +133,11 @@ jobs:
     # each seed by its width. The first entry is the 12 vCPU pool of the same
     # image and Xcode, which starts in seconds and alone publishes the
     # product; the second is admission's own pool, the same pool again under
-    # any other MACOS_RUNNER_PR. The third is the macOS 15 pool, which
-    # pr_runner_pool.py overflows pull requests to, on its own Xcode
-    # (CMUX_CI_XCODE_APP_MACOS_15): without a seed of its own every admission
-    # there compiled cold for 17 to 25 minutes (2026-09-24). The fourth, when
+    # any other MACOS_RUNNER_PR (unset means 6vcpu macOS 26, as in
+    # ci-macos.yml). The third is the macOS 15 pool on its own Xcode
+    # (CMUX_CI_XCODE_APP_MACOS_15). Pull requests no longer overflow there;
+    # a manual dispatch of ci-macos-15.yml adopts it (its schedule compiles
+    # cold). The fourth, when
     # CI_SEED_TRUSTED_POOL names one, is a trusted-only owned mini that seeds
     # j14 for the owned std pool on the lane's Xcode, and with
     # CI_SEED_TRUSTED_ROOTS above 1, once more per extra canonical root
@@ -180,9 +181,9 @@ jobs:
     # job's canonical root (Prepare admission build paths).
     timeout-minutes: 120
     env:
-      # The macOS 15 pool compiles with its own Xcode, as a pull request run
-      # pr_runner_pool.py overflows there does; every other pool, the lane's.
-      CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # The macOS 15 pool compiles with its own Xcode, as ci-macos-15.yml
+      # does there; every other pool, the lane's (macOS 26).
+      CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_SEED_ROOT: ${{ matrix.root }}

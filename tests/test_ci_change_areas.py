@@ -6367,14 +6367,22 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # also send main's full-suite dispatch down the pull-request lane, where
     # seed-derived-data.yml builds the seed admission adopts
     # (tests/test_seed_derived_data.py evaluates both against the seeder).
+    # Merge groups take that lane too, on Blacksmith macOS 26 with the lane's
+    # pin. A fork pull request runs on Blacksmith macOS 26 (the picker offers
+    # no other pool), so it takes the macOS 26 image's pin; only another event
+    # (ci-macos-15.yml's schedule) reaches the macOS 15 pool and its pin.
     admission_pin = PR_LANE_XCODE_PIN.replace(
         "github.event_name == 'pull_request'",
-        "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')",
+        "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')",
         1,
     ).replace(
         # A fork pull request leaves the lane's pin; manual dispatch keeps it.
         "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)",
         "(github.event_name != 'pull_request' || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name))",
+        1,
+    ).replace(
+        "vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)",
+        "vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26)",
         1,
     )
     for job_name, pin in [
@@ -6383,7 +6391,6 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     ]:
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
         assert f"CMUX_CI_XCODE_APP: {pin}" in block, job_name
-        assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 
     # swift-package-tests links the Release Ghostty CLI helper with Zig, which

@@ -52,6 +52,21 @@ PINS = {"CMUX_CI_XCODE_APP_MACOS_15": XCODE_15}
 
 
 FORK_SETTINGS = {"lane": SMALL, "overflow": "", "order": "", "max_queued": "", "queue_rounds": "0"}
+# The macOS 15 pool as it was before it left the order: last, on its own Xcode
+# pin, so cold. Tests of the cold-pool and rollover rules, which still apply to
+# any pool off the lane's Xcode, run with it restored.
+COLD_ORDER = (LARGE, SMALL, OLD)
+
+
+def with_cold_pool(test):
+    """Run `test` with OLD back in POOLS and the default order as a cold pool."""
+    def wrapped(*args, **kwargs):
+        with unittest.mock.patch.dict(pool.POOLS, {OLD: "CMUX_CI_XCODE_APP_MACOS_15"}), \
+                unittest.mock.patch.object(pool, "DEFAULT_ORDER", COLD_ORDER):
+            return test(*args, **kwargs)
+    wrapped.__name__ = test.__name__
+    wrapped.__doc__ = test.__doc__
+    return wrapped
 
 
 def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, settings=None) -> dict:
@@ -109,6 +124,7 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual(pool.pool(snap, SMALL)["capacity"], 10)
         self.assertEqual(pool.pool(snap, OLD)["capacity"], 10)
 
+    @with_cold_pool
     def test_macos_15_last_with_its_own_xcode(self):
         # Every pool full: under one round queued on 12vcpu beats a cold
         # compile on macOS 15, more than its extra round does not.
@@ -116,6 +132,7 @@ class PreferenceOrder(unittest.TestCase):
         choice = choose(backlog(small=21, large=6, old=2))
         self.assertEqual((choice.runner, choice.xcode_app), (OLD, XCODE_15))
 
+    @with_cold_pool
     def test_a_full_pool_rolls_over(self):
         # 2026-09-24 23:16Z: 12vcpu ran 3 with 18 queued, 6vcpu 26 ran 10 with
         # 3 queued, macOS 15 ran 1 of 10. A free machine anywhere in the order
@@ -137,6 +154,7 @@ class PreferenceOrder(unittest.TestCase):
         self.assertTrue(pool.cold(OLD))
         self.assertFalse(pool.cold(LARGE) or pool.cold(SMALL) or pool.cold("glaeda-std-xcode-26.6"))
 
+    @with_cold_pool
     def test_shortest_queue_in_rounds_when_every_pool_is_full(self):
         # Queued jobs over capacity; the macOS 15 pool has no seed, so it
         # counts COLD_ROUNDS more.
@@ -156,6 +174,7 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual(choose(backlog(small=0, large=0, large_reserved=1)).runner, SMALL)
         self.assertEqual(choose(backlog(small=9, large=0, old=0, large_reserved=1, old_reserved=1)).runner, SMALL)
 
+    @with_cold_pool
     def test_order_and_threshold_come_from_variables(self):
         order = f"{SMALL},{OLD}"
         self.assertEqual(choose(backlog(small=2, old=0), order=order).runner, SMALL)
@@ -193,6 +212,7 @@ class PreferenceOrder(unittest.TestCase):
                 {"id": 3, "status": "completed"}, {"id": 4, "status": "pending"}, {"id": 5, "status": "waiting"}]
         self.assertEqual(pool.count_in_flight(runs, exclude_run_id=2), 3)
 
+    @with_cold_pool
     def test_placed_runs_and_a_narrower_pick_for_e2e(self):
         # e2e_runner_pool.py reuses this rule: runs whose pool is known count
         # where they are, and the final pick may be limited to some pools
@@ -200,14 +220,15 @@ class PreferenceOrder(unittest.TestCase):
         snap = backlog(small=0, large=0, old=0)
         snap["pools"][LARGE]["running"] = 0
         args = dict(now=NOW, xcode_pins=PINS)
+        cold = pool.Settings(order=COLD_ORDER)
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 4}, **args).runner, LARGE)
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).runner, SMALL)
         self.assertIn("replaying 5", pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).reason)
         # A pool outside the order is ignored rather than trusted.
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={"blacksmith-6vcpu-macos-latest": 9}, **args).runner, LARGE)
         busy = backlog(small=13, large=14, old=0)
-        self.assertEqual(pool.decide(busy, pool.Settings(), **args).runner, OLD)
-        self.assertEqual(pool.decide(busy, pool.Settings(), choose_from=(LARGE, SMALL), **args).runner, SMALL)
+        self.assertEqual(pool.decide(busy, cold, **args).runner, OLD)
+        self.assertEqual(pool.decide(busy, cold, choose_from=(LARGE, SMALL), **args).runner, SMALL)
         reserved = backlog(large_reserved=1)
         reserved["pools"][SMALL]["reserved_queued"] = 1
         self.assertEqual(pool.decide(reserved, pool.Settings(), choose_from=(LARGE, SMALL), **args).runner, "")
@@ -217,11 +238,36 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual((choice.runner, choice.xcode_app), ("", ""))
         self.assertIn("500", choice.reason)
 
+    @with_cold_pool
     def test_macos_15_needs_an_xcode_pin(self):
         choice = choose(backlog(small=21, large=5, old=0), pins={})
         self.assertEqual(choice.runner, LARGE)  # shortest queue in rounds among the usable pools
         self.assertIn("no Xcode pin", choice.reason)
         self.assertEqual(choose(backlog(), order=OLD, pins={}).runner, "")
+
+
+class MacOS15IsNotAPullRequestPool(unittest.TestCase):
+    """Pull request and merge-queue runs test on main's macOS 26 and Xcode."""
+
+    def test_default_order_is_macos_26_only(self):
+        self.assertEqual(pool.DEFAULT_ORDER, (LARGE, SMALL))
+        self.assertNotIn(OLD, pool.POOLS)
+        self.assertFalse(any(pool.cold(label) for label in pool.DEFAULT_ORDER))
+
+    def test_every_pool_full_still_queues_on_macos_26(self):
+        # 2026-09-24: 6vcpu macOS 26 queued 45 and 12vcpu 18 while macOS 15
+        # ran 1 to 5 of its 10. The run queues on macOS 26 anyway.
+        snap = backlog(small=45, large=18, old=0)
+        snap["pools"][OLD]["running"] = 1
+        for rounds in ("0", ""):
+            choice = choose(snap, queue_rounds=rounds)
+            self.assertIn(choice.runner, (LARGE, SMALL), rounds)
+            self.assertEqual(choice.xcode_app, "")
+
+    def test_an_order_naming_macos_15_is_rejected(self):
+        self.assertIsNone(pool.settings("", OLD, ""))
+        self.assertIsNone(pool.settings("", f"{LARGE},{SMALL},{OLD}", ""))
+        self.assertEqual(choose(backlog(small=0, large=0), order=f"{SMALL},{OLD}").runner, "")
 
 
 class FailSafe(unittest.TestCase):
@@ -235,6 +281,7 @@ class FailSafe(unittest.TestCase):
         self.assert_default(choose(backlog(), head=""))
         self.assert_default(choose(backlog(), head="someone/cmux", event="push"))
 
+    @with_cold_pool
     def test_fork_heads_follow_the_settings_the_janitor_copied(self):
         # A fork run sees no repository variables: empty lane, no Xcode pins,
         # and whatever reached its env is ignored in favour of the snapshot.
@@ -372,9 +419,9 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertNotIn(OLD, snap["pools"])
         self.assertNotIn("blacksmith-4vcpu-ubuntu-2404", snap["pools"])
         # The picker reads what the janitor writes.
-        # 12vcpu is reserved by the queued nightly job and 6vcpu 26 has jobs
-        # queued, so the run rolls over to the idle macOS 15 pool.
-        self.assertEqual(choose(snap).runner, OLD)
+        # 12vcpu is reserved by the queued nightly job, so the run queues on
+        # 6vcpu 26: the idle macOS 15 pool is not a pull request pool.
+        self.assertEqual(choose(snap).runner, SMALL)
 
     def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
         mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
@@ -510,13 +557,13 @@ PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
     return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26'")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26'")
 
 
 def gui_lane(key: str) -> str:
@@ -527,7 +574,7 @@ def gui_lane(key: str) -> str:
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26'")
 
 
 def warm_lane(index: str = "") -> str:
@@ -568,7 +615,7 @@ class ShardSpread(unittest.TestCase):
     """A full suite's shards may leave admission's pool for another on its Xcode."""
 
     def decide(self, snap, shards=pool.APP_HOST_SHARDS, **kwargs):
-        return pool.decide(snap, pool.Settings(), now=NOW, xcode_pins=PINS, shards=shards, **kwargs)
+        return pool.decide(snap, pool.Settings(order=pool.DEFAULT_ORDER), now=NOW, xcode_pins=PINS, shards=shards, **kwargs)
 
     def test_shards_leave_a_small_12vcpu_pool_with_no_room_for_them(self):
         # 12vcpu idle takes admission; its 5 machines cannot hold 7 shards
@@ -585,6 +632,7 @@ class ShardSpread(unittest.TestCase):
         snap["pools"][LARGE]["running"] = 0
         self.assertEqual(self.decide(snap).shard_runner, "")
 
+    @with_cold_pool
     def test_never_to_another_xcode_or_an_owned_pool_and_not_without_shards(self):
         snap = backlog(small=40, large=40, old=0)
         snap["pools"][OLD]["running"] = 0
@@ -1365,6 +1413,7 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertEqual(pool.settings("", "", "").queue_rounds, 0)
         self.assertEqual(e2e_pool.settings("", "").queue_rounds, 0)
 
+    @with_cold_pool
     def test_expected_wait_is_queue_rounds_times_job_minutes(self):
         snap = backlog(small=11, large=4, old=0)
         snap["pools"][LARGE]["running"] = 5
@@ -1391,6 +1440,7 @@ class QueueBehindBusyRunners(unittest.TestCase):
         idle = backlog(small=0, large=0, old=0)
         self.assertEqual(choose(idle, queue_rounds="").runner, LARGE)
 
+    @with_cold_pool
     def test_a_seeded_queue_before_a_cold_free_machine(self):
         # macOS 15 costs COLD_ROUNDS more, so 6vcpu 26's 4-minute queue beats it.
         snap = backlog(small=3, large=18, old=0)
@@ -2412,7 +2462,7 @@ class Wiring(unittest.TestCase):
             # The Claude wrapper, a side lane: the light side label when the picker put it there, else the side
             # label first.
             "ci.yml": "(contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner "
-                      "|| vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
+                      "|| vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26'",
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
             # tests-build-and-lag each test their own owned_jobs key, and are
             # root jobs; the side lanes are not. tests-build-and-lag is a GUI
@@ -2479,19 +2529,23 @@ class Wiring(unittest.TestCase):
 
     def test_xcode_pins_follow_the_chosen_pool(self):
         # A fork pull request never reads the lane's pin (see
-        # tests/test_ci_fork_runner_routing.py); main's dispatch still does.
+        # tests/test_ci_fork_runner_routing.py) and runs on Blacksmith macOS
+        # 26 with that image's pin; main's dispatch and a merge group read the
+        # lane's. Only ci-macos-15.yml's lane, or another event, takes macOS 15.
         same = "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         dispatch_lane = (f"(inputs.pr_xcode_app || (github.event_name != 'pull_request' || {same}) "
-                         "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)")
-        main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')"
+                         "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26)")
+        main_dispatch = ("${{ inputs.macos_15_lane == 'true' && vars.CMUX_CI_XCODE_APP_MACOS_15 || "
+                         "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'"
+                         " || github.event_name == 'merge_group')"
                          f" && {dispatch_lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
         macos = self.workflow("ci-macos.yml")["jobs"]
         for job in ("macos-compile-admission", "tests-build-and-lag"):
             self.assertEqual(macos[job]["env"]["CMUX_CI_XCODE_APP"], main_dispatch, job)
 
     def test_build_input_fingerprint_keys_on_the_chosen_xcode(self):
-        # A run moved to the macOS 15 pool compiles under another Xcode, so it
-        # must not skip its compile on a fingerprint taken under the lane's.
+        # A fork run compiles under the macOS 26 image's Xcode, not the lane's
+        # pin, so it must not skip its compile on a fingerprint taken under the lane's.
         steps = self.workflow("ci.yml")["jobs"]["changes"]["steps"]
         ids = [step.get("id") for step in steps]
         for step_id in ("inputs", "unchanged_inputs"):
@@ -2500,7 +2554,7 @@ class Wiring(unittest.TestCase):
             self.assertEqual(step["env"]["XCODE_APP"],
                              "${{ steps.macos-pool.outputs.xcode_app || "
                              "contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR "
-                             "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}", step_id)
+                             "|| vars.CMUX_CI_XCODE_APP_MACOS_26 }}", step_id)
 
     def test_reusable_inputs_default_to_todays_route(self):
         for name, keys in (("ci-macos.yml", ("pr_runner", "pr_retry_runner", "pr_xcode_app")),
