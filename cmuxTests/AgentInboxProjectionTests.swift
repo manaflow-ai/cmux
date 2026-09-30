@@ -165,3 +165,44 @@ struct AgentInboxProjectionTests {
     }
 
 }
+
+@Test("agent inbox does not move selection while the reply field is focused")
+func agentInboxReplyFieldOwnsArrowNavigation() {
+    #expect(!AgentInboxInteractionPolicy.shouldMoveSelection(isReplyFieldFocused: true))
+    #expect(AgentInboxInteractionPolicy.shouldMoveSelection(isReplyFieldFocused: false))
+}
+
+@Test("agent inbox question shortcuts avoid workspace digit shortcuts")
+func agentInboxQuestionShortcutRequiresOption() {
+    #expect(!AgentInboxQuestionShortcutPolicy.accepts(command: true, option: false, control: false, shift: false))
+    #expect(AgentInboxQuestionShortcutPolicy.accepts(command: true, option: true, control: false, shift: false))
+    #expect(!AgentInboxQuestionShortcutPolicy.accepts(command: true, option: true, control: true, shift: false))
+}
+
+@Test("stale inbox loads cannot update a dismissed or newer presentation")
+func agentInboxOpenRequestRejectsStaleResults() {
+    let request = AgentInboxOpenRequest(generation: 2)
+    #expect(request.isCurrent(generation: 2, isPresented: true))
+    #expect(!request.isCurrent(generation: 1, isPresented: true))
+    #expect(!request.isCurrent(generation: 2, isPresented: false))
+}
+
+@Test("reply submission gate rejects duplicate in-flight submissions")
+func agentInboxReplySubmissionGateIsIdempotent() {
+    var gate = AgentInboxReplySubmissionGate()
+    #expect(gate.begin())
+    #expect(!gate.begin())
+    gate.finish()
+    #expect(gate.begin())
+}
+
+@Test("finished-turn read state survives a new inbox view")
+func agentInboxFinishedTurnReadStatePersists() throws {
+    let suiteName = "AgentInboxProjectionTests.finished-turn-read-state"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+    let store = AgentInboxReadStateStore(defaults: defaults)
+    store.markFinishedTurnRead("stop:finished-1")
+
+    #expect(AgentInboxReadStateStore(defaults: defaults).finishedTurnIDs == ["stop:finished-1"])
+}
