@@ -134,6 +134,17 @@ pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_M
 pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
 
+/// URL scheme of the placeholder browser surface behind a remote-terminal
+/// tab (`remote-terminal-tabs-v1`). Internal: the wire tab reports
+/// `kind:"remote-terminal"` and no URL; in-process frontends (the TUI) use
+/// it to show a labeled placeholder instead of a browser.
+pub const REMOTE_TERMINAL_URL_PREFIX: &str = "cmux-remote-terminal:";
+
+/// The placeholder URL for a remote-terminal tab.
+pub fn remote_terminal_placeholder_url(session_id: &str, terminal_id: &str) -> String {
+    format!("{REMOTE_TERMINAL_URL_PREFIX}{session_id}/{terminal_id}")
+}
+
 pub type SurfaceId = u64;
 pub type PaneId = u64;
 pub type SplitId = u64;

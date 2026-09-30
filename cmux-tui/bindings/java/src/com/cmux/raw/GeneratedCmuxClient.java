@@ -563,6 +563,11 @@ public abstract class GeneratedCmuxClient {
         return SurfaceResult.fromWire(result);
     }
 
+    public final Object newRemoteTerminalTab(NewRemoteTerminalTabRequest request) throws CmuxException {
+        Object result = execute(Commands.NEW_REMOTE_TERMINAL_TAB, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final SurfaceResult newScreen(NewScreenRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_SCREEN, request.toWire());
         return SurfaceResult.fromWire(result);
@@ -661,6 +666,11 @@ public abstract class GeneratedCmuxClient {
     public final ReloadConfigResult reloadConfig() throws CmuxException {
         Object result = execute(Commands.RELOAD_CONFIG, Map.of());
         return ReloadConfigResult.fromWire(result);
+    }
+
+    public final Object remoteTerminalSnapshot(RemoteTerminalSnapshotRequest request) throws CmuxException {
+        Object result = execute(Commands.REMOTE_TERMINAL_SNAPSHOT, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final Object removeScreensFromScreenGroup(RemoveScreensFromScreenGroupRequest request) throws CmuxException {
@@ -979,6 +989,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object updateProfile(UpdateProfileRequest request) throws CmuxException {
         Object result = execute(Commands.UPDATE_PROFILE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object updateRemoteTerminalTab(UpdateRemoteTerminalTabRequest request) throws CmuxException {
+        Object result = execute(Commands.UPDATE_REMOTE_TERMINAL_TAB, request.toWire());
         return Wire.immutableJson(result);
     }
 
