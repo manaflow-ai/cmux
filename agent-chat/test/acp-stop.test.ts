@@ -61,7 +61,7 @@ async function withFake(name: string, body: (paths: Record<string, string>) => P
   }
 }
 
-function makeAdapter(paths: Record<string, string>) {
+function makeAdapter(paths: Record<string, string>, extraArgs: string[] = []) {
   const def: ProviderDef = {
     id: "fake-acp-stop",
     label: "Fake ACP Stop",
@@ -72,6 +72,7 @@ function makeAdapter(paths: Record<string, string>) {
       "--startup-ready", paths.startupReady,
       "--prompt-gate", paths.promptGate,
       "--prompt-log", paths.promptLog,
+      ...extraArgs,
     ],
   };
   return makeAcpAdapter(def);
@@ -170,6 +171,59 @@ test("Stop during ACP startup settles the status before startup finishes", async
       const done = events.filter((event) => event.kind === "done");
       expect(done).toHaveLength(1);
       expect((done[0] as { stats?: string }).stats).toBe("stop: cancelled");
+    } finally {
+      adapter.dispose(sess);
+    }
+  });
+});
+
+test("Stop leaves the status alone when the agent answered session/new without a session id", async () => {
+  await withFake("empty-session-id", async (paths) => {
+    const adapter = makeAdapter(paths, ["--empty-session-id"]);
+    const events: AgentEvent[] = [];
+    const sess = makeSession("empty-session-id", events);
+    try {
+      const turn = adapter.send(sess, "live");
+      await waitFor(paths.startupReady, (value) => value.includes("ready\n"), "startup");
+      await writeFile(paths.startupGate, "release\n");
+      // The prompt reaching the agent proves startup published its state, and
+      // it published no session id, so this turn is live and uncancellable.
+      await waitFor(paths.promptLog, (value) => value.includes("live\n"), "prompt");
+
+      adapter.stop(sess);
+      expect(sess.status).toBe("running");
+
+      await writeFile(paths.promptGate, "release\n");
+      await turn;
+      expect(sess.status).toBe("idle");
+    } finally {
+      adapter.dispose(sess);
+    }
+  });
+});
+
+test("A startup failure after Stop reports the cancel instead of an error", async () => {
+  await withFake("exit-on-new", async (paths) => {
+    const adapter = makeAdapter(paths, ["--exit-on-new"]);
+    const events: AgentEvent[] = [];
+    const sess = makeSession("exit-on-new", events);
+    try {
+      const turn = adapter.send(sess, "doomed");
+      await waitFor(paths.startupReady, (value) => value.includes("ready\n"), "startup");
+
+      adapter.stop(sess);
+      expect(sess.status).toBe("idle");
+
+      // The agent dies instead of answering session/new, which is the shape
+      // the 30s startup watchdog produces without waiting 30s for it.
+      await writeFile(paths.startupGate, "release\n");
+      await turn;
+
+      expect(events.filter((event) => event.kind === "error")).toEqual([]);
+      const done = events.filter((event) => event.kind === "done");
+      expect(done).toHaveLength(1);
+      expect((done[0] as { stats?: string }).stats).toBe("stop: cancelled");
+      expect(sess.status).toBe("idle");
     } finally {
       adapter.dispose(sess);
     }
