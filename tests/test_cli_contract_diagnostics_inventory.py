@@ -8,7 +8,10 @@ CONTRACT = ROOT / "docs" / "cli-contract.md"
 
 def test_diagnostics_commands_are_in_cli_contract_and_no_socket_probes() -> None:
     contract = CONTRACT.read_text(encoding="utf-8")
+    assert_diagnostics_commands_are_in_cli_contract(contract)
 
+
+def assert_diagnostics_commands_are_in_cli_contract(contract: str) -> None:
     required_fragments = [
         "| `iroh-diag` | Print the host's Iroh Connection Report",
         "| `sudo run [-r <reason>] [-t <timeout>] (-c <command> \\| <script.sh> \\| -)` | Submit a privileged command request",
@@ -48,3 +51,14 @@ def test_diagnostics_commands_are_in_cli_contract_and_no_socket_probes() -> None
 
     assert sudo_detail_line > final_top_level_row
     assert sudo_outcome_line > final_top_level_row
+
+
+def main() -> int:
+    contract = CONTRACT.read_text(encoding="utf-8")
+    assert_diagnostics_commands_are_in_cli_contract(contract)
+    print("cli contract diagnostics inventory ok")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
