@@ -233,15 +233,29 @@ def explicit_conflict_bytes(base: bytes, ours: bytes, theirs: bytes, width: int 
     )
 
 
+def _marker_run_length(line: str) -> int:
+    if not line or line[0] not in "<|=>":
+        return 0
+    marker = line[0]
+    index = 1
+    while index < len(line) and line[index] == marker:
+        index += 1
+    return index
+
+
 def conflict_text(base: str, ours: str, theirs: str, width: int = 7) -> str:
     """Prefer a line-level diff3 conflict and fall back to an explicit one."""
     marker_prefixes = tuple(character * width for character in "<|=>")
-    if any(
-        line.startswith(marker_prefixes)
-        for text in (base, ours, theirs)
-        for line in text.splitlines()
-    ):
-        return explicit_conflict(base, ours, theirs, width)
+    longest_marker = max(
+        (
+            _marker_run_length(line)
+            for text in (base, ours, theirs)
+            for line in text.splitlines()
+        ),
+        default=0,
+    )
+    if longest_marker:
+        return explicit_conflict(base, ours, theirs, max(width, longest_marker + 1))
 
     # Keep this helper self-contained. A merge driver can run against an
     # untrusted checkout, so importing another checked-out helper would grant
@@ -280,7 +294,7 @@ def conflict_text(base: str, ours: str, theirs: str, width: int = 7) -> str:
     except (OSError, UnicodeError):
         return explicit_conflict(base, ours, theirs, width)
 
-    if result.returncode <= 1 and any(
+    if 0 <= result.returncode <= 127 and any(
         line.startswith(marker_prefixes) for line in merged.splitlines()
     ):
         return merged
