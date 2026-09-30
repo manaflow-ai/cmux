@@ -176,6 +176,36 @@ ensure_terminal_keyboard() {
   fi
 }
 
+# A preceding real-use workload can leave the phone on the workspace list.
+# Keep this driver self-contained by opening the first visible workspace before
+# trying to attach terminal input. The row identifier is part of the app's
+# accessibility contract, so this does not depend on screen coordinates or on
+# whichever workspace happened to be selected by an earlier workload.
+terminal_surface_visible() {
+  "$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null \
+    | grep -qF "MobileTerminalSurface"
+}
+
+ensure_terminal_surface() {
+  terminal_surface_visible && return 0
+
+  local row_id
+  row_id="$("$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null \
+    | grep -oE 'MobileWorkspaceRow-[A-Za-z0-9._:-]+' \
+    | head -1 || true)"
+  [[ -n "$row_id" ]] || fail "workspace list is visible but no MobileWorkspaceRow was exposed"
+  echo "opening workspace row: $row_id"
+  "$AXE" tap --id "$row_id" --wait-timeout 15 --poll-interval 0.25 \
+    --udid "$SIM_UDID" >/dev/null
+
+  local deadline=$(( $(date +%s) + STEP_TIMEOUT ))
+  while (( $(date +%s) < deadline )); do
+    terminal_surface_visible && return 0
+    sleep 1
+  done
+  fail "workspace row opened but MobileTerminalSurface did not appear within ${STEP_TIMEOUT}s"
+}
+
 # The first key event after (re)attaching input is dropped by the simulator,
 # so every line leads with a sacrificial space (harmless to the shell).
 # Submit with the HID return key: the accessory return button renders a CR
@@ -215,6 +245,7 @@ input_ready() {
   done
   return 1
 }
+ensure_terminal_surface
 "$AXE" tap --id MobileTerminalSurface --udid "$SIM_UDID" >/dev/null 2>&1 || true
 sleep 1
 ensure_terminal_keyboard
