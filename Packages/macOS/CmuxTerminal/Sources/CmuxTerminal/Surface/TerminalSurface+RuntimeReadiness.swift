@@ -1,4 +1,5 @@
 import Foundation
+internal import CmuxFoundation
 
 struct TerminalSurfaceRuntimeReadinessWaiter: Sendable {
     let generation: UInt64
@@ -10,8 +11,10 @@ actor TerminalSurfaceRuntimeReadinessStore {
     private var waiters: [UUID: TerminalSurfaceRuntimeReadinessWaiter] = [:]
     private var lastCompletion: (epoch: UInt64, success: Bool, generation: UInt64?)?
     private var terminalFailure = false
+    private var lastEventSequence: UInt64 = 0
 
-    func begin() {
+    func begin(fenceSequence: UInt64) {
+        lastEventSequence = max(lastEventSequence, fenceSequence)
         terminalFailure = false
     }
 
@@ -51,8 +54,11 @@ actor TerminalSurfaceRuntimeReadinessStore {
     func complete(
         success: Bool,
         readinessEpoch: UInt64?,
-        currentGeneration: UInt64?
+        currentGeneration: UInt64?,
+        eventSequence: UInt64
     ) {
+        guard eventSequence > lastEventSequence else { return }
+        lastEventSequence = eventSequence
         if readinessEpoch == nil {
             terminalFailure = !success
         }
@@ -141,7 +147,9 @@ extension TerminalSurface {
         // result if the native start wins the registration race; the live-state
         // check below covers a successful start before registration.
         requestInputDemandSurfaceStartIfNeeded()
-        await runtimeReadinessStore.begin()
+        await runtimeReadinessStore.begin(
+            fenceSequence: runtimeReadinessEventSequence.loadRelaxed()
+        )
         await runtimeReadinessStore.register(
             waiterID,
             generation: runtimeSurfaceGeneration,
@@ -185,12 +193,14 @@ extension TerminalSurface {
         generation: UInt64? = nil,
         readinessEpoch: UInt64? = nil
     ) {
+        let eventSequence = runtimeReadinessEventSequence.wrappingIncrementRelaxed()
         let store = runtimeReadinessStore
         Task {
             await store.complete(
                 success: success,
                 readinessEpoch: readinessEpoch,
-                currentGeneration: generation
+                currentGeneration: generation,
+                eventSequence: eventSequence
             )
         }
     }

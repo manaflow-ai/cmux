@@ -3,6 +3,7 @@ public import Combine
 public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
+internal import CmuxFoundation
 #if DEBUG
 internal import CMUXDebugLog
 #endif
@@ -333,6 +334,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
     let runtimeReadinessStore = TerminalSurfaceRuntimeReadinessStore()
     var runtimeReadinessEpoch: UInt64 = 0
+    let runtimeReadinessEventSequence = AtomicUInt64Value()
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
     var configurationReloadDeferredRuntimeSurfaceCreation = false
@@ -439,7 +441,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         portalHostVacancyRetries = portalHostVacancyRetries.filter { $0.value.generation == generation }
         portalHostVacancyRetries[hostId] = (instanceSerial, generation, retry)
     }
-
     /// Drops a host's vacancy retry (dismantle, or the host stopped owning
     /// its pane; the owner's own vacate paths drop theirs). Serial-matched
     /// like every other identity check here: a recycled object address must
@@ -466,7 +467,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                         if needle.isEmpty || needle.count >= 3 {
                             return Just(needle).eraseToAnyPublisher()
                         }
-
                         return Just(needle)
                             .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
                             .eraseToAnyPublisher()
