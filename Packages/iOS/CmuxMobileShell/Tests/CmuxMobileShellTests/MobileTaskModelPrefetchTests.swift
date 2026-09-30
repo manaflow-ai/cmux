@@ -3,36 +3,6 @@ import Testing
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
 
-private actor MobileTaskModelPrefetchGate {
-    let data: Data
-    private var started = false
-    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
-    private var releaseContinuation: CheckedContinuation<Void, Never>?
-
-    init(data: Data) {
-        self.data = data
-    }
-
-    func load() async -> Data {
-        started = true
-        let waiters = startedWaiters
-        startedWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
-        await withCheckedContinuation { releaseContinuation = $0 }
-        return data
-    }
-
-    func waitUntilStarted() async {
-        guard !started else { return }
-        await withCheckedContinuation { startedWaiters.append($0) }
-    }
-
-    func release() {
-        releaseContinuation?.resume()
-        releaseContinuation = nil
-    }
-}
-
 @MainActor
 struct MobileTaskModelPrefetchTests {
     @Test func sharesInFlightDiscoveryAndReusesTheWarmHostCatalog() async throws {
@@ -106,12 +76,13 @@ struct MobileTaskModelPrefetchTests {
     }
 
     @Test func targetChangesKeepUnchangedMacPrefetchAlive() async throws {
-        let gate = MobileTaskModelPrefetchGate(data: Data(
+        let probe = MobileTaskModelPrefetchCatalogProbe(data: Data(
             #"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]},"codex":{"models":[{"id":"backend-codex","label":"Backend Codex"}]},"opencode":{"models":[{"id":"backend-opencode","label":"Backend OpenCode"}]}}}"#.utf8
         ))
+        await probe.setHold(true)
         let catalog = MobileTaskModelCatalogClient(
             endpoint: URL(string: "https://catalog.example.test/models")!,
-            loader: { _ in await gate.load() }
+            loader: { _ in await probe.load() }
         )
         let store = try await makeRoutingConnectedStore(
             router: RoutingHostRouter(), hostCapabilities: [], taskModelCatalogClient: catalog
@@ -124,9 +95,9 @@ struct MobileTaskModelPrefetchTests {
                 macDeviceID: "removed-mac", instanceTag: nil
             )])
         }
-        await gate.waitUntilStarted()
+        await probe.waitUntilStarted()
         store.updateTaskModelPrefetchTargets([target])
-        await gate.release()
+        await probe.release()
         await prefetch.value
         #expect(store.discoveredTaskModels(
             provider: .claude, macDeviceID: "unchanged-mac", instanceTag: nil

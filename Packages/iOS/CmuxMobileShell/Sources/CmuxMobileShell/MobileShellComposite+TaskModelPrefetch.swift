@@ -2,40 +2,6 @@ internal import CmuxMobileShellModel
 internal import CmuxMobilePairedMac
 import Foundation
 
-struct MobileTaskModelPrefetchKey: Hashable {
-    let pairingID: String
-    let connectionIdentity: String?
-    let provider: MobileTaskAgentProvider
-}
-
-actor MobileTaskModelPrefetchLimiter {
-    private var available: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    init(limit: Int) {
-        available = limit
-    }
-
-    func acquire() async {
-        if available > 0 {
-            available -= 1
-            return
-        }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    func release() {
-        if let waiter = waiters.first {
-            waiters.removeFirst()
-            waiter.resume()
-        } else {
-            available += 1
-        }
-    }
-}
-
 extension MobileShellComposite {
     /// Re-evaluated as the paired-Mac list or any connection identity changes.
     public var taskModelPrefetchTargets: [MobileTaskModelPrefetchTarget] {
@@ -54,9 +20,9 @@ extension MobileShellComposite {
     /// Warms every provider on every paired Mac and waits for the current queue.
     public func prefetchTaskModels(for targets: [MobileTaskModelPrefetchTarget]) async {
         updateTaskModelPrefetchTargets(targets)
-        let tasks = Array(taskModelPrefetchTasks.values)
-        for task in tasks {
-            await task.value
+        let workers = Array(taskModelPrefetchWorkers.values)
+        for worker in workers {
+            await worker.value
         }
     }
 
@@ -67,67 +33,35 @@ extension MobileShellComposite {
             cancelTaskModelPrefetchTasks()
             return
         }
-        let targetByPairingID = Dictionary(
-            uniqueKeysWithValues: targets.map {
-                (MobilePairedMac.pairingID(
-                    macDeviceID: $0.macDeviceID,
-                    instanceTag: $0.instanceTag
-                ), $0)
+        let desiredTargets = Dictionary(
+            uniqueKeysWithValues: targets.flatMap { target in
+                MobileTaskAgentProvider.allCases.map { provider in
+                    let pairingID = MobilePairedMac.pairingID(
+                        macDeviceID: target.macDeviceID,
+                        instanceTag: target.instanceTag
+                    )
+                    return (
+                        MobileTaskModelPrefetchKey(
+                            pairingID: pairingID,
+                            connectionIdentity: target.connectionIdentity,
+                            provider: provider
+                        ),
+                        target
+                    )
+                }
             }
         )
-        for key in taskModelPrefetchTasks.keys {
-            guard let target = targetByPairingID[key.pairingID],
-                  target.connectionIdentity == key.connectionIdentity else {
-                taskModelPrefetchTasks[key]?.cancel()
-                taskModelPrefetchTasks[key] = nil
-                continue
-            }
+        taskModelPrefetchDesiredTargets = desiredTargets
+        taskModelPrefetchCompletedKeys = taskModelPrefetchCompletedKeys.filter {
+            desiredTargets[$0] != nil
         }
-
-        for target in targets {
-            let pairingID = MobilePairedMac.pairingID(
-                macDeviceID: target.macDeviceID,
-                instanceTag: target.instanceTag
-            )
-            for provider in MobileTaskAgentProvider.allCases {
-                let key = prefetchTaskKey(
-                    pairingID: pairingID, connectionIdentity: target.connectionIdentity,
-                    provider: provider
-                )
-                if taskModelPrefetchTasks[key] != nil {
-                    continue
-                }
-                let catalog = taskModelPrefetchCatalogSnapshot()
-                let limiter = taskModelPrefetchLimiter
-                let token = UUID()
-                let task = Task { @MainActor [weak self] in
-                    defer {
-                        if let self,
-                           self.taskModelPrefetchTaskTokens[key] == token {
-                            self.taskModelPrefetchTasks[key] = nil
-                            self.taskModelPrefetchTaskTokens[key] = nil
-                            if self.taskModelPrefetchTasks.isEmpty {
-                                self.taskModelPrefetchCatalog?.cancel()
-                                self.taskModelPrefetchCatalog = nil
-                            }
-                        }
-                    }
-                    await limiter.acquire()
-                    guard !Task.isCancelled else {
-                        await limiter.release()
-                        return
-                    }
-                    if let self {
-                        await self.prefetchTaskModel(
-                            provider: provider, target: target, catalog: catalog
-                        )
-                    }
-                    await limiter.release()
-                }
-                taskModelPrefetchTasks[key] = task
-                taskModelPrefetchTaskTokens[key] = token
-            }
+        for key in taskModelPrefetchTasks.keys
+            where desiredTargets[key] == nil {
+            taskModelPrefetchTasks[key]?.cancel()
+            taskModelPrefetchTasks[key] = nil
+            taskModelPrefetchTaskTokens[key] = nil
         }
+        startTaskModelPrefetchWorkersIfNeeded()
     }
 
     private func taskModelPrefetchCatalogSnapshot() -> MobileTaskModelPrefetchCatalog {
@@ -141,30 +75,68 @@ extension MobileShellComposite {
         return catalog
     }
 
-    private func prefetchTaskKey(
-        pairingID: String,
-        connectionIdentity: String?,
-        provider: MobileTaskAgentProvider
-    ) -> MobileTaskModelPrefetchKey {
-        MobileTaskModelPrefetchKey(
-            pairingID: pairingID,
-            connectionIdentity: connectionIdentity,
-            provider: provider
-        )
-    }
-
     func cancelTaskModelPrefetchTasks(keeping pairingIDs: Set<String>? = nil) {
-        let keys = taskModelPrefetchTasks.keys.filter { key in
+        let keys = taskModelPrefetchDesiredTargets.keys.filter { key in
             pairingIDs?.contains(key.pairingID) != true
         }
+        for key in keys { taskModelPrefetchDesiredTargets[key] = nil }
+        taskModelPrefetchCompletedKeys.subtract(keys)
         for key in keys {
             taskModelPrefetchTasks[key]?.cancel()
             taskModelPrefetchTasks[key] = nil
             taskModelPrefetchTaskTokens[key] = nil
         }
-        if taskModelPrefetchTasks.isEmpty {
+        if taskModelPrefetchDesiredTargets.isEmpty {
+            for worker in taskModelPrefetchWorkers.values { worker.cancel() }
+            taskModelPrefetchWorkers.removeAll()
             taskModelPrefetchCatalog?.cancel()
             taskModelPrefetchCatalog = nil
+        }
+    }
+
+    private func startTaskModelPrefetchWorkersIfNeeded() {
+        guard !taskModelPrefetchDesiredTargets.isEmpty else { return }
+        let pendingCount = taskModelPrefetchDesiredTargets.keys.filter {
+            !taskModelPrefetchCompletedKeys.contains($0)
+                && taskModelPrefetchTasks[$0] == nil
+        }.count
+        let workerCount = min(4, pendingCount)
+        guard workerCount > taskModelPrefetchWorkers.count else { return }
+        for _ in taskModelPrefetchWorkers.count..<workerCount {
+            let workerID = UUID()
+            let worker = Task { @MainActor [weak self] in
+                defer { self?.taskModelPrefetchWorkers[workerID] = nil }
+                await self?.runTaskModelPrefetchWorker()
+            }
+            taskModelPrefetchWorkers[workerID] = worker
+        }
+    }
+
+    private func runTaskModelPrefetchWorker() async {
+        while !Task.isCancelled {
+            guard let key = taskModelPrefetchDesiredTargets.keys.first(where: {
+                !taskModelPrefetchCompletedKeys.contains($0)
+                    && taskModelPrefetchTasks[$0] == nil
+            }), let target = taskModelPrefetchDesiredTargets[key] else {
+                return
+            }
+            let catalog = taskModelPrefetchCatalogSnapshot()
+            let token = UUID()
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.prefetchTaskModel(
+                    provider: key.provider, target: target, catalog: catalog
+                )
+            }
+            taskModelPrefetchTasks[key] = task
+            taskModelPrefetchTaskTokens[key] = token
+            await task.value
+            guard taskModelPrefetchTaskTokens[key] == token else { continue }
+            taskModelPrefetchTasks[key] = nil
+            taskModelPrefetchTaskTokens[key] = nil
+            if taskModelPrefetchDesiredTargets[key] == target {
+                taskModelPrefetchCompletedKeys.insert(key)
+            }
         }
     }
 

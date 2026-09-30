@@ -544,8 +544,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var taskModelSuccessfulConnections: [MobileTaskModelCacheKey: String] = [:]
     @ObservationIgnored var taskModelPrefetchTasks: [MobileTaskModelPrefetchKey: Task<Void, Never>] = [:]
     @ObservationIgnored var taskModelPrefetchTaskTokens: [MobileTaskModelPrefetchKey: UUID] = [:]
+    @ObservationIgnored var taskModelPrefetchWorkers: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored var taskModelPrefetchDesiredTargets:
+        [MobileTaskModelPrefetchKey: MobileTaskModelPrefetchTarget] = [:]
+    @ObservationIgnored var taskModelPrefetchCompletedKeys: Set<MobileTaskModelPrefetchKey> = []
     @ObservationIgnored var taskModelPrefetchCatalog: MobileTaskModelPrefetchCatalog?
-    @ObservationIgnored let taskModelPrefetchLimiter = MobileTaskModelPrefetchLimiter(limit: 4)
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -2319,6 +2322,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for task in taskModelPrefetchTasks.values { task.cancel() }
         taskModelPrefetchTasks.removeAll()
         taskModelPrefetchTaskTokens.removeAll()
+        for worker in taskModelPrefetchWorkers.values { worker.cancel() }
+        taskModelPrefetchWorkers.removeAll()
+        taskModelPrefetchDesiredTargets.removeAll()
+        taskModelPrefetchCompletedKeys.removeAll()
         taskModelPrefetchCatalog?.cancel()
         taskModelPrefetchCatalog = nil
         taskModelSuccessfulConnections.removeAll()
