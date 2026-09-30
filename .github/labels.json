@@ -1,0 +1,150 @@
+{
+  "comment": "Triage vocabulary for issues. scripts/ci/sync_labels.py applies this to the repository; docs/triage.md says what each label means and which rule assigns it. Labels not listed here are left alone, so CI plumbing labels are safe.",
+  "labels": [
+    {
+      "name": "S1: critical",
+      "color": "B60205",
+      "description": "Data loss, a build that will not start, or a security exposure"
+    },
+    {
+      "name": "S2: major",
+      "color": "D93F0B",
+      "description": "A crash, hang, lost state, broken connection, or a regression on a path people use"
+    },
+    {
+      "name": "S3: minor",
+      "color": "FBCA04",
+      "description": "Wrong behavior with a workaround"
+    },
+    {
+      "name": "S4: cosmetic",
+      "color": "C5DEF5",
+      "description": "Wording or appearance, with no effect on what cmux does"
+    },
+    {
+      "name": "needs-triage",
+      "color": "FEF2C0",
+      "description": "Auto-triage could not pick an area; a person decides"
+    },
+    {
+      "name": "area: terminal",
+      "color": "BFD4F2",
+      "description": "Ghostty surface, rendering, scrollback, escape sequences, fonts"
+    },
+    {
+      "name": "area: input",
+      "color": "BFD4F2",
+      "description": "Keyboard, shortcuts, IME, mouse, clipboard and paste"
+    },
+    {
+      "name": "area: layout",
+      "color": "BFD4F2",
+      "description": "Splits, panes, tabs, windows, resizing, full screen"
+    },
+    {
+      "name": "area: sidebar",
+      "color": "BFD4F2",
+      "description": "The workspace sidebar: list, groups, status, reordering"
+    },
+    {
+      "name": "area: workspaces",
+      "color": "BFD4F2",
+      "description": "Workspaces, sessions, restore after relaunch, worktrees"
+    },
+    {
+      "name": "area: agents",
+      "color": "BFD4F2",
+      "description": "Agent integrations (Claude Code, Codex, ACP), agent chat, hooks, status"
+    },
+    {
+      "name": "area: cloud",
+      "color": "BFD4F2",
+      "description": "Cloud machines and workspaces, relay transport"
+    },
+    {
+      "name": "area: remote",
+      "color": "BFD4F2",
+      "description": "cmux ssh, remote daemon, tunnels, device pairing"
+    },
+    {
+      "name": "area: ios",
+      "color": "BFD4F2",
+      "description": "The iOS app and mobile clients"
+    },
+    {
+      "name": "area: cli",
+      "color": "BFD4F2",
+      "description": "The cmux CLI, cmux-tui, the socket API and SDKs"
+    },
+    {
+      "name": "area: settings",
+      "color": "BFD4F2",
+      "description": "Settings UI and the config file"
+    },
+    {
+      "name": "area: browser",
+      "color": "BFD4F2",
+      "description": "The embedded browser, web surfaces, inline VS Code"
+    },
+    {
+      "name": "area: command-palette",
+      "color": "BFD4F2",
+      "description": "Command palette, quick open, find"
+    },
+    {
+      "name": "area: appearance",
+      "color": "BFD4F2",
+      "description": "Themes, light and dark mode, window chrome"
+    },
+    {
+      "name": "area: notifications",
+      "color": "BFD4F2",
+      "description": "Notifications, banners, badges, the bell"
+    },
+    {
+      "name": "area: updates",
+      "color": "BFD4F2",
+      "description": "Install, Homebrew, updates, nightly and release builds, signing"
+    },
+    {
+      "name": "area: auth",
+      "color": "BFD4F2",
+      "description": "Sign-in, accounts, teams, billing"
+    },
+    {
+      "name": "area: performance",
+      "color": "BFD4F2",
+      "description": "Latency, CPU, memory, launch time"
+    },
+    {
+      "name": "area: localization",
+      "color": "BFD4F2",
+      "description": "Translations and internationalization"
+    },
+    {
+      "name": "area: accessibility",
+      "color": "BFD4F2",
+      "description": "VoiceOver, the accessibility API, reduced motion, focus order"
+    },
+    {
+      "name": "area: docs",
+      "color": "BFD4F2",
+      "description": "README, docs pages, the site, contributor guides"
+    },
+    {
+      "name": "area: build-and-ci",
+      "color": "BFD4F2",
+      "description": "Build system, CI workflows, test infrastructure"
+    },
+    {
+      "name": "good first issue",
+      "color": "7057FF",
+      "description": "Small and self-contained, with a pointer to the code. Read docs/triage.md first"
+    },
+    {
+      "name": "help wanted",
+      "color": "008672",
+      "description": "Nobody on the team is working on this and we would take a patch"
+    }
+  ]
+}

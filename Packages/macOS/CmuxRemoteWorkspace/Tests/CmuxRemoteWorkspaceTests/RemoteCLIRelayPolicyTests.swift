@@ -154,6 +154,22 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("browser uploads cannot read local files through the remote relay")
+    func deniesBrowserFileInputEvenOnOwnedSurface() throws {
+        let alias = (remote: UUID(), local: UUID())
+        try withServer(surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"upload","method":"browser.set_input_files","params":{"surface_id":"\(alias.remote.uuidString)","selector":"input","files":["/tmp/private.csv"]}}
+                """
+            )
+            expectDenial(exchange, unixServer, "local file upload through remote relay")
+        }
+    }
+
     /// `workspace.reorder` has no relay parameter contract, so the method gate
     /// denies it before any selector is read.
     ///

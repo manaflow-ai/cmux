@@ -367,7 +367,7 @@ cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati raz
 
 ### Imam zahtjev za funkciju ili sam pronašao grešku?
 
-Želimo to čuti. Otvorite [issue](https://github.com/manaflow-ai/cmux/issues) ili [pull request](https://github.com/manaflow-ai/cmux/pulls) na GitHub-u, ili nam [pošaljite email](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Želimo to čuti. Otvorite [issue](https://github.com/manaflow-ai/cmux/issues) ili [pull request](https://github.com/manaflow-ai/cmux/pulls) na GitHub-u, ili nam [pošaljite email](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Historija zvjezdica
 
@@ -420,4 +420,4 @@ cmux je besplatan, otvorenog koda i uvijek će biti. Ako želite podržati razvo
 
 cmux je otvorenog koda pod [GPL-3.0-or-later](LICENSE) licencom. Serverski softver cmux (`web/`, Cloudflare workeri i relej servisi navedeni u [LICENSE](LICENSE)) umjesto toga koristi [Business Source License 1.1](web/LICENSE): možete ga čitati, mijenjati i pokretati za neprodukcijsku upotrebu, a produkcijska upotreba ili samostalno hostovanje zahtijevaju komercijalnu licencu.
 
-Ako vaša organizacija ne može ispuniti uslove GPL-a, dostupna je komercijalna licenca. Kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com) za detalje.
+Ako vaša organizacija ne može ispuniti uslove GPL-a, dostupna je komercijalna licenca. Kontaktirajte [founders@cmux.com](mailto:founders@cmux.com) za detalje.

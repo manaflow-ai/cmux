@@ -260,6 +260,14 @@ extension TerminalSurface {
             additionalEnvironment: additionalEnvironment,
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
+        let configuredInitialCommand = hasStartupRestoreAdmissionCommandOverride
+            ? startupRestoreAdmissionCommandOverride
+            : initialCommand
+        spawnPolicyProvider.applyStartupCommandSecrets(
+            to: &env,
+            workspaceId: tabId,
+            startupCommand: configuredInitialCommand
+        )
         env["CMUX_SOCKET"] = ""
 
         if !env.isEmpty {
@@ -282,9 +290,6 @@ extension TerminalSurface {
             }
             return baseConfig.workingDirectory
         }()
-        let configuredInitialCommand = hasStartupRestoreAdmissionCommandOverride
-            ? startupRestoreAdmissionCommandOverride
-            : initialCommand
         let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
             initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,

@@ -145,7 +145,8 @@ extension CMUXCLI {
                 preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
                     record.preparedArgumentsWorkingDirectory
                 ),
-                observedPermissionMode: record.permissionMode
+                observedPermissionMode: record.permissionMode,
+                continuationPrompt: record.continuationPrompt
             )
             invocation = AgentRestorePlanner(
                 executableFileResolver: AgentRestoreExecutableFileResolver(),
@@ -408,7 +409,8 @@ extension CMUXCLI {
                 ?? (object["prepared_fork_arguments_working_directory"] as? String),
             permissionMode: object["permission_mode"] as? String,
             legacyCommand: legacyCommand,
-            legacyForkCommand: legacyForkCommand
+            legacyForkCommand: legacyForkCommand,
+            continuationPrompt: object["continuation_prompt"] as? String
         )
     }
 
@@ -454,7 +456,8 @@ extension CMUXCLI {
             environment: object["environment"] as? [String: String],
             verificationHome: object["verification_home"] as? String,
             capturedAt: (object["captured_at"] as? NSNumber)?.doubleValue,
-            source: object["source"] as? String
+            source: object["source"] as? String,
+            launcherPrefix: (object["launcher_prefix"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
         )
     }
 

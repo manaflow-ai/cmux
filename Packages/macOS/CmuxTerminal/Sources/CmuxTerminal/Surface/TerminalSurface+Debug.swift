@@ -1,6 +1,7 @@
 public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
+internal import CmuxFoundation
 
 // MARK: - Debug/CLI metadata accessors and DEBUG-only test helpers
 
@@ -93,13 +94,9 @@ extension TerminalSurface {
     static func surfaceLog(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"
-        if let handle = FileHandle(forWritingAtPath: surfaceLogPath) {
-            defer { try? handle.close() }
-            guard (try? handle.seekToEnd()) != nil else { return }
-            try? handle.write(contentsOf: Data(line.utf8))
-        } else {
-            FileManager.default.createFile(atPath: surfaceLogPath, contents: line.data(using: .utf8))
-        }
+        guard let handle = OwnedFileAppendOpener().fileHandle(atPath: surfaceLogPath) else { return }
+        defer { try? handle.close() }
+        try? handle.write(contentsOf: Data(line.utf8))
     }
 
     static func sizeLog(_ message: String) {
@@ -107,13 +104,9 @@ extension TerminalSurface {
         guard env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL"] == "1" else { return }
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"
-        if let handle = FileHandle(forWritingAtPath: sizeLogPath) {
-            defer { try? handle.close() }
-            guard (try? handle.seekToEnd()) != nil else { return }
-            try? handle.write(contentsOf: Data(line.utf8))
-        } else {
-            FileManager.default.createFile(atPath: sizeLogPath, contents: line.data(using: .utf8))
-        }
+        guard let handle = OwnedFileAppendOpener().fileHandle(atPath: sizeLogPath) else { return }
+        defer { try? handle.close() }
+        try? handle.write(contentsOf: Data(line.utf8))
     }
 #endif
 

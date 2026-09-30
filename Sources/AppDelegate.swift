@@ -1273,6 +1273,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the current run arms its sentinel so a crash can recover a missing primary
     /// snapshot from the immutable `-previous` copy.
     private var previousSessionLaunchWasUnclean = false
+    /// Read-only view for agent session recovery (`AgentSessionRecovery.swift`).
+    var previousLaunchWasUncleanForRecovery: Bool { previousSessionLaunchWasUnclean }
+    /// When the previous (possibly crashed) run launched; recovery only
+    /// considers agent sessions active since then.
+    var previousSessionLaunchStartedAt: Date?
+    var didScheduleAgentSessionRecovery = false
     private var didCaptureSessionLaunchState = false
     private var didArmSessionLaunchSentinel = false
     var didAttemptStartupSessionRestore = false
@@ -1334,6 +1340,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastPersistedSessionWindowIds: [UUID] = []
     private var lastTypingActivityAt: TimeInterval = 0
+    /// Fresh resume indexes captured by `updaterPrepareForRelaunch()` just before an update
+    /// relaunch, for the synchronous relaunch save.
+    var updateRelaunchIndexCapture = UpdateRelaunchIndexCapture()
+    /// Panels whose agent was mid-task when `updaterPrepareForRelaunch()` ran, with the uptime
+    /// they were captured at. The relaunch save marks them to continue after the relaunch.
+    var updateRelaunchMidTaskCapture: (panelIds: Set<UUID>, capturedAt: TimeInterval)?
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -1649,7 +1661,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
         )
         TerminalPredictionCenter.shared.bindEnabledSetting(
-            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey
+            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey,
+            defaultValue: SettingCatalog().betaFeatures.predictedEcho.defaultValue
         )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
@@ -2504,11 +2517,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
-        _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
-            includeScrollback: true,
-            removeWhenEmpty: false
+        // Stays set for the terminate-path save that follows. If the app is still running a
+        // minute later the install failed, and ordinary saves must not mark these panels.
+        UpdateRelaunchContinuationNudges.shared.arm(
+            panelIds: takeUpdateRelaunchMidTaskPanelIds(),
+            expiresAtUptime: ProcessInfo.processInfo.systemUptime + 60
         )
+        if let prepared = updateRelaunchIndexCapture.take(now: ProcessInfo.processInfo.systemUptime) {
+            _ = saveSessionSnapshot(
+                includeScrollback: true,
+                removeWhenEmpty: false,
+                restorableAgentIndex: prepared.restorableAgentIndex,
+                surfaceResumeBindingIndex: prepared.surfaceResumeBindingIndex
+            )
+        } else {
+            _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
+                includeScrollback: true,
+                removeWhenEmpty: false
+            )
+        }
         ClosedItemHistoryStore.shared.flushPendingSaves()
+    }
+
+    /// Captures fresh resume indexes for the update relaunch save. The cached index misses an
+    /// agent session started since the last scan, which the save would then record as not
+    /// running, so it would not resume after the relaunch.
+    func prepareUpdateRelaunchIndexes() async {
+        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
+        guard let indexes = await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+            ttyDeviceBindings: ttyDeviceBindings
+        ) else {
+            StartupBreadcrumbLog.append("appDelegate.updateRelaunch.freshIndexTimedOut")
+            return
+        }
+        guard !Task.isCancelled else {
+            StartupBreadcrumbLog.append("appDelegate.updateRelaunch.freshIndexCancelled")
+            return
+        }
+        updateRelaunchIndexCapture.store(indexes, capturedAt: ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// Remembers which agents the update relaunch is about to cut off mid-task.
+    func captureUpdateRelaunchMidTaskPanels() {
+        updateRelaunchMidTaskCapture = (
+            updaterRelaunchBlockers().midTaskPanelIds,
+            ProcessInfo.processInfo.systemUptime
+        )
+    }
+
+    /// The recent pre-relaunch capture, or the current mid-task panels when there is none.
+    private func takeUpdateRelaunchMidTaskPanelIds() -> Set<UUID> {
+        defer { updateRelaunchMidTaskCapture = nil }
+        if let capture = updateRelaunchMidTaskCapture,
+           ProcessInfo.processInfo.systemUptime - capture.capturedAt <= UpdateRelaunchIndexCapture.lifetime {
+            return capture.panelIds
+        }
+        return updaterRelaunchBlockers().midTaskPanelIds
     }
 
     func configure(
@@ -2687,6 +2751,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
             uiTestSocketSanityCoordinator.scheduleIfNeeded(environment: env)
+            // Read `shared` here, on the main actor; the script runs its
+            // commands off it through the nonisolated line handler.
+            let controller = TerminalController.shared
+            UITestSocketCommandScript.runIfRequested(environment: env) {
+                controller.handleSocketLine($0)
+            }
         }
         // Best-effort one-time migration: a value previously stored in the
         // legacy ~/.config/cmux/dev-window-display file moves into the shared
@@ -3631,6 +3701,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // this also keeps isolated unit-test app delegates from affecting the
         // user's next launch.
         guard !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached else { return }
+        previousSessionLaunchStartedAt = GhosttyCrashBreadcrumb.priorSessionLaunchStartDate(environment: environment)
         previousSessionLaunchWasUnclean = GhosttyCrashBreadcrumb.captureSessionLaunchState(
             environment: environment
         )
@@ -3867,6 +3938,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // completeSessionRestoreOperation triggers replay after the
             // restored panel-identity aliases are recorded.
             AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
+            scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
         }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
@@ -3979,6 +4051,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Every restored workspace has enqueued its identity aliases by now;
         // the journal consumer is FIFO, so the replay fold sees all of them.
         AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
+        if !isManualReopen {
+            scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded()
+        }
         startupSessionSnapshot = nil
         let wasApplyingSessionRestore = isApplyingSessionRestore
         isApplyingSessionRestore = false
@@ -5337,7 +5412,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func sessionSidebarSnapshot(for context: MainWindowContext) -> SessionSidebarSnapshot {
         SessionSidebarSnapshot(
-            isVisible: context.sidebarState.isVisible,
+            // A sidebar hidden only because the window was too narrow is still wanted.
+            isVisible: context.sidebarState.isVisible || context.sidebarState.isAutoCollapsed,
             selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
             width: SessionPersistencePolicy.sanitizedSidebarWidth(
                 Double(context.sidebarState.persistedWidth)
@@ -8973,7 +9049,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let page = await Self.cloudVMFleetPage()
-                if page?.vms.contains(where: { $0.base != nil }) != false {
+                // A Base whose delete is in flight is gone to the person: offer a new one.
+                let deleting = MachineDeleteCoordinator.shared.hiddenMachineIDs
+                if page?.vms.contains(where: { $0.base != nil && !deleting.contains($0.id) }) != false {
                     _ = self.launchCloudVMBaseOpen(
                         workspace: workspace,
                         socketPath: socketPath,
@@ -9248,30 +9326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func closeWorkspaces(forManagedCloudVMID vmID: String) {
         let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return }
-        var managers = mainWindowContexts.values.map(\.tabManager)
-        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
-            managers.append(tabManager)
-        }
-        for manager in managers {
-            let doomed = manager.tabs.filter { workspace in
-                workspace.cloudVMID?.lowercased() == target
-            }
-            for workspace in doomed {
-                if manager.tabs.count > 1 {
-                    manager.closeWorkspace(workspace, recordHistory: false)
-                } else {
-                    // TabManager intentionally keeps the final workspace as a
-                    // local anchor. Clear its cloud binding and panels instead
-                    // of leaving a deleted VM's loading/connected surface
-                    // behind when this is the only tab in the window.
-                    workspace.disconnectRemoteConnection(clearConfiguration: true)
-                    workspace.cloudVMBinding = nil
-                    workspace.withClosedPanelHistorySuppressed {
-                        workspace.teardownAllPanels()
-                    }
-                }
-            }
-        }
+        closeLocalWorkspaces(forCloudVMID: target)
         // The sidebar's headless link to that machine has nothing left to talk to.
         CmuxTuiSurfaceProviderRegistry.shared.machineWasDeleted(target)
     }
@@ -9932,6 +9987,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         placementOverride: WorkspacePlacement? = nil,
         applyCreationTitleAsCustomTitle: Bool = true,
+        select: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -9973,7 +10029,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             discardOrphanedMainWindowContext(context)
             return nil
         }
-        setActiveMainWindow(window)
+        // `select: false` (a socket open without focus) creates the workspace behind
+        // the current selection: no window switch, no workspace switch.
+        if select {
+            setActiveMainWindow(window)
+        }
         if shouldBringToFront {
             bringToFront(window)
         }
@@ -9986,7 +10046,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true,
+                select: select,
                 placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
@@ -9995,7 +10055,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 title: title, titleSource: titleSource,
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
-                select: true,
+                select: select,
                 placementOverride: placementOverride,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
@@ -10003,13 +10063,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else if title != nil {
             workspace = context.tabManager.addWorkspaceIfActive(
                 title: title, titleSource: titleSource,
-                select: true,
+                select: select,
                 placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else {
             workspace = context.tabManager.addWorkspaceIfActive(
-                select: true,
+                select: select,
                 placementOverride: placementOverride
             )
         }
@@ -10850,6 +10910,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             onQuitApp: {
                 AppDelegate.requestApplicationTermination()
+            },
+            cloudMenuEntries: { [weak self] in
+                guard let self else { return [] }
+                return CloudMenuContent.entries(
+                    self.cloudMenuContext(),
+                    actions: self.cloudMenuActions(fromStatusItem: true),
+                    layout: .statusItem
+                )
+            },
+            onCloudMenuWillOpen: {
+                CloudMenuModel.shared.menuWillOpen()
             }
         )
     }
@@ -15557,6 +15628,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .sizeTerminalToMyWindow) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.sizeFocusedTerminalToMyWindow() != true {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .pasteLastScreenshot) {
             if performFocusedDockShortcut(
                 .pasteLastScreenshot,
@@ -18347,9 +18426,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         Task { @MainActor [weak self] in
-            let options = self?.notificationDelivery.presentationOptions(for: notification) ?? []
-            completionHandler(options)
+            completionHandler(self?.foregroundPresentationOptions(for: notification.request.content) ?? [])
         }
+    }
+
+    /// Foreground presentation for a delivered banner. A banner whose pane became
+    /// focused after it was scheduled presents without sound.
+    func foregroundPresentationOptions(for content: UNNotificationContent) -> UNNotificationPresentationOptions {
+        let keepsSoundQuiet = notificationStore?.keepsPresentedNotificationQuiet(
+            userInfo: content.userInfo
+        ) ?? false
+        let options = notificationDelivery.presentationOptions(
+            for: content,
+            keepsSoundQuiet: keepsSoundQuiet
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "notification.present hasSound=\(content.sound != nil ? 1 : 0) keepsSoundQuiet=\(keepsSoundQuiet ? 1 : 0) sound=\(options.contains(.sound) ? 1 : 0)"
+        )
+#endif
+        return options
     }
 
     /// Installs window focus routing and returns the registrations to its lifecycle owner.
@@ -20399,6 +20495,21 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         checkForUpdates(nil)
     }
 
+    func updaterPrepareForRelaunch() async {
+        await prepareUpdateRelaunchIndexes()
+        guard !Task.isCancelled else { return }
+        captureUpdateRelaunchMidTaskPanels()
+    }
+
+    func updaterTimeSinceLastUserInput() -> Duration {
+        let seconds = MacPresenceMonitor.liveSecondsSinceLastHardwareInput() ?? 0
+        return .milliseconds(Int64(seconds * 1000))
+    }
+
+    func installUpdatesAutomaticallyDidChange() {
+        updateController.installAutomaticallyDidChange()
+    }
+
     func updaterWillRelaunchApplication() {
         persistSessionForUpdateRelaunch()
         TerminalController.shared.stop(cleanupDiscoveryState: true)
@@ -20421,41 +20532,21 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
             let isRemote = workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
             for panelId in workspace.panels.keys {
                 activity.append(UpdateRelaunchPanelActivity(
+                    panelId: panelId,
+                    location: workspace.title,
                     agentLifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:],
                     shellActivity: workspace.panelShellActivityStates[panelId],
                     isRemote: isRemote
                 ))
             }
             if let dock = workspace._dockSplit {
-                activity += dock.updateRelaunchPanelActivity(isRemote: isRemote)
+                activity += dock.updateRelaunchPanelActivity(location: workspace.title, isRemote: isRemote)
             }
         }
         for dock in existingWindowDocks {
-            activity += dock.updateRelaunchPanelActivity(isRemote: false)
+            activity += dock.updateRelaunchPanelActivity(location: "", isRemote: false)
         }
         return Self.updateRelaunchBlockers(panels: activity)
-    }
-
-    /// Counts what an update relaunch would interrupt. A panel with a mid-turn agent is a busy
-    /// agent. A local panel running some other foreground command is a running command; panels
-    /// with agent lifecycle state are left to the agent count, and remote panels are skipped
-    /// because their processes live on the remote host. Manual `cmux workspace loading` keys
-    /// are not agents and are ignored.
-    nonisolated static func updateRelaunchBlockers(
-        panels: [UpdateRelaunchPanelActivity]
-    ) -> UpdateRelaunchBlockers {
-        var blockers = UpdateRelaunchBlockers.empty
-        for panel in panels {
-            let agentStates = panel.agentLifecycles
-                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-                .values
-            if agentStates.contains(.running) {
-                blockers.busyAgentCount += 1
-            } else if agentStates.isEmpty, !panel.isRemote, panel.shellActivity == .commandRunning {
-                blockers.runningCommandCount += 1
-            }
-        }
-        return blockers
     }
 
     func attemptUpdate() {
@@ -20475,25 +20566,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 }
 
 /// One terminal panel's agent and shell activity, as read by ``AppDelegate/updaterRelaunchBlockers()``.
-struct UpdateRelaunchPanelActivity: Sendable {
-    var agentLifecycles: [String: AgentHibernationLifecycleState]
-    var shellActivity: PanelShellActivityState?
-    var isRemote: Bool
-}
-
-extension DockSplitStore {
-    /// Dock panels keep agent lifecycle in their runtime map and shell state on the panel.
-    func updateRelaunchPanelActivity(isRemote: Bool) -> [UpdateRelaunchPanelActivity] {
-        panels.map { panelId, panel in
-            UpdateRelaunchPanelActivity(
-                agentLifecycles: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
-                shellActivity: (panel as? TerminalPanel)?.shellActivity.state,
-                isRemote: isRemote || terminalLinkIsRemoteTerminal(panelId)
-            )
-        }
-    }
-}
-
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}

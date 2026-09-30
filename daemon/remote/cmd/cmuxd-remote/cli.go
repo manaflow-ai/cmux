@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1115,6 +1116,9 @@ func currentRelayAuth(socketPath string) *relayAuthState {
 	return readRelayAuthFile(socketPath)
 }
 
+// cliSocketPeerUserID reports the user serving a dialed Unix socket.
+var cliSocketPeerUserID = cloudCLIConnectionUserID
+
 // dialSocket connects to the cmux socket. If addr contains a colon and doesn't
 // start with '/', it's treated as a TCP address (host:port); otherwise Unix socket.
 // For TCP connections, refreshAddr is used only to recover from a stale socket_addr
@@ -1150,7 +1154,22 @@ func dialSocketUntil(addr string, refreshAddr func() string, deadline time.Time)
 		return conn, nil
 	}
 	dialer := net.Dialer{Deadline: deadline}
-	return dialer.Dial("unix", addr)
+	conn, err := dialer.Dial("unix", addr)
+	if err != nil {
+		return nil, err
+	}
+	// Another user can bind a vacated path in shared /tmp, so send requests
+	// only to a server running as this user, as the bridge requires of clients.
+	uid, err := cliSocketPeerUserID(conn)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("cannot verify the socket's owner: %w", err)
+	}
+	if uid != uint32(os.Geteuid()) {
+		_ = conn.Close()
+		return nil, errors.New("socket is served by another user")
+	}
+	return conn, nil
 }
 
 // dialTCP connects with a 2-second timeout, capped by deadline when set.

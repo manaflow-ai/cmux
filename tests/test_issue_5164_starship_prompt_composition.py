@@ -17,6 +17,12 @@ Starship stub and asserts that a user-registered ``PROMPT_COMMAND`` hook
 survives and keeps running on every prompt. It is deterministic (it models
 bash's "evaluate PROMPT_COMMAND before each prompt" loop directly) rather than
 relying on a PTY.
+
+It also covers https://github.com/manaflow-ai/cmux/issues/5389: cmux's own
+``_cmux_prompt_command`` runs first in ``PROMPT_COMMAND``, so it must hand the
+previous command's exit status through unchanged. Otherwise every hook after it
+(Starship's ``starship_precmd`` included) sees ``$?`` as 0 and the status module
+never shows a failure.
 """
 
 from __future__ import annotations
@@ -53,7 +59,8 @@ def _lean_bootstrap(text: str) -> str:
 # starship_precmd (which renders PS1 from `starship prompt`) and appends it to
 # PROMPT_COMMAND exactly the way the real starship does for non-bash-preexec
 # shells. `starship prompt` emits the cwd plus a monotonic counter so a *stale*
-# (no longer re-rendered) prompt is detectable.
+# (no longer re-rendered) prompt is detectable, and the `--status` it was given
+# so a clobbered `$?` is detectable.
 STARSHIP_STUB = """#!/bin/bash
 case "$1" in
   init)
@@ -79,7 +86,8 @@ INIT
     ctr="$STARSHIP_COUNTER_FILE"
     n=0; [[ -r "$ctr" ]] && n="$(cat "$ctr")"
     n=$((n + 1)); printf '%s' "$n" > "$ctr"
-    printf 'SS[cwd=%s n=%s]$ ' "${PWD##*/}" "$n"
+    status="${2#--status=}"
+    printf 'SS[cwd=%s n=%s status=%s]$ ' "${PWD##*/}" "$n" "$status"
     ;;
   time)
     printf '0'
@@ -127,7 +135,43 @@ done
 """
 
 
-def _run_driver(*, with_starship: bool = True) -> dict[str, str]:
+# Driver for issue 5389: render prompts after a succeeding and a failing command
+# and record the status each prompt's starship_precmd saw. _render hands the
+# caller's `$?` to PROMPT_COMMAND the way bash does before drawing a prompt.
+STATUS_DRIVER = r"""
+set +e
+
+PROMPT_COMMAND="$(cat "$CMUX_BOOTSTRAP_FILE")"
+eval "$(starship init bash)"
+
+_emit() { printf '%s<%s>\n' "$1" "${2//$'\n'/<NL>}"; }
+_set_status() { return "$1"; }
+
+_render() {
+    local status=$?
+    if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+        local pc
+        for pc in "${PROMPT_COMMAND[@]}"; do
+            _set_status "$status"
+            eval "$pc"
+            status=$?
+        done
+    else
+        _set_status "$status"
+        eval "$PROMPT_COMMAND"
+    fi
+}
+
+# The first prompt runs the one-shot bootstrap that installs _cmux_prompt_command.
+true; _render
+_emit PC_READY "$PROMPT_COMMAND"
+true; _render; _emit PS1_AFTER_TRUE "$PS1"
+false; _render; _emit PS1_AFTER_FALSE "$PS1"
+(exit 7); _render; _emit PS1_AFTER_EXIT_7 "$PS1"
+"""
+
+
+def _run_driver(*, with_starship: bool = True, driver: str = DRIVER) -> dict[str, str]:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         bin_dir = tmp_path / "bin"
@@ -173,7 +217,7 @@ def _run_driver(*, with_starship: bool = True) -> dict[str, str]:
         )
 
         proc = subprocess.run(
-            ["/bin/bash", "--noprofile", "--norc", "-c", DRIVER],
+            ["/bin/bash", "--noprofile", "--norc", "-c", driver],
             env=env,
             capture_output=True,
             text=True,
@@ -266,7 +310,36 @@ def test_plain_bash_bootstrap_installs_cmux_prompt_command() -> None:
         )
 
 
+def test_hooks_after_cmux_prompt_command_see_last_exit_status() -> None:
+    """Issue 5389: _cmux_prompt_command must not reset `$?` to 0 for the
+    PROMPT_COMMAND hooks that run after it (Starship's status module)."""
+    assert BOOTSTRAP.exists(), f"missing bootstrap file: {BOOTSTRAP}"
+    fields = _run_driver(driver=STATUS_DRIVER)
+    debug = (
+        f"\n\n--- driver stdout ---\n{fields.get('__stdout__', '')}"
+        f"\n--- driver stderr ---\n{fields.get('__stderr__', '')}"
+    )
+
+    pc = fields.get("PC_READY", "")
+    assert pc.index("_cmux_prompt_command") < pc.index("starship_precmd"), (
+        f"expected cmux's hook to run before starship_precmd: <{pc}>" + debug
+    )
+
+    expected = {
+        "PS1_AFTER_TRUE": "status=0",
+        "PS1_AFTER_FALSE": "status=1",
+        "PS1_AFTER_EXIT_7": "status=7",
+    }
+    for key, status in expected.items():
+        ps1 = fields.get(key, "")
+        assert status in ps1, (
+            f"starship_precmd saw the wrong exit status ({key}); expected {status}, "
+            f"PS1=<{ps1}>" + debug
+        )
+
+
 if __name__ == "__main__":
     test_starship_precmd_survives_under_cmux_bash_bootstrap()
     test_plain_bash_bootstrap_installs_cmux_prompt_command()
+    test_hooks_after_cmux_prompt_command_see_last_exit_status()
     print("PASS: cmux bash bootstrap composes with (and without) user prompt hooks")

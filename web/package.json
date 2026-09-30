@@ -20,6 +20,7 @@
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-planetscale.mjs",
     "cloud-vm:cleanup-iroh": "bun scripts/cloud-vm/cleanup-iroh-challenges.ts",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
+    "cloud-vm:dogfood": "bun scripts/cloud-vm/dogfood-journey.mjs",
     "cloud-vm:smoke": "bun scripts/cloud-vm/smoke-vm-api.mjs",
     "cloud-vm:stress": "bun scripts/cloud-vm/stress-vm-api.mjs",
     "devbox:bake:freestyle": "bun scripts/build-devbox-freestyle.ts",
