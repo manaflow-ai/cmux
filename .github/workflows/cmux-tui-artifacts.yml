@@ -520,8 +520,9 @@ jobs:
             local prefix="$2"
             local cache="$3"
             local write_once="${4:-false}"
-            for file in "$directory"/*; do
-              upload_args=()
+            upload_file() {
+              local file="$1"
+              local -a upload_args=()
               if [[ "$write_once" == "true" ]]; then
                 upload_args+=(--write-once)
               fi
@@ -531,7 +532,12 @@ jobs:
                 --bucket cmux-binaries \
                 --key "$prefix/$(basename "$file")" \
                 --cache-control "$cache"
+            }
+            for file in "$directory"/*; do
+              [[ "$(basename "$file")" == manifest.json ]] && continue
+              upload_file "$file"
             done
+            upload_file "$directory/manifest.json"
           }
           publish_prefix assets/cmux-tui "cmux-tui/latest" "no-cache, no-store, must-revalidate" false
           publish_prefix assets/cmux-relay "cmux-relay/latest" "no-cache, no-store, must-revalidate" false
