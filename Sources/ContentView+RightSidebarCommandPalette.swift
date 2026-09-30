@@ -106,12 +106,16 @@ extension ContentView {
             return .sendCtrlFToTerminal
         case "palette.terminalPasteLastScreenshot":
             return .pasteLastScreenshot
+        case "palette.terminalSizeToMyWindow":
+            return .sizeTerminalToMyWindow
         case "palette.terminalClearScreenKeepScrollback":
             return .clearScreenKeepScrollback
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":
             return .equalizeSplits
+        case "palette.newPaneAutoLayout":
+            return .newPaneAutoLayout
         case "palette.resizePaneLeft":
             return .resizePaneLeft
         case "palette.resizePaneRight":

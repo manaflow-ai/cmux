@@ -83,6 +83,7 @@ async function loadPagefind(channel: "release" | "nightly") {
 
 type SearchStatus = "idle" | "loading" | "ready" | "error";
 
+/** Search input and results, shown inside the Cmd+K dialog. */
 export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
   const t = useTranslations("docs.search");
   const locale = useLocale();
@@ -211,12 +212,12 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
         : null;
 
   return (
-    <div className="pb-4" data-pagefind-ignore="all">
-      <div className="relative">
-        <div className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted">
+    <div data-pagefind-ignore="all">
+      <div className="relative border-b border-border">
+        <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted">
           <svg
-            width="14"
-            height="14"
+            width="16"
+            height="16"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -243,8 +244,12 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           aria-activedescendant={
             activeIndex >= 0 ? `docs-search-result-${activeIndex}` : undefined
           }
-          className="w-full rounded-md border border-border bg-code-bg py-1.5 pl-8 pr-3 text-[13px] text-foreground transition-colors placeholder:text-muted hover:border-muted/40 focus:border-muted focus:outline-none"
+          autoFocus
+          className="h-14 w-full bg-transparent pl-11 pr-16 text-[15px] text-foreground placeholder:text-muted focus:outline-none"
         />
+        <kbd className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rounded-md border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted">
+          Esc
+        </kbd>
       </div>
 
       {showResults && (
@@ -252,16 +257,16 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           id="docs-search-results"
           role="listbox"
           aria-label={t("resultsLabel")}
-          className="pt-2"
+          className="max-h-[min(60vh,28rem)] overflow-y-auto p-2"
           aria-live="polite"
         >
           {statusMessage ? (
-            <div className="rounded-md bg-code-bg/35 px-2 py-2 text-[12px] text-muted">
+            <div className="px-3 py-8 text-center text-[13px] text-muted">
               {statusMessage}
             </div>
           ) : (
-            <div className="space-y-1 rounded-md bg-code-bg/35 p-1">
-              <div className="px-1 pb-1 text-[11px] text-muted">
+            <div className="space-y-0.5">
+              <div className="px-3 pb-1 pt-1 text-[12px] font-medium text-muted">
                 {t("resultsCount", { count: results.length })}
               </div>
               {results.map((result, index) => (
@@ -273,24 +278,39 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                   aria-selected={index === activeIndex}
                   onClick={clearAndNavigate}
                   onMouseEnter={() => setActiveIndex(index)}
-                  className={`block rounded-md px-2 py-2 transition-colors ${
+                  className={`flex gap-3 rounded-xl px-3 py-2.5 transition-colors ${
                     index === activeIndex
-                      ? "bg-background/80 text-foreground"
-                      : "text-muted hover:bg-background/60 hover:text-foreground"
+                      ? "bg-foreground/[0.05] text-foreground"
+                      : "text-foreground"
                   }`}
                 >
-                  <div className="truncate text-[13px] font-medium">
-                    {result.title}
-                  </div>
-                  {result.excerptHtml && (
-                    <div
-                      className="docs-search-excerpt mt-1 line-clamp-2 text-[12px] leading-5 text-muted"
-                      dangerouslySetInnerHTML={{ __html: result.excerptHtml }}
-                    />
-                  )}
-                  <div className="mt-1 truncate text-[11px] text-muted">
-                    {result.href.replace(/^\/[a-z]{2}(?:-[A-Z]{2})?\//, "/")}
-                  </div>
+                  <span
+                    className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${
+                      index === activeIndex
+                        ? "border-foreground/20 text-foreground"
+                        : "border-border text-muted"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                      <path d="M14 2v6h6" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14px] font-medium">
+                      {result.title}
+                    </span>
+                    {result.excerptHtml && (
+                      <span
+                        className="docs-search-excerpt mt-0.5 line-clamp-2 text-[12.5px] leading-5 text-muted"
+                        dangerouslySetInnerHTML={{ __html: result.excerptHtml }}
+                      />
+                    )}
+                    <span className="mt-0.5 block truncate text-[11px] text-muted">
+                      {result.href.replace(/^\/[a-z]{2}(?:-[A-Z]{2})?\//, "/")}
+                    </span>
+                  </span>
                 </DocsLink>
               ))}
             </div>

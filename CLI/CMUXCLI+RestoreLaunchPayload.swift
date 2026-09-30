@@ -29,6 +29,9 @@ extension CMUXCLI {
         if let source = command.source {
             payload["source"] = source
         }
+        if let launcherPrefix = command.launcherPrefix {
+            payload["launcher_prefix"] = launcherPrefix
+        }
         return payload
     }
 
