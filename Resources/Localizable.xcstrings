@@ -100887,55 +100887,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar requires a subcommand: validate, reload, select, or open"
+            "value": "sidebar requires a subcommand: templates, try, new, validate, reload, select, or open"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar にはサブコマンド validate、reload、select、open のいずれかが必要です"
+            "value": "sidebar にはサブコマンド templates、try、new、validate、reload、select、open のいずれかが必要です"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar 需要一个子命令：validate、reload、select 或 open"
+            "value": "sidebar 需要一个子命令：templates、try、new、validate、reload、select 或 open"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seitenleiste erfordert einen Unterbefehl: validate, reload, select oder open"
+            "value": "Seitenleiste erfordert einen Unterbefehl: templates, try, new, validate, reload, select oder open"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "barre latérale requiert une sous-commande : validate, reload, select ou open"
+            "value": "barre latérale requiert une sous-commande : templates, try, new, validate, reload, select ou open"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب الشريط الجانبي أمرًا فرعيًا: validate، أو reload، أو select، أو open"
+            "value": "يتطلب الشريط الجانبي أمرًا فرعيًا: templates، أو try، أو new، أو validate، أو reload، أو select، أو open"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar requiere un subcomando: validate, reload, select o open"
+            "value": "sidebar requiere un subcomando: templates, try, new, validate, reload, select u open"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar 需要子指令：validate、reload、select 或 open"
+            "value": "sidebar 需要子指令：templates、try、new、validate、reload、select 或 open"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar에는 하위 명령어가 필요합니다: validate, reload, select 또는 open"
+            "value": "sidebar에는 하위 명령어가 필요합니다: templates, try, new, validate, reload, select 또는 open"
           }
         }
       }

@@ -3514,5 +3514,16 @@
       "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
     }
+  },
+
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "class": "technical",
+    "reason": "The menu title names the cmux.json action discovery surface and keeps the product/config filename literal."
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "class": "technical",
+    "reason": "The dialog title names the cmux.json action discovery surface and keeps the product/config filename literal."
   }
 }

@@ -259,7 +259,7 @@ def changed_files(repo, base, include_deleted=False):
         os.fsdecode(p) for p in (changed + untracked).split(b"\0")
         if p and (include_deleted or p.endswith(b".swift"))
         and b"/Resources/CustomSidebarTemplates/" not in p
-        and b"/Examples/CustomSidebars/" not in p
+        and b"Examples/CustomSidebars/" not in p
     })
     return names, {"base_ref": base, "base_sha": base_sha, "merge_base_sha": merge_base,
                    "excluded_untracked_prefixes": [".glaeda/apple-build/"],

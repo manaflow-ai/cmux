@@ -21434,8 +21434,8 @@ struct CMUXCLI {
                 let values = catalog.templates.map { descriptor in
                     [
                         "id": descriptor.id,
-                        "name": String(localized: descriptor.displayNameKey, defaultValue: descriptor.displayName),
-                        "description": String(localized: descriptor.descriptionKey, defaultValue: descriptor.description),
+                        "name": Bundle.main.localizedString(forKey: descriptor.displayNameKey, value: descriptor.displayName, table: nil),
+                        "description": Bundle.main.localizedString(forKey: descriptor.descriptionKey, value: descriptor.description, table: nil),
                         "kind": descriptor.kind.rawValue,
                         "file": descriptor.file,
                     ] as [String: Any]
@@ -21443,8 +21443,10 @@ struct CMUXCLI {
                 print(jsonString(["templates": values]))
             } else {
                 for descriptor in catalog.templates {
-                    print("\(descriptor.id) - \(String(localized: descriptor.displayNameKey, defaultValue: descriptor.displayName)) [\(descriptor.kind.rawValue)]")
-                    print("  \(String(localized: descriptor.descriptionKey, defaultValue: descriptor.description))")
+                    let name = Bundle.main.localizedString(forKey: descriptor.displayNameKey, value: descriptor.displayName, table: nil)
+                    let description = Bundle.main.localizedString(forKey: descriptor.descriptionKey, value: descriptor.description, table: nil)
+                    print("\(descriptor.id) - \(name) [\(descriptor.kind.rawValue)]")
+                    print("  \(description)")
                 }
             }
         case "try":
@@ -21550,7 +21552,7 @@ struct CMUXCLI {
 
         guard let action = args.first?.lowercased() else {
             throw CLIError(
-                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: validate, reload, select, or open")
+                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: templates, try, new, validate, reload, select, or open")
             )
         }
 

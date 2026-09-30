@@ -130,6 +130,7 @@ public struct CustomSidebarsSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .disabled(!enabled.current)
                 .accessibilityIdentifier("SettingsCustomSidebarsCreateButton")
             }
 
@@ -149,6 +150,7 @@ public struct CustomSidebarsSection: View {
                     )
                 }
                 .controlSize(.small)
+                .disabled(!enabled.current)
                 .accessibilityIdentifier("SettingsCustomSidebarsTemplatesGalleryButton")
             }
 
@@ -210,6 +212,7 @@ public struct CustomSidebarsSection: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .disabled(!enabled.current)
                 }
             }
 
@@ -357,9 +360,9 @@ private struct CustomSidebarTemplateGallery: View {
                     }
                 }
                 .frame(height: 105)
-            Text(String(localized: template.displayNameKey, defaultValue: template.displayName, bundle: .module))
+            Text(Bundle.module.localizedString(forKey: template.displayNameKey, value: template.displayName, table: nil))
                 .font(.headline)
-            Text(String(localized: template.descriptionKey, defaultValue: template.description, bundle: .module))
+            Text(Bundle.module.localizedString(forKey: template.descriptionKey, value: template.description, table: nil))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
