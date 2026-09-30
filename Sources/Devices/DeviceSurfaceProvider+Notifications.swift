@@ -45,7 +45,7 @@ extension DeviceSurfaceProvider {
         )
         notificationSync = sync
         hub.register(sync, remoteWorkspaceID: { [weak self] terminalID in
-            self?.terminalWorkspaceIDs[terminalID.lowercased()]
+            self?.terminalWorkspaceIDs[terminalID.lowercased()].map { Set([$0]) } ?? []
         })
         // A row whose terminal is not open here yet is placed once it is.
         notificationPlacementObserver = NotificationCenter.default.addObserver(
@@ -64,8 +64,11 @@ extension DeviceSurfaceProvider {
         notificationFeedTask?.cancel()
         notificationFeedTask = nil
         notificationFeedRefetch = false
-        CloudNotificationSyncHub.shared.unregister(machineID: machine.rawValue)
-        notificationSync?.retire()
+        let sync = notificationSync
+        if let sync {
+            CloudNotificationSyncHub.shared.unregister(machineID: machine.rawValue, expected: sync)
+            sync.retire()
+        }
         notificationSync = nil
         if let notificationPlacementObserver {
             NotificationCenter.default.removeObserver(notificationPlacementObserver)

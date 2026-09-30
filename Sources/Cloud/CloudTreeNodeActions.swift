@@ -165,10 +165,10 @@ struct CloudTreeNodeActions {
             Self.resolvedMachineName(machine, snapshot: catalog().snapshot)
         }
         let openingLabel: (SurfaceMachineID) -> String = { machine in
-            String(format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"), machineName(machine))
+            String(format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@…"), machineName(machine))
         }
         let startingLabel: (SurfaceMachineID) -> String = { machine in
-            String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
+            String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@…"), machineName(machine))
         }
         var actions = CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
@@ -400,7 +400,7 @@ struct CloudTreeNodeActions {
                 let host = workspaceCreationHost() ?? selectedWorkspaceID()
                     .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
                     .map { CloudWorkspaceCreationHost(manager: $0) }
-                run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machineName(machine))) { catalog in
+                run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@…"), machineName(machine))) { catalog in
                     // A sidebar whose window closed must never fall back to a different window.
                     guard let host, host.isAvailable else { throw CancellationError() }
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
@@ -409,11 +409,11 @@ struct CloudTreeNodeActions {
             },
             closeTerminal: { resource in
                 guard confirmDestructive(
-                    title: String(format: String(localized: "cloudTree.killTerminal.title", defaultValue: "Kill terminal \u{201C}%@\u{201D}?"), resource.key),
+                    title: String(format: String(localized: "cloudTree.killTerminal.title", defaultValue: "Kill terminal “%@”?"), resource.key),
                     message: String(localized: "cloudTree.killTerminal.message", defaultValue: "The process ends on the machine, everywhere it is shown. Panes keep their scrollback."),
                     verb: String(localized: "cloudTree.killTerminal.confirm", defaultValue: "Kill")
                 ) else { return }
-                run(String(format: String(localized: "cloudTree.operation.close", defaultValue: "Closing on %@\u{2026}"), machineName(resource.machine))) { catalog in
+                run(String(format: String(localized: "cloudTree.operation.close", defaultValue: "Closing on %@…"), machineName(resource.machine))) { catalog in
                     guard let provider = catalog.provider(for: resource.machine) else { throw SurfaceCatalogError.noProvider(resource.machine) }
                     try await provider.closeTerminal(resource)
                 }
@@ -426,7 +426,7 @@ struct CloudTreeNodeActions {
                     resource.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
                 }
                 if !terminals.isEmpty {
-                    let title = String(format: String(localized: "cloudTree.closeWorkspace.title", defaultValue: "Close workspace \u{201C}%@\u{201D}?"), workspace.name)
+                    let title = String(format: String(localized: "cloudTree.closeWorkspace.title", defaultValue: "Close workspace “%@”?"), workspace.name)
                     let message = terminals.count == 1
                         ? String(localized: "cloudTree.closeWorkspace.message.one", defaultValue: "Its terminal is killed with it.")
                         : String(format: String(localized: "cloudTree.closeWorkspace.message.other", defaultValue: "Its %d terminals are killed with it."), terminals.count)
@@ -435,29 +435,29 @@ struct CloudTreeNodeActions {
                 // Admit the delete synchronously so the row is gone before the
                 // first network suspension; the operation label tracks the request.
                 let deletion = catalog().deleteCloudWorkspace(machine: machine, workspaceID: workspace.id)
-                run(String(format: String(localized: "cloudTree.operation.closeWorkspace", defaultValue: "Closing %@\u{2026}"), workspace.name)) { _ in
+                run(String(format: String(localized: "cloudTree.operation.closeWorkspace", defaultValue: "Closing %@…"), workspace.name)) { _ in
                     _ = try await deletion.value
                 }
             },
             renameWorkspace: { machine, workspace in
                 guard let name = promptForName(
-                    title: String(format: String(localized: "cloudTree.renameWorkspace.title", defaultValue: "Rename \u{201C}%@\u{201D}"), workspace.name),
+                    title: String(format: String(localized: "cloudTree.renameWorkspace.title", defaultValue: "Rename “%@”"), workspace.name),
                     current: workspace.name
                 ), name != workspace.name else { return }
-                run(String(format: String(localized: "cloudTree.operation.renameWorkspace", defaultValue: "Renaming %@\u{2026}"), workspace.name)) { catalog in
+                run(String(format: String(localized: "cloudTree.operation.renameWorkspace", defaultValue: "Renaming %@…"), workspace.name)) { catalog in
                     try await catalog.renameRemoteWorkspace(on: machine, id: workspace.id, name: name)
                 }
             },
             renameTerminal: { resource, view in
                 let current = view?.name ?? (resource.title.isEmpty ? resource.id.key : resource.title)
                 guard let name = promptForName(
-                    title: String(format: String(localized: "cloudTree.renameTerminal.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                    title: String(format: String(localized: "cloudTree.renameTerminal.title", defaultValue: "Rename “%@”"), current),
                     current: current,
                     allowsClear: true
                 ) else { return }
                 let operationLabel = name.isEmpty
-                    ? String(format: String(localized: "cloudTree.operation.clearTerminal", defaultValue: "Clearing %@\u{2026}"), current)
-                    : String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)
+                    ? String(format: String(localized: "cloudTree.operation.clearTerminal", defaultValue: "Clearing %@…"), current)
+                    : String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@…"), current)
                 run(operationLabel) { catalog in
                     if let view {
                         try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
@@ -470,7 +470,7 @@ struct CloudTreeNodeActions {
             copyToPasteboard: Self.copyToPasteboard,
             copyPortLink: { resource in
                 guard let port = resource.forwardedPort else { return }
-                run(String(localized: "cloudTree.operation.copyPortLink", defaultValue: "Preparing the link\u{2026}")) { catalog in
+                run(String(localized: "cloudTree.operation.copyPortLink", defaultValue: "Preparing the link…")) { catalog in
                     guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
                         throw SurfaceCatalogError.unsupported(SurfaceCatalog.portPreviewUnavailableMessage(machineID: resource.machine.rawValue))
                     }
@@ -497,7 +497,7 @@ struct CloudTreeNodeActions {
             let managerKey = host.manager?.windowId?.uuidString ?? "unowned"
             let key = "cloud-workspace-open:\(machine.rawValue):\(workspace.id):\(managerKey)"
             let label = String(
-                format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"),
+                format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@…"),
                 machineName(machine)
             )
             _ = runKeyed(key, label, { catalog in

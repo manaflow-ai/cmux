@@ -15,7 +15,7 @@ final class CloudNotificationSyncHub {
     static let shared = CloudNotificationSyncHub()
     let persistenceStore: CloudNotificationSyncStore
     private var syncs: [String: CloudNotificationSync] = [:]
-    private var remoteWorkspaceResolvers: [String: @MainActor (String) -> String?] = [:]
+    private var remoteWorkspaceResolvers: [String: @MainActor (String) -> Set<String>] = [:]
     private var notificationGate: CloudMachineNotificationGate
 
     /// Defaults resolve here rather than as default arguments: the store is
@@ -42,7 +42,7 @@ final class CloudNotificationSyncHub {
 
     func register(
         _ sync: CloudNotificationSync,
-        remoteWorkspaceID: @escaping @MainActor (String) -> String? = { _ in nil }
+        remoteWorkspaceID: @escaping @MainActor (String) -> Set<String> = { _ in [] }
     ) {
         syncs[sync.machineID] = sync
         remoteWorkspaceResolvers[sync.machineID] = remoteWorkspaceID
@@ -50,6 +50,11 @@ final class CloudNotificationSyncHub {
     }
 
     func unregister(machineID: String) {
+        unregister(machineID: machineID, expected: nil)
+    }
+
+    func unregister(machineID: String, expected: CloudNotificationSync?) {
+        if let expected, syncs[machineID] !== expected { return }
         syncs.removeValue(forKey: machineID)
         remoteWorkspaceResolvers.removeValue(forKey: machineID)
         if unreadTerminalIDs.removeValue(forKey: machineID) != nil {
@@ -180,13 +185,20 @@ final class CloudNotificationSyncHub {
     @discardableResult
     func noteRead(remoteWorkspaceID: String, machineID: String) -> [String] {
         guard let sync = syncs[machineID], !remoteWorkspaceID.isEmpty else { return [] }
-        let resolve = remoteWorkspaceResolvers[machineID] ?? { _ in nil }
+        let resolve = remoteWorkspaceResolvers[machineID] ?? { _ in [] }
         let ids = sync.rows.compactMap { row -> String? in
             guard let terminalID = row.terminalID,
-                  resolve(terminalID) == remoteWorkspaceID else { return nil }
+                  resolve(terminalID).contains(remoteWorkspaceID) else { return nil }
             return row.id
         }
         sync.noteRead(notificationIDs: ids)
+        let idSet = Set(ids)
+        let localIDs = store?.notifications.compactMap { notification -> UUID? in
+            guard let key = notification.correlationKey,
+                  CloudNotificationCorrelation.matches(key, machineID: machineID, notificationIDs: idSet) else { return nil }
+            return notification.id
+        } ?? []
+        _ = store?.markNotificationFeedRead(ids: Set(localIDs))
         return ids
     }
 }

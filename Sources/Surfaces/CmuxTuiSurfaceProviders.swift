@@ -246,8 +246,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for task in browserPaneTasks.values { task.cancel() }
         browserPaneTasks.removeAll()
         refreshGeneration &+= 1
-        CloudNotificationSyncHub.shared.unregister(machineID: machineID)
-        notificationSync?.retire()
+        if let sync = notificationSync { CloudNotificationSyncHub.shared.unregister(machineID: machineID, expected: sync); sync.retire() }
         notificationSync = nil
         if let notificationPlacementObserver {
             NotificationCenter.default.removeObserver(notificationPlacementObserver)

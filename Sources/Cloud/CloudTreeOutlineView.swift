@@ -682,12 +682,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     item(String(localized: "cloudTree.menu.markWorkspaceRead", defaultValue: "Mark Workspace Read")) { [nodeActions] in nodeActions.markWorkspaceRead(machine, workspace.id) },
                     .separator(),
-                    item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
+                    item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename…")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
                     .separator(),
                     // One close verb, same path as the row's hover ×: the workspace and
                     // its terminals go together (nothing lingers as a pool row).
-                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace\u{2026}")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace) },
+                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace…")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace) },
                 ]
             case .localWorkspace(let row):
                 var items = [
@@ -717,15 +717,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     )
                     if canRename {
                         let title = if row.remoteView == nil {
-                            String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views\u{2026}")
+                            String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views…")
                         } else {
-                            String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename\u{2026}")
+                            String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename…")
                         }
                         items.append(item(title) { [nodeActions] in
                             nodeActions.renameTerminal(row.resource, row.remoteView)
                         })
                     }
-                    items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
+                    items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal…")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
                 }
                 return items
             case .browser(let row):
