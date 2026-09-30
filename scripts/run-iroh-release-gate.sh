@@ -828,6 +828,12 @@ xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "${V2_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY -string "$FORCE_RELAY"
+# Enable the app-side monotonic latency trace before the measured process
+# launch. The e2e driver pairs scene.active with the target terminal's first
+# rd.present, excluding simctl, OCR, AXe, and Mac polling overhead from the
+# foreground budget.
+xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+  "$IOS_BUNDLE_ID" cmux.debug.latency-trace -bool true
 
 # The driver owns this unique tag, so restart it unconditionally. A live pairing
 # socket can otherwise make `cmux_attach_ensure_mac` return without relaunching,
@@ -1379,8 +1385,12 @@ for index in (1, 2, 3):
     cycles.append(evidence)
 if len(cycles) != 3 or cycles[1].get("background_seconds", 0) < 120:
     raise SystemExit("real usage did not include a 120-second background cycle")
-if any(float(item.get("resume_to_mac_input_seconds", 99)) > 2.0 for item in cycles):
-    raise SystemExit("real usage resume-to-input exceeded two seconds")
+if any(
+    not isinstance(item.get("app_foreground_to_terminal_ready_seconds"), (int, float))
+    or float(item["app_foreground_to_terminal_ready_seconds"]) > 2.0
+    for item in cycles
+):
+    raise SystemExit("real usage app foreground-to-terminal exceeded two seconds")
 print(json.dumps({"cycles": cycles}, sort_keys=True))
 PY_REAL_USAGE
 fi

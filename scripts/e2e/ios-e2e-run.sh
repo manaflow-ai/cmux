@@ -237,6 +237,51 @@ ensure_terminal_surface() {
   fail "workspace row opened but MobileTerminalSurface did not appear within ${STEP_TIMEOUT}s"
 }
 
+wait_for_app_ready_trace() {
+  local target_surface="$1"
+  local data_container
+  data_container="$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data 2>/dev/null || true)"
+  [[ -n "$data_container" ]] || return 1
+  local log_path="$data_container/Library/Application Support/cmux-debug.log"
+  local surface_prefix="${target_surface:0:8}"
+  surface_prefix="${surface_prefix,,}"
+  local deadline=$(( $(date +%s) + STEP_TIMEOUT ))
+  while (( $(date +%s) < deadline )); do
+    if [[ -f "$log_path" ]]; then
+      local elapsed
+      elapsed="$(/usr/bin/python3 - "$log_path" "$surface_prefix" <<'PY_TRACE'
+import re
+import sys
+
+path, surface_prefix = sys.argv[1:]
+scene = None
+try:
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            match = re.search(r"LAT scene\.active t=(\d+)", line)
+            if match:
+                scene = int(match.group(1))
+                continue
+            match = re.search(r"LAT rd\.present t=(\d+).*\bs=([0-9a-f]+)", line)
+            if match and scene is not None and match.group(2).lower() == surface_prefix:
+                rendered = int(match.group(1))
+                if rendered >= scene:
+                    print(f"{(rendered - scene) / 1_000_000:.6f}")
+                    break
+except OSError:
+    pass
+PY_TRACE
+      )"
+      if [[ "$elapsed" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf '%s\n' "$elapsed"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 # The first key event after (re)attaching input is dropped by the simulator,
 # so every line leads with a sacrificial space (harmless to the shell).
 # Submit with the HID return key: the accessory return button renders a CR
@@ -393,16 +438,19 @@ import sys, time
 print(f"{time.monotonic() - float(sys.argv[1]):.6f}")
 PY
 )"
+APP_FOREGROUND_SECONDS="$(wait_for_app_ready_trace "$SURFACE_ID" || true)"
+[[ "$APP_FOREGROUND_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || \
+  fail "app-side foreground trace did not reach target terminal frame"
 MARK_RESUME="E2ERESUME$(date +%s)"
 type_line "echo $MARK_RESUME"
 wait_mac_output "$MARK_RESUME"
-printf '{"background_seconds":%s,"resume_to_mac_input_seconds":%s,"background_started_monotonic":%s}\n' \
-  "$BACKGROUND_SECONDS" "$RESUME_SECONDS" "$BACKGROUND_STARTED" > "$EVIDENCE_DIR/background.json"
+printf '{"background_seconds":%s,"resume_to_mac_input_seconds":%s,"app_foreground_to_terminal_ready_seconds":%s,"background_started_monotonic":%s}\n' \
+  "$BACKGROUND_SECONDS" "$RESUME_SECONDS" "$APP_FOREGROUND_SECONDS" "$BACKGROUND_STARTED" > "$EVIDENCE_DIR/background.json"
 if (( BACKGROUND_SECONDS >= 120 )); then
-  python3 - "$RESUME_SECONDS" <<'PY'
+  python3 - "$APP_FOREGROUND_SECONDS" <<'PY'
 import sys
 if float(sys.argv[1]) > 2.0:
-    raise SystemExit("resume-to-input exceeded 2 seconds: " + sys.argv[1])
+    raise SystemExit("app foreground-to-terminal exceeded 2 seconds: " + sys.argv[1])
 PY
 fi
 wait_phone "$MARK_RESUME"

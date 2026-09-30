@@ -40,7 +40,7 @@ simulator explicitly through flags.
 | `CMUX_E2E_EVIDENCE_DIR` | Directory for screenshots, streamed-grid text dumps, device logs, and step timings. The workflow uploads it verbatim, including on failure. |
 | `CMUX_IROH_V2_BASE_URL`, `CMUX_PRESENCE_BASE_URL` | This run's backend origins from `backend-env.sh env`, baked into both app builds. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Same account used by the Mac and simulator. The workflow stores it as `CMUX_UITEST_*` in a mode `0600` file for the `agent` profile. |
-| `CMUX_E2E_BACKGROUND_SECONDS` | Optional background interval for the replay step. Set to `120` or more to enforce the two-second resume-to-Mac-input budget and write `background.json`. |
+| `CMUX_E2E_BACKGROUND_SECONDS` | Optional background interval for the replay step. Set to `120` or more to enforce the two-second app-side scene-active-to-terminal-frame budget and write `background.json`; the file also retains the end-to-end resume-to-Mac-input timing. |
 | `CMUX_E2E_VIDEO` | Optional simulator video output path. The driver records the whole run and stops the recorder during cleanup. |
 
 The workflow sets `CMUX_IROH_V2_FORCE_RELAY=1` for the Mac build and writes the
