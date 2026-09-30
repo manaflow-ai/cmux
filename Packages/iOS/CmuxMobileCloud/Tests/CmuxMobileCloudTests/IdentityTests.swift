@@ -69,16 +69,21 @@ import Testing
 }
 
 @Suite struct UserDefaultsCloudDeviceIdentityStoreTests {
-    @Test func roundTripsAndTreatsCorruptDataAsAbsent() throws {
+    @Test func roundTripsAndTreatsCorruptDataAsAbsent() async throws {
         let suite = "cmux-cloud-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
         let store = UserDefaultsCloudDeviceIdentityStore(defaults: defaults)
-        #expect(store.read() == .absent)
+        #expect(await store.read() == .absent)
         let identity = CloudDeviceIdentity.mint()
-        try store.write(identity)
-        #expect(store.read() == .found(identity))
-        defaults.set(Data("junk".utf8), forKey: "cmux.cloud.deviceIdentity.v1")
-        #expect(store.read() == .absent)
+        try await store.write(identity)
+        #expect(await store.read() == .found(identity))
+
+        let corruptSuite = "cmux-cloud-tests-corrupt-\(UUID().uuidString)"
+        let corruptDefaults = try #require(UserDefaults(suiteName: corruptSuite))
+        defer { UserDefaults(suiteName: corruptSuite)?.removePersistentDomain(forName: corruptSuite) }
+        corruptDefaults.set(Data("junk".utf8), forKey: "cmux.cloud.deviceIdentity.v1")
+        let corruptStore = UserDefaultsCloudDeviceIdentityStore(defaults: corruptDefaults)
+        #expect(await corruptStore.read() == .absent)
     }
 }

@@ -18,6 +18,12 @@ import Testing
         )
     }
 
+    private func settle(_ condition: @MainActor () -> Bool) async {
+        for _ in 0 ..< 2_000 where !condition() {
+            await Task.yield()
+        }
+    }
+
     @Test func lifecycleMapsTheServerEnumAndGatesActions() {
         #expect(CloudMachineLifecycle(status: "running") == .running)
         #expect(CloudMachineLifecycle(status: "PAUSED") == .paused)
@@ -175,13 +181,13 @@ import Testing
         )
 
         controller.refreshMachines()
-        for _ in 0 ..< 500 where clock.sleepers == 0 { await Task.yield() }
+        await settle { clock.sleepers == 1 }
         clock.advance(by: CloudSessionController.provisioningPollInterval)
-        for _ in 0 ..< 500 where service.calls.list < 2 || clock.sleepers == 0 { await Task.yield() }
+        await settle { service.calls.list >= 2 && clock.sleepers == 1 }
         clock.advance(by: CloudSessionController.provisioningPollInterval)
-        for _ in 0 ..< 500 {
-            if case .failed = controller.machines { break }
-            await Task.yield()
+        await settle {
+            if case .failed = controller.machines { return true }
+            return false
         }
 
         guard case .failed(let failure, let previous) = controller.machines else {
