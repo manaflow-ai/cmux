@@ -172,6 +172,17 @@ struct AgentPromptInputDetectorTests {
         #expect(!snapshot.queued)
     }
 
+    @Test("Busy Claude keeps its Claude agent kind")
+    func busyClaude() {
+        let screen = [
+            [span(" ✻ Thinking…")],
+            [span("\u{276F}\u{00A0}"), span("\u{203A} quoted output", at: 2)],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .claude)
+        #expect(snapshot.busy)
+    }
+
     @Test("Codex queued status is exposed separately from busy")
     func queuedCodex() {
         let screen = [

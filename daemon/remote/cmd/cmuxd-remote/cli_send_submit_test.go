@@ -84,6 +84,12 @@ func (m *sendSubmitMock) methods() []string {
 	return methods
 }
 
+func (m *sendSubmitMock) keysSnapshot() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.keys...)
+}
+
 func (m *sendSubmitMock) request(method string) map[string]any {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -179,8 +185,8 @@ func TestSendSubmitRetriesAndFailsWhenComposerNeverSubmits(t *testing.T) {
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
 		t.Fatal("expected bounded retry failure")
 	}
-	if len(mock.keys) != 3 {
-		t.Fatalf("submit keys = %v", mock.keys)
+	if len(mock.keysSnapshot()) != 3 {
+		t.Fatalf("submit keys = %v", mock.keysSnapshot())
 	}
 }
 
@@ -218,9 +224,7 @@ func TestSendSubmitSlashPopupSendsExtraSubmit(t *testing.T) {
 	}
 	deadline := time.Now().Add(time.Second)
 	for {
-		mock.mu.Lock()
-		keys := len(mock.keys)
-		mock.mu.Unlock()
+		keys := len(mock.keysSnapshot())
 		if keys == 2 || time.Now().After(deadline) {
 			if keys != 2 {
 				t.Fatalf("sent %d submit keys, want 2", keys)
@@ -280,9 +284,7 @@ func TestSendSubmitStopsOnNewDialog(t *testing.T) {
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
 		t.Fatal("expected dialog failure")
 	}
-	mock.mu.Lock()
-	keys := len(mock.keys)
-	mock.mu.Unlock()
+	keys := len(mock.keysSnapshot())
 	if keys != 1 {
 		t.Fatalf("sent %d submit keys after dialog, want 1", keys)
 	}
@@ -359,8 +361,8 @@ func TestSendSubmitSlashClearDoesNotSendExtraKey(t *testing.T) {
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "/goal resume"}); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if len(mock.keys) != 1 {
-		t.Fatalf("extra key after clear: %v", mock.keys)
+	if len(mock.keysSnapshot()) != 1 {
+		t.Fatalf("extra key after clear: %v", mock.keysSnapshot())
 	}
 }
 
@@ -375,8 +377,8 @@ func TestSendSubmitRetryRefreshesBusyCodex(t *testing.T) {
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if len(mock.keys) != 2 || mock.keys[0] != "return" || mock.keys[1] != "tab" {
-		t.Fatalf("keys = %v", mock.keys)
+	if len(mock.keysSnapshot()) != 2 || mock.keysSnapshot()[0] != "return" || mock.keysSnapshot()[1] != "tab" {
+		t.Fatalf("keys = %v", mock.keysSnapshot())
 	}
 }
 
@@ -391,8 +393,8 @@ func TestSendSubmitHooklessBusyCodexQueues(t *testing.T) {
 			t.Fatalf("exit %d", code)
 		}
 	})
-	if output != "queued\n" || len(mock.keys) != 1 || mock.keys[0] != "tab" {
-		t.Fatalf("output=%q keys=%v", output, mock.keys)
+	if output != "queued\n" || len(mock.keysSnapshot()) != 1 || mock.keysSnapshot()[0] != "tab" {
+		t.Fatalf("output=%q keys=%v", output, mock.keysSnapshot())
 	}
 }
 
@@ -401,8 +403,8 @@ func TestSendSubmitShellGlyphPromptDoesNotProbe(t *testing.T) {
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "echo hi"}); code != 0 {
 		t.Fatalf("bare shell prompt: exit %d", code)
 	}
-	if len(mock.keys) != 1 || mock.keys[0] != "return" {
-		t.Fatalf("keys = %v, want one return", mock.keys)
+	if len(mock.keysSnapshot()) != 1 || mock.keysSnapshot()[0] != "return" {
+		t.Fatalf("keys = %v, want one return", mock.keysSnapshot())
 	}
 }
 
@@ -440,8 +442,8 @@ func TestSendSubmitHumanEditPreventsRetry(t *testing.T) {
 			t.Fatal("human edit submitted")
 		}
 	})
-	if len(mock.keys) != 1 {
-		t.Fatalf("keys=%v", mock.keys)
+	if len(mock.keysSnapshot()) != 1 {
+		t.Fatalf("keys=%v", mock.keysSnapshot())
 	}
 	if !strings.Contains(output, `"status":"unconfirmed"`) {
 		t.Fatalf("output=%q", output)
@@ -465,8 +467,8 @@ func TestSendSubmitFinalReadConfirmsSlowRenderer(t *testing.T) {
 			t.Fatalf("exit %d", code)
 		}
 	})
-	if output != "submitted\n" || len(mock.keys) != 3 {
-		t.Fatalf("output=%q keys=%v", output, mock.keys)
+	if output != "submitted\n" || len(mock.keysSnapshot()) != 3 {
+		t.Fatalf("output=%q keys=%v", output, mock.keysSnapshot())
 	}
 }
 

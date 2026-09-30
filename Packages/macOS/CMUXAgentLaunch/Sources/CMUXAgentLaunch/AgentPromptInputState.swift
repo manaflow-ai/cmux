@@ -259,7 +259,18 @@ private extension AgentPromptSubmissionSnapshot {
             "working", "thinking", "generating", "processing",
             "esc to interrupt", "press esc to interrupt", "ctrl+c to interrupt",
         ]
-        return rows.contains { row in
+        let explicitInterrupt = rows.contains { row in
+            let lowered = row.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return ["esc to interrupt", "press esc to interrupt", "ctrl+c to interrupt"]
+                .contains { lowered.contains($0) }
+        }
+        if explicitInterrupt { return true }
+        guard let promptIndex = rows.lastIndex(where: { promptPrefix(in: $0) != nil }) else {
+            return false
+        }
+        let start = max(0, promptIndex - 2)
+        let end = min(rows.count, promptIndex + 3)
+        return rows[start..<end].contains { row in
             let lowered = row.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return markers.contains { lowered.contains($0) }
         }

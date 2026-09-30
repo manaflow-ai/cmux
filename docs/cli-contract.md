@@ -293,8 +293,8 @@ Enter, refuse only for an open dialog: `cmux send "text"` followed by
 `cmux send-key enter` leaves the sent text in the prompt, and the key has to
 go through. Surfaces without an agent are never blocked. A refusal writes nothing, prints the reason on stderr
 and exits non-zero. `--force`, before the text or key, skips the check. When
-the app can't answer `surface.input_state` (an older build, or a `cmux ssh`
-relay, which doesn't forward it) the commands write as before.
+the app can't answer `surface.input_state` because it is an older build, the
+commands write as before.
 
 `surface.input_state` is a v2 worker-lane socket method. It takes
 `surface_id`, or the usual workspace selectors for that workspace's focused
