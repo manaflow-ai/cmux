@@ -8,10 +8,14 @@ name: cmux-next
 
 on:
   pull_request:
+    branches: [feat-cmux-next]
     paths:
       - Packages/macOS/CmuxNext/**
       - Packages/Shared/**
       - Packages/iOS/**
+      - cmux-tui/**
+      - CLI/**
+      - web/**
       - scripts/ghosttykit-checksums.txt
       - ghostty
       - Resources/InfoPlist.xcstrings
@@ -25,6 +29,12 @@ on:
       - Packages/macOS/CmuxNext/**
       - Packages/Shared/**
       - Packages/iOS/**
+      - cmux-tui/**
+      - CLI/**
+      - web/**
+      - scripts/ghosttykit-checksums.txt
+      - ghostty
+      - scripts/download-prebuilt-ghosttykit.sh
       - Resources/InfoPlist.xcstrings
       - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
@@ -40,7 +50,8 @@ concurrency:
 
 jobs:
   checks:
-    name: cmux-next checks (god files, concurrency, l10n)
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
+    name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
@@ -54,12 +65,16 @@ jobs:
       - name: Main-thread concurrency
         run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      - name: Crash safety
+        run: scripts/cmux-next/check-crash-safety.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
       - name: String tables (21 languages)
         run: scripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE"
 
   swift-test:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
     name: cmux-next swift test
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
     # dependencies) and the whole suite.
     timeout-minutes: 60
