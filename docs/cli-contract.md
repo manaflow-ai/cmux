@@ -1048,7 +1048,8 @@ the expected text without connecting to a cmux socket.
 - `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`
 - `cmux browser --help` -> `Usage: cmux browser`
-- `cmux browser --help` -> `download list [--limit <1...25>]`
+- `cmux browser --help` -> `screenshot [--out <path>] [--json]`
+- `cmux browser --help` -> `download list [--limit <1...25>] [--json]`
 - `cmux open-browser --help` -> `Legacy alias for 'cmux browser open'`
 - `cmux navigate --help` -> `Legacy alias for 'cmux browser navigate'`
 - `cmux browser-back --help` -> `Legacy alias for 'cmux browser back'`

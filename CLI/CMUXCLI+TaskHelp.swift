@@ -365,7 +365,7 @@ extension CMUXCLI {
         browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...
         browser frame <selector|main>
         browser dialog <accept|dismiss> [text]
-        browser download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>]
+        browser download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>]
         browser profiles <list|add|rename|clear|delete> [...]
         browser profiles clear <profile|--all> [--force]
         browser import [...]

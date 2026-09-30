@@ -20925,7 +20925,7 @@ struct CMUXCLI {
               press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]  \(String(localized: "cli.browser.help.keyboardNaming", defaultValue: "Named keys follow Playwright/W3C names. Space, Spacebar, and space emit DOM key \" \" with code \"Space\"; --key ' ' passes the raw DOM key."))
               select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
               scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
-              screenshot [--out <path>]
+              screenshot [--out <path>] [--json]
               get <url|title|text|html|value|attr|count|box|styles> [...]
                 text|html|value|count|box|styles|attr: [--selector <css> | <css>]
                 attr: [--attr <name> | <name>]
@@ -20938,7 +20938,7 @@ struct CMUXCLI {
                 nth: [--index <n> | <n>] [--selector <css> | <css>]
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
-              download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               \(String(localized: "cli.browser.cookies.help", defaultValue: "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--http-only] [--all]"))
