@@ -90,7 +90,7 @@ enum RemoteShellSessionParsing {
         var destination: String?
         var port: Int?
         var identityFile: String?
-        let configFile: String? = nil
+        var configFile: String?
         var jumpHost: String?
         var controlPath: String?
         var loginName: String?
@@ -125,6 +125,8 @@ enum RemoteShellSessionParsing {
                 jumpHost = resolvedJumpHost
             case "jport", "keepalive", "port":
                 guard Int(trimmedValue) != nil else { return false }
+            case "ssh-config":
+                configFile = trimmedValue
             case "username":
                 loginName = trimmedValue
             default:
@@ -187,6 +189,12 @@ enum RemoteShellSessionParsing {
                 if optionName == "forward-ssh-agent" {
                     guard parts.count == 1 else { return nil }
                     forwardAgent = true
+                    index += 1
+                    continue
+                }
+                if optionName == "no-ssh-config" {
+                    guard parts.count == 1 else { return nil }
+                    configFile = "/dev/null"
                     index += 1
                     continue
                 }
