@@ -115,7 +115,7 @@ enum SessionPersistencePolicy {
             if allowsBEL,
                ansiStringSequenceEnd(
                    in: text,
-                   from: marker,
+                   from: text.index(after: marker),
                    upperBound: initialStart,
                    allowsBEL: true
                ) != nil {
@@ -123,7 +123,7 @@ enum SessionPersistencePolicy {
             }
             return ansiStringSequenceEnd(
                 in: text,
-                from: marker,
+                from: initialStart,
                 upperBound: text.endIndex,
                 allowsBEL: allowsBEL
             ) ?? initialStart
@@ -160,11 +160,11 @@ enum SessionPersistencePolicy {
 
     private static func ansiStringSequenceEnd(
         in text: String,
-        from marker: String.Index,
+        from start: String.Index,
         upperBound: String.Index,
         allowsBEL: Bool
     ) -> String.Index? {
-        var index = text.index(after: marker)
+        var index = start
         var scanned = 0
         while index < upperBound, scanned < maxAnsiStringSequenceScanCharacters {
             if allowsBEL, text[index] == "\u{0007}" {
