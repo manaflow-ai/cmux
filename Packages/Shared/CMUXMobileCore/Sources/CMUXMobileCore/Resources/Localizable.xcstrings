@@ -4319,6 +4319,65 @@
         }
       }
     },
+    "diagnostics.event.transportPathInventory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh path inventory changed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh パス一覧が変更されました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh-Pfadinventar geändert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inventaire des chemins Iroh modifié"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيّر جرد مسارات Iroh"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inventario de rutas de Iroh cambiado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 路徑清單已變更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 路径清单已更改"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh 경로 목록이 변경되었습니다."
+          }
+        }
+      }
+    },
     "diagnostics.event.transportPrivateAddressJoin": {
       "extractionState": "manual",
       "localizations": {

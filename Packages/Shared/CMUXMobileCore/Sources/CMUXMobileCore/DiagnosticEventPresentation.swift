@@ -168,6 +168,7 @@ public struct DiagnosticEventPresentation: Sendable {
                  .transportDialCancelled, .transportSessionLifecycle,
                  .sessionClosed, .transportCloseAttribution,
                  .transportCloseReason, .transportPathEvent,
+                 .transportPathInventory,
                  .transportDialPlanBuilt, .transportPrivateAddressJoin,
                  .transportLANDiscovery, .transportDialLegSucceeded,
                  .transportDialLegFailed, .discoveryStarted,
@@ -379,6 +380,8 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.terminalTrace", defaultValue: "Terminal operation trace")
         case .transportPathEvent:
             localized("diagnostics.event.transportPathEvent", defaultValue: "Transport path changed")
+        case .transportPathInventory:
+            localized("diagnostics.event.transportPathInventory", defaultValue: "Iroh path inventory changed")
         case .browserStreamLifecycle:
             localized("diagnostics.event.browserStreamLifecycle", defaultValue: "Browser stream lifecycle")
         case .browserInputReplayed:
@@ -437,6 +440,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "reason", value: remoteCloseReasonName(raw))
         case .transportPathEvent:
             return Field(key: "operation", value: pathEventName(raw))
+        case .transportPathInventory:
+            return Field(key: "relay_paths", value: String(raw))
         case .inputSeqBehind:
             return Field(key: "local_sequence", value: String(raw))
         case .byteGap:
@@ -499,6 +504,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "purpose", value: sessionPurposeName(raw))
         case .transportPathEvent:
             return Field(key: "path", value: pathName(raw))
+        case .transportPathInventory:
+            return Field(key: "non_relay_paths", value: String(raw))
         case .inputSeqBehind:
             return Field(key: "remote_sequence", value: String(raw))
         case .byteGap:
@@ -580,6 +587,7 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "attempt", value: String(raw))
         case .sessionClosed, .transportSessionLifecycle,
              .transportCloseAttribution, .transportPathEvent,
+             .transportPathInventory,
              .transportDialSessionLinked, .transportCloseReason:
             return Field(key: "session", value: String(raw))
         case .recoveryStarted, .recoverySucceeded, .recoveryFailed:
