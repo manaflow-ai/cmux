@@ -12,6 +12,13 @@ const popups: { closed: boolean; location: { href: string }; focuses: number; cl
 const navigations: string[] = [];
 let blocked = false;
 let nextSocket: ((ws: FakeSocket) => void) | undefined;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+function replacementSocket(): Promise<FakeSocket> {
+  return new Promise((resolve, reject) => {
+    reconnectTimer = setTimeout(() => reject(new Error("session connection did not retry")), 2_500);
+    nextSocket = (ws) => { clearTimeout(reconnectTimer); resolve(ws); };
+  });
+}
 class FakeSocket {
   static OPEN = 1;
   readyState = 0;
@@ -108,7 +115,7 @@ try {
   await receive({ kind: "error", op: "handoff", sessionId: "old-session", message: "late handoff failure" });
   assert.equal(state.handoffPending, true, "an old handoff error must not close a newer reserved tab");
   assert.equal(handoffPopup.closed, false);
-  const replacement = new Promise<FakeSocket>((resolve) => { nextSocket = resolve; });
+  const replacement = replacementSocket();
   await update(() => ws.close());
   assert.equal(state.handoffPending, false, "disconnect must release the pending handoff for retry");
   assert.equal(handoffPopup.closed, true);
@@ -126,8 +133,25 @@ try {
   await update(() => ws.close());
   assert.equal(state.forkPending, false);
   assert.equal(disconnectedForkPopup.closed, true);
+  assert.equal(forkPopup.closed, false, "disconnect must preserve a completed fork tab");
+  assert.equal(retriedPopup.closed, false, "disconnect must preserve a completed handoff tab");
+  await update(() => state.fork());
+  assert.equal(popups.at(-1)!.closed, true, "a failed fork send must close its reservation");
+  await update(() => state.handoff());
+  assert.equal(popups.at(-1)!.closed, true, "a failed handoff send must close its reservation");
+  assert.equal(state.forkPending, false);
+  assert.equal(state.handoffPending, false);
+  ws = await replacementSocket();
+  await update(() => ws.open());
+  await update(() => { state.fork(); state.handoff(); });
+  const pendingTabs = popups.slice(-2);
+  assert.ok(pendingTabs.every((popup) => !popup.closed));
+  await act(async () => { renderer!.unmount(); });
+  renderer = undefined;
+  assert.ok(pendingTabs.every((popup) => popup.closed), "unmount must close both pending action tabs");
   console.log("Real React fork/handoff lifecycle: stale replies, reserved tabs, duplicate clicks, failure and disconnect recovery: OK");
 } finally {
+  clearTimeout(reconnectTimer);
   if (renderer) await act(async () => { renderer!.unmount(); });
   assert.equal(timers.size, 0);
   for (const [key, descriptor] of descriptors) {
