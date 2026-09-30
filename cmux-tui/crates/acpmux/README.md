@@ -199,7 +199,7 @@ Enter        send prompt        Ctrl-s   steer, or queue when the agent cannot s
 Ctrl-t / n   new session tab    Alt-n     new session tab    Ctrl-g   cancel turn
 Cmd-Ctrl-h/j/k/l  move focus like cmux panes: h sidebar, l content, k transcript, j composer
                   (Alt-h/j/k/l on terminals that do not deliver Cmd)
-Tab          focus sidebar (j/k, x stop, f fork, r rename); Esc or Enter back
+Tab          focus sidebar (Option-j/k or arrows, x stop, f fork, r rename); Esc or Enter back
 Ctrl-n/p     next / prev line in the composer (history at the ends); next / prev session in the sidebar
 Alt-s        hide / show the sidebar (`:sidebar`); Alt-h shows it again
 Alt-←/→      narrow / widen the sidebar (or drag its rule; the transcript keeps 40 columns)

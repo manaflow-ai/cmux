@@ -400,7 +400,7 @@ pub const ACTIONS: &[ActionDef] = &[
         action: Action::FocusSidebar,
         name: "sidebar",
         aliases: &["focus-sidebar"],
-        label: "focus the sidebar",
+        label: "focus the sidebar (Option-j/k step)",
         keys: "Cmd-Ctrl-h  Alt-h  Tab",
         group: "focus",
         args: "",
