@@ -812,6 +812,17 @@ impl Mux {
         Ok(change)
     }
 
+    /// The public `term_` id of the live terminal with host id `terminal_id`
+    /// (32 hex digits). It is a separate random id, so a frontend that knows
+    /// only the host id (a remote-terminal reference) reads it here before
+    /// attaching by identity.
+    pub fn terminal_public_id_for_host(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<TerminalPublicId>> {
+        self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id)
+    }
+
     /// The last text snapshot the frontend stored for a remote-terminal tab.
     pub fn remote_terminal_snapshot(&self, surface: SurfaceId) -> anyhow::Result<Option<String>> {
         let runtime =
