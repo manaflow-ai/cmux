@@ -235,6 +235,8 @@ extension ShortcutAction {
         case .simulatorToggleSoftwareKeyboard: return ShortcutStroke(key: "k", command: true)
         case .diffViewerNextFile: return nil
         case .diffViewerPreviousFile: return nil
+        case .diffViewerNextHunk: return ShortcutStroke(key: "n")
+        case .diffViewerPreviousHunk: return ShortcutStroke(key: "p")
         }
     }
 }

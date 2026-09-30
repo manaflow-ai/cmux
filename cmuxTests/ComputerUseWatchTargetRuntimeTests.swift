@@ -202,7 +202,9 @@ struct ComputerUseWatchTargetRuntimeTests {
 
         #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
         #expect(activatedProcessIdentifiers.isEmpty)
-        #expect(focusedTerminalSessions.count == 2)
+        // Agent activity never focuses the calling terminal (#15311); the
+        // only focus is the explicit continue-in-background request above.
+        #expect(focusedTerminalSessions.count == 1)
 
         let identity = ComputerUseTargetIdentity(
             processIdentifier: Int(target.processIdentifier),
