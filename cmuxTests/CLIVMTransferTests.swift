@@ -145,6 +145,46 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
+    func testVMRunConcurrentBindingsKeepBothDirectories() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-run-bindings-(UUID().uuidString.prefix(8))")
+        let storeURL = root.appendingPathComponent("vm-run-bindings.json")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let writes = [
+            ("work-a", "machine-a"),
+            ("work-b", "machine-b"),
+        ]
+        let group = DispatchGroup()
+        let errorsLock = NSLock()
+        var errors: [Error] = []
+        for (workKey, machine) in writes {
+            group.enter()
+            DispatchQueue.global().async {
+                do {
+                    try CMUXCLI.updateVMRunBindings(at: storeURL) { store in
+                        // Hold the critical section long enough that an
+                        // unlocked read-modify-write reliably overlaps.
+                        Thread.sleep(forTimeInterval: 0.05)
+                        store[workKey] = CMUXCLI.VMRunBinding(machine: machine, updatedAtUnix: Int(Date().timeIntervalSince1970))
+                    }
+                } catch {
+                    errorsLock.lock()
+                    errors.append(error)
+                    errorsLock.unlock()
+                }
+                group.leave()
+            }
+        }
+        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertTrue(errors.isEmpty, "binding updates failed: (errors)")
+
+        let bindings = CMUXCLI.loadVMRunBindings(from: storeURL)
+        XCTAssertEqual(bindings["work-a"]?.machine, "machine-a")
+        XCTAssertEqual(bindings["work-b"]?.machine, "machine-b")
+    }
+
     func testVMRunReusesIdlePoolMachine() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-run-reuse")
