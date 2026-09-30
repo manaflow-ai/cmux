@@ -23,6 +23,39 @@ permissions:
   contents: read
 
 jobs:
+  workflow-guard-submodule-forward-only:
+    name: workflow-guard-submodule-forward-only
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The synthetic PR commit and its first parent are sufficient for
+          # the merge-base comparison, and keep this guard shallow like the
+          # neighboring history guard.
+          fetch-depth: 2
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Bind submodule guard to synthetic merge parent
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD^1)"
+          git cat-file -e "$base^{commit}"
+          echo "GITHUB_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "GITHUB_HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Validate submodule gitlinks move forward only
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/submodule_forward_only.py
+
+      - name: Test submodule forward-only guard
+        run: python3 tests/test_submodule_forward_only.py
+
   workflow-guard-tests:
     if: ${{ inputs.linux_guard_tests == 'true' }}
     name: workflow-guard-tests / ${{ matrix.group }}
@@ -1202,6 +1235,7 @@ jobs:
   guard-status:
     name: Guard status
     needs:
+      - workflow-guard-submodule-forward-only
       - workflow-guard-tests
       - workflow-guard-history
       - workflow-guard-cli-scripts
@@ -1223,6 +1257,7 @@ jobs:
           inputs = json.loads(os.environ["GUARD_INPUTS"])
           needs = json.loads(os.environ["GUARD_NEEDS"])
           route_jobs = {
+              "submodule_forward_only": "workflow-guard-submodule-forward-only",
               "linux_guard_tests": "workflow-guard-tests",
               "linux_guard_history": "workflow-guard-history",
               "linux_guard_cli": "workflow-guard-cli-scripts",
@@ -1230,6 +1265,10 @@ jobs:
           }
           bad = {}
           for route, job in sorted(route_jobs.items()):
+              if route == "submodule_forward_only":
+                  if needs[job]["result"] != "success":
+                      bad[job] = needs[job]["result"]
+                  continue
               value = inputs.get(route)
               result = needs[job]["result"]
               if value not in {"true", "false"}:
