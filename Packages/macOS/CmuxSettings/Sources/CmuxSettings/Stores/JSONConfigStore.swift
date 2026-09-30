@@ -594,7 +594,12 @@ public actor JSONConfigStore {
             throw JSONConfigWriteConflict.sourceChanged
         }
         do {
-            try publisher.publish(data, to: writeURL, expected: document.originalData)
+            try publisher.publish(
+                data,
+                to: writeURL,
+                expected: document.originalData,
+                isTargetCurrent: { Self.resolvedWriteURL(for: fileURL) == writeURL }
+            )
         } catch {
             // A filesystem exchange can have happened before a later validation
             // error. Never keep serving a pre-publication cache after any

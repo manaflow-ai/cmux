@@ -31,9 +31,9 @@ enum CmuxSettingActionRunner {
     /// refused or failed write shows an alert with the reason.
     ///
     /// With `confirm`, the action's `"confirm": true`, the change waits for
-    /// the user to accept a dialog showing the equivalent `cmux config`
-    /// command. Setting actions only come from the global config, which the
-    /// project-action trust prompt never covers, so this is the only prompt
+    /// the user to accept a dialog describing the config change. Setting
+    /// actions only come from the global config, which the project-action trust
+    /// prompt never covers, so this is the only prompt
     /// they get.
     @discardableResult
     static func run(
@@ -90,12 +90,19 @@ enum CmuxSettingActionRunner {
         alert.messageText = (trimmedTitle?.isEmpty == false)
             ? trimmedTitle!
             : String(localized: "settingAction.confirm.title", defaultValue: "Change Setting?")
+        let confirmationDescription: String
+        switch change {
+        case .preset(let name):
+            confirmationDescription = "Apply setting preset \"\(name)\""
+        default:
+            confirmationDescription = change.commandLineDescription
+        }
         alert.informativeText = String(
             format: String(
                 localized: "settingAction.confirm.message",
                 defaultValue: "This action edits your cmux.json:\n\n%@"
             ),
-            change.commandLineDescription
+            confirmationDescription
         )
         alert.addButton(withTitle: String(localized: "settingAction.confirm.apply", defaultValue: "Change"))
         alert.addButton(withTitle: String(localized: "dialog.cmuxConfig.confirmCommand.cancel", defaultValue: "Cancel"))

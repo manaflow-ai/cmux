@@ -375,6 +375,11 @@ struct CmuxSettingChangeTests {
     func presetOverrideMergesLeaves() async throws {
         let file = try fixture("""
         {
+          "settingPresets": {
+            "sidebar.quiet": {
+              "sidebar": { "showPorts": true }
+            }
+          },
           "sidebar": { "showLog": true }
         }
 
@@ -391,7 +396,7 @@ struct CmuxSettingChangeTests {
         )
 
         #expect(result.receipts.map(\.path) == ["sidebar.showPorts"])
-        #expect((try value("sidebar.showPorts", in: file) as? NSNumber)?.boolValue == false)
+        #expect((try value("sidebar.showPorts", in: file) as? NSNumber)?.boolValue == true)
         #expect((try value("settingPresets.sidebar.quiet", in: file)) == nil)
     }
 

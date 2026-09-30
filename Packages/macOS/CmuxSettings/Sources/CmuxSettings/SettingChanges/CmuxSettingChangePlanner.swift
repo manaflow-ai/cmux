@@ -72,8 +72,8 @@ struct CmuxSettingChangePlanner {
             }
             return [Edit(path: path, value: next.jsonObject)]
         case .preset(let name):
-            let presetObject = presetOverrides[name]?.jsonObject
-                ?? (root[Self.presetsKey] as? [String: Any])?[name]
+            let presetObject = (root[Self.presetsKey] as? [String: Any])?[name]
+                ?? presetOverrides[name]?.jsonObject
             guard let preset = presetObject else {
                 throw CmuxSettingChangeError.unknownPreset(name)
             }
