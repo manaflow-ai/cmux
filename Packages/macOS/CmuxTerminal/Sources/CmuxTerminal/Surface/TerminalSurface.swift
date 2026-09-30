@@ -75,6 +75,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
     let agentCommandShimInstallDeadline: Duration
     let agentCommandShimInstallDeadlineClock: any Clock<Duration>
+    let runtimeReadinessClock: any Clock<Duration>
     /// Port ordinal base/range for CMUX_PORT assignment, snapshotted by the app composition root.
     let sessionPortBase: Int
     let sessionPortRangeSize: Int
@@ -330,6 +331,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let maxPendingSocketInputBytes = 1_048_576
     var backgroundSurfaceStartQueued = false
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
+    var runtimeReadinessWaiters: [UUID: TerminalSurfaceRuntimeReadinessWaiter] = [:]
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
     var configurationReloadDeferredRuntimeSurfaceCreation = false
@@ -340,7 +342,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var requiresRestoreSpawnPacing = false
     var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var cancelsStartupRestoreAdmissionOnExplicitInput = false
-    var runtimeSurfaceSuspendedForAgentHibernation = false
+    var runtimeSurfaceSuspendedForAgentHibernation = false { didSet { if runtimeSurfaceSuspendedForAgentHibernation { completeRuntimeReadiness(success: false) } } }
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var staleRuntimeResourceReleaseTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownReservation:
@@ -377,7 +379,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// path explicitly requests it so background panes do not keep a focused
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
-
     /// Whether this model still owns its logical surface-registry entry.
     /// Weak registry membership is cleared before `deinit`, so the model keeps
     /// this one-shot ownership bit to distinguish deinit-only cleanup from a
@@ -399,7 +400,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // set and clear it on the main actor.
     public nonisolated(unsafe) static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
-    var portalLifecycleState: PortalLifecycleState = .live
+    var portalLifecycleState: PortalLifecycleState = .live { didSet { if portalLifecycleState != .live { completeRuntimeReadiness(success: false) } } }
     var portalLifecycleGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
     var portalHostAuthority: TerminalPortalHostAuthority?
@@ -421,12 +422,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var portalHostVacancyWakeScheduled: Bool {
         portalHostVacancyWakeGeneration != nil
     }
-
     func clearPortalHostVacancyRetries() {
         portalHostVacancyRetries.removeAll()
         portalHostVacancyWakeGeneration = nil
     }
-
     /// Parks (or refreshes) a host's vacancy retry. See
     /// `portalHostVacancyRetries` for lifetime rules.
     public func parkPortalVacancyRetry(
@@ -619,6 +618,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeFilesystem = dependencies.runtimeFilesystem
         self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
+        self.runtimeReadinessClock = dependencies.runtimeReadinessClock
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
         self.cancelsStartupRestoreAdmissionOnExplicitInput =
             runtimeSpawnPolicy.cancelsStartupRestoreAdmissionOnExplicitInput

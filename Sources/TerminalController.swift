@@ -15447,7 +15447,7 @@ class TerminalController {
             #if DEBUG
             cmuxDebugLog("mobile.terminal.replay NOT_FOUND surface=\(v2RawString(params, "surface_id") ?? "nil")")
             #endif
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+            return .err(code: "not_found", message: String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found"), data: nil)
         }
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
@@ -15461,7 +15461,7 @@ class TerminalController {
         guard !Task.isCancelled,
               let current = resolved.workspace.controlSocketTerminalTarget(for: surfaceId),
               current.surface === terminalTarget.surface else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+            return .err(code: "not_found", message: String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found"), data: nil)
         }
         let expectedViewport = applyMobileViewportReport(
             params: params,

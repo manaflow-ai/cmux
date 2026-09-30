@@ -76,8 +76,8 @@ struct MobileTerminalReplayHibernationTests {
             let manager = try #require(AppDelegate.shared?.tabManager)
             let heldWorkspace = try #require(manager.addWorkspaceIfActive(
                 title: "Held remote replay",
-                initialTerminalStartupRestoreAgent: makeAgent(sessionID: "codex-first-visit-replay"),
                 initialTerminalInput: "echo restored-first-visit\n",
+                initialTerminalStartupRestoreAgent: makeAgent(sessionID: "codex-first-visit-replay"),
                 select: false,
                 eagerLoadTerminal: false,
                 initialTerminalStartsOnFirstVisit: true

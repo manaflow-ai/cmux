@@ -18,48 +18,6 @@ extension TerminalSurface {
         requestSurfaceStartIfNeeded(source: .inputDemand, reason: "input-demand")
     }
 
-    /// Starts a cold runtime for a remote reader and waits for its readiness notification.
-    ///
-    /// Remote replay must not depend on the source terminal becoming visible. The
-    /// runtime start is still headless when the surface has no window, and the
-    /// bounded wait lets callers resolve the canonical registry target only after
-    /// registration is complete.
-    ///
-    /// - Parameter timeout: Maximum time to wait for runtime creation.
-    /// - Returns: `true` when the surface has a live runtime, otherwise `false`.
-    @MainActor
-    public func waitForRuntimeSurfaceReady(timeout: Duration = .seconds(2)) async -> Bool {
-        guard !Task.isCancelled else { return false }
-        if liveSurfaceForGhosttyAccess(reason: "runtime.ready") != nil { return true }
-        guard runtimeUnavailableReason == .awaitingRestore || canCreateRuntimeSurface else {
-            return false
-        }
-        let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let observer = NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceDidBecomeReady, object: self, queue: .main
-        ) { _ in continuation.yield(()) }
-        let deadline = Task {
-            do { try await ContinuousClock().sleep(for: timeout) }
-            catch { return }
-            continuation.finish()
-        }
-        defer {
-            deadline.cancel()
-            continuation.finish()
-            NotificationCenter.default.removeObserver(observer)
-        }
-        return await withTaskCancellationHandler {
-            requestInputDemandSurfaceStartIfNeeded()
-            for await _ in events {
-                guard !Task.isCancelled else { return false }
-                if liveSurfaceForGhosttyAccess(reason: "runtime.ready") != nil { return true }
-            }
-            return false
-        } onCancel: {
-            continuation.finish()
-        }
-    }
-
     @MainActor
     private func requestSurfaceStartIfNeeded(
         source: RuntimeSurfaceCreationSource,
