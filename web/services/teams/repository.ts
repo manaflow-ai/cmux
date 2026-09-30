@@ -18,6 +18,15 @@ export type StoredInviteLink = {
   readonly useCount: number;
 };
 
+/**
+ * A role applies only to the Stack invitation it was sent with. Members can
+ * send Stack invitations too, and those must never inherit a stored admin role.
+ */
+export type StoredInviteRole = {
+  readonly role: TeamRole;
+  readonly stackInvitationId: string | null;
+};
+
 export type LinkClaimResult = "claimed" | "already_redeemed" | "unavailable";
 
 /**
@@ -31,7 +40,10 @@ export type TeamInviteStore = {
     readonly role: TeamRole;
     readonly invitedByUserId: string;
   }): Promise<void>;
-  inviteRoles(stackTeamId: string, emails: readonly string[]): Promise<Map<string, TeamRole>>;
+  /** Stored roles by email, each with the Stack invitation it was sent with. */
+  inviteRoles(stackTeamId: string, emails: readonly string[]): Promise<Map<string, StoredInviteRole>>;
+  /** Record which Stack invitation carries the stored role. No row, no change. */
+  bindInviteRoleInvitation(stackTeamId: string, email: string, stackInvitationId: string): Promise<void>;
   deleteInviteRole(stackTeamId: string, email: string): Promise<void>;
   deleteTeamInviteState(stackTeamId: string): Promise<void>;
 
@@ -100,6 +112,8 @@ export const databaseTeamInviteStore: TeamInviteStore = {
           role: input.role,
           invitedByUserId: input.invitedByUserId,
           createdAt: sql`now()`,
+          // A new send is pending; its invitation is bound once Stack lists it.
+          stackInvitationId: null,
         },
       });
   },
@@ -107,10 +121,17 @@ export const databaseTeamInviteStore: TeamInviteStore = {
   async inviteRoles(stackTeamId, emails) {
     if (emails.length === 0) return new Map();
     const rows = await cloudDb()
-      .select({ email: teamInviteRoles.email, role: teamInviteRoles.role })
+      .select({ email: teamInviteRoles.email, role: teamInviteRoles.role, stackInvitationId: teamInviteRoles.stackInvitationId })
       .from(teamInviteRoles)
       .where(and(eq(teamInviteRoles.stackTeamId, stackTeamId), inArray(teamInviteRoles.email, [...emails])));
-    return new Map(rows.map((row) => [row.email, row.role]));
+    return new Map(rows.map((row) => [row.email, { role: row.role, stackInvitationId: row.stackInvitationId }]));
+  },
+
+  async bindInviteRoleInvitation(stackTeamId, email, stackInvitationId) {
+    await cloudDb()
+      .update(teamInviteRoles)
+      .set({ stackInvitationId })
+      .where(and(eq(teamInviteRoles.stackTeamId, stackTeamId), eq(teamInviteRoles.email, email)));
   },
 
   async deleteInviteRole(stackTeamId, email) {

@@ -2264,6 +2264,8 @@ export const teamInviteRoles = pgTable("team_invite_roles", {
   role: teamInviteRole("role").notNull().default("member"),
   invitedByUserId: text("invited_by_user_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** The Stack invitation this role was sent with; null until cmux sees it. */
+  stackInvitationId: text("stack_invitation_id"),
 }, (table) => [
   primaryKey({ name: "team_invite_roles_pkey", columns: [table.stackTeamId, table.email] }),
   check("team_invite_roles_email_check", sql`${table.email} = lower(${table.email}) and char_length(${table.email}) between 3 and 254`),

@@ -29,10 +29,12 @@ export type AcceptDependencies = {
  * 2. The team's pending invitations addressed to the user's verified emails
  *    are snapshotted, then the code is used as the caller.
  * 3. The invitation that disappeared is the one this code consumed; its
- *    recipient email keys the stored role.
+ *    recipient email keys the stored role, and its id must be the invitation
+ *    that role was sent with (members can send Stack invitations too).
  *
  * Admin is granted only when exactly one consumed invitation is identified,
- * its stored role is admin, and the user is now a member of that same team.
+ * the role stored for it is admin and bound to that invitation's id, and the
+ * user is now a member of that same team.
  * Anything ambiguous leaves the user a member, a downgrade that an admin can
  * fix, never an escalation.
  */
@@ -69,8 +71,8 @@ export async function acceptTeamInvitationCode(
   if (!members.some((member) => member.id === userId)) {
     throw new TeamServiceUnavailableError("accepted invitation did not add the member");
   }
-  const consumedEmail = consumedInvitationEmail(before, after);
-  const role = await applyStoredRole({ store, team, user, consumedEmail, remaining: after });
+  const consumed = consumedInvitation(before, after);
+  const role = await applyStoredRole({ store, team, user, consumed, remaining: after });
   await withStackDeadline(() => user.update({ selectedTeamId: teamId }))
     .catch(() => console.error("team accept selection failed", { teamId }));
   return { teamId, role };
@@ -80,20 +82,21 @@ async function applyStoredRole(input: {
   readonly store: TeamInviteStore;
   readonly team: StackTeam;
   readonly user: StackUser;
-  readonly consumedEmail: string | null;
+  readonly consumed: ConsumedInvitation | null;
   readonly remaining: readonly StackSentInvitation[];
 }): Promise<TeamRole> {
-  if (!input.consumedEmail) return "member";
-  const roles = await input.store.inviteRoles(input.team.id, [input.consumedEmail]);
-  const role = roles.get(input.consumedEmail) ?? "member";
+  if (!input.consumed) return "member";
+  const { id: consumedId, email: consumedEmail } = input.consumed;
+  const stored = (await input.store.inviteRoles(input.team.id, [consumedEmail])).get(consumedEmail);
+  const role: TeamRole = stored?.stackInvitationId === consumedId ? stored.role : "member";
   if (role === "admin") {
     await withStackDeadline(() => input.user.grantPermission(input.team, TEAM_ADMIN_PERMISSION));
   }
   const stillPending = input.remaining.some(
-    (invitation) => invitation.recipientEmail && normalizeInviteEmail(invitation.recipientEmail) === input.consumedEmail,
+    (invitation) => invitation.recipientEmail && normalizeInviteEmail(invitation.recipientEmail) === consumedEmail,
   );
   if (!stillPending) {
-    await input.store.deleteInviteRole(input.team.id, input.consumedEmail).catch(() => {
+    await input.store.deleteInviteRole(input.team.id, consumedEmail).catch(() => {
       console.error("team invite role cleanup failed", { teamId: input.team.id });
     });
   }
@@ -113,17 +116,18 @@ function addressedTo(
   return byId;
 }
 
-/** The single recipient email whose invitation the accept consumed, if it is unambiguous. */
-export function consumedInvitationEmail(
+type ConsumedInvitation = { readonly id: string; readonly email: string };
+
+/** The single invitation the accept consumed, if it is unambiguous. */
+export function consumedInvitation(
   before: ReadonlyMap<string, string>,
   after: readonly StackSentInvitation[],
-): string | null {
+): ConsumedInvitation | null {
   const remainingIds = new Set(after.map((invitation) => invitation.id));
-  const consumed = new Set<string>();
-  for (const [id, email] of before) {
-    if (!remainingIds.has(id)) consumed.add(email);
-  }
-  return consumed.size === 1 ? [...consumed][0]! : null;
+  const consumed = [...before].filter(([id]) => !remainingIds.has(id));
+  if (consumed.length !== 1) return null;
+  const [id, email] = consumed[0]!;
+  return { id, email };
 }
 
 async function userVerifiedEmails(user: StackUser): Promise<Set<string>> {

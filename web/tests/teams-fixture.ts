@@ -3,6 +3,7 @@
 import type {
   LinkClaimResult,
   StoredInviteLink,
+  StoredInviteRole,
   TeamInviteStore,
 } from "../services/teams/repository";
 import type {
@@ -230,7 +231,7 @@ type MemoryLink = { -readonly [K in keyof StoredInviteLink]: StoredInviteLink[K]
 
 /** Mirrors the SQL contract of databaseTeamInviteStore, including claim semantics. */
 export class MemoryInviteStore implements TeamInviteStore {
-  readonly roles = new Map<string, { role: TeamRole; invitedByUserId: string }>();
+  readonly roles = new Map<string, { role: TeamRole; invitedByUserId: string; stackInvitationId: string | null }>();
   readonly links: MemoryLink[] = [];
   readonly redemptions = new Set<string>();
   readonly events: string[] = [];
@@ -239,16 +240,21 @@ export class MemoryInviteStore implements TeamInviteStore {
 
   async upsertInviteRole(input: { stackTeamId: string; email: string; role: TeamRole; invitedByUserId: string }) {
     this.events.push(`upsert:${input.email}:${input.role}`);
-    this.roles.set(`${input.stackTeamId}:${input.email}`, { role: input.role, invitedByUserId: input.invitedByUserId });
+    this.roles.set(`${input.stackTeamId}:${input.email}`, { role: input.role, invitedByUserId: input.invitedByUserId, stackInvitationId: null });
   }
 
   async inviteRoles(stackTeamId: string, emails: readonly string[]) {
-    const roles = new Map<string, TeamRole>();
+    const roles = new Map<string, StoredInviteRole>();
     for (const email of emails) {
       const stored = this.roles.get(`${stackTeamId}:${email}`);
-      if (stored) roles.set(email, stored.role);
+      if (stored) roles.set(email, { role: stored.role, stackInvitationId: stored.stackInvitationId });
     }
     return roles;
+  }
+
+  async bindInviteRoleInvitation(stackTeamId: string, email: string, stackInvitationId: string) {
+    const stored = this.roles.get(`${stackTeamId}:${email}`);
+    if (stored) stored.stackInvitationId = stackInvitationId;
   }
 
   async deleteInviteRole(stackTeamId: string, email: string) {
