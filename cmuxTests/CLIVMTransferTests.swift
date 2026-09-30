@@ -46,6 +46,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         private let lock = NSLock()
         private var keys: [String] = []
 
+        /// Records one create request's idempotency key and returns its ordinal.
         func record(key: String?) -> Int {
             lock.lock()
             defer { lock.unlock() }
@@ -53,6 +54,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return keys.count
         }
 
+        /// Returns the create keys observed by the mock server in request order.
         func snapshot() -> [String] {
             lock.lock()
             defer { lock.unlock() }
@@ -480,6 +482,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(pool?["machines"] as? [String], ["recovered-1"])
     }
 
+    /// An id-less success response remains retryable without minting a new key.
     func testVMRunReusesCreateKeyAfterCreateResponseOmitsMachineID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-run-create-missing-id")

@@ -1406,6 +1406,7 @@ extension CMUXCLI {
 
     private static let vmRunCreateIdempotencyTTLSeconds: TimeInterval = 30 * 60
 
+    /// Provisions a pool VM and retains its idempotency key across ambiguous replies.
     private func createPoolVM(memoryMb: Int?, client: SocketClient) throws -> String {
         let idempotency = try activeVMRunCreateIdempotency(memoryMb: memoryMb)
         var params: [String: Any] = [
@@ -1443,7 +1444,11 @@ extension CMUXCLI {
             // The provider may have created the machine despite the missing id.
             // Keep the key reusable even while this process is still alive.
             markVMRunCreateIdempotencyUncertain(idempotency)
-            throw CLIError(message: "vm run: create returned no machine id")
+            let message = CMUXDiffViewerLocalization.string(
+                "cli.vm.run.createMissingMachineID",
+                defaultValue: "vm run: create returned no machine id"
+            )
+            throw CLIError(message: message)
         }
         // Membership is recorded before anything else can fail: this is what
         // makes the machine eligible for reuse by later runs.
