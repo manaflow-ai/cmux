@@ -85,7 +85,8 @@ struct CloudTreeNodeActions {
         @MainActor @discardableResult
         func run(
             _ label: String,
-            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
+            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void,
+            failureDescription: (@MainActor (Error) -> String)? = nil
         ) -> Task<Void, Never> {
             onWillMutate(label)
             return Task { @MainActor in
@@ -101,7 +102,9 @@ struct CloudTreeNodeActions {
                 } catch let failure as CloudDiagnosticFailure {
                     onFailure(failure.label)
                 } catch {
-                    onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+                    onFailure(failureDescription?(error)
+                        ?? (error as? LocalizedError)?.errorDescription
+                        ?? String(describing: error))
                 }
             }
         }
@@ -115,7 +118,7 @@ struct CloudTreeNodeActions {
             failureDescription: (@MainActor (Error) -> String)? = nil
         ) -> Bool {
             guard let controller = operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController else {
-                _ = run(label, operation)
+                _ = run(label, operation, failureDescription: failureDescription)
                 return true
             }
             onWillMutate(label)
