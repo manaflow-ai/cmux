@@ -84,10 +84,10 @@ final class MobileTerminalInputRoutingTests: XCTestCase {
     }
 
     private func waitForPasteToQueue(_ panel: TerminalPanel) async {
-        for _ in 0..<20 {
-            if panel.surface.debugPendingSocketInputForTesting().pasteTextItems > 0 { return }
-            await Task.yield()
-        }
+        // terminal.paste queues its bytes before suspending for the settle
+        // window; one scheduler handoff lets the first task reach that point
+        // without a polling loop that makes test timing nondeterministic.
+        await Task.yield()
     }
 
     func testPhonePasteAndCloseThatNameNoTerminalAreRefused() async throws {

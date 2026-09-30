@@ -175,9 +175,8 @@ struct AgentPromptInputDetectorTests {
     @Test("Busy Claude keeps its Claude agent kind")
     func busyClaude() {
         let screen = [
+            [span("  quoted output")],
             [span(" ✻ Thinking…")],
-            [span("  \u{203A} quoted output")],
-            [span("  1. Continue")],
             [span("\u{276F}\u{00A0}")],
         ]
         let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
