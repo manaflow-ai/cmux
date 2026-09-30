@@ -129,7 +129,7 @@ const ERROR_CLASSES = [
   ["tls", /certificate|SSL|TLS|ERR_CERT|secure connection/i],
   ["dns", /ERR_NAME_NOT_RESOLVED|server with the specified hostname could not be found|NSURLErrorCannotFindHost|cannot find host|could not resolve|getaddrinfo/i],
   ["refused", /ERR_CONNECTION_REFUSED|Could not connect|NSURLErrorCannotConnectToHost|connection refused|ECONNREFUSED/i],
-  ["redirects", /too many redirects|ERR_TOO_MANY_REDIRECTS|redirect loop|HTTPTooManyRedirects|redirected too many times/i],
+  ["redirects", /too many (HTTP )?redirects|ERR_TOO_MANY_REDIRECTS|redirect loop|HTTPTooManyRedirects|redirected too many times/i],
   ["aborted", /ERR_ABORTED|interrupted by another navigation|navigation (was )?(cancel|abort)|NSURLErrorCancelled|frame load interrupted/i],
   ["crashed", /Target crashed|page crashed|web content process (terminated|crashed)/i],
   ["closed", /has been closed|already handled|tab (was |is )?closed|No open tab|Target closed|page is closed|No tab with id|Tab not found/i],

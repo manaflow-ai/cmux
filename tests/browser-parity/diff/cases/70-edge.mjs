@@ -232,28 +232,27 @@ return { ...(r.value ?? { name: r, body: null }), url: await t.url() };`,
     path: "/diff/files.html",
     code: `const got = [];
 $P.on("download", (d) => got.push(d));
-await $P.locator("#dl-two").click();
+await $P.locator("#dl-slow-x").click();
+await $P.locator("#dl-slow-y").click();
 for (let i = 0; i < 100 && got.length < 2; i++) await pause(50);
 const files = await Promise.all(got.map(async (d) => [d.suggestedFilename(), fs.readFileSync(await d.path(), "utf8")]));
 return { files: files.sort() };`,
     aside: `const got = [];
 page.on("download", (d) => got.push(d));
-await page.locator("#dl-two").click();
+await page.locator("#dl-slow-x").click();
+await page.locator("#dl-slow-y").click();
 for (let i = 0; i < 100 && got.length < 2; i++) await pause(50);
 const files = await Promise.all(got.map(async (d) => [d.suggestedFilename(), await fs.readFile(await d.path(), "utf8")]));
 return { files: files.sort() };`,
     chatgpt: `const w1 = $P.waitForEvent("download", { timeoutMs: 8000 });
-await $P.locator("#dl-two").click();
-const r = await E(async () => { const d = await w1; return (await d.path({})).split("/").pop(); });
+await $P.locator("#dl-slow-x").click();
+await $P.locator("#dl-slow-y").click();
+const r = await E(async () => { const d = await w1; return (await d.path({ timeoutMs: 8000 })).split("/").pop(); });
 return { files: r.value ? [[r.value, null]] : r };`,
     better: {
       chatgpt: {
         reason: "both concurrent downloads arrive as events with readable files; ChatGPT's waitForEvent yields one download at a time",
         check: (c) => c.files.length === 2,
-      },
-      aside: {
-        reason: "both concurrent downloads arrive as events with readable files",
-        check: (c, r) => c.files.length === 2 && (!Array.isArray(r.files) || r.files.length < 2),
       },
     },
     expect: { files: [["slow-x.txt", "slow body x\n"], ["slow-y.txt", "slow body y\n"]] },
@@ -657,19 +656,19 @@ return { read: read.value, readMs: read.ms, after: await $P.locator("#after").in
     code: `const s = String((await snapshot()).tree);
 const ref = (s.match(/button "Action"[^\\n]*?\\[ref=(\\w+)\\]/) || [])[1];
 await $P.goto(U("/diff/next.html"));
-await $P.goBack();
+await $P.goto(U("/diff/lab.html"));
 const r = await ms(() => $P.locator(ref).click($T(2000)));
 return { stale: r.error ? { error: r.error } : "clicked", ms: r.ms, status: await $P.locator("#status").innerText() };`,
     aside: `const s = String((await snapshot(page)).tree);
 const ref = (s.match(/button "Action"[^\\n]*?\\[ref=(\\w+)\\]/) || [])[1];
 await page.goto(U("/diff/next.html"));
-await page.goBack();
+await page.goto(U("/diff/lab.html"));
 const r = await ms(() => page.locator(ref).click({ timeout: 2000 }));
 return { stale: r.error ? { error: r.error } : "clicked", ms: r.ms, status: await page.locator("#status").innerText() };`,
     chatgpt: `const s = await t.ax.get("state", { disableDiffing: true });
 const idx = Number(s.match(/^\\s*(\\d+) button Action/m)?.[1]);
 await t.goto(U("/diff/next.html"));
-await t.back();
+await t.goto(U("/diff/lab.html"));
 const r = await ms(() => t.ax.click(idx));
 return { stale: r.error ? { error: r.error } : "clicked", ms: r.ms, status: await $P.locator("#status").innerText() };`,
     better: {

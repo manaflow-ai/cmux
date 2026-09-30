@@ -1,0 +1,420 @@
+{
+ "meta": {
+  "backend": "cmux",
+  "recordedAt": "2026-09-30T10:18:26.979Z",
+  "cli": "/Users/lawrence/Library/Application Support/cmux/tag-app-cache/cmux-brepl-par0/cmux DEV brepl-par0.app/Contents/Resources/bin/cmux"
+ },
+ "cases": {
+  "edge.auth-basic": {
+   "value": {
+    "noCreds": {
+     "ms": 8223,
+     "error": "Timeout 8000ms exceeded while navigating to \"<primary>/auth/basic\"",
+     "name": "Error"
+    },
+    "noCredsMs": 8223,
+    "withCreds": {
+     "ms": 8372,
+     "error": "Timeout 8000ms exceeded while navigating to \"<primary>/auth/basic\"",
+     "name": "Error"
+    }
+   },
+   "ms": 16663
+  },
+  "edge.auth-digest": {
+   "value": {
+    "noCreds": [
+     401,
+     "401 digest"
+    ],
+    "withCreds": "401 digest"
+   },
+   "ms": 349
+  },
+  "edge.permission-geolocation": {
+   "value": {
+    "result": "error 1",
+    "settledMs": 90,
+    "dialog": false
+   },
+   "ms": 357
+  },
+  "edge.permission-notifications": {
+   "value": {
+    "result": "result denied",
+    "settledMs": 62,
+    "dialog": false
+   },
+   "ms": 329
+  },
+  "edge.permission-camera": {
+   "value": {
+    "result": "pending",
+    "settledMs": 5475,
+    "dialog": false
+   },
+   "ms": 5750
+  },
+  "edge.permission-clipboard-read": {
+   "value": {
+    "result": "error NotAllowedError",
+    "settledMs": 67,
+    "dialog": false
+   },
+   "ms": 321
+  },
+  "edge.tls-self-signed": {
+   "value": {
+    "nav": {
+     "error": "The certificate for this server is invalid. You might be connecting to a server that is pretending to be “127.0.0.1” which could put your confidential information at risk. at <tls>/diff/next.html"
+    },
+    "ms": 215
+   },
+   "ms": 287
+  },
+  "edge.nav-dns": {
+   "value": {
+    "nav": {
+     "error": "A server with the specified hostname could not be found. at <dns>/"
+    },
+    "url": "<primary>/diff/lab.html"
+   },
+   "ms": 356
+  },
+  "edge.nav-refused": {
+   "value": {
+    "nav": {
+     "error": "Could not connect to the server. at <refused>/"
+    },
+    "ms": 36
+   },
+   "ms": 307
+  },
+  "edge.nav-http-errors": {
+   "value": {
+    "s404": 404,
+    "t404": "Missing",
+    "s500": 500,
+    "t500": "Broken",
+    "ok": false
+   },
+   "ms": 379
+  },
+  "edge.nav-aborted": {
+   "value": {
+    "first": {
+     "error": "Navigation to \"<primary>/slow?ms=3000\" was interrupted by another navigation"
+    },
+    "url": "<primary>/diff/next.html",
+    "title": "Next page"
+   },
+   "ms": 607
+  },
+  "edge.nav-redirect-loop": {
+   "value": {
+    "loop": {
+     "error": "too many HTTP redirects at <primary>/redirect-loop"
+    },
+    "loopMs": 64,
+    "redirected": "<primary>/diff/next.html"
+   },
+   "ms": 443
+  },
+  "edge.download-blob": {
+   "uncaught": "page.waitForEvent: Timeout 8000ms exceeded while waiting for event \"download\"",
+   "ms": 8733
+  },
+  "edge.download-data": {
+   "uncaught": "page.waitForEvent: Timeout 8000ms exceeded while waiting for event \"download\"",
+   "ms": 8344
+  },
+  "edge.download-cd": {
+   "value": {
+    "name": "cd-a.txt",
+    "body": "cd body a\n"
+   },
+   "ms": 461
+  },
+  "edge.download-post": {
+   "value": {
+    "name": "posted.csv",
+    "body": "name,value\nq,posted\n",
+    "url": "<primary>/diff/files.html"
+   },
+   "ms": 343
+  },
+  "edge.download-concurrent": {
+   "value": {
+    "files": [
+     [
+      "slow-x.txt",
+      "slow body x\n"
+     ],
+     [
+      "slow-y.txt",
+      "slow body y\n"
+     ]
+    ]
+   },
+   "ms": 2054
+  },
+  "edge.file-drop": {
+   "uncaught": "Type error",
+   "ms": 287
+  },
+  "edge.input-types": {
+   "value": {
+    "date": "2026-09-30",
+    "time": "13:45",
+    "dtl": "2026-09-30T13:45",
+    "color": "#ff0000",
+    "range": "70",
+    "number": "42",
+    "badDate": {
+     "error": "Malformed value",
+     "name": "Error"
+    },
+    "accept": "parity.png",
+    "acceptOther": "parity-upload.txt"
+   },
+   "ms": 370
+  },
+  "edge.contenteditable-bold": {
+   "uncaught": "Unknown key: \"ControlOrMeta\"",
+   "ms": 374
+  },
+  "edge.typing-unicode": {
+   "value": {
+    "input": "héllo wörld 😀 中文 👩‍👩‍👧",
+    "rich": "héllo wörld 😀 中文 👩‍👩‍👧"
+   },
+   "ms": 384
+  },
+  "edge.composition": {
+   "value": {
+    "text": "日本語",
+    "inputTypes": [
+     "deleteContentBackward",
+     "insertText"
+    ],
+    "trusted": true
+   },
+   "ms": 396
+  },
+  "edge.nested-scroll": {
+   "uncaught": "locator.click: Timeout 30000ms exceeded.\n  - <iframe id=\"frame\" title=\"Inner frame\" srcdoc=\"<label for=inside>Frame label</label><input id=inside placeholder='Frame placeholder' data-testid=frame-input><button onclick=\"this.textContent='frame clicked'\">Frame action</button>\"></iframe> intercepts pointer events",
+   "ms": 30308
+  },
+  "edge.infinite-scroll": {
+   "value": {
+    "many": true,
+    "last": 1
+   },
+   "ms": 2632
+  },
+  "edge.iframe-sandboxed": {
+   "value": {
+    "sb": "sandbox clicked",
+    "csp": "csp clicked",
+    "inertText": true
+   },
+   "ms": 493
+  },
+  "edge.iframe-srcdoc": {
+   "value": {
+    "text": "frame clicked"
+   },
+   "ms": 427
+  },
+  "edge.iframe-navigation": {
+   "value": {
+    "heading": "Next page",
+    "inSnapshot": true
+   },
+   "ms": 422
+  },
+  "edge.window-open": {
+   "value": {
+    "opener1": "opener null",
+    "didClose": true,
+    "opener2": "opener null",
+    "listedAfter": 0
+   },
+   "ms": 1187
+  },
+  "edge.alert-during-navigation": {
+   "value": {
+    "seen": [
+     "alert",
+     "loaded alert"
+    ],
+    "nav": "loaded",
+    "after": "after alert"
+   },
+   "ms": 423
+  },
+  "edge.spa-route-wait": {
+   "value": {
+    "url": "<primary>/diff/spa.html#/users",
+    "title": "SPA users",
+    "items": [
+     "Ada",
+     "Linus"
+    ]
+   },
+   "ms": 1216
+  },
+  "edge.service-worker": {
+   "value": {
+    "state": "controlled",
+    "out": "from service worker"
+   },
+   "ms": 504
+  },
+  "edge.websocket": {
+   "value": {
+    "out": "echo:hi"
+   },
+   "ms": 366
+  },
+  "edge.cookies-flags": {
+   "value": {
+    "docCookie": "js_cookie,lax,none_secure,plain,secure_flag,strict",
+    "sent": [
+     "http_only",
+     "js_cookie",
+     "lax",
+     "none_secure",
+     "plain",
+     "secure_flag",
+     "strict"
+    ]
+   },
+   "ms": 419
+  },
+  "edge.cookies-subdomain": {
+   "value": {
+    "peer": [
+     "dom"
+    ],
+    "other": []
+   },
+   "ms": 736
+  },
+  "edge.storage-isolation": {
+   "value": {
+    "a": "ls=L ss=S",
+    "b": "ls=L ss=null"
+   },
+   "ms": 706
+  },
+  "edge.slow-load": {
+   "value": {
+    "title": "Slow",
+    "ms": 3082,
+    "ok": true
+   },
+   "ms": 3459
+  },
+  "edge.never-finishing-load": {
+   "uncaught": "case did not finish in 45000 ms",
+   "ms": 45001
+  },
+  "edge.main-thread-blocked": {
+   "value": {
+    "read": "unblocked",
+    "readMs": 2,
+    "after": "after clicked"
+   },
+   "ms": 2978
+  },
+  "edge.stale-ref": {
+   "value": {
+    "stale": {
+     "error": "ref e3 is stale: the element was removed; take a new snapshot"
+    },
+    "ms": 2,
+    "status": "ready"
+   },
+   "ms": 530
+  },
+  "edge.detached-mid-click": {
+   "value": {
+    "rerender": "clicked",
+    "out": true,
+    "vanish": "clicked",
+    "gone": 0
+   },
+   "ms": 922
+  },
+  "edge.overlay-intercepts": {
+   "value": {
+    "blocked": {
+     "error": "locator.click: Timeout 800ms exceeded.\n  - <div id=\"cover\" onclick=\"document.getElementById('out').textContent='cover clicked'\"></div> intercepts pointer events"
+    },
+    "out1": "idle",
+    "out2": "under clicked"
+   },
+   "ms": 1263
+  },
+  "edge.zoom-scale": {
+   "value": {
+    "small": "scaled clicked",
+    "zoomed": "zoom clicked",
+    "clipPx": true
+   },
+   "ms": 441
+  },
+  "edge.large-page": {
+   "value": {
+    "hasLast": true,
+    "picked": "picked 4321",
+    "count": 5000
+   },
+   "ms": 735
+  },
+  "edge.sessions-two-tabs": {
+   "value": {
+    "a": [
+     "session A",
+     "Count 3"
+    ],
+    "b": [
+     "session B",
+     "Count 3"
+    ],
+    "distinct": true,
+    "_raw": [
+     null,
+     null
+    ]
+   },
+   "ms": 966
+  },
+  "edge.sessions-same-tab": {
+   "value": {
+    "bSaw": "Count 1",
+    "aSaw": "Count 1",
+    "concurrent": true,
+    "after": "Count 3",
+    "closedForB": {
+     "error": "undefined is not an object (evaluating 'info.title')"
+    }
+   },
+   "ms": 844
+  },
+  "edge.web-process-crash": {
+   "value": {
+    "killed": false,
+    "_first": {
+     "uncaught": "p._webProcessId is not a function. (In 'p._webProcessId()', 'p._webProcessId' is undefined)"
+    }
+   },
+   "ms": 497
+  },
+  "edge.user-click-while-driving": {
+   "uncaught": "case did not finish in 45000 ms",
+   "ms": 45003
+  }
+ }
+}

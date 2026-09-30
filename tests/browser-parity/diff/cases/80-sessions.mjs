@@ -37,14 +37,14 @@ export default [
         const B = ctx.session("same-b");
         const opened = await ctx.repl(ctx.wrap({ path: null, code: `const p = await tabs.open(U("/diff/lab.html")); return p.id;` }), { session: A });
         const id = opened.value;
-        const b1 = await ctx.repl(ctx.wrap({ path: null, code: `const p = await tabs.use(${JSON.stringify(id)}); await p.locator("#counter").click(); return await p.locator("#counter").innerText();` }), { session: B });
+        const b1 = await ctx.repl(ctx.wrap({ path: null, code: `globalThis.shared = await tabs.use(${JSON.stringify(id)}); await shared.locator("#counter").click(); return await shared.locator("#counter").innerText();` }), { session: B });
         const a1 = await ctx.repl(ctx.wrap({ path: null, code: `return await page.locator("#counter").innerText();` }), { session: A });
         // Both sessions click at once: both clicks land, neither is lost.
         const both = await Promise.all([A, B].map((s) => ctx.repl(ctx.wrap({ path: null, code: `await page.locator("#counter").click(); return true;` }), { session: s })));
         const a2 = await ctx.repl(ctx.wrap({ path: null, code: `return await page.locator("#counter").innerText();` }), { session: A });
         // The owner closes the tab; the other session's page reports closed.
         await ctx.repl(ctx.wrap({ path: null, code: `await page.close(); return true;` }), { session: A });
-        const b2 = await ctx.repl(ctx.wrap({ path: null, code: `return await E(() => page.title());` }), { session: B });
+        const b2 = await ctx.repl(ctx.wrap({ path: null, code: `return await E(() => shared.title());` }), { session: B });
         return { bSaw: b1.value, aSaw: a1.value, concurrent: both.every((r) => r.value === true), after: a2.value, closedForB: b2.value?.error ? { error: b2.value.error } : "open" };
       },
     },

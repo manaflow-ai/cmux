@@ -53,7 +53,7 @@ processes or on a person's window run in the cmux app only.
 | `download-data` | `data:` URL download | Same | `edge.download-data` |
 | `download-content-disposition` | `Content-Disposition: attachment` | Same, with the server's filename | `edge.download-cd` |
 | `download-post` | Form POST whose response is an attachment | Same; the page stays where it was | `edge.download-post` |
-| `download-concurrent` | Two downloads started at once | Two `download` events, both files complete | `edge.download-concurrent` |
+| `download-concurrent` | Two slow downloads in flight at once | Two `download` events, both files complete | `edge.download-concurrent` |
 | `file-drop` | Dropping a file on a drop zone | `dispatchEvent("drop", { dataTransfer: { files } })` builds a real `DataTransfer` in the page and delivers the files | `edge.file-drop` |
 | `input-file-accept` | File input with `accept` | `setInputFiles` sets files regardless of `accept`, like Playwright | `edge.input-types` |
 
@@ -74,7 +74,7 @@ processes or on a person's window run in the cmux app only.
 | `hidden-disabled` | Hidden, disabled and read-only targets | Actions fail naming the failed check (not visible, disabled, not editable) | `loc.failure-kinds` |
 | `overlay-intercepts` | A fixed overlay covers the target | The click fails naming the element that would receive it; nothing is clicked | `edge.overlay-intercepts` |
 | `element-detached-mid-click` | Target re-rendered every 40 ms; target removed on mousedown | Locator clicks re-resolve and land; a removed target is reported | `edge.detached-mid-click` |
-| `stale-ref-after-navigation` | A snapshot ref used after a navigation | Fails at once as stale; never acts on a new element | `edge.stale-ref` |
+| `stale-ref-after-navigation` | A snapshot ref used after the page loads again | Fails at once as stale; never acts on a new element | `edge.stale-ref` |
 
 ## Layout, frames and windows
 
