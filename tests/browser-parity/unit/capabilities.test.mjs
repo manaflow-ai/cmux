@@ -77,3 +77,52 @@ test("every line of the ChatGPT surface maps to cmux or an allowed exclusion", (
   for (const m of members) checkEntry(m, caps.chatgpt[m]);
   assert.deepEqual(Object.keys(caps.chatgpt).sort(), [...members].sort());
 });
+
+// Site integrations (docs/browser-repl/site-tools.md): every member in
+// reference/site-surface.txt maps to a cmux tool with tests that exist, or to
+// a pending user decision.
+const SITE_DECISIONS = new Set(["captcha", "password-managers", "imessage", "imagegen", "bot-evasion", "doc-editing", "social-writes", "contacts", "agent-platform"]);
+
+test("every site member maps to a tested cmux tool or a pending decision", async () => {
+  const lines = fs.readFileSync(path.join(root, "reference/site-surface.txt"), "utf8").split("\n").filter((l) => l && !l.startsWith("#"));
+  assert.ok(lines.length > 100, `only ${lines.length} site members`);
+  const sites = caps.sites;
+  assert.ok(sites, "capabilities.json has no sites section");
+  const { loadCases } = await import("../diff/lib.mjs");
+  const caseIds = new Set((await loadCases()).map((c) => c.id));
+  const titles = new Map();
+  const titlesOf = (file) => {
+    if (!titles.has(file)) {
+      const text = fs.readFileSync(path.join(root, "sites", file), "utf8");
+      titles.set(file, [...text.matchAll(/^test\("((?:[^"\\]|\\.)*)"/gm)].map((m) => m[1]));
+    }
+    return titles.get(file);
+  };
+  const seen = { aside: new Set(), chatgpt: new Set() };
+  for (const line of lines) {
+    const [ref, member] = line.split("\t");
+    seen[ref].add(member);
+    const entry = sites[ref] && sites[ref][member];
+    assert.ok(entry, `site member ${ref} ${member} is not mapped in capabilities.json`);
+    if (entry.decision !== undefined) {
+      assert.ok(SITE_DECISIONS.has(entry.decision), `${ref} ${member}: unknown decision ${entry.decision}`);
+      assert.ok((entry.reason || "").length > 40, `${ref} ${member}: decision needs its reason`);
+      continue;
+    }
+    assert.ok(entry.cmux, `${ref} ${member} has no cmux equivalent`);
+    assert.ok(Array.isArray(entry.tests) && entry.tests.length, `${ref} ${member} has no proving test`);
+    for (const t of entry.tests) {
+      if (t.startsWith("diff:")) {
+        assert.ok(caseIds.has(t.slice(5)), `${ref} ${member}: differential case ${t} does not exist`);
+        continue;
+      }
+      const m = /^sites\/([\w.-]+\.test\.mjs): (.+)$/.exec(t);
+      assert.ok(m, `${ref} ${member}: test id "${t}" is not sites/<file>: <title> or diff:<case>`);
+      const matching = titlesOf(m[1]).filter((title) => title.startsWith(m[2]));
+      assert.equal(matching.length, 1, `${ref} ${member}: "${t}" names ${matching.length} tests`);
+    }
+  }
+  for (const ref of ["aside", "chatgpt"]) {
+    for (const member of Object.keys(sites[ref])) assert.ok(seen[ref].has(member), `sites ${ref} ${member} is not in reference/site-surface.txt`);
+  }
+});

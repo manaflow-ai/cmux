@@ -95,6 +95,21 @@ export function writeReport(cases) {
     lines.push("");
   }
 
+  if (caps.sites) {
+    lines.push("## Site integrations", "");
+    lines.push("Every Aside site global and method and every ChatGPT site capability (`reference/site-surface.txt`) maps to a cmux tool proven by `tests/browser-parity/sites` or a differential case, or to a pending user decision ([site-tools.md](site-tools.md)).", "");
+    lines.push("| Reference | mapped to cmux | pending decision |", "| --- | ---: | ---: |");
+    for (const ref of REFERENCES) {
+      const entries = Object.values(caps.sites[ref] ?? {});
+      lines.push(`| ${ref === "aside" ? "Aside" : "ChatGPT for Chrome"} | ${entries.filter((e) => !e.decision).length} | ${entries.filter((e) => e.decision).length} |`);
+    }
+    lines.push("");
+    const byDecision = {};
+    for (const ref of REFERENCES) for (const [name, e] of Object.entries(caps.sites[ref] ?? {})) if (e.decision) (byDecision[e.decision] ??= []).push(`${ref === "aside" ? "Aside" : "ChatGPT"} \`${name}\``);
+    for (const [d, names] of Object.entries(byDecision)) lines.push(`- decision \`${d}\`: ${names.join(", ")}.`);
+    lines.push("");
+  }
+
   lines.push("## Exclusions", "");
   for (const [r, name, e] of memberRows.filter((m) => m[2].excluded)) lines.push(`- ${r} \`${name}\`: ${e.excluded}`);
   lines.push("");

@@ -635,6 +635,25 @@ non-loopback host for Aside, a process kill or a person's click).
 - `edge.web-process-crash` (scope): killing a Chrome renderer process is outside the approved ChatGPT scope.
 - `edge.user-click-while-driving` (scope): a person acting in the user's own Aside or Chrome window is outside the approved scope.
 
+## Site integrations
+
+Every Aside site global and method and every ChatGPT site capability (`reference/site-surface.txt`) maps to a cmux tool proven by `tests/browser-parity/sites` or a differential case, or to a pending user decision ([site-tools.md](site-tools.md)).
+
+| Reference | mapped to cmux | pending decision |
+| --- | ---: | ---: |
+| Aside | 71 | 41 |
+| ChatGPT for Chrome | 12 | 1 |
+
+- decision `doc-editing`: Aside `googleDocs.getSelectedContent`, Aside `googleDocs.selectAll`, Aside `googleDocs.selectTextRange`, Aside `googleDocs.deleteSelection`, Aside `googleDocs.insertText`, Aside `googleDocs.insertHtmlContent`, Aside `googleDocs.pasteFromMarkdown`, Aside `googleDocs.applyDiffs`, Aside `googleDocs.applyDiffsAsSuggestions`, Aside `googleDocs.addComment`, Aside `googleSheets.writeMatrix`, Aside `googleSheets.writeTsv`, Aside `googleSheets.writeHtml`, Aside `googleSheets.setNote`, Aside `googleSheets.addComment`.
+- decision `contacts`: Aside `googlePeople`.
+- decision `imagegen`: Aside `imageSearch`, Aside `imagegen`.
+- decision `social-writes`: Aside `linkedin.getInbox`, Aside `linkedin.getConversation`, Aside `linkedin.subscribeMessages`, Aside `linkedin.sendMessage`, Aside `linkedin.getReceivedInvitations`, Aside `linkedin.sendInvitation`, Aside `linkedin.acceptInvitation`, Aside `linkedin.ignoreInvitation`, Aside `linkedin.withdrawInvitation`, Aside `twitter.like`, Aside `twitter.retweet`, Aside `twitter.follow`, Aside `twitter.DMs`, Aside `twitter.block`, Aside `twitter.mute`.
+- decision `imessage`: Aside `imessage`.
+- decision `captcha`: Aside `captcha`.
+- decision `password-managers`: Aside `applePasswords`, Aside `passwordManager`.
+- decision `agent-platform`: Aside `aside.settings`, Aside `aside.projects`, Aside `aside.routines`, Aside `aside.channels`.
+- decision `bot-evasion`: ChatGPT `botDetection.report`.
+
 ## Exclusions
 
 - chatgpt `Browser.capabilities`: Raw CDP: WebKit has no DevTools protocol, so there is no page.cdp; ChatGPT for Chrome also withholds it by default (case browser.capabilities records both lacking it). Its viewport capability is page.setViewportSize().

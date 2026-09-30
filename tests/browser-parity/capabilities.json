@@ -1726,5 +1726,692 @@
         "dialogs.held"
       ]
     }
+  },
+  "sites": {
+    "$comment": "Site integrations: every Aside site global and method (Aside CLI 1.26.916 skills and REPL globals) and every ChatGPT for Chrome site capability, mapped to the cmux sites.*/tabs.* equivalent with proving tests (sites/<file>: <test title prefix> in tests/browser-parity/sites, or diff:<case id>), or to a pending user decision with its reason (docs/browser-repl/site-tools.md, Decisions). reference/site-surface.txt lists the members; unit/capabilities.test.mjs fails on an unmapped one.",
+    "aside": {
+      "gmail": {
+        "cmux": "sites.gmail (search, inbox, thread, attachment, send as a confirmed draft)",
+        "tests": [
+          "sites/google-mail-calendar.test.mjs: gmail.search and inbox",
+          "sites/google-mail-calendar.test.mjs: gmail.send returns a draft"
+        ]
+      },
+      "gmail.search": {
+        "cmux": "sites.gmail.search(q, { limit, page, uid })",
+        "tests": [
+          "sites/google-mail-calendar.test.mjs: gmail.search and inbox"
+        ]
+      },
+      "gmail.getInbox": {
+        "cmux": "sites.gmail.inbox()",
+        "tests": [
+          "sites/google-mail-calendar.test.mjs: gmail.search and inbox"
+        ]
+      },
+      "gmail.getThread": {
+        "cmux": "sites.gmail.thread(id, { format })",
+        "tests": [
+          "sites/google-mail-calendar.test.mjs: gmail.thread expands"
+        ]
+      },
+      "gmail.openThreadDetailsPage": {
+        "cmux": "sites.gmail.thread(id); tabs.open(threadURL) for the page itself",
+        "tests": [
+          "sites/google-mail-calendar.test.mjs: gmail.thread expands"
+        ]
+      },
+      "gmail.downloadAttachment": {
+        "cmux": "sites.gmail.attachment(id, name)",
+        "tests": [
+          "sites/google-mail-calendar.test.mjs: gmail.attachment downloads"
+        ]
+      },
+      "gmail.openComposer": {
+        "cmux": "sites.gmail.send({ to, cc, bcc, subject, body }) returns a draft; send(draft.id, { confirm: true }) sends",
+        "tests": [
+          "sites/google-mail-calendar.test.mjs: gmail.send returns a draft"
+        ]
+      },
+      "gmail.openReplyComposer": {
+        "cmux": "sites.gmail.send({ threadId, body, replyAll }) draft, then confirmed",
+        "tests": [
+          "sites/google-mail-calendar.test.mjs: gmail.send: a reply goes into the thread"
+        ]
+      },
+      "googleAccounts": {
+        "cmux": "sites.googleAccounts",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleAccounts.list"
+        ]
+      },
+      "googleAccounts.list": {
+        "cmux": "sites.googleAccounts.list()",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleAccounts.list"
+        ]
+      },
+      "googleAccounts.print": {
+        "cmux": "sites.googleAccounts.list() (printing the value shows it)",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleAccounts.list"
+        ]
+      },
+      "googleDocs": {
+        "cmux": "sites.googleDocs (read, export); page.exportContent({ format })",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleDocs.read",
+          "diff:content.export-site"
+        ]
+      },
+      "googleDocs.getDocumentHTML": {
+        "cmux": "sites.googleDocs.read(url, { format: \"html\" })",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleDocs.read"
+        ]
+      },
+      "googleDocs.getDocumentText": {
+        "cmux": "sites.googleDocs.read(url, { format: \"txt\" })",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleDocs.read"
+        ]
+      },
+      "googleDocs.getLiveText": {
+        "cmux": "sites.googleDocs.read(url) (Docs saves as you type; the export is the current text)",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleDocs.read"
+        ]
+      },
+      "googleDocs.getTitle": {
+        "cmux": "(await sites.googleDocs.read(url)).title",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleDocs.read"
+        ]
+      },
+      "googleDocs.parseUrl": {
+        "cmux": "sites.googleDocs.* take the document URL; /u/N/ picks the account",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleDocs: the account comes from"
+        ]
+      },
+      "googleDocs.connect": {
+        "cmux": "not needed: the tools are stateless and take the URL",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleDocs.read"
+        ]
+      },
+      "googleDocs.dispose": {
+        "cmux": "not needed: the tools are stateless and take the URL",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleDocs.read"
+        ]
+      },
+      "googleDocs.getSelectedContent": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleDocs.selectAll": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleDocs.selectTextRange": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleDocs.deleteSelection": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleDocs.insertText": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleDocs.insertHtmlContent": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleDocs.pasteFromMarkdown": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleDocs.applyDiffs": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleDocs.applyDiffsAsSuggestions": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleDocs.addComment": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleSheets": {
+        "cmux": "sites.googleSheets (info, read, readAll, export)",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.getSpreadsheetInfo": {
+        "cmux": "sites.googleSheets.info(url)",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.readSheet": {
+        "cmux": "sites.googleSheets.read(url, { gid | sheet, range })",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.readAllSheets": {
+        "cmux": "sites.googleSheets.readAll(url)",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.readSheetRich": {
+        "cmux": "sites.googleSheets.export(url, { format: \"xlsx\" }) keeps formatting",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.readSelection": {
+        "cmux": "sites.googleSheets.read(url, { range })",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.navigateToCell": {
+        "cmux": "sites.googleSheets.read(url, { range }) reads a cell without moving the user's cursor",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.switchSheet": {
+        "cmux": "sites.googleSheets.read(url, { sheet })",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.connect": {
+        "cmux": "not needed: the tools are stateless and take the URL",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.dispose": {
+        "cmux": "not needed: the tools are stateless and take the URL",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleSheets.info"
+        ]
+      },
+      "googleSheets.writeMatrix": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleSheets.writeTsv": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleSheets.writeHtml": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleSheets.setNote": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googleSheets.addComment": {
+        "decision": "doc-editing",
+        "reason": "Editing a Google document in place (selection, typing, pasting, diffs, comments, notes, cell writes) is a write the user sees as theirs; a cmux version would be a draft of the change, confirmed, applied with real input in the document tab (docs/browser-repl/site-tools.md, decision 6)."
+      },
+      "googlePeople": {
+        "decision": "contacts",
+        "reason": "Google Contacts lookup reads the user's address book; cmux has no contacts tool yet and whether agents may read contacts is the user's call. Gmail search (sites.gmail.search(\"from:name\")) finds addresses in mail."
+      },
+      "googleSearch": {
+        "cmux": "sites.googleSearch",
+        "tests": [
+          "sites/youtube-search.test.mjs: googleSearch.search: results from"
+        ]
+      },
+      "googleSearch.search": {
+        "cmux": "sites.googleSearch.search(q, { limit, start, language, country, safeSearch, time })",
+        "tests": [
+          "sites/youtube-search.test.mjs: googleSearch.search: results from",
+          "sites/youtube-search.test.mjs: googleSearch.search: runs one query"
+        ]
+      },
+      "imageSearch": {
+        "decision": "imagegen",
+        "reason": "Image search and generation are not browser operations; image generation needs an API credential (docs/browser-repl/site-tools.md, decision 4)."
+      },
+      "imagegen": {
+        "decision": "imagegen",
+        "reason": "Image generation is not a browser operation and needs an API credential; Aside's imagegen printed OAuth tokens in a probe (docs/browser-repl/site-tools.md, decision 4)."
+      },
+      "youtube": {
+        "cmux": "sites.youtube",
+        "tests": [
+          "sites/youtube-search.test.mjs: youtube.search"
+        ]
+      },
+      "youtube.search": {
+        "cmux": "sites.youtube.search(q, { limit })",
+        "tests": [
+          "sites/youtube-search.test.mjs: youtube.search"
+        ]
+      },
+      "youtube.getMetadata": {
+        "cmux": "sites.youtube.metadata(v)",
+        "tests": [
+          "sites/youtube-search.test.mjs: youtube.metadata and captions"
+        ]
+      },
+      "youtube.listTranscriptLanguages": {
+        "cmux": "sites.youtube.captions(v)",
+        "tests": [
+          "sites/youtube-search.test.mjs: youtube.metadata and captions"
+        ]
+      },
+      "youtube.getTranscript": {
+        "cmux": "sites.youtube.transcript(v, { lang, timestamps, format }); page.exportContent({ transcript: true })",
+        "tests": [
+          "sites/youtube-search.test.mjs: youtube.transcript: text, timestamps",
+          "sites/youtube-search.test.mjs: youtube.transcript: a track that needs"
+        ]
+      },
+      "youtube.getComments": {
+        "cmux": "sites.youtube.comments(v, { limit, continuation })",
+        "tests": [
+          "sites/youtube-search.test.mjs: youtube.comments"
+        ]
+      },
+      "linkedin": {
+        "cmux": "sites.linkedin (me, profile, search, feed, post as a draft)",
+        "tests": [
+          "sites/social.test.mjs: linkedin.me and profile"
+        ]
+      },
+      "linkedin.getMe": {
+        "cmux": "sites.linkedin.me()",
+        "tests": [
+          "sites/social.test.mjs: linkedin.me and profile"
+        ]
+      },
+      "linkedin.getProfile": {
+        "cmux": "sites.linkedin.profile(id)",
+        "tests": [
+          "sites/social.test.mjs: linkedin.me and profile"
+        ]
+      },
+      "linkedin.searchPeople": {
+        "cmux": "sites.linkedin.search(q, { type: \"people\" })",
+        "tests": [
+          "sites/social.test.mjs: linkedin.search and feed"
+        ]
+      },
+      "linkedin.searchCompanies": {
+        "cmux": "sites.linkedin.search(q, { type: \"companies\" })",
+        "tests": [
+          "sites/social.test.mjs: linkedin.search and feed"
+        ]
+      },
+      "linkedin.getCompany": {
+        "cmux": "tabs.content({ urls: [companyURL], format: \"markdown\" }) with the session",
+        "tests": [
+          "diff:tabs.content"
+        ]
+      },
+      "linkedin.getJob": {
+        "cmux": "tabs.content({ urls: [jobURL], format: \"markdown\" }) with the session",
+        "tests": [
+          "diff:tabs.content"
+        ]
+      },
+      "linkedin.getUserPosts": {
+        "cmux": "tabs.content({ urls: [activityURL] }); sites.linkedin.feed() for the user's own feed",
+        "tests": [
+          "sites/social.test.mjs: linkedin.search and feed",
+          "diff:tabs.content"
+        ]
+      },
+      "linkedin.invalidateCache": {
+        "cmux": "not needed: the tools keep no cache",
+        "tests": [
+          "sites/social.test.mjs: linkedin.me and profile"
+        ]
+      },
+      "linkedin.getInbox": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "linkedin.getConversation": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "linkedin.subscribeMessages": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "linkedin.sendMessage": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "linkedin.getReceivedInvitations": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "linkedin.sendInvitation": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "linkedin.acceptInvitation": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "linkedin.ignoreInvitation": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "linkedin.withdrawInvitation": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "twitter": {
+        "cmux": "sites.x (user, userTweets, timeline, search, tweet, post as a draft)",
+        "tests": [
+          "sites/social.test.mjs: x.user, timeline"
+        ]
+      },
+      "twitter.getMe": {
+        "cmux": "sites.x.user() for the signed-in account",
+        "tests": [
+          "sites/social.test.mjs: x.user, timeline"
+        ]
+      },
+      "twitter.getUser": {
+        "cmux": "sites.x.user(handle)",
+        "tests": [
+          "sites/social.test.mjs: x.user, timeline"
+        ]
+      },
+      "twitter.getTweet": {
+        "cmux": "sites.x.tweet(id)",
+        "tests": [
+          "sites/social.test.mjs: x.user, timeline"
+        ]
+      },
+      "twitter.getTweetThread": {
+        "cmux": "sites.x.tweet(id) (the post and its replies)",
+        "tests": [
+          "sites/social.test.mjs: x.user, timeline"
+        ]
+      },
+      "twitter.getTimeline": {
+        "cmux": "sites.x.timeline()",
+        "tests": [
+          "sites/social.test.mjs: x.user, timeline"
+        ]
+      },
+      "twitter.search": {
+        "cmux": "sites.x.search(q)",
+        "tests": [
+          "sites/social.test.mjs: x.user, timeline"
+        ]
+      },
+      "twitter.getUserTweets": {
+        "cmux": "sites.x.userTweets(handle)",
+        "tests": [
+          "sites/social.test.mjs: x.user, timeline"
+        ]
+      },
+      "twitter.getBookmarks": {
+        "cmux": "tabs.content({ urls: [\"https://x.com/i/bookmarks\"] }) with the session",
+        "tests": [
+          "diff:tabs.content"
+        ]
+      },
+      "twitter.tweet": {
+        "cmux": "sites.x.post(text) draft, then confirmed",
+        "tests": [
+          "sites/social.test.mjs: x.post"
+        ]
+      },
+      "twitter.reply": {
+        "cmux": "sites.x.post({ text, replyTo }) draft, then confirmed",
+        "tests": [
+          "sites/social.test.mjs: x.post"
+        ]
+      },
+      "twitter.like": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "twitter.retweet": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "twitter.follow": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "twitter.DMs": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "twitter.block": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "twitter.mute": {
+        "decision": "social-writes",
+        "reason": "Messages, invitations, likes, follows, reposts, blocks and mutes act as the user toward other people; each is a separate write the user has not approved yet (docs/browser-repl/site-tools.md, decision 7)."
+      },
+      "notion": {
+        "cmux": "sites.notion (accounts, search, read as Markdown, append as a draft)",
+        "tests": [
+          "sites/work-apps.test.mjs: notion: accounts"
+        ]
+      },
+      "notion.getClient": {
+        "cmux": "sites.notion.* (same-origin calls in the page; the token never reaches the REPL)",
+        "tests": [
+          "sites/work-apps.test.mjs: notion: accounts",
+          "sites/work-apps.test.mjs: notion.append"
+        ]
+      },
+      "notion.listAccounts": {
+        "cmux": "sites.notion.accounts()",
+        "tests": [
+          "sites/work-apps.test.mjs: notion: accounts"
+        ]
+      },
+      "notion.invalidateCache": {
+        "cmux": "not needed: the tools keep no cache",
+        "tests": [
+          "sites/work-apps.test.mjs: notion: accounts"
+        ]
+      },
+      "blockToMarkdown": {
+        "cmux": "sites.notion.read(url) returns Markdown",
+        "tests": [
+          "sites/work-apps.test.mjs: notion: accounts"
+        ]
+      },
+      "markdownToBlockSpecs": {
+        "cmux": "sites.notion.append(page, markdown) converts Markdown to blocks",
+        "tests": [
+          "sites/work-apps.test.mjs: notion.append"
+        ]
+      },
+      "slack": {
+        "cmux": "sites.slack (workspaces, channels, history, replies, search, user, read-only call, post as a draft)",
+        "tests": [
+          "sites/work-apps.test.mjs: slack reads"
+        ]
+      },
+      "slack.listWorkspaces": {
+        "cmux": "sites.slack.workspaces()",
+        "tests": [
+          "sites/work-apps.test.mjs: slack.workspaces"
+        ]
+      },
+      "slack.getClient": {
+        "cmux": "sites.slack.* and sites.slack.call(team, readMethod, params); the token stays in the page",
+        "tests": [
+          "sites/work-apps.test.mjs: slack reads",
+          "sites/work-apps.test.mjs: slack.post"
+        ]
+      },
+      "imessage": {
+        "decision": "imessage",
+        "reason": "iMessage, SMS and KakaoTalk read local message databases and send as the user; they are not browser operations (docs/browser-repl/site-tools.md, decision 3)."
+      },
+      "captcha": {
+        "decision": "captcha",
+        "reason": "Solving CAPTCHAs defeats a site's check that a person is present; cmux reports the captcha code and stops (docs/browser-repl/site-tools.md, decision 1)."
+      },
+      "applePasswords": {
+        "decision": "password-managers",
+        "reason": "Reading or autofilling a password manager puts vault access behind an agent; sites.browserAuth covers sign-in without it (docs/browser-repl/site-tools.md, decision 2)."
+      },
+      "passwordManager": {
+        "decision": "password-managers",
+        "reason": "Reading or autofilling a password manager puts vault access behind an agent; sites.browserAuth covers sign-in without it (docs/browser-repl/site-tools.md, decision 2)."
+      },
+      "cua": {
+        "cmux": "page.mouse, page.keyboard (native input in the page); desktop control outside the browser is not the REPL's job",
+        "tests": [
+          "diff:mouse.members",
+          "diff:keyboard.members"
+        ]
+      },
+      "chrome": {
+        "cmux": "tabs.history (history), tabs.list({ all: true }) (open tabs), download events (downloads); Chrome bookmarks, top sites and tab groups have no WebKit counterpart",
+        "tests": [
+          "diff:browser.history",
+          "diff:tabs.claim-other-workspace",
+          "diff:edge.download-concurrent"
+        ]
+      },
+      "installPageScript": {
+        "cmux": "page.addScriptTag({ content }) or page.evaluate(fn) in the current document",
+        "tests": [
+          "diff:page.evaluate.forms"
+        ]
+      },
+      "aside.pdf": {
+        "cmux": "page.pdf(options)",
+        "tests": [
+          "diff:page.pdf"
+        ]
+      },
+      "aside.sessions": {
+        "cmux": "named REPL sessions (cmux browser repl --session NAME, reset)",
+        "tests": [
+          "diff:edge.sessions-two-tabs",
+          "diff:edge.sessions-same-tab"
+        ]
+      },
+      "aside.settings": {
+        "decision": "agent-platform",
+        "reason": "Aside's own daemon settings, projects, routines and chat channels manage Aside, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
+      },
+      "aside.projects": {
+        "decision": "agent-platform",
+        "reason": "Aside's own daemon settings, projects, routines and chat channels manage Aside, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
+      },
+      "aside.routines": {
+        "decision": "agent-platform",
+        "reason": "Aside's own daemon settings, projects, routines and chat channels manage Aside, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
+      },
+      "aside.channels": {
+        "decision": "agent-platform",
+        "reason": "Aside's own daemon settings, projects, routines and chat channels manage Aside, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
+      }
+    },
+    "chatgpt": {
+      "content.exportGsuite": {
+        "cmux": "sites.googleDocs/googleSheets/googleSlides.export(url, { format }); page.exportContent({ format })",
+        "tests": [
+          "sites/google-workspace.test.mjs: googleDocs.export writes the file",
+          "diff:content.export-site"
+        ]
+      },
+      "content.exportYouTubeTranscript": {
+        "cmux": "sites.youtube.transcript(v); page.exportContent({ transcript: true })",
+        "tests": [
+          "sites/youtube-search.test.mjs: youtube.transcript: a track that needs",
+          "diff:content.export-site"
+        ]
+      },
+      "tabs.content": {
+        "cmux": "tabs.content({ urls, format })",
+        "tests": [
+          "diff:tabs.content"
+        ]
+      },
+      "pageAssets.list": {
+        "cmux": "sites.pageAssets.list(page?)",
+        "tests": [
+          "sites/page-tools.test.mjs: pageAssets.list inventories"
+        ]
+      },
+      "pageAssets.bundle": {
+        "cmux": "sites.pageAssets.bundle(inventory, { kinds, assetIds, dir })",
+        "tests": [
+          "sites/page-tools.test.mjs: pageAssets.bundle downloads"
+        ]
+      },
+      "webmcp.fetchTools": {
+        "cmux": "sites.webmcp.tools(page?)",
+        "tests": [
+          "sites/page-tools.test.mjs: webmcp: lists a page's tools"
+        ]
+      },
+      "webmcp.tools.call": {
+        "cmux": "sites.webmcp.call(name, input) (non-read-only tools are drafts)",
+        "tests": [
+          "sites/page-tools.test.mjs: webmcp: lists a page's tools"
+        ]
+      },
+      "browserAuth.request": {
+        "cmux": "sites.browserAuth.request(page?, { origin, fields, submit })",
+        "tests": [
+          "sites/page-tools.test.mjs: browserAuth.request: the app fills",
+          "sites/page-tools.test.mjs: browserAuth.request: cancel"
+        ]
+      },
+      "history": {
+        "cmux": "tabs.history({ query, from, to, limit })",
+        "tests": [
+          "diff:browser.history"
+        ]
+      },
+      "user.openTabs": {
+        "cmux": "tabs.list({ all: true })",
+        "tests": [
+          "diff:tabs.claim-other-workspace"
+        ]
+      },
+      "user.claimTab": {
+        "cmux": "tabs.use(id) on any tab tabs.list({ all: true }) lists",
+        "tests": [
+          "diff:tabs.claim-other-workspace"
+        ]
+      },
+      "user.getTabContext": {
+        "cmux": "snapshot(await tabs.get(id)) reads a tab without switching to it",
+        "tests": [
+          "diff:tabs.attach"
+        ]
+      },
+      "botDetection.report": {
+        "decision": "bot-evasion",
+        "reason": "ChatGPT's botDetection is telemetry to its cloud; cmux reports CAPTCHA and sign-in blocks as error codes and does not disguise automation (docs/browser-repl/site-tools.md, decision 5)."
+      }
+    }
   }
 }

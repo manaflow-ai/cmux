@@ -185,6 +185,17 @@ These are not implemented and need a decision:
    agent's `{ confirm: true }`.
 9. **Sign-in method choice and QR codes** in `browserAuth` (ChatGPT's
    `options` and `qr_code`).
+10. **Contacts.** Aside's `googlePeople` reads the user's address book; cmux
+    has no contacts tool.
+11. **Aside's own platform.** `aside.settings`, `projects`, `routines` and
+    `channels` manage Aside, not a browser; the cmux counterparts are app
+    settings and workspaces.
+
+`tests/browser-parity/capabilities.json` (`sites`) maps every Aside site
+global and method and every ChatGPT site capability
+(`reference/site-surface.txt`) to its `sites.*` or `tabs.*` equivalent and the
+tests that prove it, or to one of these decisions; the capabilities unit test
+fails on an unmapped member.
 
 ## Tests
 
