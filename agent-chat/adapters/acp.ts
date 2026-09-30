@@ -65,15 +65,20 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       sess.setStatus("running");
       const prev = (sess.internal.acpTurn as Promise<void> | undefined) ?? Promise.resolve();
       const turn = prev.then(async () => {
+        if (sess.internal.acpDisposed) return;
         try {
           const st = await ensureAcp(sess, def);
+          if (!st || sess.internal.acpDisposed) return;
           await applyInitialOptions(sess, st, def);
+          if (sess.internal.acpDisposed) return;
           const res = await st.request("session/prompt", {
             sessionId: st.acpSessionId,
             prompt: [{ type: "text", text: prompt }],
           });
+          if (sess.internal.acpDisposed) return;
           sess.emit({ kind: "done", stats: res?.stopReason ? `stop: ${res.stopReason}` : undefined, generation } as any);
         } catch (err) {
+          if (sess.internal.acpDisposed) return;
           sess.emit({ kind: "error", message: truncate(String(err), 400) });
           sess.emit({ kind: "done", generation } as any);
         }
@@ -87,6 +92,7 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       if (st?.acpSessionId) st.notify("session/cancel", { sessionId: st.acpSessionId });
     },
     dispose(sess) {
+      sess.internal.acpDisposed = true;
       const st = sess.internal.acp as AcpState | undefined;
       const startingProc = sess.internal.acpStartingProc as AcpState["proc"] | undefined;
       sess.internal.acp = undefined;
@@ -97,10 +103,12 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
     },
     async setOption(sess, id, value) {
       const st = await ensureAcp(sess, def);
+      if (!st) return;
       await setAcpOption(sess, st, def, id, value);
     },
     async refreshOptions(sess) {
       const st = await ensureAcp(sess, def);
+      if (!st) return;
       ingestAcpOptions(st, {}, def, String(st.options.find((option) => option.id === "model")?.value ?? ""));
       emitAcpState(sess, st);
     },
@@ -160,7 +168,8 @@ function commandForSession(def: ProviderDef, options: Record<string, OptionValue
   return cmd;
 }
 
-async function ensureAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
+async function ensureAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | undefined> {
+  if (sess.internal.acpDisposed) return;
   const existing = sess.internal.acp as AcpState | undefined;
   if (existing && existing.proc.exitCode === null && !existing.proc.killed) return existing;
   const starting = sess.internal.acpStarting as Promise<AcpState> | undefined;
@@ -174,7 +183,8 @@ async function ensureAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> 
   return promise;
 }
 
-async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
+async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | undefined> {
+  if (sess.internal.acpDisposed) return;
   const spawnModel = effectiveSpawnModel(def, sess.startOptions);
   const cmd = commandForSession(def, sess.startOptions);
   const autoApprove = typeof sess.startOptions.autoApprove === "boolean" ? sess.startOptions.autoApprove : sess.autoApprove;
@@ -251,6 +261,10 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
     });
     const created = await request("session/new", { cwd: sess.cwd, mcpServers: [] });
+    if (sess.internal.acpDisposed) {
+      proc.kill();
+      return;
+    }
     st.acpSessionId = created.sessionId;
     ingestAcpOptions(st, created, def, spawnModel);
     sess.internal.acp = st;
@@ -439,6 +453,7 @@ function withAcpLocalOptions(options: SessionOption[], autoApprove: boolean): Se
 
 // Notifications and reverse requests from the agent.
 function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, msg: any, writeMsg: (m: unknown) => void) {
+  if (sess.internal.acpDisposed) return;
   if (msg.method === "session/update") {
     const u = msg.params?.update;
     if (!u) return;
