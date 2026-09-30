@@ -27,10 +27,16 @@ struct NotificationFeedStoreView: View {
             isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
             showsNavigationToolbar: showsNavigationToolbar
         )
-        .onAppear {
-            store.recordAppEvent(.notificationFeedOpened, count: items.count)
+        .onChange(of: isActive, initial: true) { wasActive, active in
+            if active {
+                store.recordAppEvent(.notificationFeedOpened, count: items.count)
+            } else if wasActive {
+                store.cancelPendingNotificationFeedOpen()
+                store.recordAppEvent(.notificationFeedClosed)
+            }
         }
         .onDisappear {
+            guard isActive else { return }
             store.cancelPendingNotificationFeedOpen()
             store.recordAppEvent(.notificationFeedClosed)
         }

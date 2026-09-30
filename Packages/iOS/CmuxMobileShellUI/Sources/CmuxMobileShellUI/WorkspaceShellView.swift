@@ -403,6 +403,9 @@ struct WorkspaceShellView: View {
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 workspacesStackIsOnScreen = newValue == .workspaces
                 notificationsStackIsOnScreen = newValue == .notifications
+                if newValue == .notifications {
+                    consumePendingPrimarySearchNavigation(for: .notifications)
+                }
                 store.recordAppEvent(
                     .primaryTabSelected,
                     detail: .primaryTab(diagnosticPrimaryTab(newValue))
@@ -540,10 +543,12 @@ struct WorkspaceShellView: View {
                     }
                     .toolbar(.hidden, for: .navigationBar)
                     .onAppear {
+                        guard selectedPrimaryTab == .notifications else { return }
                         notificationsStackIsOnScreen = true
                         consumePendingPrimarySearchNavigation(for: .notifications)
                     }
                     .onDisappear {
+                        guard selectedPrimaryTab == .notifications else { return }
                         notificationsStackIsOnScreen = false
                     }
                     .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
