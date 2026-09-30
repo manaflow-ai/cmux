@@ -78,9 +78,13 @@ final class ProfileBarView: NSView {
     private func drawPlus(in rect: NSRect) {
         let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space3, weight: .regular)
         guard let image = NSImage(systemSymbolName: "plus", accessibilityDescription: Strings.newProfile)?.withSymbolConfiguration(config) else { return }
-        let tinted = image.tinted(dotColor(active: false, hovered: hovered == Self.plusIndex))
+        // Tint opaque, then draw at the dot's alpha: a translucent tint over
+        // the black template would stay nearly black.
+        let color = dotColor(active: false, hovered: hovered == Self.plusIndex)
+        let tinted = image.tinted(color.withAlphaComponent(1))
         let size = tinted.size
-        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
+        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
+                    from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
     }
 
     func refresh() {
