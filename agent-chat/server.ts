@@ -277,6 +277,15 @@ function sessionSummary(s: Session) {
   };
 }
 
+export function stripQueuedMessages(summary: Record<string, unknown>): Record<string, unknown> {
+  const { queuedMessages: _queuedMessages, ...withoutQueuedMessages } = summary;
+  return withoutQueuedMessages;
+}
+
+function sessionListSummary(s: Session) {
+  return stripQueuedMessages(sessionSummary(s));
+}
+
 function capabilitiesFor(provider: string): ProviderCapabilities {
   return adapters.get(provider)?.capabilities ?? { options: [], triggers: [] };
 }
@@ -335,10 +344,7 @@ function broadcastSessions() {
   const payload = JSON.stringify({
     kind: "sessions",
     // Queued message bodies go only to the session's own page.
-    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map((s) => {
-      const { queuedMessages: _queued, ...summary } = sessionSummary(s) as ReturnType<typeof sessionSummary> & { queuedMessages?: unknown };
-      return summary;
-    }),
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary),
   });
   for (const ws of allSockets) ws.send(payload);
 }
@@ -2181,7 +2187,7 @@ function startServer() {
       return new Response(null, { status: 302, headers: { location: `${prefixedPath(`/s/${sess.id}`)}${url.search}` } });
     }
     if (url.pathname === "/api/sessions" && req.method === "GET") {
-      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary));
+      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary));
     }
     return new Response(renderPage(url), { headers: { "content-type": "text/html; charset=utf-8" } });
     },
