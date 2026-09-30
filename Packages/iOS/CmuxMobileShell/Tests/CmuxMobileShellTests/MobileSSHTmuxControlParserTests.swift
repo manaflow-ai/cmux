@@ -104,7 +104,7 @@ struct MobileSSHTmuxControlParserTests {
             "work:1:1:%5:0:logs: tail",
             "work:0:2:%2:1:zsh",
             "work:0:2:%1:0:zsh",
-            "work-cmux-ios-abcd1234:0:2:%1:0:zsh",
+            "work-cmux-ios-abcd1234:1:0:2:%1:0:zsh",
             "other:0:1:%9:0:vim",
         ].joined(separator: "\n")
         let workspaces = MobileSSHTmuxProvider.workspaces(from: MobileSSHTmuxProvider.parsePaneRows(output))
@@ -116,14 +116,7 @@ struct MobileSSHTmuxControlParserTests {
 
     @Test func markerInUserSessionNameDoesNotHideItsWorkspace() {
         let session = "build-cmux-ios-demo"
-        let rows = [MobileSSHTmuxProvider.PaneRow(
-            session: session,
-            windowIndex: 0,
-            windowName: "zsh",
-            windowPaneCount: 1,
-            pane: 1,
-            paneIndex: 0
-        )]
+        let rows = MobileSSHTmuxProvider.parsePaneRows("\(session)::0:1:%1:0:zsh")
 
         #expect(MobileSSHTmuxProvider.workspaces(from: rows).map(\.id) == [session])
     }
@@ -189,20 +182,21 @@ struct MobileSSHTmuxControlParserTests {
     @Test func startCommandNeverAsksTmuxToDestroyTheGroupedSession() {
         let command = MobileSSHTmuxControlClient.startCommand(tmux: "'/opt/homebrew/bin/tmux'", session: "vt-main", grouped: "vt-main-cmux-ios-abcd1234")
         #expect(command.hasPrefix("'/opt/homebrew/bin/tmux' -C new-session -t '=vt-main' -s 'vt-main-cmux-ios-abcd1234'"))
-        #expect(command.hasSuffix(" \\; set-option -t '=vt-main-cmux-ios-abcd1234:' destroy-unattached off"))
+        #expect(command.contains(" \\; set-option -t '=vt-main-cmux-ios-abcd1234:' destroy-unattached off"))
+        #expect(command.hasSuffix(" \\; set-option -t '=vt-main-cmux-ios-abcd1234:' @cmux-ios-grouped 1"))
         #expect(!command.contains("destroy-unattached on"))
         #expect(!command.contains("switch-client"))
     }
 
     @Test func staleGroupedSessionsAreUnattachedPhoneSessionsOnly() {
         let output = [
-            "0:vt-main-cmux-ios-dead0001",
-            "1:vt-main-cmux-ios-live0002",
-            "0:vt-main",
-            "2:work",
-            "0:odd:name-cmux-ios-dead0003",
+            "0:1:vt-main-cmux-ios-dead0001",
+            "1:1:vt-main-cmux-ios-live0002",
+            "0:0:vt-main",
+            "2:0:work",
+            "0:0:odd-cmux-ios-user-session",
             "garbage",
         ].joined(separator: "\n")
-        #expect(MobileSSHTmuxProvider.staleGroupedSessions(output) == ["vt-main-cmux-ios-dead0001", "odd:name-cmux-ios-dead0003"])
+        #expect(MobileSSHTmuxProvider.staleGroupedSessions(output) == ["vt-main-cmux-ios-dead0001"])
     }
 }

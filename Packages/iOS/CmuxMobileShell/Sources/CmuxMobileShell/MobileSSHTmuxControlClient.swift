@@ -50,8 +50,12 @@ extension SSHSessionChannel: MobileSSHTmuxControlTransport {}
 final class MobileSSHTmuxControlClient {
     /// Lines of history seeded into the phone's scrollback on attach.
     nonisolated static let historyLines = 2_000
-    /// Suffix marking the phone's grouped sessions, hidden from the workspace list.
+    /// Suffix used in generated names for the phone's grouped sessions.
     nonisolated static let groupedSessionMarker = "-cmux-ios-"
+    /// tmux user option that records ownership independently of the session name.
+    /// Session names are user-controlled and must never be used as an ownership
+    /// signal for cleanup or filtering.
+    nonisolated static let groupedSessionOption = "@cmux-ios-grouped"
 
     let sessionName: String
     let groupedSessionName: String
@@ -103,6 +107,7 @@ final class MobileSSHTmuxControlClient {
         "\(tmux) -C new-session -t \(("=" + session).posixShellSingleQuoted) -s \(grouped.posixShellSingleQuoted)"
             // `set-option -t` takes a pane target: `=name:` selects the session exactly.
             + " \\; set-option -t \(("=" + grouped + ":").posixShellSingleQuoted) destroy-unattached off"
+            + " \\; set-option -t \(("=" + grouped + ":").posixShellSingleQuoted) \(groupedSessionOption) 1"
     }
 
     /// Starts `tmux -C` in a new grouped session of `session`. `tmux` is the
