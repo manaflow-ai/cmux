@@ -29,7 +29,12 @@ extension PaletteModel {
             }
             guard let item = selectedItem else { return true }
             run(command == .submit ? item.primary : (item.alternate ?? item.primary), of: item)
-        case .toggleActions, .openActions:
+        case .toggleActions:
+            // Cmd-K on an action edits its shortcut; Tab keeps the Actions
+            // menu (which lists Edit Keyboard Shortcut… too).
+            if let id = selectedItem?.actionID, onEditShortcut?(id) == true { return true }
+            _ = openActionsMenu()
+        case .openActions:
             _ = openActionsMenu()
         case .closeActions:
             break

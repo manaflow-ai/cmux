@@ -33,6 +33,15 @@ final class PalettePanel: ActiveAppKeyPanel {
 
     override var canBecomeMain: Bool { false }
 
+    /// True while the shortcut recorder listens: every chord is its input,
+    /// so no main-menu item or responder sees it.
+    var capturesKeyEquivalents: (() -> Bool)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown, capturesKeyEquivalents?() == true, keyHandler?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, keyHandler?(event) == true { return }
         super.sendEvent(event)

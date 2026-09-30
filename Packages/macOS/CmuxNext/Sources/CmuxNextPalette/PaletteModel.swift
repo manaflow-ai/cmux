@@ -1,4 +1,4 @@
-import CmuxNextActions
+public import CmuxNextActions
 public import Foundation
 public import Observation
 
@@ -27,6 +27,8 @@ public final class PaletteModel {
     public internal(set) var selectedRowID: String?
     public internal(set) var hoveredRowID: String?
     public internal(set) var actionsMenu: PaletteActionsMenuState?
+    /// The inline shortcut recorder (Cmd-K on an action), when open.
+    public internal(set) var shortcutRecorder: PaletteShortcutRecorderState?
     public private(set) var pageTitle: String = ""
     public private(set) var placeholder: String = ""
     public private(set) var pageSymbol: String = "command"
@@ -57,6 +59,9 @@ public final class PaletteModel {
     /// A closing command refused: the controller shows the palette again on
     /// the same page with `notice`.
     @ObservationIgnored public var onRefusal: (@MainActor (String) -> Void)?
+    /// Cmd-K on a row that runs a registry action: opens the shortcut
+    /// recorder. Returns false when it cannot (then the Actions menu opens).
+    @ObservationIgnored public var onEditShortcut: (@MainActor (ActionID) -> Bool)?
     /// Injected clock for frecency.
     @ObservationIgnored public var now: @MainActor () -> Date = { Date() }
     @ObservationIgnored public internal(set) var frecency: FrecencyStore
@@ -164,6 +169,7 @@ public final class PaletteModel {
         for state in stack { state.cancel() }
         stack = []
         actionsMenu = nil
+        shortcutRecorder = nil
         hoveredRowID = nil
         pendingSubmit = nil
     }
@@ -255,6 +261,16 @@ public final class PaletteModel {
         selectedRowID = saved
         current?.selectedRowID = saved
         scrollRequest += 1
+    }
+}
+
+extension PaletteModel {
+    /// Shows `text` on the row of action `id` (the selected row when it is
+    /// that action's), like a refusal notice.
+    func showNotice(_ text: String, on id: ActionID) {
+        let row = selectedItem?.actionID == id ? selectedRowID : rows.first { $0.item.actionID == id }?.id
+        notice = PaletteNotice(rowID: row ?? rows.first?.id ?? "", text: text)
+        publish(sections, resetSelection: false)
     }
 }
 

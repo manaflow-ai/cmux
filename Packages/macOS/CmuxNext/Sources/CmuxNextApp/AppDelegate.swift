@@ -86,6 +86,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = SettingsController(registry: registry)
         self.settings = settings
         services.settings = settings
+        let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
+        services.paletteShortcutEditor = shortcutEditor
+        services.palette.shortcutRecorder.editor = shortcutEditor
         settings.start()
         services.tabBarButtons.start(settings: settings)
         services.cache.browserTabs.preference.follow(settings)

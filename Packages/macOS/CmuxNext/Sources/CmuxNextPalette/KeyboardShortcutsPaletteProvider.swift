@@ -5,6 +5,8 @@ public import CmuxNextActions
 public final class KeyboardShortcutsPaletteProvider: PaletteProvider {
     public let id = "shortcuts"
     public let registry: ActionRegistry
+    /// Opens the shortcut recorder (Edit Keyboard Shortcut…); nil hides it.
+    public var editShortcut: (@MainActor (ActionID) -> Void)?
 
     public init(registry: ActionRegistry) {
         self.registry = registry
@@ -14,7 +16,8 @@ public final class KeyboardShortcutsPaletteProvider: PaletteProvider {
     public func items() async -> [PaletteItem] { makeItems() }
 
     public func makeItems() -> [PaletteItem] {
-        registry.entries.compactMap { entry -> PaletteItem? in
+        let editShortcut = editShortcut
+        return registry.entries.compactMap { entry -> PaletteItem? in
             let id = entry.descriptor.id
             guard let keycaps = registry.shortcutKeycaps(for: id) else { return nil }
             var keywords = entry.descriptor.keywords + [id.rawValue]
@@ -31,11 +34,14 @@ public final class KeyboardShortcutsPaletteProvider: PaletteProvider {
                 keywords: keywords,
                 isEnabled: registry.canPerform(id),
                 primary: PaletteCommand(id: "run", title: PaletteStrings.runCommand, symbol: "return", effect: .perform { registry.perform(id) }),
-                secondary: [
+                secondary: (editShortcut.map { edit in
+                    [PaletteCommand(id: "editShortcut", title: PaletteStrings.editShortcut, symbol: "keyboard", effect: .performKeepingOpen { edit(id) })]
+                } ?? []) + [
                     PaletteCommand(id: "copyID", title: PaletteStrings.copyActionID, symbol: "doc.on.doc", effect: .perform { PaletteClipboard.copy(id.rawValue) }),
                     PaletteCommand(id: "copyShortcut", title: PaletteStrings.copyShortcut, symbol: "keyboard", effect: .perform { PaletteClipboard.copy(keycaps.joined()) }),
                 ],
-                frecencyKey: "action:\(id.rawValue)"
+                frecencyKey: "action:\(id.rawValue)",
+                actionID: id
             )
         }
     }

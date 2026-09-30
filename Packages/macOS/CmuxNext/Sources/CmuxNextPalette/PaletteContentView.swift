@@ -23,6 +23,13 @@ final class PaletteContentView: NSView {
     private let emptyHint = PaletteText.label(Typography.caption, color: Palette.textTertiary)
     private let footer = PaletteFooterView()
     private let actionsMenuView = PaletteActionsMenuView()
+    private let recorderView = PaletteShortcutRecorderView()
+    private var recorderHeight: CGFloat = 0
+    /// A click on a shortcut recorder choice.
+    var onRecorderOption: ((PaletteShortcutOption) -> Void)? {
+        get { recorderView.onChoose }
+        set { recorderView.onChoose = newValue }
+    }
 
     private var appliedResults = -1
     private var appliedScroll = -1
@@ -46,7 +53,9 @@ final class PaletteContentView: NSView {
         [searchBar, topRule, list, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
+        stage.addSubview(recorderView)
         actionsMenuView.isHidden = true
+        recorderView.isHidden = true
         stage.wantsLayer = true
         stage.shadow = {
             let shadow = NSShadow()
@@ -114,6 +123,7 @@ final class PaletteContentView: NSView {
         let scroll = model.scrollRequest
         let pageToken = model.pageToken
         let menuState = model.actionsMenu
+        let recorderState = model.shortcutRecorder
         let size = PaletteLayout.windowSize
 
         if resultsVersion != appliedResults {
@@ -148,12 +158,24 @@ final class PaletteContentView: NSView {
             focusField()
         }
         updateMenu(menuState)
+        updateRecorder(recorderState)
         if size != appliedSize {
             appliedSize = size
             list.relayoutRows()
             onPreferredSizeChange?(size)
             needsLayout = true
         }
+    }
+
+    private func updateRecorder(_ state: PaletteShortcutRecorderState?) {
+        guard let state else {
+            recorderView.isHidden = true
+            return
+        }
+        recorderView.update(state)
+        recorderHeight = PaletteShortcutRecorderView.height(for: state)
+        recorderView.isHidden = false
+        needsLayout = true
     }
 
     private func updateMenu(_ state: PaletteActionsMenuState?) {
@@ -201,6 +223,10 @@ final class PaletteContentView: NSView {
             topRule.layer?.backgroundColor = Palette.separator.cgColor
             bottomRule.layer?.backgroundColor = Palette.separator.cgColor
         }
+        // The recorder floats over the top of the list, under the field.
+        let recorderWidth = min(PaletteLayout.width - 2 * Metrics.space6, PaletteLayout.actionsMenuWidth * 1.5)
+        recorderView.frame = NSRect(x: glass.frame.midX - recorderWidth / 2, y: glass.frame.minY + PaletteLayout.searchHeight + Metrics.space4,
+                                    width: recorderWidth, height: recorderHeight)
         let menuWidth = PaletteLayout.actionsMenuWidth
         actionsMenuView.frame = NSRect(
             x: glass.frame.maxX - menuWidth - Metrics.space4,

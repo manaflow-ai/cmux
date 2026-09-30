@@ -30,6 +30,8 @@ final class AppServices {
     private(set) var updateSheet: UpdateSheetController!
     /// cmux.json controller; set by `AppDelegate` once it starts.
     var settings: SettingsController?
+    /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
+    var paletteShortcutEditor: PaletteShortcutEditor?
     private(set) var cache: TabContentCache!
     private(set) var windows: WindowManager!
     private(set) var dragSession: TabDragSession!
