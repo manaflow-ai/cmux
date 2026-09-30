@@ -14,7 +14,7 @@ and any member without a same or better case.
 
 - Aside: 1.26.916.1741, recorded 2026-09-30T14:00:25.952Z.
 - ChatGPT for Chrome: reference runtime of the installed ChatGPT app, AX and legacy modes, recorded 2026-09-30T14:01:09.330Z.
-- cmux app: tagged build `brepl-par2`, recorded 2026-09-30T14:00:34.089Z; 156 of 156 verdicts use the app's result.
+- cmux app: tagged build `brepl-par3` at b39ead7710, recorded 2026-09-30T18:07:52.365Z; 156 of 156 verdicts use the app's result.
 
 ## Totals
 
@@ -22,8 +22,8 @@ and any member without a same or better case.
 
 | Reference | same | cmux-better | cmux-worse | not-applicable | out-of-scope | not-run |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Aside | 74 | 51 | 0 | 26 | 5 | 0 |
-| ChatGPT for Chrome | 85 | 48 | 0 | 16 | 7 | 0 |
+| Aside | 73 | 52 | 0 | 26 | 5 | 0 |
+| ChatGPT for Chrome | 84 | 49 | 0 | 16 | 7 | 0 |
 
 Verdicts: **same** (normalized outcomes equal), **better** (they differ and the
 case's stated reason holds on the recorded outcomes), **WORSE** (a gap),
@@ -421,7 +421,7 @@ non-loopback host for Aside, a process kill or a person's click).
 | `edge.auth-digest` | edge:auth-digest | cmux | same | same |
 | `edge.permission-geolocation` | edge:permission-geolocation | cmux | better | better |
 | `edge.permission-notifications` | edge:permission-notifications | cmux | better | better |
-| `edge.permission-camera` | edge:permission-camera | cmux | same | same |
+| `edge.permission-camera` | edge:permission-camera | cmux | better | better |
 | `edge.permission-clipboard-read` | edge:permission-clipboard-read | cmux | better | better |
 | `edge.tls-self-signed` | edge:tls-self-signed | cmux | same | scope |
 | `edge.nav-dns` | edge:nav-dns | cmux | scope | scope |
@@ -468,7 +468,7 @@ non-loopback host for Aside, a process kill or a person's click).
 
 ## Why cmux is better
 
-### Against Aside (51)
+### Against Aside (52)
 
 - `tabs.list-get`: cmux reports the failing check or the invalid argument (a specific error) where the reference fails generically or silently accepts it.
 - `tabs.attach`: cmux reports the failing check or the invalid argument (a specific error) where the reference fails generically or silently accepts it.
@@ -511,6 +511,7 @@ non-loopback host for Aside, a process kill or a person's click).
 - `edge.auth-basic`: user:pass@ in the URL answers a Basic challenge; Aside's navigation with credentials times out.
 - `edge.permission-geolocation`: a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer.
 - `edge.permission-notifications`: a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer.
+- `edge.permission-camera`: a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer.
 - `edge.permission-clipboard-read`: a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer.
 - `edge.nav-http-errors`: goto resolves with the HTTP response, so an agent sees 404 and 500 at once; Aside's goto returns no response and waits out its 30 s readiness timeout on an error status.
 - `edge.file-drop`: dispatchEvent('drop', { dataTransfer: { files } }) delivers files to a drop zone; Aside has no evaluateHandle to build a DataTransfer.
@@ -522,7 +523,7 @@ non-loopback host for Aside, a process kill or a person's click).
 - `edge.detached-mid-click`: a click on an element the page keeps re-rendering lands on the element now under the pointer; Aside fails it as detached.
 - `edge.overlay-intercepts`: the click fails and names the element that would receive it, and nothing is clicked by mistake.
 
-### Against ChatGPT for Chrome (48)
+### Against ChatGPT for Chrome (49)
 
 - `snapshot.ax-errors`: an unknown ref fails immediately with `ref e99999 does not exist`.
 - `screenshot.annotated`: screenshot({ annotate: true }) labels every ref's box; ChatGPT's Chrome backend does not support elementScreenshot.
@@ -560,6 +561,7 @@ non-loopback host for Aside, a process kill or a person's click).
 - `tabs.content`: tabs.content loads URLs in background tabs and returns their text; ChatGPT's Chrome backend has no tabs.content.
 - `edge.permission-geolocation`: a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer.
 - `edge.permission-notifications`: a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer.
+- `edge.permission-camera`: a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer.
 - `edge.permission-clipboard-read`: a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer.
 - `edge.nav-redirect-loop`: a redirect loop fails the navigation with a redirect error instead of reporting success on an error page.
 - `edge.download-blob`: the downloaded file is readable in the REPL; ChatGPT returns a path its sandbox cannot read.
