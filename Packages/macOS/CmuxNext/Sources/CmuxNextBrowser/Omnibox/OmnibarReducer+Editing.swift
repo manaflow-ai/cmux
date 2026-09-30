@@ -10,7 +10,9 @@ nonisolated extension OmnibarStep {
         if !state.hasFocus {
             // The field editor outlived editing (commit or cancel, focus on
             // its way to the page): only a real edit starts editing again.
-            guard textChanged else { return }
+            // A selection report is not one: AppKit reloads the field's old
+            // text when the field becomes first responder again.
+            guard textChanged, kind != nil else { return }
             beginFocus(.programmatic)
         }
         if field.text != state.fieldText || kind != nil || field.marked != state.edit.marked && field.marked != nil {
