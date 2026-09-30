@@ -107,10 +107,10 @@ jobs:
             echo
             jq -r '"ok: \(.ok)" + (if .ok then "" else ", failed at `\(.stage)`: \(.error)" end)' "$result"
             echo
-            echo "| Step | ms | Result |"
-            echo "| --- | ---: | --- |"
-            echo "| installCmuxTui | ${CMUX_TUI_INSTALL_MS:-} | |"
-            jq -r '. as $result | .timings | to_entries[] | (.key | sub("Ms$"; "")) as $step | "| \($step) | \(.value) | \(if $result[$step].ok == true then "passed" elif $result[$step].ok == false then "failed" else "" end) |"' "$result"
+            echo "| Step | ms |"
+            echo "| --- | ---: |"
+            echo "| installCmuxTui | ${CMUX_TUI_INSTALL_MS:-} |"
+            jq -r '.timings | to_entries[] | "| \(.key | sub("Ms$"; "")) | \(.value) |"' "$result"
             echo
             jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
             jq -r '.notes[]? | "- \(.)"' "$result"

@@ -82,11 +82,16 @@ async function hookStatus(runtime) {
         remainingMs(deadline, runtime.now),
       );
     } catch (error) {
-      const screen = await runtime.runTui(
-        ["--socket", runtime.localSocket, "terminal", runtime.terminal, "screen", "read"],
-        1_000,
-      );
-      observation.lastSeen = { screen: screen.stdout.slice(-2000), error: error.message.slice(0, 400) };
+      const remaining = deadline - runtime.now();
+      if (remaining > 0) {
+        const screen = await runtime.runTui(
+          ["--socket", runtime.localSocket, "terminal", runtime.terminal, "screen", "read"],
+          Math.min(1_000, Math.ceil(remaining)),
+        );
+        observation.lastSeen = { screen: screen.stdout.slice(-2000), error: error.message.slice(0, 400) };
+      } else {
+        observation.lastSeen = { error: error.message.slice(0, 400) };
+      }
       throw error;
     }
     const screen = await runtime.runTui(
@@ -114,7 +119,7 @@ async function agentStatus(runtime, name, event, expectedState) {
     );
     await pollHost(runtime, deadline, observation,
       async () => (await readHost(runtime, ["agent", "list"], deadline))
-        .filter((record) => record.terminal_id === runtime.terminal),
+        .filter((record) => record.surface === runtime.terminal),
       (records) => records.some((record) => record.state === expectedState && record.source === "hook"),
     );
     observation.emitToHostMs = Math.round(runtime.now() - startedAt);

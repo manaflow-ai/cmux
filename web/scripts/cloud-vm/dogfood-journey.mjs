@@ -295,7 +295,7 @@ async function saveScreen(localSocket, terminal, name) {
 async function waitForScreen(localSocket, terminal, pattern, timeoutMs) {
   const result = await runTui(
     ["--socket", localSocket, "--json", "terminal", terminal, "screen", "wait", "--pattern", pattern, "--timeout-ms", String(timeoutMs)],
-    timeoutMs + 10_000,
+    timeoutMs,
   );
   if (result.code !== 0) throw new Error(`screen wait for /${pattern}/ failed (${result.code}): ${result.stderr.slice(-400)}`);
   // A timeout is a normal result with matched false and exit status 0.
