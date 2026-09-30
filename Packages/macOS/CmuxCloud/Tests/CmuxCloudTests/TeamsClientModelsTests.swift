@@ -61,9 +61,33 @@ struct TeamsClientModelsTests {
         #expect(detail.links.first?.createdAt == Date(timeIntervalSince1970: 1_790_596_800))
 
         let wholeSeconds = detailJSON.replacingOccurrences(of: ".000Z", with: "Z")
+        // Guard the replacement itself: if a fixture date stops ending in
+        // ".000Z" this test would quietly stop covering the fallback.
+        #expect(wholeSeconds != detailJSON)
         let trimmed = try TeamsClient.decoder.decode(CloudTeamDetail.self, from: Data(wholeSeconds.utf8))
         #expect(trimmed.invitations.first?.expiresAt == detail.invitations.first?.expiresAt)
         #expect(trimmed.links.first?.createdAt == detail.links.first?.createdAt)
+
+        // Every fixture date sits on a whole second, so a decoder that parses
+        // the fraction and then discards it would pass everything above. Pin a
+        // real sub-second value, with a tolerance because the parse lands on
+        // 1791201600.1230001 rather than an exact binary .123.
+        let subSecond = detailJSON.replacingOccurrences(of: "12:00:00.000Z", with: "12:00:00.123Z")
+        #expect(subSecond != detailJSON)
+        let precise = try TeamsClient.decoder.decode(CloudTeamDetail.self, from: Data(subSecond.utf8))
+        let expiresAt = try #require(precise.invitations.first?.expiresAt)
+        #expect(abs(expiresAt.timeIntervalSince1970 - 1_791_201_600.123) < 0.000_1)
+
+        // `links[0].expiresAt` is null in the fixture, so the optional date is
+        // only ever exercised as an absent value. A link created with an expiry
+        // is the normal case, so decode that shape too.
+        let datedLink = detailJSON.replacingOccurrences(
+            of: "\"expiresAt\": null",
+            with: "\"expiresAt\": \"2026-10-12T12:00:00.000Z\""
+        )
+        #expect(datedLink != detailJSON)
+        let withExpiry = try TeamsClient.decoder.decode(CloudTeamDetail.self, from: Data(datedLink.utf8))
+        #expect(withExpiry.links.first?.expiresAt == Date(timeIntervalSince1970: 1_791_806_400))
 
         // A string that is not a date still has to fail, so that accepting two
         // shapes does not turn into accepting anything.
