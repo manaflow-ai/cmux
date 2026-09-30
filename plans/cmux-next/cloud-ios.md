@@ -680,3 +680,31 @@ resource `local`); it does not reach a Cloud daemon yet.
   cache); on 2026-09-30 a VM fetched the 42 MB musl binary at 6-130 KB/s and
   one run failed with an HTTP/2 stream error (the script left the machine
   unchanged). Fleet upgrades need an edge cache rule or a resumable fetch.
+
+### 5.4 Verified on the dev backend (2026-09-30)
+
+Two dev Freestyle VMs from this branch's web (`tui3412812`), a tagged local
+build, direct Tailscale transport, WireGuard hub and headless links:
+
+- Before upgrade: `identify` over the link reported 3412812, the 7 required
+  capabilities and none of the cmux-next ones; the app connected and showed
+  the machine as "Update available" with the missing list.
+- In-place upgrade of one VM to the pin `51b6863` (guest script, binary
+  pre-fetched with a resumable HTTP/1.1 fetch and installed from `file://`,
+  sha256-checked): `OK upgraded terminals=1->1`, the terminal host kept its
+  PID, `registry_id` (session UUID) unchanged, `generation` changed, every
+  cmux-next capability present; the app reconnected and showed "current".
+- On both builds, over the app's link socket: new-tab, send, read-screen,
+  close-surface; and two clients claiming geometry in turn (the latest
+  claimer owns the PTY size, three claims, all PASS).
+- Split through the app on a Cloud pane found a bug (fixed in this change):
+  a Cloud pane resolved to the local window's pane with the same handle and
+  sent the Mac cwd, which the VM refused.
+- Relaunch: both machines reconnected with their workspaces.
+
+Not verified: shared-sizing (`tui02dac3c`) geometry, the app's own claim
+against a second client, closing the last tab of a Cloud workspace in the
+app, iOS against a Cloud daemon (iOS reaches only the local daemon; the
+mobile live tests pass against the pinned daemon build). The `cmux` CLI
+compat verbs address only the local daemon, so the compat script cannot
+target a Cloud machine yet.
