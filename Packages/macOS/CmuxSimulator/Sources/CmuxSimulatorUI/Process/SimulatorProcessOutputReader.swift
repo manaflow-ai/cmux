@@ -1,27 +1,49 @@
 import Darwin
 import Foundation
+import os
+
+nonisolated private let outputReaderLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "SimulatorProcessOutputReader"
+)
 
 // SAFETY: descriptors are immutable after initialization. `cancel()` only
 // writes to the pipe, while the single owned reader thread closes read ends.
+// The first failure is published synchronously through failureState's lock.
 final class SimulatorProcessOutputReader: @unchecked Sendable {
     private let descriptor: Int32
     private let cancellationReadDescriptor: Int32
     private let cancellationWriteDescriptor: Int32
+    // Publishes a one-time result from synchronous POSIX calls before stream completion.
+    private let failureState = OSAllocatedUnfairLock<SimulatorProcessOutputFailure?>(initialState: nil)
 
-    /// The first reader failure, available before the batches stream finishes.
-    var failure: SimulatorProcessOutputFailure? { nil }
+    /// The first reader failure, set before stream completion; nil for clean EOF or cancellation.
+    var failure: SimulatorProcessOutputFailure? { failureState.withLock { $0 } }
 
     init(fileDescriptor: Int32) {
-        descriptor = dup(fileDescriptor)
+        let duplicatedDescriptor = dup(fileDescriptor)
+        guard duplicatedDescriptor >= 0 else {
+            let errorNumber = errno
+            descriptor = -1
+            cancellationReadDescriptor = -1
+            cancellationWriteDescriptor = -1
+            Self.recordFailure(.duplicateDescriptor(errorNumber: errorNumber), in: failureState)
+            return
+        }
         var cancellationDescriptors: [Int32] = [-1, -1]
         if pipe(&cancellationDescriptors) == 0 {
+            descriptor = duplicatedDescriptor
             cancellationReadDescriptor = cancellationDescriptors[0]
             cancellationWriteDescriptor = cancellationDescriptors[1]
             _ = fcntl(cancellationWriteDescriptor, F_SETFL, O_NONBLOCK)
             _ = fcntl(cancellationWriteDescriptor, F_SETNOSIGPIPE, 1)
         } else {
+            let errorNumber = errno
+            Darwin.close(duplicatedDescriptor)
+            descriptor = -1
             cancellationReadDescriptor = -1
             cancellationWriteDescriptor = -1
+            Self.recordFailure(.cancellationPipe(errorNumber: errorNumber), in: failureState)
         }
     }
 
@@ -49,6 +71,8 @@ final class SimulatorProcessOutputReader: @unchecked Sendable {
         }
         let descriptor = descriptor
         let cancellationReadDescriptor = cancellationReadDescriptor
+        // Do not retain the reader: deinit must still be able to wake this thread.
+        let failureState = failureState
         let thread = Thread {
             defer {
                 Darwin.close(descriptor)
@@ -60,20 +84,27 @@ final class SimulatorProcessOutputReader: @unchecked Sendable {
             var batcher = SimulatorProcessOutputBatcher()
             var bytes = [UInt8](repeating: 0, count: 8_192)
             while true {
-                if cancellationReadDescriptor >= 0 {
-                    var descriptors = [
-                        pollfd(fd: descriptor, events: Int16(POLLIN | POLLHUP), revents: 0),
-                        pollfd(fd: cancellationReadDescriptor, events: Int16(POLLIN), revents: 0),
-                    ]
-                    var pollResult: Int32
-                    repeat {
-                        pollResult = Darwin.poll(&descriptors, nfds_t(descriptors.count), -1)
-                    } while pollResult < 0 && errno == EINTR
-                    if pollResult <= 0 || descriptors[1].revents != 0 { break }
+                var descriptors = [
+                    pollfd(fd: descriptor, events: Int16(POLLIN | POLLHUP), revents: 0),
+                    pollfd(fd: cancellationReadDescriptor, events: Int16(POLLIN), revents: 0),
+                ]
+                let pollResult = Darwin.poll(&descriptors, nfds_t(descriptors.count), -1)
+                if pollResult < 0 {
+                    let errorNumber = errno
+                    if errorNumber == EINTR { continue }
+                    Self.recordFailure(.poll(errorNumber: errorNumber), in: failureState)
+                    break
                 }
+                if descriptors[1].revents != 0 { break }
+                if pollResult == 0 { continue }
                 let count = Darwin.read(descriptor, &bytes, bytes.count)
-                if count < 0, errno == EINTR { continue }
-                if count <= 0 { break }
+                if count < 0 {
+                    let errorNumber = errno
+                    if errorNumber == EINTR { continue }
+                    Self.recordFailure(.read(errorNumber: errorNumber), in: failureState)
+                    break
+                }
+                if count == 0 { break }
                 for batch in batcher.append(Data(bytes.prefix(count))) {
                     continuation.yield(batch)
                 }
@@ -86,5 +117,19 @@ final class SimulatorProcessOutputReader: @unchecked Sendable {
         thread.stackSize = 1 << 20
         thread.start()
         return stream
+    }
+
+    private static func recordFailure(
+        _ failure: SimulatorProcessOutputFailure,
+        in state: OSAllocatedUnfairLock<SimulatorProcessOutputFailure?>
+    ) {
+        let isFirstFailure = state.withLock { current in
+            guard current == nil else { return false }
+            current = failure
+            return true
+        }
+        if isFirstFailure {
+            outputReaderLogger.error("Simulator process output failed: \(String(describing: failure), privacy: .public)")
+        }
     }
 }
