@@ -674,14 +674,15 @@ struct ClientReady {
     multiplexer: Arc<ServiceMultiplexer>,
 }
 
+/// An exclusive `flock` on an owner-only lock file, released on drop.
 #[cfg(unix)]
 #[derive(Debug)]
-struct ClientSocketPathLock {
+struct OwnerFileLock {
     file: fs::File,
 }
 
 #[cfg(unix)]
-impl Drop for ClientSocketPathLock {
+impl Drop for OwnerFileLock {
     fn drop(&mut self) {
         use std::os::fd::AsRawFd;
 
@@ -695,7 +696,7 @@ impl Drop for ClientSocketPathLock {
 #[derive(Debug)]
 struct ClientSocketPreparation {
     path: PathBuf,
-    _lock: ClientSocketPathLock,
+    _lock: OwnerFileLock,
 }
 
 #[cfg(unix)]
@@ -1568,12 +1569,10 @@ fn client_socket_lock_path(path: &Path) -> anyhow::Result<PathBuf> {
     Ok(path.with_file_name(lock_name))
 }
 
+/// Opens (creating if needed) the owner-only lock file at `path` and checks
+/// that nobody else can own, open or alias it. `what` names it in errors.
 #[cfg(unix)]
-async fn acquire_client_socket_lock(
-    path: &Path,
-    mut shutdown: Option<&mut watch::Receiver<bool>>,
-) -> anyhow::Result<ClientSocketPathLock> {
-    use std::os::fd::AsRawFd;
+fn open_owner_lock_file(path: &Path, what: &str) -> anyhow::Result<fs::File> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
     let file = OpenOptions::new()
@@ -1584,27 +1583,35 @@ async fn acquire_client_socket_lock(
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(path)
-        .with_context(|| format!("could not open client socket lock {}", path.display()))?;
+        .with_context(|| format!("could not open {what} {}", path.display()))?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
-        return Err(anyhow!("client socket lock {} is not a regular file", path.display()));
+        return Err(anyhow!("{what} {} is not a regular file", path.display()));
     }
     if metadata.uid() != unsafe { libc::geteuid() } {
-        return Err(anyhow!(
-            "client socket lock {} is not owned by the effective user",
-            path.display()
-        ));
+        return Err(anyhow!("{what} {} is not owned by the effective user", path.display()));
     }
     if metadata.permissions().mode() & 0o077 != 0 {
-        return Err(anyhow!("client socket lock {} is accessible by another user", path.display()));
+        return Err(anyhow!("{what} {} is accessible by another user", path.display()));
     }
     if metadata.nlink() != 1 {
-        return Err(anyhow!("client socket lock {} has unexpected hard links", path.display()));
+        return Err(anyhow!("{what} {} has unexpected hard links", path.display()));
     }
+    Ok(file)
+}
+
+#[cfg(unix)]
+async fn acquire_client_socket_lock(
+    path: &Path,
+    mut shutdown: Option<&mut watch::Receiver<bool>>,
+) -> anyhow::Result<OwnerFileLock> {
+    use std::os::fd::AsRawFd;
+
+    let file = open_owner_lock_file(path, "client socket lock")?;
 
     loop {
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(ClientSocketPathLock { file });
+            return Ok(OwnerFileLock { file });
         }
         let error = std::io::Error::last_os_error();
         if error.kind() == std::io::ErrorKind::Interrupted {
@@ -1775,6 +1782,16 @@ fn private_socket_directory(
                     return Ok(recorded);
                 }
                 before_socket_directory_record_replace();
+                // Only a lock holder removes the record, and a publisher
+                // cannot link over one that exists. So what this reads under
+                // the lock is what it removes, never a record another
+                // process published since the check above.
+                let _lock = lock_socket_directory_record(record)?;
+                if let Some(recorded) = recorded_socket_directory(record, base, prefix)
+                    && validate(&recorded).is_ok()
+                {
+                    return Ok(recorded);
+                }
                 let _ = fs::remove_file(record);
             }
             Err(error) => {
@@ -1788,6 +1805,25 @@ fn private_socket_directory(
         .with_context(|| {
             format!("could not create a private socket directory under {}", base.display())
         })
+}
+
+/// Serializes replacing `record` across processes with an owner-only lock
+/// file beside it. Blocks until the lock is free.
+#[cfg(unix)]
+fn lock_socket_directory_record(record: &Path) -> anyhow::Result<OwnerFileLock> {
+    use std::os::fd::AsRawFd;
+
+    let path = record.with_file_name(format!("{SOCKET_DIRECTORY_RECORD}.lock"));
+    let file = open_owner_lock_file(&path, "socket directory record lock")?;
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(OwnerFileLock { file });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error).with_context(|| format!("could not lock {}", path.display()));
+        }
+    }
 }
 
 #[cfg(all(unix, test))]
@@ -6571,5 +6607,42 @@ mod tests {
 
         assert_eq!(second, first, "two processes for one session use different socket directories");
         assert_eq!(fs::read(&record).unwrap(), first.as_os_str().as_bytes());
+    }
+
+    /// A stale record is replaced under an owner-only lock beside it, and a
+    /// lock another user could open stops the replacement.
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_socket_directory_record_is_replaced_under_an_owner_only_lock() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+        fn validate(path: &Path) -> anyhow::Result<()> {
+            if path.file_name() == Some(std::ffi::OsStr::new("cmux-t")) || !path.is_dir() {
+                return Err(anyhow!("{} is unusable", path.display()));
+            }
+            Ok(())
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("tmp");
+        fs::create_dir(&base).unwrap();
+        let state = root.path().join("state");
+        fs::DirBuilder::new().mode(0o700).create(&state).unwrap();
+        let record = state.join(SOCKET_DIRECTORY_RECORD);
+        let lock = state.join(format!("{SOCKET_DIRECTORY_RECORD}.lock"));
+        let stale = base.join("cmux-t-stale");
+        fs::write(&record, stale.as_os_str().as_bytes()).unwrap();
+
+        let directory = private_socket_directory(&base, "cmux-t", &record, validate).unwrap();
+        assert_ne!(directory, stale);
+        assert_eq!(fs::read(&record).unwrap(), directory.as_os_str().as_bytes());
+        assert_eq!(fs::metadata(&lock).unwrap().permissions().mode() & 0o777, 0o600);
+
+        fs::write(&record, stale.as_os_str().as_bytes()).unwrap();
+        fs::set_permissions(&lock, fs::Permissions::from_mode(0o644)).unwrap();
+        let error = private_socket_directory(&base, "cmux-t", &record, validate).unwrap_err();
+        assert!(format!("{error:#}").contains("accessible by another user"), "{error:#}");
+        assert_eq!(fs::read(&record).unwrap(), stale.as_os_str().as_bytes());
     }
 }
