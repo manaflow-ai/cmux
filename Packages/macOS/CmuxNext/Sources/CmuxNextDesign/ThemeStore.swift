@@ -59,6 +59,8 @@ public final class ThemeStore {
         generation += 1
         if publishesGlobally {
             ThemeSnapshot.store(derived)
+            // Room, workspace and terminal scopes inherit from the app scope.
+            ThemeScope.app.storeDidChange()
             for window in NSApp?.windows ?? [] { refresh(window) }
         }
         for responder in responders.allObjects {
@@ -72,14 +74,18 @@ public final class ThemeStore {
         responders.add(responder)
     }
 
-    /// Gives a new window or panel the theme's appearance. Existing windows
-    /// are refreshed by `apply`.
+    /// Gives a new window or panel the app theme's appearance, for UI that
+    /// belongs to no room (onboarding, update sheet). Windows and panels of a
+    /// room use `ThemeScope.adopt` or `NSWindow.adoptThemeScope(of:)`.
+    /// Existing windows are refreshed by `apply`.
     public func adopt(_ window: NSWindow) {
         window.appearance = appearance
     }
 
+    /// Each window takes its own scope's appearance (a light room in a dark
+    /// config stays light).
     private func refresh(_ window: NSWindow) {
-        adopt(window)
+        window.appearance = window.themeScope.appearance
         if let contentView = window.contentView { Self.invalidate(contentView) }
         window.invalidateShadow()
     }
@@ -90,10 +96,7 @@ public final class ThemeStore {
     /// A dark-to-dark theme switch leaves the appearance name unchanged, so
     /// AppKit would not call it; the store does.
     private static func invalidate(_ view: NSView) {
-        view.needsDisplay = true
-        view.needsLayout = true
-        view.viewDidChangeEffectiveAppearance()
-        for subview in view.subviews { invalidate(subview) }
+        ThemeScope.invalidate(view)
     }
 }
 

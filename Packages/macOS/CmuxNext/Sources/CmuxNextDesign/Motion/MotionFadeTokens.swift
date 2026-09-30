@@ -14,6 +14,8 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     case crossfade
     /// Drag lift shadow.
     case lift
+    /// A room, workspace or terminal theme switch recoloring in place.
+    case theme
 
     /// Seconds at `MotionSpeed.fast`.
     public var baseDuration: TimeInterval {
@@ -24,6 +26,7 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
         case .fadeOut: 0.08
         case .crossfade: 0.1
         case .lift: 0.12
+        case .theme: 0.16
         }
     }
 }
