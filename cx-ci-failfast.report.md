@@ -121,11 +121,20 @@ security and fleet review; this PR makes no speculative host-wide exclusions.
 ## Savings measurement
 
 The pre-change opportunity is **648 runner-minutes/day**. The post-change
-measurement will be recorded here after the merged workflow and glaeda
-telemetry changes complete a full observation interval. It will report the
-interval, run count, cancelled-run tail minutes, timeout reductions, and
-resulting runner-hours/day. A short interval is reported as such rather than
-extrapolated to seven days.
+measurement began at merge `3b196d04a3c476441ec7a2abc332b62f25f1b739`.
+The initial observation interval was **2026-09-30 20:26:33–20:28:08 UTC
+(95 seconds)** across the nine push-triggered workflows for that merge. The
+workflows that were cancelled had no completed jobs, and the completed main
+suite had no cancelled jobs: **0 cancelled-tail runner-minutes, or 0.0
+runner-hours/day directly observed**. This is too short to extrapolate a daily
+rate; the defensible daily opportunity remains **10.8 runner-hours/day** from
+the seven-day baseline until a longer post-deploy sample is available.
+
+The glaeda telemetry repair merged as `81c5801d39f5048df5def3849b484240bef690eb`.
+Its candidate artifact is staged at
+`/Users/leoli/Projects/glaeda-generations/r-20260930-81c5801d39f5`; fleet
+upgrade is draining active host locks and has not forced any host mutation.
+The operator log is `/Users/leoli/.local/state/glaeda/mini-fleet/upgrade-20260930T200649Z/operator.log`.
 
 Validation before publication: `actionlint` on all edited workflows,
 `python3 tests/test_ci_workflow_run_sources.py`, the focused CI policy tests,
