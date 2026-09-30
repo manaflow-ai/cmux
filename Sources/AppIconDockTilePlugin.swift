@@ -88,9 +88,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private var shouldPersistBundleIcon: Bool {
         guard let appBundleURL else { return false }
-        // The default untagged Debug app is rebuilt and re-signed in place during CI.
-        // Persisting a custom icon there leaves Finder metadata behind and breaks codesign.
-        return appBundleURL.lastPathComponent != "cmux DEV.app"
+        return AppBundleIconPersistencePolicy.shouldPersist(
+            bundleIdentifier: appBundle?.bundleIdentifier,
+            appBundleLastPathComponent: appBundleURL.lastPathComponent,
+            persistenceDisabled: appDefaults?.bool(
+                forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey
+            ) ?? false
+        )
     }
 
     private var appDefaults: UserDefaults? {

@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>shadow-open</title></head>
+<body>
+<div id="host"></div>
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  let seq = 0;
+  function log(entry) {
+    window.__cmuxLog.push(Object.assign({ seq: ++seq }, entry));
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+  }
+
+  let btnClicked = false;
+  let inputOk = false;
+  function check() {
+    if (btnClicked && inputOk) statusEl.textContent = 'PASS';
+  }
+
+  const host = document.getElementById('host');
+  const root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = '<button id="s-btn">shadow button</button><input id="s-input" type="text">';
+
+  function forward(ev, target) {
+    host.dispatchEvent(new CustomEvent('cmux-shadow', {
+      bubbles: true,
+      composed: true,
+      detail: {
+        type: ev.type,
+        target,
+        isTrusted: ev.isTrusted,
+        value: root.getElementById('s-input').value
+      }
+    }));
+  }
+  root.getElementById('s-btn').addEventListener('click', (ev) => forward(ev, '#s-btn'));
+  root.getElementById('s-input').addEventListener('input', (ev) => forward(ev, '#s-input'));
+
+  host.addEventListener('cmux-shadow', (ev) => {
+    const d = ev.detail;
+    log({ type: d.type, target: d.target, isTrusted: d.isTrusted, value: d.value });
+    if (d.target === '#s-btn' && d.type === 'click') btnClicked = true;
+    if (d.target === '#s-input' && d.type === 'input' && d.value === 'shadow-ok') inputOk = true;
+    check();
+  });
+</script>
+</body>
+</html>

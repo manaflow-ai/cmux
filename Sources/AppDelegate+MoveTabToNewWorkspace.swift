@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 struct SurfaceNewWorkspaceMoveResult {
     let sourceWindowId: UUID
@@ -26,14 +27,9 @@ extension AppDelegate {
     }
 
     func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
-        guard let located = locateBonsplitSurface(tabId: tabId),
-              let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-              sourceWorkspace.panels[located.panelId] != nil,
-              let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
-              destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId }) else {
-            return false
-        }
-        return true
+        guard locateContainerSurface(tabId: tabId) != nil,
+              let destination = workspaceFor(tabId: targetWorkspaceId) else { return false }
+        return destination.surfaceOwnershipPolicy.rejection(for: machineOwningBonsplitTab(tabId)) == nil
     }
 
     func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
@@ -59,7 +55,7 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let located = locateBonsplitSurface(tabId: tabId) else { return nil }
@@ -81,7 +77,7 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let source = locateSurface(surfaceId: panelId),
@@ -92,8 +88,14 @@ extension AppDelegate {
         }
 
         let targetManager = destinationManager ?? source.tabManager
+        let hasCallerTitleArgument = title != nil
+        let explicitTitle = normalizedDetachedWorkspaceTitle(title)
+        let hasExplicitTitle = explicitTitle != nil
+        if !hasExplicitTitle {
+            source.tabManager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        }
         let destinationTitle = titleForDetachedWorkspace(
-            explicitTitle: title,
+            explicitTitle: explicitTitle,
             workspace: sourceWorkspace,
             panelId: panelId,
             panel: sourcePanel
@@ -102,14 +104,27 @@ extension AppDelegate {
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
         let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)
         guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return nil }
+        let destinationCustomTitle = hasCallerTitleArgument
+            ? explicitTitle
+            : normalizedDetachedWorkspaceTitle(detached.customTitle)
+        let destinationCustomTitleSource: Workspace.CustomTitleSource
+        if destinationCustomTitle == nil {
+            destinationCustomTitleSource = .auto
+        } else if hasCallerTitleArgument {
+            destinationCustomTitleSource = .user
+        } else {
+            destinationCustomTitleSource = detached.customTitleSource ?? .user
+        }
 
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
             title: destinationTitle,
+            titleSource: destinationCustomTitleSource,
             select: false,
             placementOverride: placementOverride,
             insertionIndexOverride: insertionIndexOverride,
-            focusIntent: activationIntent
+            focusIntent: activationIntent,
+            customTitle: destinationCustomTitle
         ) else {
             rollbackDetachedSurface(
                 detached,
@@ -166,6 +181,11 @@ extension AppDelegate {
             return .browser(.addressBar)
         }
         return panel.preferredFocusIntentForActivation()
+    }
+
+    private func normalizedDetachedWorkspaceTitle(_ title: String?) -> String? {
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle?.isEmpty == false ? trimmedTitle : nil
     }
 
     private func titleForDetachedWorkspace(

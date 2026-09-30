@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,12 +10,28 @@ import XCTest
 
 final class FileExplorerStateModePersistenceTests: XCTestCase {
     private let modeKey = "rightSidebar.mode"
-    private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+    private let customSidebarNameKey = "rightSidebar.customSidebarName"
+    private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
+    private let legacyDockBetaKey = "rightSidebar.beta.dock.enabled"
 
-    func testFeedStoredModeSurvivesByDefault() {
+    func testDisabledFeedStoredModeFallsBackToFiles() {
         withSavedRightSidebarModeDefaults {
             let defaults = UserDefaults.standard
             defaults.set(RightSidebarMode.feed.rawValue, forKey: modeKey)
+            defaults.set(false, forKey: feedEnabledKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .files)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
+        }
+    }
+
+    func testEnabledFeedStoredModeSurvives() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.feed.rawValue, forKey: modeKey)
+            defaults.set(true, forKey: feedEnabledKey)
 
             let state = FileExplorerState()
 
@@ -23,25 +40,78 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         }
     }
 
-    func testModeSetterClampsUnavailableBetaModes() {
+    func testModeSetterClampsUnavailableFeedButAllowsDock() {
         withSavedRightSidebarModeDefaults {
             let defaults = UserDefaults.standard
-            defaults.set(false, forKey: dockEnabledKey)
+            defaults.set(false, forKey: feedEnabledKey)
             let state = FileExplorerState()
 
             state.mode = .feed
-            XCTAssertEqual(state.mode, .feed)
-            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.feed.rawValue)
+            XCTAssertEqual(state.mode, .files)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
 
-            defaults.set(true, forKey: dockEnabledKey)
             state.mode = .dock
             XCTAssertEqual(state.mode, .dock)
             XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.dock.rawValue)
+        }
+    }
 
-            defaults.set(false, forKey: dockEnabledKey)
+    func testStoredLegacyDockOptOutIsIgnored() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: legacyDockBetaKey)
+            let state = FileExplorerState()
+
+            state.mode = .dock
             state.refreshModeAvailability()
+            XCTAssertEqual(state.mode, .dock)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.dock.rawValue)
+        }
+    }
+
+    func testStoredCustomSidebarModeFallsBackToFilesWhenBetaDisabled() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
+            let previous = defaults.object(forKey: customSidebarsKey)
+            defaults.set(false, forKey: customSidebarsKey)
+            defer {
+                if let previous {
+                    defaults.set(previous, forKey: customSidebarsKey)
+                } else {
+                    defaults.removeObject(forKey: customSidebarsKey)
+                }
+            }
+            defaults.set(RightSidebarMode.customSidebar.rawValue, forKey: modeKey)
+            defaults.set("status-board", forKey: customSidebarNameKey)
+
+            let state = FileExplorerState()
+
             XCTAssertEqual(state.mode, .files)
             XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
+        }
+    }
+
+    func testStoredCustomSidebarModePersistsWhenAvailable() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
+            let previous = defaults.object(forKey: customSidebarsKey)
+            defaults.set(true, forKey: customSidebarsKey)
+            defer {
+                if let previous {
+                    defaults.set(previous, forKey: customSidebarsKey)
+                } else {
+                    defaults.removeObject(forKey: customSidebarsKey)
+                }
+            }
+            defaults.set(RightSidebarMode.customSidebar.rawValue, forKey: modeKey)
+            defaults.set("status-board", forKey: customSidebarNameKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .customSidebar)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.customSidebar.rawValue)
         }
     }
 
@@ -53,16 +123,22 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "custom-sidebar"), .customSidebar)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "custom"), .customSidebar)
         XCTAssertNil(RightSidebarMode.from(cliArgument: "unknown"))
     }
 
     private func withSavedRightSidebarModeDefaults(_ body: () -> Void) {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: modeKey)
-        let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
+        let previousCustomSidebarName = defaults.object(forKey: customSidebarNameKey)
+        let previousFeedEnabled = defaults.object(forKey: feedEnabledKey)
+        let previousLegacyDockBeta = defaults.object(forKey: legacyDockBetaKey)
         defer {
             restore(previousMode, forKey: modeKey)
-            restore(previousDockEnabled, forKey: dockEnabledKey)
+            restore(previousCustomSidebarName, forKey: customSidebarNameKey)
+            restore(previousFeedEnabled, forKey: feedEnabledKey)
+            restore(previousLegacyDockBeta, forKey: legacyDockBetaKey)
         }
         body()
     }

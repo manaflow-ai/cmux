@@ -20,7 +20,7 @@ afterAll(async () => {
 });
 
 describe("Cloud VM database schema", () => {
-  dbTest("applies migrations and enforces create idempotency by user", async () => {
+  dbTest("applies migrations and enforces create idempotency by account owner", async () => {
     if (!sql) throw new Error("test database not initialized");
 
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -28,6 +28,7 @@ describe("Cloud VM database schema", () => {
     const [vm] = await sql<{ id: string }[]>`
       insert into cloud_vms (
         user_id,
+        billing_team_id,
         provider,
         provider_vm_id,
         image_id,
@@ -37,7 +38,8 @@ describe("Cloud VM database schema", () => {
       )
       values (
         'user-1',
-        'e2b',
+        'team-1',
+        'freestyle',
         'provider-vm-1',
         'cmuxd-ws:test',
         '2026-04-24.1',
@@ -50,8 +52,8 @@ describe("Cloud VM database schema", () => {
     let duplicateError: unknown;
     try {
       await sql`
-        insert into cloud_vms (user_id, provider, image_id, status, idempotency_key)
-        values ('user-1', 'e2b', 'cmuxd-ws:test', 'provisioning', 'idem-1')
+        insert into cloud_vms (user_id, billing_team_id, provider, image_id, status, idempotency_key)
+        values ('user-2', 'team-1', 'freestyle', 'cmuxd-ws:test', 'provisioning', 'idem-1')
       `;
     } catch (err) {
       duplicateError = err;
@@ -59,8 +61,8 @@ describe("Cloud VM database schema", () => {
     expect((duplicateError as { code?: string } | undefined)?.code).toBe("23505");
 
     await sql`
-      insert into cloud_vms (user_id, provider, image_id, status, idempotency_key)
-      values ('user-2', 'e2b', 'cmuxd-ws:test', 'provisioning', 'idem-1')
+      insert into cloud_vms (user_id, billing_team_id, provider, image_id, status, idempotency_key)
+      values ('user-1', 'team-2', 'freestyle', 'cmuxd-ws:test', 'provisioning', 'idem-1')
     `;
 
     await sql`
@@ -76,7 +78,7 @@ describe("Cloud VM database schema", () => {
     `;
     await sql`
       insert into cloud_vm_usage_events (user_id, vm_id, event_type, provider, image_id, metadata)
-      values ('user-1', ${vm.id}, 'vm.created', 'e2b', 'cmuxd-ws:test', '{"source":"test"}'::jsonb)
+      values ('user-1', ${vm.id}, 'vm.created', 'freestyle', 'cmuxd-ws:test', '{"source":"test"}'::jsonb)
     `;
 
     await sql`delete from cloud_vms where id = ${vm.id}`;

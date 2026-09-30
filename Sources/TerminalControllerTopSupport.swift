@@ -37,6 +37,18 @@ extension TerminalController {
         return counts
     }
 
+    nonisolated func v2TopMemoryDiagnosticPayload(
+        processSnapshot: CmuxTopProcessSnapshot,
+        annotatedWindows: [[String: Any]],
+        topGroupLimit: Int = 12
+    ) -> [String: Any] {
+        processSnapshot.memoryDiagnosticPayload(
+            appPID: Int(Darwin.getpid()),
+            topGroupLimit: topGroupLimit,
+            attributionByPID: v2TopMemoryAttributionByPID(in: annotatedWindows)
+        )
+    }
+
     nonisolated func v2AnnotateTopWindows(
         _ windows: inout [[String: Any]],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -275,6 +287,12 @@ extension TerminalController {
         return values.compactMap(v2TopInt)
     }
 
+    nonisolated func v2TopString(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     nonisolated func v2TopUUID(_ raw: Any?) -> UUID? {
         if let value = raw as? UUID {
             return value
@@ -283,6 +301,130 @@ extension TerminalController {
             return UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return nil
+    }
+
+    private nonisolated func v2TopMemoryAttributionByPID(in windows: [[String: Any]]) -> [Int: CmuxTopProcessAttribution] {
+        var result: [Int: CmuxTopProcessAttribution] = [:]
+        var ambiguousSpecificityByPID: [Int: Int] = [:]
+        var commonOwnerSourceSpecificityByPID: [Int: Int] = [:]
+        for window in windows {
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for workspace in workspaces {
+                let workspaceID = v2TopUUID(workspace["id"])
+                let workspaceRef = v2TopString(workspace["ref"])
+
+                let tags = workspace["tags"] as? [[String: Any]] ?? []
+                for tag in tags {
+                    let attribution = CmuxTopProcessAttribution(
+                        workspaceID: workspaceID,
+                        workspaceRef: workspaceRef,
+                        paneID: nil,
+                        paneRef: nil,
+                        surfaceID: nil,
+                        surfaceRef: nil,
+                        surfaceType: nil,
+                        reason: "status-tag-process-tree"
+                    )
+                    assignTopMemoryAttribution(
+                        attribution,
+                        from: tag,
+                        to: &result,
+                        ambiguousSpecificityByPID: &ambiguousSpecificityByPID,
+                        commonOwnerSourceSpecificityByPID: &commonOwnerSourceSpecificityByPID
+                    )
+                }
+
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                for pane in panes {
+                    let paneID = v2TopUUID(pane["id"])
+                    let paneRef = v2TopString(pane["ref"])
+                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+                    for surface in surfaces {
+                        let attribution = CmuxTopProcessAttribution(
+                            workspaceID: workspaceID,
+                            workspaceRef: workspaceRef,
+                            paneID: paneID,
+                            paneRef: paneRef,
+                            surfaceID: v2TopUUID(surface["id"]),
+                            surfaceRef: v2TopString(surface["ref"]),
+                            surfaceType: v2TopString(surface["type"]),
+                            reason: "surface-process-tree"
+                        )
+                        assignTopMemoryAttribution(
+                            attribution,
+                            from: surface,
+                            to: &result,
+                            ambiguousSpecificityByPID: &ambiguousSpecificityByPID,
+                            commonOwnerSourceSpecificityByPID: &commonOwnerSourceSpecificityByPID
+                        )
+
+                        let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                        for webview in webviews {
+                            assignTopMemoryAttribution(
+                                attribution,
+                                from: webview,
+                                to: &result,
+                                ambiguousSpecificityByPID: &ambiguousSpecificityByPID,
+                                commonOwnerSourceSpecificityByPID: &commonOwnerSourceSpecificityByPID
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    private nonisolated func assignTopMemoryAttribution(
+        _ attribution: CmuxTopProcessAttribution,
+        from node: [String: Any],
+        to result: inout [Int: CmuxTopProcessAttribution],
+        ambiguousSpecificityByPID: inout [Int: Int],
+        commonOwnerSourceSpecificityByPID: inout [Int: Int]
+    ) {
+        let resources = node["resources"] as? [String: Any] ?? [:]
+        let newSpecificity = v2TopMemoryAttributionSpecificity(attribution)
+        var seenPIDs = Set<Int>()
+        for pid in v2TopIntArray(resources["pids"]) where seenPIDs.insert(pid).inserted {
+            if let ambiguousSpecificity = ambiguousSpecificityByPID[pid] {
+                guard newSpecificity > ambiguousSpecificity else { continue }
+                ambiguousSpecificityByPID.removeValue(forKey: pid)
+                commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
+            }
+            guard let existing = result[pid] else {
+                result[pid] = attribution
+                continue
+            }
+            if existing == attribution { continue }
+            let existingSpecificity = v2TopMemoryAttributionSpecificity(existing)
+            let commonOwnerSourceSpecificity = commonOwnerSourceSpecificityByPID[pid]
+            let existingSourceSpecificity = commonOwnerSourceSpecificity ?? existingSpecificity
+            let mergedSourceSpecificity = max(existingSourceSpecificity, newSpecificity)
+            if let commonOwner = existing.owner.commonOwner(with: attribution.owner),
+               commonOwnerSourceSpecificity != nil || newSpecificity == existingSourceSpecificity {
+                let sharedReason: String
+                switch commonOwner.specificity {
+                case 3: sharedReason = "shared-surface-process-tree"
+                case 2: sharedReason = "shared-pane-process-tree"
+                default: sharedReason = "shared-workspace-process-tree"
+                }
+                result[pid] = CmuxTopProcessAttribution(owner: commonOwner, reason: sharedReason)
+                commonOwnerSourceSpecificityByPID[pid] = mergedSourceSpecificity
+            } else if newSpecificity > existingSourceSpecificity {
+                result[pid] = attribution
+                commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
+            } else if newSpecificity == existingSourceSpecificity {
+                result.removeValue(forKey: pid)
+                ambiguousSpecificityByPID[pid] = newSpecificity
+                commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
+            } else {
+                continue
+            }
+        }
+    }
+
+    private nonisolated func v2TopMemoryAttributionSpecificity(_ attribution: CmuxTopProcessAttribution) -> Int {
+        attribution.owner.specificity
     }
 
     nonisolated func v2AttachTopApplicationProcess(

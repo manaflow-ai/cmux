@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 
 private enum AppleScriptStrings {
     static let disabled = String(
@@ -54,24 +55,26 @@ private extension String {
 }
 
 private extension Workspace {
+    func scriptingTerminalPanel(for terminalID: UUID) -> TerminalPanel? {
+        terminalInputTarget(forPanelID: terminalID)?.panel
+    }
+
     func scriptingTerminalPanels() -> [TerminalPanel] {
         var results: [TerminalPanel] = []
         var seen: Set<UUID> = []
 
         for panelId in sidebarOrderedPanelIds() {
-            guard seen.insert(panelId).inserted,
-                  let terminal = terminalPanel(for: panelId) else {
-                continue
+            for terminal in terminalPanels(projectedFromPanelID: panelId)
+            where seen.insert(terminal.id).inserted {
+                results.append(terminal)
             }
-            results.append(terminal)
         }
 
-        let remaining = panels.values
-            .compactMap { $0 as? TerminalPanel }
-            .sorted { $0.id.uuidString < $1.id.uuidString }
-
-        for terminal in remaining where seen.insert(terminal.id).inserted {
-            results.append(terminal)
+        for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+            for terminal in terminalPanels(projectedFromPanelID: panelId)
+            where seen.insert(terminal.id).inserted {
+                results.append(terminal)
+            }
         }
 
         return results
@@ -152,7 +155,7 @@ extension NSApplication {
         }
 
         for state in appDelegate.scriptableMainWindows() {
-            for workspace in state.tabManager.tabs where workspace.terminalPanel(for: terminalId) != nil {
+            for workspace in state.tabManager.tabs where workspace.scriptingTerminalPanel(for: terminalId) != nil {
                 return ScriptTerminal(workspaceId: workspace.id, terminalId: terminalId)
             }
         }
@@ -246,7 +249,6 @@ final class ScriptWindow: NSObject {
         guard NSApp.isAppleScriptEnabled else { return "" }
         return windowId.uuidString
     }
-
     @objc(title)
     var title: String {
         guard NSApp.isAppleScriptEnabled,
@@ -312,7 +314,7 @@ final class ScriptWindow: NSObject {
             return nil
         }
 
-        for workspace in state.tabManager.tabs where workspace.terminalPanel(for: terminalId) != nil {
+        for workspace in state.tabManager.tabs where workspace.scriptingTerminalPanel(for: terminalId) != nil {
             return ScriptTerminal(workspaceId: workspace.id, terminalId: terminalId)
         }
 
@@ -415,7 +417,7 @@ final class ScriptTab: NSObject {
     @objc(focusedTerminal)
     var focusedTerminal: ScriptTerminal? {
         guard NSApp.isAppleScriptEnabled,
-              let terminalId = workspace?.focusedTerminalPanel?.id else {
+              let terminalId = workspace?.focusedTerminalInputTarget()?.surfaceID else {
             return nil
         }
         return ScriptTerminal(workspaceId: tabId, terminalId: terminalId)
@@ -437,7 +439,7 @@ final class ScriptTab: NSObject {
         guard NSApp.isAppleScriptEnabled,
               let workspace,
               let terminalId = UUID(uuidString: uniqueID),
-              workspace.terminalPanel(for: terminalId) != nil else {
+              workspace.scriptingTerminalPanel(for: terminalId) != nil else {
             return nil
         }
         return ScriptTerminal(workspaceId: tabId, terminalId: terminalId)
@@ -520,7 +522,7 @@ final class ScriptTerminal: NSObject {
     }
 
     private var terminal: TerminalPanel? {
-        workspace?.terminalPanel(for: terminalId)
+        workspace?.scriptingTerminalPanel(for: terminalId)
     }
 
     @objc(id)
@@ -538,10 +540,10 @@ final class ScriptTerminal: NSObject {
     @objc(workingDirectory)
     var workingDirectory: String {
         guard NSApp.isAppleScriptEnabled else { return "" }
-        // TerminalPanel.directory is never updated (updateDirectory is never called).
-        // Read from Workspace.panelDirectories instead, which is kept up to date
-        // via updatePanelDirectory() from OSC 7 / shell integration.
-        return workspace?.panelDirectories[terminalId] ?? terminal?.directory ?? ""
+        if let workspace {
+            return workspace.effectivePanelDirectory(panelId: terminalId, localFallback: terminal?.directory) ?? ""
+        }
+        return terminal?.directory ?? ""
     }
 
     func input(text: String) -> Bool {
@@ -577,8 +579,17 @@ final class ScriptTerminal: NSObject {
             return nil
         }
 
+        if workspace.remoteTmuxControlPane(surfaceID: terminalId) != nil {
+            // The scripting contract returns the newly created terminal, but
+            // tmux publishes that identity asynchronously. Fail before sending
+            // the split instead of returning a false or missing result.
+            command.scriptErrorNumber = errAEEventFailed
+            command.scriptErrorString = AppleScriptStrings.failedToCreateSplit
+            return nil
+        }
+
         guard let newPanelId = state.tabManager.newSplit(tabId: workspaceId, surfaceId: terminalId, direction: direction),
-              workspace.terminalPanel(for: newPanelId) != nil else {
+              workspace.scriptingTerminalPanel(for: newPanelId) != nil else {
             command.scriptErrorNumber = errAEEventFailed
             command.scriptErrorString = AppleScriptStrings.failedToCreateSplit
             return nil
@@ -616,6 +627,19 @@ final class ScriptTerminal: NSObject {
               terminal != nil else {
             command.scriptErrorNumber = errAEEventFailed
             command.scriptErrorString = AppleScriptStrings.terminalUnavailable
+            return nil
+        }
+
+        if let remotePane = workspace.remoteTmuxControlPane(surfaceID: terminalId) {
+            guard remotePane.requestKill() else {
+                command.scriptErrorNumber = errAEEventFailed
+                command.scriptErrorString = AppleScriptStrings.terminalUnavailable
+                return nil
+            }
+            AppDelegate.shared?.notificationStore?.clearNotifications(
+                forTabId: workspaceId,
+                surfaceId: terminalId
+            )
             return nil
         }
 

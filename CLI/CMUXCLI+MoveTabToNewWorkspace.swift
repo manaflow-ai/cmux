@@ -69,7 +69,7 @@ extension CMUXCLI {
     }
 
     static let moveTabToNewWorkspaceCommandHelp = """
-    Usage: cmux move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--focus <true|false>]
+    Usage: cmux move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
 
     Move a tab into a newly created workspace in the same window.
 
@@ -77,6 +77,7 @@ extension CMUXCLI {
       --tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; default: $CMUX_TAB_ID, then $CMUX_SURFACE_ID, then focused tab)
       --surface <id|ref|index>     Alias for --tab
       --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+      --window <id|ref|index>      Window context for workspace/tab refs and indexes
       --title <text>               Optional title for the new workspace
       --focus <true|false>         Focus the new workspace when supported (default: false)
 
@@ -107,10 +108,14 @@ extension CMUXCLI {
 
         let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, allowFocused: false)
-        let paneHandle = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: workspaceHandle)
-        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle)
-        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle)
+        let surfaceHandle = try normalizeSurfaceHandle(
+            surfaceRaw,
+            client: client,
+            allowFocused: false
+        )
+        let paneHandle = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
+        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
+        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
 
         var params: [String: Any] = [:]
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -149,19 +154,22 @@ extension CMUXCLI {
         let (panelArg, rem1) = parseOption(rem0, name: "--panel")
         let (workspaceArg, rem2) = parseOption(rem1, name: "--workspace")
         let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
+        let (windowArg, rem4) = parseOption(rem3, name: "--window")
 
         guard let surfaceRaw = surfaceArg ?? panelArg else {
             throw CLIError(message: "\(commandName) requires --surface <id|ref|index>")
         }
-        let direction = try validatedSplitDirection(rem3.first, commandName: commandName)
-        if let unknown = rem3.dropFirst().first(where: { $0.hasPrefix("--") }) {
+        let direction = try validatedSplitDirection(rem4.first, commandName: commandName)
+        if let unknown = rem4.dropFirst().first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "\(commandName): unknown flag '\(unknown)'")
         }
 
         var params: [String: Any] = ["direction": direction]
-        let workspaceHandle = try normalizeWorkspaceHandle(workspaceArg, client: client)
+        let windowHandle = try normalizeWindowHandle(windowArg, client: client)
+        if let windowHandle { params["window_id"] = windowHandle }
+        let workspaceHandle = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: windowHandle)
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
+        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
 
@@ -183,17 +191,21 @@ extension CMUXCLI {
         }
 
         let workspaceRaw = optionValue(commandArgs, name: "--workspace")
-        let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
+        let windowRaw = optionValue(commandArgs, name: "--window")
+        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+        let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
+        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
 
         let beforeRaw = optionValue(commandArgs, name: "--before") ?? optionValue(commandArgs, name: "--before-surface")
         let afterRaw = optionValue(commandArgs, name: "--after") ?? optionValue(commandArgs, name: "--after-surface")
         let focusRaw = optionValue(commandArgs, name: "--focus")
-        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle)
-        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle)
+        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
+        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
 
         var params: [String: Any] = [:]
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
+        if let windowHandle { params["window_id"] = windowHandle }
+        if let workspaceHandle { params["workspace_id"] = workspaceHandle }
         if let beforeHandle { params["before_surface_id"] = beforeHandle }
         if let afterHandle { params["after_surface_id"] = afterHandle }
         if let indexRaw = optionValue(commandArgs, name: "--index") {

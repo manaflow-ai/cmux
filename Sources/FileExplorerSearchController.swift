@@ -66,12 +66,132 @@ struct FileSearchSnapshot: Equatable, Sendable {
     static let empty = FileSearchSnapshot(query: "", results: [], status: .idle, isSearching: false)
 }
 
+enum RipgrepIntegrationSettings {
+    static let customRipgrepPathKey = "ripgrepCustomBinaryPath"
+
+    static func rawCustomRipgrepPath(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: customRipgrepPathKey)
+    }
+
+    static func normalizedCustomPath(_ rawPath: String?, homeDirectory: String = NSHomeDirectory()) -> String? {
+        let trimmed = rawPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed == "~" {
+            return (homeDirectory as NSString).standardizingPath
+        }
+        if trimmed.hasPrefix("~/") {
+            let home = (homeDirectory as NSString).standardizingPath
+            let relativePath = String(trimmed.dropFirst(2))
+            return (home as NSString).appendingPathComponent(relativePath)
+        }
+        return trimmed
+    }
+}
+
+struct FileSearchRipgrepExecutable: Equatable, Sendable {
+    let url: URL
+    let prefixArguments: [String]
+}
+
+enum RipgrepExecutableResolution: Equatable, Sendable {
+    case found(FileSearchRipgrepExecutable)
+    case configuredPathNotExecutable(String)
+    case notFound
+}
+
+enum RipgrepExecutableResolver {
+    static func resolve(
+        configuredPath: String? = RipgrepIntegrationSettings.rawCustomRipgrepPath(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userName: String = NSUserName(),
+        homeDirectory: String = NSHomeDirectory(),
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> FileSearchRipgrepExecutable? {
+        guard case .found(let executable) = resolution(
+            configuredPath: configuredPath,
+            environment: environment,
+            userName: userName,
+            homeDirectory: homeDirectory,
+            isExecutable: isExecutable
+        ) else {
+            return nil
+        }
+        return executable
+    }
+
+    static func resolution(
+        configuredPath: String? = RipgrepIntegrationSettings.rawCustomRipgrepPath(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userName: String = NSUserName(),
+        homeDirectory: String = NSHomeDirectory(),
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> RipgrepExecutableResolution {
+        if let configuredPath = RipgrepIntegrationSettings.normalizedCustomPath(
+            configuredPath,
+            homeDirectory: homeDirectory
+        ) {
+            if isExecutable(configuredPath) {
+                return .found(FileSearchRipgrepExecutable(url: URL(fileURLWithPath: configuredPath), prefixArguments: []))
+            }
+            return .configuredPathNotExecutable(configuredPath)
+        }
+
+        for path in defaultSearchPaths(userName: userName, homeDirectory: homeDirectory) where isExecutable(path) {
+            return .found(FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: []))
+        }
+
+        let pathValue = environment["PATH"] ?? ""
+        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
+            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
+            if isExecutable(path) {
+                return .found(FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: []))
+            }
+        }
+        return .notFound
+    }
+
+    private static func defaultSearchPaths(userName: String, homeDirectory: String) -> [String] {
+        let homeDirectory = (homeDirectory as NSString).standardizingPath
+        return [
+            "/opt/homebrew/bin/rg",
+            "/usr/local/bin/rg",
+            "/opt/local/bin/rg",
+            "/usr/bin/rg",
+            "/etc/profiles/per-user/\(userName)/bin/rg",
+            "/run/current-system/sw/bin/rg",
+            "/nix/var/nix/profiles/default/bin/rg",
+            "\(homeDirectory)/.nix-profile/bin/rg",
+            "/nix/var/nix/profiles/per-user/\(userName)/profile/bin/rg",
+        ]
+    }
+}
+
+enum FileExplorerSearchMessages {
+    static func configuredRipgrepPathNotExecutable(_ path: String) -> String {
+        String(
+            format: String(
+                localized: "fileExplorer.search.rgConfiguredPathNotExecutable",
+                defaultValue: "Configured ripgrep path is not executable: %@"
+            ),
+            path
+        )
+    }
+}
+
 @MainActor
 protocol FileSearchControlling: AnyObject {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int)
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int)
     func cancel(clear: Bool)
+}
+
+extension FileSearchControlling {
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int) {
+        search(query: rawQuery, rootPath: rootPath, isLocal: scope == .local, contentRevision: contentRevision)
+    }
 }
 
 struct FileSearchPipelineUpdate: Sendable {
@@ -305,16 +425,11 @@ private enum FileSearchPipeReader {
 
 @MainActor
 final class FileSearchController: FileSearchControlling {
-    private struct Request: Equatable {
+    struct Request: Equatable {
         let query: String
         let rootPath: String
-        let isLocal: Bool
+        let scope: FileSearchScope
         let contentRevision: Int
-    }
-
-    private struct RipgrepExecutable {
-        let url: URL
-        let prefixArguments: [String]
     }
 
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
@@ -333,22 +448,26 @@ final class FileSearchController: FileSearchControlling {
         "!DerivedData/**",
         "!**/DerivedData/**",
     ]
-    private var process: Process?
-    private var generation = 0
-    private var request: Request?
-    private var results: [FileSearchResult] = []
+    var process: Process?
+    var generation = 0
+    var request: Request?
+    var results: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
-    private var searchTask: Task<Void, Never>?
-
+    var searchTask: Task<Void, Never>?
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
+        search(query: rawQuery, rootPath: rootPath, scope: isLocal ? .local : .unsupported, contentRevision: contentRevision)
+    }
+
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int = 0) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextRequest = Request(
             query: query,
             rootPath: rootPath,
-            isLocal: isLocal,
+            scope: scope,
             contentRevision: contentRevision
         )
-        if nextRequest == request, process?.isRunning == true {
+        if (nextRequest == request && process?.isRunning == true) ||
+            (nextRequest == request && searchTask != nil) {
             return
         }
         request = nextRequest
@@ -360,15 +479,30 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .idle, isSearching: false)
             return
         }
-        guard isLocal else {
-            emit(status: .unsupported, isSearching: false)
-            return
-        }
         guard !rootPath.isEmpty else {
             emit(status: .noMatches, isSearching: false)
             return
         }
-        guard let executable = Self.ripgrepExecutable() else {
+        if case .remoteCloud(let provider) = scope {
+            startRemoteSearch(provider: provider, query: query, rootPath: rootPath)
+            return
+        }
+        guard scope == .local else {
+            emit(status: .unsupported, isSearching: false)
+            return
+        }
+        let resolution = RipgrepExecutableResolver.resolution()
+        let executable: FileSearchRipgrepExecutable
+        switch resolution {
+        case .found(let resolvedExecutable):
+            executable = resolvedExecutable
+        case .configuredPathNotExecutable(let path):
+            emit(
+                status: .failed(FileExplorerSearchMessages.configuredRipgrepPathNotExecutable(path)),
+                isSearching: false
+            )
+            return
+        case .notFound:
             emit(
                 status: .failed(String(localized: "fileExplorer.search.rgNotInstalled", defaultValue: "ripgrep (rg) is not installed or is not on PATH.")),
                 isSearching: false
@@ -460,15 +594,6 @@ final class FileSearchController: FileSearchControlling {
         }
     }
 
-    func cancel(clear: Bool) {
-        request = nil
-        stopAndAdvanceGeneration()
-        if clear {
-            results.removeAll()
-            emit(status: .idle, isSearching: false)
-        }
-    }
-
     private func applyPipelineUpdate(_ update: FileSearchPipelineUpdate, generation searchGeneration: Int) {
         guard searchGeneration == generation else { return }
         results = update.results
@@ -487,7 +612,7 @@ final class FileSearchController: FileSearchControlling {
         emit(status: update.status, isSearching: update.isSearching)
     }
 
-    private func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
+    func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
         onSnapshotChanged?(FileSearchSnapshot(
             query: request?.query ?? "",
             results: results,
@@ -496,20 +621,8 @@ final class FileSearchController: FileSearchControlling {
         ))
     }
 
-    private func stopAndAdvanceGeneration() {
-        generation += 1
-        stopCurrentProcess()
-    }
-
-    private func stopCurrentProcess() {
-        guard let process else { return }
-        self.process = nil
-        searchTask?.cancel()
-        searchTask = nil
+    func clearPipelineForLifecycle() {
         pipeline = nil
-        if process.isRunning {
-            _ = Darwin.kill(process.processIdentifier, SIGTERM)
-        }
     }
 
     private nonisolated static func streamStdout(
@@ -558,18 +671,4 @@ final class FileSearchController: FileSearchControlling {
         }
     }
 
-    private static func ripgrepExecutable() -> RipgrepExecutable? {
-        let fileManager = FileManager.default
-        for path in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] where fileManager.isExecutableFile(atPath: path) {
-            return RipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
-        }
-        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
-            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
-            if fileManager.isExecutableFile(atPath: path) {
-                return RipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
-            }
-        }
-        return nil
-    }
 }

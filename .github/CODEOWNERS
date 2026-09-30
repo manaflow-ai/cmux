@@ -1,0 +1,18 @@
+# Code owners for publish-critical and secret-touching paths.
+#
+# Every CI workflow can read repository secrets (Apple signing certs, the App
+# Store Connect API key, etc.), and the iOS publish path ships builds to real
+# testers, so a change here is effectively a change to "what can run with our
+# secrets" or "what gets shipped". Require an owner's review on these.
+#
+# NOTE: CODEOWNERS only *enforces* review once branch protection on `main` sets
+# `require_code_owner_review = true` (plus `required_approving_review_count >= 1`).
+# That branch-protection change is the actual gate; this file makes it effective
+# and documents ownership in the meantime.
+
+# All GitHub Actions workflows (all can access secrets).
+/.github/workflows/                     @lawrencecchen
+
+# iOS TestFlight publish path + App Store Connect config.
+/ios/scripts/upload-testflight.sh       @lawrencecchen
+/ios/Config/                            @lawrencecchen

@@ -18,6 +18,21 @@ from cmux import cmux, cmuxError
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
 
+def _wait_flash_above(c: cmux, sid: str, base: int, timeout_s: float = 5.0) -> int:
+    """Poll flash_count until it exceeds base, returning as soon as the
+    asynchronous UI flash increment is observable. trigger_flash schedules the
+    increment on the app/main thread, so under load it may not land within a
+    fixed delay; spend the full deadline only on the failure path."""
+    deadline = time.time() + timeout_s
+    after = c.flash_count(sid)
+    while time.time() < deadline:
+        if after > base:
+            return after
+        time.sleep(0.05)
+        after = c.flash_count(sid)
+    return after
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         sid = c.new_surface(panel_type="terminal")
@@ -27,9 +42,8 @@ def main() -> int:
         base = c.flash_count(sid)
 
         c.trigger_flash(sid)
-        time.sleep(0.05)
 
-        after = c.flash_count(sid)
+        after = _wait_flash_above(c, sid, base)
         if after <= base:
             raise cmuxError(f"Expected flash count to increase (base={base}, after={after})")
 

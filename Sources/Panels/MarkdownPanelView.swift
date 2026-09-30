@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 import WebKit
 
@@ -28,6 +29,7 @@ struct MarkdownPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var copyConfirmation: CopyConfirmation? = nil
     @State private var copyConfirmationGeneration: Int = 0
+    @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
 
     private enum CopyConfirmation: Equatable {
         case markdown
@@ -44,39 +46,29 @@ struct MarkdownPanelView: View {
     }
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
+            filePathHeader
+
+            Divider()
+
             if panel.isFileUnavailable {
                 fileUnavailableView
             } else {
-                markdownContentView
+                markdownBody
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(contentBackgroundColor)
         .overlay {
-            RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-                .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
-                .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
-                .padding(FocusFlashPattern.ringInset)
-                .allowsHitTesting(false)
+            WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
         }
-        .onChange(of: panel.focusFlashToken) { _ in
+        .onChange(of: panel.focusFlashToken) {
             triggerFocusFlashAnimation()
         }
         .environment(\.colorScheme, themeColorScheme)
     }
 
     // MARK: - Content
-
-    private var markdownContentView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            filePathHeader
-
-            Divider()
-
-            markdownBody
-        }
-    }
 
     @ViewBuilder
     private var markdownBody: some View {
@@ -85,11 +77,18 @@ struct MarkdownPanelView: View {
                 markdown: panel.content,
                 theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
                 backgroundColor: appearance.contentBackgroundColor,
+                isVisibleInUI: isVisibleInUI && panel.displayMode == .preview,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
+                fontSize: panel.fontSize,
+                fontFamily: panel.fontFamily,
+                maxContentWidth: panel.maxContentWidth,
                 session: panel.rendererSession,
-                onRequestPanelFocus: onRequestPanelFocus
+                onRequestPanelFocus: onRequestPanelFocus,
+                onViewAttachedToWindow: { [weak panel] in
+                    panel?.replayPendingPreviewFocusAfterWindowAttach()
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(panel.displayMode == .preview ? 1 : 0)
@@ -102,9 +101,27 @@ struct MarkdownPanelView: View {
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground
+                    drawsBackground: appearance.drawsContentBackground,
+                    gutterBackgroundColor: appearance.backgroundColor,
+                    wordWrap: fileEditorWordWrap,
+                    filePath: panel.filePath
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if panel.displayMode == .preview, let searchState = panel.searchState {
+                BrowserSearchOverlay(
+                    panelId: panel.id,
+                    searchState: searchState,
+                    focusRequestGeneration: panel.searchFocusRequestGeneration,
+                    canApplyFocusRequest: { generation in
+                        panel.canApplySearchFocusRequest(generation)
+                    },
+                    onNext: { panel.findNext() },
+                    onPrevious: { panel.findPrevious() },
+                    onClose: { panel.hideFind() },
+                    onFieldDidFocus: {}
+                )
             }
         }
     }
@@ -128,6 +145,14 @@ struct MarkdownPanelView: View {
                     label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
                     isDisabled: !panel.isDirty || panel.isSaving,
                     action: { panel.saveTextContent() }
+                )
+            }
+            if panel.displayMode == .preview {
+                MarkdownTypographyControl(panel: panel)
+                PanelHeaderIconButton(
+                    systemName: "arrow.clockwise",
+                    label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
+                    action: { panel.reloadFromDisk() }
                 )
             }
             markdownModeButton
@@ -163,20 +188,20 @@ struct MarkdownPanelView: View {
     private var fileUnavailableView: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.questionmark")
-                .font(.system(size: 40))
+                .cmuxFont(size: 40)
                 .foregroundColor(.secondary)
             Text(String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"))
-                .font(.headline)
+                .cmuxFont(.headline)
                 .foregroundColor(.primary)
             Text(panel.filePath)
-                .font(.system(size: 12, design: .monospaced))
+                .cmuxFont(size: 12, design: .monospaced)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+                .copyOnlyTextSelection(for: panel.filePath)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -203,9 +228,10 @@ struct MarkdownPanelView: View {
     // MARK: - Copy actions
 
     private func copyAsMarkdown() {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(panel.content, forType: .string)
+        guard GhosttyApp.terminalPasteboard.writeString(
+            panel.content,
+            to: .general
+        ) else { return }
         flashCopyConfirmation(.markdown)
     }
 
@@ -213,12 +239,15 @@ struct MarkdownPanelView: View {
         Task { @MainActor in
             guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
             let text = await panel.rendererSession.renderedText() ?? panel.content
-            let pb = NSPasteboard.general
-            pb.clearContents()
             // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
             // and a plain-text fallback so plain editors still receive content.
-            pb.setString(html, forType: .html)
-            pb.setString(text, forType: .string)
+            let item = NSPasteboardItem()
+            _ = item.setString(html, forType: .html)
+            _ = item.setString(text, forType: .string)
+            guard GhosttyApp.terminalPasteboard.replaceContents(
+                of: .general,
+                with: [item]
+            ) else { return }
             flashCopyConfirmation(.html)
         }
     }
@@ -274,7 +303,7 @@ private struct MarkdownPanelToolbar: View {
         HStack(spacing: 8) {
             if let confirmation {
                 Text(confirmation)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .transition(.opacity)

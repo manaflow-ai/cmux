@@ -1,0 +1,19 @@
+[package]
+name = "cmux-remote-protocol"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Provider-neutral wire and workspace protocol for cmux remote sessions"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Wire types only parse and serialize UUIDs. Random UUID generation belongs in
+# native clients so this crate remains usable by the Cloudflare Worker target.
+uuid = { version = "1", default-features = false, features = ["serde"] }

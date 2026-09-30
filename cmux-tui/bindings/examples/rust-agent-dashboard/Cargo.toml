@@ -1,0 +1,17 @@
+[package]
+name = "cmux-rust-agent-dashboard"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[dependencies]
+cmux-sdk = { path = "../../rust" }
+
+[dev-dependencies]
+serde_json = "1"
+
+# Keep this consumer example independent from the cmux-tui workspace so it
+# exercises the SDK exactly like an external path dependency.
+[workspace]

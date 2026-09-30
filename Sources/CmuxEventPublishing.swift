@@ -1,5 +1,5 @@
 import Foundation
-import CMUXWorkstream
+import CMUXAgentLaunch
 
 extension CmuxEventBus {
     func publishWorkspaceCreated(
@@ -76,6 +76,51 @@ extension CmuxEventBus {
                 index: index,
                 tabCount: tabCount
             )
+        )
+    }
+
+    /// - Parameter submittedLength: the prompt's length as submitted, when the
+    ///   producer reported it. `message` may already be truncated by the time it
+    ///   reaches us, so counting it would report the cap instead of the prompt.
+    func publishWorkspacePromptSubmitted(
+        workspaceId: UUID,
+        message: String?,
+        preview: String?,
+        submittedLength: Int? = nil,
+        source: String = "workspace.prompt_submit"
+    ) {
+        publish(
+            name: "workspace.prompt.submitted",
+            category: "workspace",
+            source: source,
+            workspaceId: workspaceId.uuidString,
+            payload: [
+                "workspace_id": workspaceId.uuidString,
+                "message": NSNull(),
+                "message_preview": preview ?? NSNull(),
+                "message_length": submittedLength ?? message?.count ?? 0,
+                "redacted_fields": ["message"]
+            ]
+        )
+    }
+
+    func publishWorkspaceReordered(
+        workspaceIds: [UUID],
+        movedWorkspaceIds: [UUID],
+        pinnedWorkspaceIds: [UUID],
+        source: String
+    ) {
+        publish(
+            name: "workspace.reordered",
+            category: "workspace",
+            source: source,
+            workspaceId: movedWorkspaceIds.first?.uuidString,
+            payload: [
+                "workspace_ids": workspaceIds.map(\.uuidString),
+                "moved_workspace_ids": movedWorkspaceIds.map(\.uuidString),
+                "pinned_workspace_ids": pinnedWorkspaceIds.map(\.uuidString),
+                "count": workspaceIds.count
+            ]
         )
     }
 
@@ -250,13 +295,31 @@ extension CmuxEventBus {
     }
 
     func publishNotificationChanges(oldValue: [TerminalNotification], newValue: [TerminalNotification]) {
-        let oldById = Dictionary(uniqueKeysWithValues: oldValue.map { ($0.id, $0) })
+        var oldById: [UUID: TerminalNotification] = [:]
+        for notification in oldValue {
+#if DEBUG
+            if oldById[notification.id] != nil {
+                cmuxDebugLog(
+                    "notification.changes.duplicateOldId function=publishNotificationChanges " +
+                        "id=\(notification.id.uuidString) source=oldById " +
+                        "expectedUniqueBy=TerminalNotificationStore.restoreSessionNotifications.notificationWithUniqueId"
+                )
+            }
+#endif
+            oldById[notification.id] = notification
+        }
         let newIds = Set(newValue.map(\.id))
-        let removed = oldValue.filter { !newIds.contains($0.id) }
+        var removedIds = Set<UUID>()
+        let removed = oldValue.filter { notification in
+            guard !newIds.contains(notification.id) else { return false }
+            return removedIds.insert(notification.id).inserted
+        }
         for notification in removed {
             publishNotificationRemoved(notification)
         }
+        var seenNewIds = Set<UUID>()
         for notification in newValue {
+            guard seenNewIds.insert(notification.id).inserted else { continue }
             if let old = oldById[notification.id] {
                 if !old.isRead, notification.isRead {
                     publishNotificationRead(
@@ -365,6 +428,7 @@ extension CmuxEventBus {
             category: "agent",
             source: event.source,
             workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             payload: payload
         )
 
@@ -373,6 +437,7 @@ extension CmuxEventBus {
             category: "feed",
             source: event.source,
             workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             payload: payload
         )
     }
@@ -383,12 +448,15 @@ extension CmuxEventBus {
             "hook_event_name": event.hookEventName.rawValue,
             "_source": event.source,
             "workspace_id": event.workspaceId ?? NSNull(),
+            "surface_id": event.surfaceId ?? NSNull(),
             "cwd": event.cwd ?? NSNull(),
             "tool_name": event.toolName ?? NSNull(),
+            "is_error": event.isError ?? NSNull(),
             "_opencode_request_id": event.requestId ?? NSNull(),
             "_ppid": event.ppid ?? NSNull(),
             "_received_at": Self.isoTimestamp(event.receivedAt)
         ]
+        payload["prompt_length"] = event.submittedPromptLength
         var redactedFields: [String] = []
         if let toolInputJSON = event.toolInputJSON {
             payload["tool_input"] = NSNull()
@@ -412,7 +480,6 @@ extension CmuxEventBus {
         }
         return payload
     }
-
     private static func encodedByteCount<T: Encodable>(_ value: T) -> Int? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

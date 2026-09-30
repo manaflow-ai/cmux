@@ -1,6 +1,37 @@
+import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    /// Returns an option copy suitable for an SSH invocation where cmux
+    /// supplies the remote command. The caller's `RemoteCommand` remains in
+    /// durable workspace configuration, but must not precede cmux's own
+    /// `RemoteCommand=<bootstrap>` or duplicate a `RemoteCommand=none`
+    /// override on the actual argv.
+    internal func sshCommandOptionsWithoutRemoteCommand(
+        _ options: SSHCommandOptions
+    ) -> SSHCommandOptions {
+        var sanitized = options
+        sanitized.sshOptions = SSHAgentSocketResolver().removingOptions(
+            named: "RemoteCommand",
+            from: options.sshOptions
+        )
+        return sanitized
+    }
+
+    /// Inserts `-o RemoteCommand=none` right after the `ssh` executable so a
+    /// host-configured (or caller-supplied) `RemoteCommand` cannot conflict
+    /// with the command-line remote command this invocation appends — OpenSSH
+    /// aborts on that combination ("Cannot execute command-line and remote
+    /// command.", issue #7246) and honors the first value per option. Only
+    /// for invocations that pass their own command; the interactive session
+    /// hop keeps its explicit `-o RemoteCommand=<bootstrap>`.
+    internal func sshArgumentsOverridingHostRemoteCommand(_ arguments: [String]) -> [String] {
+        guard let executable = arguments.first else {
+            return SSHHostConfiguredRemoteCommand().overrideArguments
+        }
+        return [executable] + SSHHostConfiguredRemoteCommand().overrideArguments + arguments.dropFirst()
+    }
+
     internal func openSSHLocalCommandValue(shellScript: String?) -> String? {
         guard let shellScript else { return nil }
         let trimmed = shellScript.trimmingCharacters(in: .whitespacesAndNewlines)

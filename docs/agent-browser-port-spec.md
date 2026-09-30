@@ -19,7 +19,7 @@ As of February 12, 2026:
 1. `./scripts/run-tests-v1.sh` passes on `cmux-vm`.
 2. `./scripts/run-tests-v2.sh` passes on `cmux-vm`.
 3. Browser parity suites passing in v2: `test_browser_api_comprehensive.py`, `test_browser_api_p0.py`, `test_browser_api_extended_families.py`, `test_browser_api_unsupported_matrix.py`, and `test_browser_cli_agent_port.py`.
-4. Visual suite note: `tests/test_visual_screenshots.py` and `tests_v2/test_visual_screenshots.py` both report D12 (`Nested: Close Top of T-shape`) as a known non-blocking VM failure when it reproduces (`VIEW_DETACHED`).
+4. Visual suite note: `tests_v2/test_visual_screenshots.py` reports D12 (`Nested: Close Top of T-shape`) as a known non-blocking VM failure when it reproduces (`VIEW_DETACHED`).
 
 ## Concepts (Canonical Terms)
 
@@ -225,7 +225,7 @@ P1 (important but not blocking initial parity):
 2. `browser.frame.select`
 3. `browser.frame.main`
 4. `browser.dialog.respond`
-5. `browser.download.wait`
+5. `browser.download.wait|list`
 6. `browser.tab.*` compatibility aliases mapped to cmux surfaces
 7. `browser.console.list`
 8. `browser.errors.list`
@@ -288,6 +288,7 @@ Proposed methods:
 1. `surface.move` with `surface_id` + destination (`pane_id` or `workspace_id`/`window_id`) + placement (`before_surface_id|after_surface_id|start|end`)
 2. `surface.reorder` with `surface_id` + sibling anchor (`before_surface_id|after_surface_id`)
 3. `workspace.reorder` with `workspace_id` + anchor (`before_workspace_id|after_workspace_id`)
+4. `workspace.reorder_many` with a `workspace_ids` final leading order inside pinned and unpinned groups. Unmentioned workspaces keep their relative order after the listed workspaces in the same group.
 
 Hard invariant:
 1. `surface_id` must remain unchanged after all move/reorder operations.
@@ -330,7 +331,7 @@ Hard invariant:
 - [x] Implement `browser.find.nth|first|last`.
 - [x] Implement frame context switching (`frame.select`, `frame.main`).
 - [x] Implement dialog handling (`accept`, `dismiss`, optional prompt text).
-- [x] Implement download waiting.
+- [x] Implement download waiting and newest-first history listing.
 - [x] Implement console/error buffers and retrieval.
 - [x] Implement highlight helper.
 - [x] Implement browser state save/load format.
@@ -342,14 +343,14 @@ Hard invariant:
 - [x] Implement cross-workspace surface moves.
 - [x] Implement cross-window surface moves.
 - [x] Implement `workspace.reorder`.
-- [x] Add CLI commands for tab/surface reordering and moving (`move-surface`, `reorder-surface`, `reorder-workspace`).
+- [x] Add CLI commands for tab/surface reordering and moving (`move-surface`, `reorder-surface`, `reorder-workspace`, `reorder-workspaces`).
 - [x] Add response payloads that confirm final `window_id/workspace_id/pane_id/surface_id`.
 - [x] Add explicit invariants tests for `surface_id` stability.
 
 ### Phase 4: Advanced/Optional Parity (P2)
 
 - [ ] Evaluate feasibility of request interception/mocking in `WKWebView`; implement supported subset.
-- [ ] Add emulation settings that are feasible in `WKWebView`.
+- [x] Add exact 1...4096 CSS-pixel viewport emulation for `WKWebView`; aspect-fit the page without changing pane layout, preserve focus, and restore native sizing with `browser viewport reset`.
 - [ ] Add trace/recording equivalents where practical.
 - [x] Add script/style injection helpers.
 - [x] Document unsupported commands with explicit error `not_supported`.

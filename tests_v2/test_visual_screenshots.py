@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Union
 
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux
@@ -383,7 +383,7 @@ def test_a3_split_down(client: cmux) -> StateChange:
     return change
 
 
-def _close_and_verify(client: cmux, change: StateChange, close_idx: int,
+def _close_and_verify(client: cmux, change: StateChange, close_idx: Union[int, str],
                       expected: int, before_label: str, after_label: str) -> StateChange:
     """Shared logic: close a surface, verify count, verify responsiveness, capture after."""
     change.before, change.before_state = capture(client, before_label)
@@ -394,10 +394,22 @@ def _close_and_verify(client: cmux, change: StateChange, close_idx: int,
             change.error = f"Expected {expected} surface(s), got {surface_count(client)}"
             change.passed = False
         else:
-            # Functional blank-detection: verify every remaining terminal responds
-            blank_err = verify_all_responsive(client, after_label)
-            if blank_err:
-                change.error = f"BLANK: {blank_err}"
+            # Functional blank-detection can be transient while split-tree views settle.
+            last_blank_err = None
+            for verify_attempt in range(3):
+                blank_err = verify_all_responsive(client, after_label)
+                if not blank_err:
+                    last_blank_err = None
+                    break
+                last_blank_err = blank_err
+                if verify_attempt < 2:
+                    try:
+                        client.refresh_surfaces()
+                    except Exception:
+                        pass
+                    time.sleep(0.8 + (0.4 * verify_attempt))
+            if last_blank_err:
+                change.error = f"BLANK: {last_blank_err}"
                 change.passed = False
     except Exception as e:
         change.error = str(e)
@@ -532,19 +544,26 @@ def test_d11_nested_close_bottomright(client: cmux) -> StateChange:
 
 
 def test_d12_nested_close_top(client: cmux) -> StateChange:
-    """D12: Split down, split bottom right → close top pane."""
+    """D12: Split down, split bottom right → close original top pane."""
     change = StateChange(
         name="Nested: Close Top of T-shape", group="D",
-        description="Split down → split bottom right → close top (surface 0)",
-        command="split down; focus 1; split right; close 0",
+        description="Split down → split bottom right → close the original top surface by ID",
+        command="capture top-id; split down; focus 1; split right; close <top-id>",
     )
+    surfaces = client.list_surfaces()
+    if not surfaces:
+        change.passed = False
+        change.error = "No initial surface"
+        return change
+    top_surface_id = surfaces[0][1]
+
     client.new_split("down")
     time.sleep(SPLIT_WAIT)
     client.focus_surface(1)
     time.sleep(SHORT_WAIT)
     client.new_split("right")
     time.sleep(SPLIT_WAIT)
-    return _close_and_verify(client, change, 0, 2, "d12_before", "d12_after")
+    return _close_and_verify(client, change, top_surface_id, 2, "d12_before", "d12_after")
 
 
 def test_d13_4pane_close_second(client: cmux) -> StateChange:
@@ -1310,13 +1329,6 @@ def generate_html_report(changes: list[StateChange]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _is_known_non_blocking_failure(change: StateChange) -> bool:
-    """Return True for known flaky VM-only visual failures we still report but do not gate on."""
-    if change.name == "Nested: Close Top of T-shape" and "VIEW_DETACHED" in (change.error or ""):
-        return True
-    return False
-
-
 def run_visual_tests():
     changes: list[StateChange] = []
 
@@ -1428,25 +1440,20 @@ def run_visual_tests():
     print("=" * 60)
     passed = sum(1 for c in changes if c.passed)
     failed_changes = [c for c in changes if not c.passed]
-    non_blocking_failed = [c for c in failed_changes if _is_known_non_blocking_failure(c)]
-    blocking_failed = [c for c in failed_changes if not _is_known_non_blocking_failure(c)]
 
     print(f"  Passed: {passed}")
     print(f"  Failed: {len(failed_changes)}")
-    if non_blocking_failed:
-        print(f"  Non-blocking failed: {len(non_blocking_failed)}")
     print(f"  Total:  {len(changes)}")
 
     if failed_changes:
         print()
         print("Failed tests:")
         for c in failed_changes:
-            marker = " (non-blocking)" if _is_known_non_blocking_failure(c) else ""
-            print(f"  - {c.name}{marker}: {c.error or 'unknown'}")
+            print(f"  - {c.name}: {c.error or 'unknown'}")
 
     print()
     print(f"Report: {HTML_REPORT}")
-    return 0 if len(blocking_failed) == 0 else 1
+    return 0 if len(failed_changes) == 0 else 1
 
 
 if __name__ == "__main__":
