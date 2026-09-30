@@ -100,7 +100,8 @@ struct CodexHookInjectionStrippingTests {
                 agentEvent: $0.agentEvent,
                 cmuxSubcommand: $0.cmuxSubcommand,
                 timeoutMs: $0.timeoutMs,
-                delivery: $0.delivery
+                delivery: $0.delivery,
+                codexTimeoutValue: $0.timeoutMs
             )
         }
         let arguments = ["codex"] + hookArguments(events: events) { subcommand in
@@ -698,11 +699,22 @@ struct CodexHookInjectionStrippingTests {
     private func oldCurrentCodexHookArguments(
         command: (String) -> String
     ) -> [String] {
-        hookArguments(events: codexWrapperHookEvents, command: command).map { argument in
-            argument
-                .replacingOccurrences(of: ",timeout=5}", with: ",timeout=5000}")
-                .replacingOccurrences(of: ",timeout=120}", with: ",timeout=120000}")
-        }
+        hookArguments(events: codexWrapperHookEvents.map { event in
+            CodexHookInjectionEvent(
+                agentEvent: event.agentEvent,
+                cmuxSubcommand: event.cmuxSubcommand,
+                timeoutMs: event.timeoutMs,
+                delivery: event.delivery,
+                companion: event.companion.map {
+                    CodexHookCompanion(
+                        cmuxSubcommand: $0.cmuxSubcommand,
+                        timeoutMs: $0.timeoutMs,
+                        codexTimeoutValue: $0.timeoutMs
+                    )
+                },
+                codexTimeoutValue: event.timeoutMs
+            )
+        }, command: command)
     }
 
     private var codexWrapperHookEvents: [CodexHookInjectionEvent] {
@@ -718,7 +730,14 @@ struct CodexHookInjectionStrippingTests {
             ("Notification", "notification", 10000),
             ("Stop", "stop", 10000),
         ]
-        return events.map { CodexHookInjectionEvent(agentEvent: $0.0, cmuxSubcommand: $0.1, timeoutMs: $0.2) }
+        return events.map {
+            CodexHookInjectionEvent(
+                agentEvent: $0.0,
+                cmuxSubcommand: $0.1,
+                timeoutMs: $0.2,
+                codexTimeoutValue: $0.2
+            )
+        }
     }
 
     private var legacySynchronousChildHookEvents: [CodexHookInjectionEvent] {
@@ -732,7 +751,14 @@ struct CodexHookInjectionStrippingTests {
             ("SubagentStart", "subagent-start", 10000),
             ("SubagentStop", "subagent-stop", 10000),
         ]
-        return events.map { CodexHookInjectionEvent(agentEvent: $0.0, cmuxSubcommand: $0.1, timeoutMs: $0.2) }
+        return events.map {
+            CodexHookInjectionEvent(
+                agentEvent: $0.0,
+                cmuxSubcommand: $0.1,
+                timeoutMs: $0.2,
+                codexTimeoutValue: $0.2
+            )
+        }
     }
 
     private var legacyAliasHookEvents: [CodexHookInjectionEvent] {
@@ -741,7 +767,14 @@ struct CodexHookInjectionStrippingTests {
             ("SessionStop", "stop", 10000),
             ("Notification", "notification", 10000),
         ]
-        return events.map { CodexHookInjectionEvent(agentEvent: $0.0, cmuxSubcommand: $0.1, timeoutMs: $0.2) }
+        return events.map {
+            CodexHookInjectionEvent(
+                agentEvent: $0.0,
+                cmuxSubcommand: $0.1,
+                timeoutMs: $0.2,
+                codexTimeoutValue: $0.2
+            )
+        }
     }
 
     private func isKnownAgentExecutableName(_ name: String) -> Bool {

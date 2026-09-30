@@ -6,8 +6,15 @@ public struct CodexHookInjectionEvent: Equatable, Sendable {
     /// The cmux hook subcommand invoked for the event.
     public let cmuxSubcommand: String
 
-    /// The timeout Codex applies to the hook command, in milliseconds.
+    /// The timeout source value used by cmux's hook delivery policy, in milliseconds.
     public let timeoutMs: Int
+
+    /// The literal timeout value rendered into Codex configuration.
+    ///
+    /// Current schemas store seconds here, rounded up from ``timeoutMs``.
+    /// Compatibility schemas may retain the historical millisecond value so
+    /// replay sanitization can remove saved commands from older cmux builds.
+    public let codexTimeoutValue: Int
 
     /// Whether the hook may return after bounded queue admission or must keep
     /// the direct process/stdout contract for an agent decision.
@@ -25,13 +32,31 @@ public struct CodexHookInjectionEvent: Equatable, Sendable {
         cmuxSubcommand: String,
         timeoutMs: Int,
         delivery: CodexHookDelivery = .queued,
-        companion: CodexHookCompanion? = nil
+        companion: CodexHookCompanion? = nil,
+        codexTimeoutValue: Int? = nil
     ) {
         self.agentEvent = agentEvent
         self.cmuxSubcommand = cmuxSubcommand
         self.timeoutMs = timeoutMs
+        self.codexTimeoutValue = codexTimeoutValue ?? Self.codexTimeoutSeconds(fromMilliseconds: timeoutMs)
         self.delivery = delivery
         self.companion = companion
+    }
+
+    /// Returns a copy that renders the supplied literal timeout value.
+    func withCodexTimeoutValue(_ value: Int) -> Self {
+        Self(
+            agentEvent: agentEvent,
+            cmuxSubcommand: cmuxSubcommand,
+            timeoutMs: timeoutMs,
+            delivery: delivery,
+            companion: companion?.withCodexTimeoutValue(companion?.timeoutMs ?? value),
+            codexTimeoutValue: value
+        )
+    }
+
+    private static func codexTimeoutSeconds(fromMilliseconds milliseconds: Int) -> Int {
+        ((max(milliseconds, 1) - 1) / 1_000) + 1
     }
 }
 
@@ -42,12 +67,20 @@ public struct CodexHookCompanion: Equatable, Sendable {
     /// The cmux hook subcommand invoked for the event.
     public let cmuxSubcommand: String
 
-    /// The timeout Codex applies to the hook command, in milliseconds.
+    /// The timeout source value used by cmux's hook delivery policy, in milliseconds.
     public let timeoutMs: Int
 
-    public init(cmuxSubcommand: String, timeoutMs: Int) {
+    /// The literal timeout value rendered into Codex configuration.
+    public let codexTimeoutValue: Int
+
+    public init(cmuxSubcommand: String, timeoutMs: Int, codexTimeoutValue: Int? = nil) {
         self.cmuxSubcommand = cmuxSubcommand
         self.timeoutMs = timeoutMs
+        self.codexTimeoutValue = codexTimeoutValue ?? ((max(timeoutMs, 1) - 1) / 1_000) + 1
+    }
+
+    func withCodexTimeoutValue(_ value: Int) -> Self {
+        Self(cmuxSubcommand: cmuxSubcommand, timeoutMs: timeoutMs, codexTimeoutValue: value)
     }
 }
 
@@ -65,11 +98,11 @@ extension CodexHookInjectionEvent {
     /// sanitizer's expected shape has one source.
     public func configValue(command: (String) throws -> String) rethrows -> String {
         var handlers = [
-            "{type=\"command\",command='''\(try command(cmuxSubcommand))''',timeout=\(timeoutMs)}",
+            "{type=\"command\",command='''\(try command(cmuxSubcommand))''',timeout=\(codexTimeoutValue)}",
         ]
         if let companion {
             handlers.append(
-                "{type=\"command\",command='''\(try command(companion.cmuxSubcommand))''',timeout=\(companion.timeoutMs)}"
+                "{type=\"command\",command='''\(try command(companion.cmuxSubcommand))''',timeout=\(companion.codexTimeoutValue)}"
             )
         }
         return "hooks.\(agentEvent)=[{hooks=[\(handlers.joined(separator: ","))]}]"
