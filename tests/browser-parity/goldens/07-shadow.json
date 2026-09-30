@@ -3,6 +3,6 @@
     "out": "shadow clicked trusted=true value=inside"
   },
   "cmux": {
-    "full": "title: Shadow Fixture\nurl: PRIMARY/shadow.html\n- heading \"Shadow DOM\" [level=1]\n- region \"Card\" [ref=e1]:\n  - heading \"Card title\" [level=2]\n  - textbox \"Shadow input\" [ref=e2]\n  - button \"Shadow button\" [ref=e3]\n- paragraph: \"none\""
+    "full": "title: Shadow Fixture\nurl: PRIMARY/shadow.html\n- heading \"Shadow DOM\" [level=1]\n- region \"Card\" [ref=e1]:\n  - heading \"Card title\" [level=2]\n  - textbox \"Shadow input\" [ref=e2]\n  - button \"Shadow button\" [ref=e3]\n- text: \"none\""
   }
 }

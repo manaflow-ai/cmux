@@ -487,8 +487,36 @@ final class BrowserReplTabAttachment {
 }
 
 /// The isolated content world the REPL page agent lives in.
+///
+/// The world is configured to see closed shadow roots
+/// (`_WKContentWorldConfiguration.allowAccessToClosedShadowRoots`, the switch
+/// WebKit gives web extension worlds): in it `element.shadowRoot` returns a
+/// closed root too, so the snapshot, refs and Playwright's selector engines
+/// reach closed components the way an accessibility tree does. Page scripts
+/// in other worlds still see `null`. Without the SPI the world is a plain
+/// named world and closed roots stay hidden.
 enum BrowserReplAgentWorld {
-    @MainActor static let world = WKContentWorld.world(name: "cmux-agent")
+    static let name = "cmux-agent"
+
+    @MainActor static let world: WKContentWorld = configuredWorld() ?? .world(name: name)
+
+    @MainActor private static func configuredWorld() -> WKContentWorld? {
+        guard let configurationClass = NSClassFromString("_WKContentWorldConfiguration") as? NSObject.Type else {
+            return nil
+        }
+        let configuration = configurationClass.init()
+        let setName = NSSelectorFromString("setName:")
+        let setClosed = NSSelectorFromString("setAllowAccessToClosedShadowRoots:")
+        let factory = NSSelectorFromString("_worldWithConfiguration:")
+        guard configuration.responds(to: setName), configuration.responds(to: setClosed),
+              (WKContentWorld.self as AnyObject).responds(to: factory) else {
+            return nil
+        }
+        configuration.setValue(name, forKey: "name")
+        configuration.setValue(true, forKey: "allowAccessToClosedShadowRoots")
+        return (WKContentWorld.self as AnyObject).perform(factory, with: configuration)?
+            .takeUnretainedValue() as? WKContentWorld
+    }
 }
 
 /// Receives console and page error reports from the page telemetry script.

@@ -22,6 +22,18 @@ equivalent.
     cells use APIs with no Playwright counterpart and the oracle skips them.
   - A header line `// oracle: skip (<reason>)` makes a whole scenario cmux-owned.
 - `goldens/NN-name.json`: `{ "oracle": {key: value}, "cmux": {key: value} }`.
+- `fixtures/corpus/`: nine public pages (Wikipedia, Hacker News, a GitHub
+  repository, two MDN pages, one with live-example iframes, NPR text, BBC
+  News, an e-commerce listing, Vercel's marketing SPA) frozen by
+  `lib/corpus.mjs capture` in logged-out headless Chrome: post-JavaScript DOM,
+  scripts removed, stylesheets inlined and pruned to matching rules, fonts and
+  remote images replaced, iframes inlined as `srcdoc`. `NAME.oracle.json`
+  (`lib/corpus.mjs oracle`) holds what Chrome's Playwright AI snapshot lists
+  as interactive and the text Chrome does not render; `aside-sizes.json`
+  holds the size of Aside's snapshot of each frozen page. Scenario
+  `27-corpus` checks recall (every Chrome interactive element, same role and
+  name), leaks (no unrendered text) and size (within 10% of Aside) per page.
+  Re-capture only on purpose: it changes the pages under test.
 - `reference/`: API surfaces captured from Aside and ChatGPT for Chrome.
 - `unit/`: `node --test` tests for the runtime and for capabilities.json.
 
@@ -50,7 +62,28 @@ node tests/browser-parity/run.mjs record --backend oracle
 node tests/browser-parity/run.mjs record --backend cmux-dev
 
 # Print values without comparing: run --backend <name> [--only NN] [-v]
+
+# Corpus: freeze the pages again, then record Chrome's expectations
+node tests/browser-parity/lib/corpus.mjs capture [--only NAME]
+node tests/browser-parity/lib/corpus.mjs oracle [--only NAME]
 ```
+
+Snapshot bytes on the corpus (cmux-dev, Aside CLI 1.26.916.1741):
+
+| Page | cmux | Aside | Chrome AI snapshot |
+| --- | ---: | ---: | ---: |
+| wikipedia | 62,634 | 68,640 | 210,081 |
+| hackernews | 10,574 | 11,878 | 62,999 |
+| github | 62,821 | 61,635 | 227,801 |
+| mdn | 19,929 | 28,433 | 73,141 |
+| mdn-iframe | 43,485 | 56,365 | 146,590 |
+| npr | 2,486 | 4,835 | 5,561 |
+| bbc | 16,257 | 16,139 | 50,935 |
+| books | 7,814 | 14,974 | 35,677 |
+| vercel | 6,372 | 10,398 | 26,338 |
+
+Aside's GitHub and BBC snapshots leave out visible text that cmux keeps
+(card descriptions and times, heading anchors, README table cells).
 
 Playwright loads from `PARITY_PLAYWRIGHT_DIR`, the ChatGPT app's bundled copy,
 or `node_modules`; WebKit comes from `~/.cache/cmux-parity-browsers`.

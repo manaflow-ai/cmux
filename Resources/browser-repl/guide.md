@@ -30,7 +30,8 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   `get(id)`. `list()` returns `{ id, title, url, active, current }` for every
   tab in the workspace without attaching; `use(id)` and `get(id)` return a `Page`.
 - `snapshot(target?, options?)`: accessibility snapshot of `page`, a locator or
-  a ref. Options: `interactive`, `showHidden`, `maxChars`, `options`.
+  a ref. Options: `interactive`, `showHidden`, `maxChars`, `options`, and
+  `urls` (print each link's `[url=…]`).
 - `screenshot(target?, options?)`: an image of the viewport, `{ fullPage }`, a
   locator or a ref. `{ annotate: true }` draws each ref's box and label.
   Printing an image saves it to a file and prints the path.
@@ -47,7 +48,7 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
     title: Sign up
     url: http://localhost:8765/
     - navigation "Main" [ref=e1]:
-      - link "Home" [ref=e2] [url=/aria.html]
+      - link "Home" [ref=e2]
     - main:
       - heading "Sign up" [level=1]
       - textbox "Email" [ref=e3] [placeholder="you@x.com"]: "me@x.com"
@@ -55,6 +56,9 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
       - combobox "Plan" [ref=e5]: "Pro"
       - table "Scores":
         - row: "Name | Score"
+        - row:
+          - cell: "Ada"
+          - link "Profile" [ref=e6]
       - iframe "Payment" [ref=e7]:
         - textbox "Card" [ref=f1e1]
 
@@ -67,7 +71,13 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   dialogs and lists. States: `[checked]`, `[checked=mixed]`, `[disabled]`,
   `[expanded]`, `[expanded=false]`, `[pressed]`, `[selected]`, `[focused]`,
   `[required]`, `[invalid]`, `[readonly]`, `[level=N]`, `[scrollable]`.
-- Frames (also cross-origin) and open shadow roots are inlined.
+- Only what a user can see prints: collapsed, `display:none`,
+  `content-visibility:hidden`, inert and `aria-hidden` content does not
+  (`showHidden` adds it). Names come from content only for buttons, links,
+  headings and similar leaves, so nothing prints twice. Tables print
+  `row: "a | b"` when every cell is text; layout tables flatten.
+- Frames (also cross-origin and nested) and shadow roots, closed ones too,
+  are inlined; refs and locators work inside them.
 - An open dialog or file chooser prints first, under the header.
 - Printing a snapshot shows its diff against the previous snapshot of the
   same tab when that is at least 30% shorter, else the full tree. `.tree` and

@@ -72,7 +72,8 @@
     }
   };
   const normalize = (s) => String(s || "").replace(/\s+/g, " ").trim();
-  const capName = (s) => (s.length > 200 ? s.slice(0, 199) + "…" : s);
+  // A safety cap only: the host decides how much of a name to print.
+  const capName = (s) => (s.length > 2000 ? s.slice(0, 1999) + "…" : s);
 
   function parentCrossingShadow(el) {
     if (el.parentElement) return el.parentElement;
@@ -148,8 +149,9 @@
 
   const SKIP_TAGS = new Set(["script", "style", "noscript", "template", "head", "meta", "link", "title", "base"]);
   // Structure that carries no meaning for an agent: its text joins the parent.
+  // Paragraphs too: their text prints as its own lines either way.
   const FLATTEN_ROLES = new Set(["generic", "none", "presentation", "strong", "emphasis", "code", "mark", "subscript",
-    "superscript", "deletion", "insertion", "time", "rowgroup"]);
+    "superscript", "deletion", "insertion", "time", "rowgroup", "paragraph"]);
   const FLATTEN_UNNAMED_ROLES = new Set(["group", "img", "image", "region", "caption"]);
   const INTERACTIVE_ROLES = new Set(["button", "link", "textbox", "searchbox", "checkbox", "radio", "combobox", "listbox",
     "option", "menuitem", "menuitemcheckbox", "menuitemradio", "slider", "spinbutton", "switch", "tab", "treeitem", "scrollbar"]);
@@ -164,9 +166,50 @@
   const LEAF_TAGS = new Set(["input", "textarea", "select", "img", "svg", "canvas", "progress", "meter", "video", "audio", "iframe", "frame"]);
   const BREAK = { brk: true };
 
+  // Tables used for page layout (Hacker News, old sites, emails) are not
+  // data: their rows and cells flatten into the content, as Chromium's
+  // accessibility tree does. A table is data when it declares any header,
+  // caption or table structure; otherwise a table that holds or sits in
+  // another table, a single row or column, or rows of differing lengths mark
+  // it as layout.
+  const layoutTables = new WeakMap();
+  const TABLE_PART_TAGS = new Set(["table", "thead", "tbody", "tfoot", "tr", "td", "th"]);
+  function isLayoutTable(table) {
+    let layout = layoutTables.get(table);
+    if (layout !== undefined) return layout;
+    layout = false;
+    if (!table.getAttribute("role") && !table.hasAttribute("summary") && !(Number(table.getAttribute("border")) > 0) &&
+        !(table.caption || table.tHead || table.tFoot || table.querySelector(":scope > colgroup"))) {
+      const rows = [...table.rows];
+      let dataCell = false;
+      const lengths = new Set();
+      for (const row of rows) {
+        let length = 0;
+        for (const cell of row.cells) {
+          length += cell.colSpan || 1;
+          if (tagOf(cell) === "th" || cell.hasAttribute("scope") || cell.hasAttribute("headers") || cell.getAttribute("role")) dataCell = true;
+        }
+        if (length) lengths.add(length);
+      }
+      if (!dataCell) {
+        const columns = Math.max(0, ...lengths);
+        const nested = !!table.querySelector("table") || !!(table.parentElement && table.parentElement.closest("td, th"));
+        layout = nested || rows.length <= 1 || columns <= 1 || lengths.size > 1;
+      }
+    }
+    layoutTables.set(table, layout);
+    return layout;
+  }
+  function inLayoutTable(el, tag) {
+    if (!TABLE_PART_TAGS.has(tag) || el.getAttribute("role")) return false;
+    const table = tag === "table" ? el : el.closest("table");
+    return !!table && isLayoutTable(table);
+  }
+
   function roleOf(el) {
     const tag = tagOf(el);
     if (tag === "iframe" || tag === "frame") return "iframe";
+    if (inLayoutTable(el, tag)) return "none";
     const explicit = (el.getAttribute("role") || "").trim();
     const role = injected ? injected.utils.getAriaRole(el) : null;
     if (role) return role;
@@ -176,6 +219,26 @@
     if (!explicit && tag === "canvas") return "canvas";
     if (!explicit && isContentEditableHost(el)) return "textbox";
     return "generic";
+  }
+
+  // Roles ARIA names from their content and that hold little else: their
+  // content name is how an agent finds them. Containers that ARIA also names
+  // from content (rows, cells, list and tree items) would repeat everything
+  // their children print, so they take only an author name.
+  const CONTENT_NAMED_ROLES = new Set(["button", "link", "heading", "option", "tab", "menuitem", "menuitemcheckbox",
+    "menuitemradio", "checkbox", "radio", "switch", "tooltip", "treeitem"]);
+  const AUTHOR_NAMED_ONLY_ROLES = new Set(["row", "cell", "gridcell", "columnheader", "rowheader", "listitem",
+    "paragraph", "term", "definition", "blockquote", "status", "alert", "log", "note", "article"]);
+
+  function authorName(el) {
+    const ids = (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
+    const labelled = ids.map((id) => (el.ownerDocument.getElementById(id) || {}).textContent || "").join(" ");
+    return capName(normalize(labelled || el.getAttribute("aria-label") || ""));
+  }
+
+  function nodeName(el, role, includeHidden) {
+    if (AUTHOR_NAMED_ONLY_ROLES.has(role)) return authorName(el);
+    return accessibleName(el, includeHidden);
   }
 
   function accessibleName(el, includeHidden) {
@@ -191,15 +254,38 @@
     return capName(normalize(name));
   }
 
-  // Visible as in Playwright's AI snapshot: rendered with visibility
-  // `visible`, whatever the box size, so an empty progress bar still counts.
-  function isVisible(el, style) {
-    if (injected && injected.utils.isElementVisible(el)) return true;
-    if (!style || style.display === "none" || style.display === "contents" || style.visibility !== "visible") return false;
-    const details = el.parentElement && el.parentElement.closest("details");
-    if (details && !details.open) {
-      const summary = [...details.children].find((c) => tagOf(c) === "summary");
-      if (!summary || !summary.contains(el)) return false;
+  // What a user can see. An element is *rendered* unless it or an ancestor
+  // is display:none or content-visibility:hidden (a closed <details>,
+  // hidden=until-found, which WebKit lays out as a block with skipped
+  // content), inert, aria-hidden, or clipped away inside a zero-size box
+  // with overflow hidden. A rendered element is *visible* when its own
+  // visibility is `visible`; an invisible one can still hold visible
+  // children. This is Playwright's isElementVisible (checkVisibility, which
+  // Playwright skips on WebKit) without its non-empty box test, so an empty
+  // progress bar or a zero-height float container still counts.
+  function checkVisibility(el) {
+    try {
+      return typeof el.checkVisibility === "function" ? el.checkVisibility() : true;
+    } catch {
+      return true;
+    }
+  }
+  const CLIPS = new Set(["hidden", "clip", "scroll", "auto"]);
+  // content-visibility needs layout containment, which inline boxes and
+  // table parts other than cells ignore.
+  const NO_CONTAINMENT_DISPLAYS = new Set(["inline", "table-row", "table-row-group", "table-header-group",
+    "table-footer-group", "table-column", "table-column-group", "ruby-base", "ruby-text", "contents"]);
+  function skipsContents(style) {
+    return style.contentVisibility === "hidden" && !NO_CONTAINMENT_DISPLAYS.has(style.display);
+  }
+  function isRendered(el, style) {
+    if (!style || style.display === "none") return false;
+    if (el.hasAttribute("inert")) return false;
+    if (style.display === "contents") return true;
+    if (!checkVisibility(el)) return false;
+    if (CLIPS.has(style.overflowX) || CLIPS.has(style.overflowY)) {
+      const r = el.getBoundingClientRect();
+      if ((r.width < 1 && CLIPS.has(style.overflowX)) || (r.height < 1 && CLIPS.has(style.overflowY))) return false;
     }
     return true;
   }
@@ -362,21 +448,28 @@
     if (SKIP_TAGS.has(tag)) return;
     const style = styleOf(el);
     const ariaHidden = parentAriaHidden || el.getAttribute("aria-hidden") === "true";
-    const visible = !ariaHidden && isVisible(el, style);
+    const rendered = !ariaHidden && isRendered(el, style);
+    if (!rendered && !ctx.showHidden) return;
+    const visible = rendered && style.visibility === "visible";
+    // content-visibility:hidden keeps the element's box and skips its
+    // contents, so nothing in it can be seen.
+    if (rendered && !ctx.showHidden && skipsContents(style)) return;
     if (!visible && !ctx.showHidden) {
-      // A visibility:hidden or zero-size parent can still hold visible children.
-      if (ariaHidden || (style && style.display === "none")) return;
+      // A visibility:hidden parent can still hold visible children.
       visitChildren(el, out, ctx, false, ariaHidden, skipText);
       return;
     }
     const role = roleOf(el);
     const interactive = isInteractive(el, role, style);
     const scrollable = isScrollable(el, style);
-    const flattenable = FLATTEN_ROLES.has(role) || FLATTEN_UNNAMED_ROLES.has(role);
-    const name = FLATTEN_ROLES.has(role) && !interactive && !scrollable ? "" : accessibleName(el, !visible);
-    if (!interactive && !scrollable && (FLATTEN_ROLES.has(role) || (flattenable && !name))) {
+    // A hidden paragraph (showHidden) keeps its node so it can say [hidden].
+    const flattens = FLATTEN_ROLES.has(role) && !(role === "paragraph" && !visible);
+    const flattenable = flattens || FLATTEN_UNNAMED_ROLES.has(role);
+    const name = flattens && !interactive && !scrollable ? "" : nodeName(el, role, !visible);
+    if (!interactive && !scrollable && (flattens || (flattenable && !name))) {
       if (role === "img" || role === "image") return;
-      const block = isBlock(style, tag);
+      // Unrendered content (showHidden) has no layout; keep it apart.
+      const block = isBlock(style, tag) || !rendered;
       if (block) out.push(BREAK);
       // A <label>'s own text is its control's name, printed on the control.
       const labelText = tag === "label" && el.control;

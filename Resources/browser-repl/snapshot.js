@@ -7,12 +7,24 @@
   const core = ns.core;
 
   const CELL_ROLES = new Set(["cell", "gridcell", "columnheader", "rowheader"]);
-  const CONTAINER_ROLES = new Set(["row", "cell", "gridcell", "columnheader", "rowheader", "listitem"]);
+  // Roles that say something even with no name, value or children.
+  const MEANINGFUL_EMPTY_ROLES = new Set(["separator", "iframe", "img", "image", "canvas", "progressbar", "meter", "slider",
+    "scrollbar", "math"]);
+  // A name from content longer than this prints as its content instead.
+  const CONTENT_NAME_LIMIT = 200;
+  // Longest name printed, other than a name that stands for the content;
+  // longer names end in "…" (refs still resolve).
+  const NAME_LIMIT = 100;
+  // Unnamed wrappers that print as their only element child.
+  const TRANSPARENT_WRAPPERS = new Set(["listitem", "cell", "gridcell"]);
   // Printing prefers the diff when it is at least this much smaller.
   const DIFF_SAVING = 0.3;
 
   const q = (s) => JSON.stringify(String(s));
   const normalize = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  // Engines join inline content with or without spaces, and pages pad text
+  // with zero-width characters; compare without either.
+  const squash = (s) => String(s || "").replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "");
 
   function hasRef(list) {
     return (list || []).some((c) => typeof c !== "string" && (c.ref || hasRef(c.children)));
@@ -36,19 +48,44 @@
       const n = Object.assign({}, raw);
       if (n.children) n.children = shape(n.children, options);
       // A caption, legend or label that names its container is not repeated.
-      if (n.name && n.children && n.children[0] === n.name) n.children = n.children.slice(1);
+      if (n.name && n.children && n.children.length > 1 && n.children[0] === n.name) n.children = n.children.slice(1);
       if (n.role === "row" && n.children && !hasRef(n.children) && n.children.every((c) => typeof c !== "string" && CELL_ROLES.has(c.role))) {
         const cells = n.children.map((c) => c.name || textOf(c.children));
-        if (!n.name || normalize(cells.join(" ")) === n.name) delete n.name;
+        if (!n.name || squash(cells.join("")) === squash(n.name)) delete n.name;
         n.value = cells.join(" | ");
         delete n.children;
-      } else if (n.name && n.children && textOf(n.children) === n.name) {
-        // Name from content repeats the children: keep whichever carries refs.
-        if (!hasRef(n.children)) delete n.children;
-        else if (CONTAINER_ROLES.has(n.role)) delete n.name;
+      } else if (n.name && n.children && squash(textOf(n.children)) === squash(n.name)) {
+        // A name from content repeats the children. Keep the children when
+        // they carry refs or the name is too long to print, else the name.
+        if (hasRef(n.children) || n.name.length > CONTENT_NAME_LIMIT) delete n.name;
+        else {
+          delete n.children;
+          // The name is the content now, so it prints whole.
+          n.contentName = true;
+        }
       }
+      // A lone text the name already says (an aria-label that extends the
+      // visible text) is not repeated.
+      if (n.name && n.children && n.children.length === 1 && typeof n.children[0] === "string" &&
+          squash(n.name).includes(squash(n.children[0]))) delete n.children;
       if (n.children && !n.children.length) delete n.children;
       if (n.options && !(options.options || n.expanded === true)) delete n.options;
+      // Structure with nothing in it says nothing.
+      if (!n.act && !n.ref && !n.name && n.value === undefined && !n.children && !MEANINGFUL_EMPTY_ROLES.has(n.role)) continue;
+      // An unnamed landmark or group directly around one of its own kind
+      // adds nothing.
+      if (!n.name && !n.ref && n.children && n.children.length === 1 && typeof n.children[0] !== "string" &&
+          n.children[0].role === n.role && Object.keys(n).every((k) => k === "role" || k === "children")) {
+        out.push(n.children[0]);
+        continue;
+      }
+      // An unnamed list item or table cell around one element prints as
+      // that element.
+      if (TRANSPARENT_WRAPPERS.has(n.role) && !n.name && !n.ref && n.children && n.children.length === 1 &&
+          typeof n.children[0] !== "string" && Object.keys(n).every((k) => k === "role" || k === "children")) {
+        out.push(n.children[0]);
+        continue;
+      }
       out.push(n);
     }
     return out;
@@ -74,9 +111,9 @@
     return out;
   }
 
-  function nodeHead(n) {
+  function nodeHead(n, options) {
     let head = n.role;
-    if (n.name) head += " " + q(n.name);
+    if (n.name) head += " " + q(n.name.length > NAME_LIMIT && !n.contentName ? n.name.slice(0, NAME_LIMIT - 1) + "…" : n.name);
     if (n.ref) head += ` [ref=${n.ref}]`;
     if (n.level !== undefined) head += ` [level=${n.level}]`;
     if (n.checked === true) head += " [checked]";
@@ -93,19 +130,19 @@
     if (n.focused) head += " [focused]";
     if (n.hidden) head += " [hidden]";
     if (n.scrollable) head += " [scrollable]";
-    if (n.url) head += ` [url=${n.url}]`;
+    if (n.url && options.urls) head += ` [url=${n.url}]`;
     if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;
     return head;
   }
 
-  function render(nodes, depth = 0, lines = []) {
+  function render(nodes, options = {}, depth = 0, lines = []) {
     const indent = "  ".repeat(depth);
     for (const n of nodes) {
       if (typeof n === "string") {
         lines.push(`${indent}- text: ${q(n)}`);
         continue;
       }
-      let head = nodeHead(n);
+      let head = nodeHead(n, options);
       let kids = n.children || [];
       if (n.value !== undefined && n.value !== null) head += ": " + q(n.value);
       else if (kids.length === 1 && typeof kids[0] === "string" && !n.options) {
@@ -114,7 +151,7 @@
       } else if (kids.length || n.options) head += ":";
       lines.push(`${indent}- ${head}`);
       for (const o of n.options || []) lines.push(`${indent}  - option ${q(o.name)}${o.selected ? " [selected]" : ""}`);
-      render(kids, depth + 1, lines);
+      render(kids, options, depth + 1, lines);
     }
     return lines;
   }
@@ -363,14 +400,14 @@
     const raw = await frameNodes(page, frame, handle, options, true);
     let nodes = shape(raw, options);
     if (options.interactive) nodes = interactiveOnly(nodes);
-    return { header, body: render(nodes), nodes };
+    return { header, body: render(nodes, options), nodes };
   }
 
   async function takeSnapshot(page, target, options = {}) {
     const run = async () => {
       const { header, body } = await capture(page, target, options);
       const scope = typeof target === "string" ? target : target instanceof core.Locator ? String(target) : "page";
-      const key = [scope, !!options.interactive, !!options.showHidden, !!options.options].join("|");
+      const key = [scope, !!options.interactive, !!options.showHidden, !!options.options, !!options.urls].join("|");
       const baselines = page._snapshotBaselines || (page._snapshotBaselines = new Map());
       const previous = baselines.get(key);
       baselines.set(key, body);

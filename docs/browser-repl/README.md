@@ -63,7 +63,7 @@ coordinates, `page.on("popup")`, `waitForEvent("download")`, `page.pdf()`,
 title: Sign up
 url: http://localhost:8765/
 - navigation "Main" [ref=e1]:
-  - link "Home" [ref=e2] [url=/aria.html]
+  - link "Home" [ref=e2]
 - main:
   - heading "Sign up" [level=1]
   - textbox "Email" [ref=e3] [placeholder="you@x.com"]: "me@x.com"
@@ -73,8 +73,14 @@ url: http://localhost:8765/
   - table "Scores":
     - row: "Name | Score"
     - row: "Ada | 9"
-  - paragraph: "Plain bold text."
-  - iframe "Payment" [ref=e7]:
+    - row:
+      - cell: "Linus"
+      - link "Profile" [ref=e7]
+  - list:
+    - link "Pricing" [ref=e8]
+    - listitem: "Plain item"
+  - text: "Plain bold text."
+  - iframe "Payment" [ref=e9]:
     - textbox "Card" [ref=f1e1]
 ```
 
@@ -91,8 +97,36 @@ Rules, and how they improve on the references:
   has no ARIA role for: `summary` prints as `button`, an editable element as
   `textbox`, `canvas` as `canvas`. Their refs work; `getByRole` does not find
   them.
-- **Frames**, including cross-origin, inline under their iframe with `fN`
-  prefixes in DOM order. Shadow roots are pierced.
+- **Frames**, including cross-origin and `srcdoc`, inline under their iframe
+  with `fN` prefixes in DOM order, at any depth. Shadow roots are pierced,
+  closed ones too: the page agent's content world is created with WebKit's
+  `allowAccessToClosedShadowRoots` option (the one web extension worlds use),
+  so in that world `element.shadowRoot` returns a closed root, and the
+  snapshot, refs, `getByRole` and CSS locators reach inside the way an
+  accessibility tree does. Page scripts still see `null`. Playwright does not
+  enter closed roots; this is a deliberate difference.
+- **Visibility** is what a user can see. An element and its subtree are left
+  out when it or an ancestor is `display:none`, `content-visibility:hidden`
+  (a closed `<details>`, `hidden="until-found"` such as Wikipedia's collapsed
+  navbox rows), `inert`, `aria-hidden="true"`, or clipped away inside a
+  zero-width or zero-height box with `overflow` other than `visible` (a
+  collapsed accordion). A `visibility:hidden` element is left out, but its
+  `visibility:visible` children print. This is Playwright's
+  `isElementVisible` (`checkVisibility`, which Playwright skips on WebKit)
+  without its non-empty-box test, so an empty progress bar still counts.
+  Screen-reader-only text (1px clipped boxes) and `opacity:0` controls
+  (custom checkboxes, hover-revealed anchors) print; they are there to be
+  read or used.
+- **Names** come from content only for leaf roles that ARIA names from
+  content: button, link, heading, option, tab, menu items, checkbox, radio,
+  switch, tooltip and treeitem. Rows, cells, list items, paragraphs and other
+  containers take only an author name (`aria-label`, `aria-labelledby`), so
+  their content prints once, as children. A name that repeats the content it
+  would print is printed instead of that content when it holds no refs and
+  fits in 200 characters; otherwise the content prints and the name is
+  dropped. A lone text a name already contains (an `aria-label` that extends
+  the visible text) is not repeated. Other printed names are cut at 100
+  characters with `…`; refs still resolve.
 - **States** print as `[checked]`, `[checked=mixed]`, `[disabled]`,
   `[expanded]`, `[expanded=false]`, `[pressed]`, `[selected]`, `[focused]`,
   `[required]`, `[invalid]`, `[readonly]`, `[level=N]`, `[scrollable]` (why a
@@ -100,18 +134,34 @@ Rules, and how they improve on the references:
   expanded and pressed. `[focused]` inside an iframe prints only when that
   iframe holds the page's focus.
 - **Values** print after a colon; combobox shows its selected value and lists
-  options only with `{ options: true }` or when expanded. Links show `[url=…]`,
-  relative when same-origin, so agents do not guess URLs.
+  options only with `{ options: true }` or when expanded. With
+  `{ urls: true }` links show `[url=…]`, relative when same-origin; by
+  default they do not, because URLs are about a quarter of a page's snapshot
+  and an agent acts on the ref.
 - **Text** collapses whitespace to single spaces (Aside doubles spaces around
-  inline elements). Tables print one `row` per table row with cells joined by
-  `|` (Aside drops table structure).
+  inline elements). Paragraphs print as their text lines.
+- **Tables**: a row whose cells all hold plain text prints as one line with
+  cells joined by `|` (`- row: "Ada | 9"`); any other row prints its cells as
+  children, unnamed. A table used for layout flattens into its content: one
+  that declares no header cell, caption, `thead`, `tfoot`, `colgroup`,
+  `summary`, `border` or table role, and that holds or sits in another table,
+  has one row or one column, or has rows of different lengths (Hacker News).
+  Aside drops all table structure.
+- **Structure with nothing in it** is not printed: an unnamed, ref-less
+  container with no children (an empty `list`). An unnamed list item or cell
+  around a single element prints as that element, and an unnamed landmark
+  directly around one of its own kind prints once.
 - **Open dialogs and file choosers** print first, under the header, so an
   agent sees why the page is blocked. A file chooser line carries its input's
   ref. A JavaScript dialog line has none, because no element owns the dialog
   and a ref must work as a selector; it names `page.dialog()` instead, and the
   tree is replaced by a note while the dialog blocks the page.
 - **Options**: `interactive` (interactive nodes and their named ancestors),
-  `showHidden`, `maxChars` (truncates with a note), `options`.
+  `showHidden`, `maxChars` (truncates with a note), `options`, `urls`.
+- **Size**: on the real-site corpus (tests/browser-parity) the snapshot holds
+  every interactive element of Chrome's Playwright AI snapshot and no text
+  Chrome does not render, and is smaller than Aside's on seven of nine pages
+  and within 2% on the other two, where Aside drops visible text.
 - **Printing** a snapshot prints its diff against the previous snapshot of the
   same tab when the diff is at least 30% smaller than the tree, else the tree.
   `.tree` and `.diff` are always available.
