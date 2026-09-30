@@ -1,3 +1,4 @@
+import { preferenceStorage, draftStorage } from "../browser-storage";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useCtx } from "../context";
 import { agentChatText } from "../i18n";
@@ -126,9 +127,9 @@ export function Chat() {
       return;
     }
     updateStoredProviderOption(provider, "model", model, allProviderOptions[provider] ?? []);
-    localStorage.setItem("agentui.provider", provider);
-    localStorage.setItem("agentui.cwd", session.cwd);
-    sessionStorage.setItem("agentui.draft", text);
+    preferenceStorage.setItem("agentui.provider", provider);
+    preferenceStorage.setItem("agentui.cwd", session.cwd);
+    draftStorage.setItem("agentui.draft", text);
     compose();
   };
 
