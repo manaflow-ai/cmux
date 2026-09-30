@@ -128,10 +128,6 @@ extension CMUXCLI {
 
     /// Validates new-surface argv before any handle resolution or socket mutation.
     func validateNewSurfaceArguments(_ args: [String]) throws {
-        let parsed = try parseTerminalCreationCommandOption(
-            args,
-            commandName: "new-surface"
-        )
         let valueOptions: Set<String> = [
             "--workspace",
             "--window",
@@ -146,11 +142,12 @@ extension CMUXCLI {
             "--cwd",
             "--placement",
             "--focus",
+            "--command",
         ]
 
         var index = 0
-        while index < parsed.remaining.count {
-            let argument = parsed.remaining[index]
+        while index < args.count {
+            let argument = args[index]
             if argument == "--" {
                 return
             }
@@ -177,10 +174,10 @@ extension CMUXCLI {
             }
 
             let valueIndex = index + 1
-            guard valueIndex < parsed.remaining.count else {
+            guard valueIndex < args.count else {
                 throw CLIError(message: "new-surface: \(option) requires a value")
             }
-            let value = parsed.remaining[valueIndex]
+            let value = args[valueIndex]
             guard value != "--", !value.hasPrefix("--") else {
                 throw CLIError(message: "new-surface: \(option) requires a value")
             }
