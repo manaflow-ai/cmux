@@ -78,23 +78,30 @@ struct CLIExecInheritedSignalStateTests {
     /// The exec wrapper only protects the sites that call it. `cmux restore`
     /// and `cmux fork` exec the resumed agent from their own files, so one
     /// direct `execve` hands the agent the blocked mask again. Every exec under
-    /// `CLI/` must run inside `cliExecFailureErrno`.
-    @Test func everyCLIExecSiteStartsChildrenFromDefaultSignalState() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
+    /// `CLI/` must run inside `cliExecFailureErrno`, and every `posix_spawn`
+    /// must set `POSIX_SPAWN_SETSIGMASK` or apply `POSIXSpawnSignalPolicy`.
+    @Test func everyCLIExecAndSpawnSiteStartsChildrenFromDefaultSignalState() throws {
+        let cliDirectory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let cliDirectory = repositoryRoot.appendingPathComponent("CLI", isDirectory: true)
+            .appendingPathComponent("CLI", isDirectory: true)
         let fileNames = try FileManager.default.contentsOfDirectory(atPath: cliDirectory.path)
             .filter { $0.hasSuffix(".swift") }
             .sorted()
         try #require(!fileNames.isEmpty, "no CLI sources under \(cliDirectory.path)")
 
         let execCall = try Regex(#"\b(execve|execv|execvp|execvP|execl|execle|execlp)\("#)
+        let spawnCall = try Regex(#"\bposix_spawnp?\("#)
         var unguardedExecSites: [String] = []
+        var unguardedSpawnSites: [String] = []
         for fileName in fileNames {
             let path = cliDirectory.appendingPathComponent(fileName).path
             let lines = try String(contentsOfFile: path, encoding: .utf8)
                 .components(separatedBy: "\n")
+            let source = lines.joined(separator: "\n")
+            let spawnSetsMask = source.contains("POSIXSpawnSignalPolicy(")
+                || (source.contains("POSIX_SPAWN_SETSIGMASK")
+                    && source.contains("posix_spawnattr_setsigmask("))
             for (index, line) in lines.enumerated() {
                 if line.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
                 if line.contains(execCall) {
@@ -103,66 +110,19 @@ struct CLIExecInheritedSignalStateTests {
                         unguardedExecSites.append("\(fileName):\(index + 1)")
                     }
                 }
+                if line.contains(spawnCall), !spawnSetsMask {
+                    unguardedSpawnSites.append("\(fileName):\(index + 1)")
+                }
             }
         }
         #expect(
             unguardedExecSites.isEmpty,
             "exec sites outside cliExecFailureErrno hand the child the thread's signal mask: \(unguardedExecSites)"
         )
-    }
-
-    /// A `posix_spawn` child inherits the calling thread's mask and the app's
-    /// ignored signals. Every app, package and CLI source that spawns must
-    /// configure its attributes through `POSIXSpawnSignalPolicy`, whose own
-    /// tests (CmuxFoundation) spawn a probe and check the child's state.
-    @Test func everyPOSIXSpawnSiteAppliesTheSignalPolicy() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        var sourcePaths: [String] = []
-        for root in ["CLI", "Sources"] {
-            sourcePaths += try Self.swiftSources(under: repositoryRoot.appendingPathComponent(root))
-        }
-        let packagesRoot = repositoryRoot.appendingPathComponent("Packages")
-        for group in try FileManager.default.contentsOfDirectory(atPath: packagesRoot.path) {
-            let groupURL = packagesRoot.appendingPathComponent(group)
-            guard let packages = try? FileManager.default.contentsOfDirectory(atPath: groupURL.path) else {
-                continue
-            }
-            for package in packages {
-                let sources = groupURL.appendingPathComponent(package).appendingPathComponent("Sources")
-                if FileManager.default.fileExists(atPath: sources.path) {
-                    sourcePaths += try Self.swiftSources(under: sources)
-                }
-            }
-        }
-        try #require(sourcePaths.count > 100, "found only \(sourcePaths.count) Swift sources")
-
-        let spawnCall = try Regex(#"\bposix_spawnp?\("#)
-        var unguardedSpawnSites: [String] = []
-        for path in sourcePaths {
-            let lines = try String(contentsOfFile: path, encoding: .utf8)
-                .components(separatedBy: "\n")
-            let appliesPolicy = lines.contains { $0.contains("POSIXSpawnSignalPolicy(") }
-            for (index, line) in lines.enumerated() where !appliesPolicy {
-                if line.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
-                if line.contains(spawnCall) {
-                    let relativePath = String(path.dropFirst(repositoryRoot.path.count + 1))
-                    unguardedSpawnSites.append("\(relativePath):\(index + 1)")
-                }
-            }
-        }
         #expect(
             unguardedSpawnSites.isEmpty,
-            "posix_spawn sites without POSIXSpawnSignalPolicy hand the child the thread's signal mask: \(unguardedSpawnSites)"
+            "posix_spawn sites without POSIX_SPAWN_SETSIGMASK hand the child the thread's signal mask: \(unguardedSpawnSites)"
         )
-    }
-
-    private static func swiftSources(under root: URL) throws -> [String] {
-        guard let enumerator = FileManager.default.enumerator(atPath: root.path) else { return [] }
-        return enumerator.compactMap { $0 as? String }
-            .filter { $0.hasSuffix(".swift") }
-            .map { root.appendingPathComponent($0).path }
     }
 
     private struct ChildSignalState: Decodable {
