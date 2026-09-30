@@ -220,8 +220,8 @@ struct MacAuthComposition {
             browserSignIn: browserSignIn
         )
         self.teamScopeRecoveryTriggers = MacAuthTeamScopeRecoveryTriggers(coordinator: coordinator)
-        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) {
-            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch()
+        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) { isSameAccount in
+            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch(isSameAccount: isSameAccount)
         }
     }
 
