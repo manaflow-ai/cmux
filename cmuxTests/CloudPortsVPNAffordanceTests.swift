@@ -188,6 +188,14 @@ struct CloudPortsVPNAffordanceTests {
         #expect(status.message == CloudPortsStatusPresentation.routeNote)
     }
 
+    @Test("Loading status explains the scan without exposing transport details")
+    func loadingStatusUsesUserFacingCopy() {
+        let status = CloudPortsStatusPresentation(state: .loading)
+        #expect(status.message == "Checking for running services…")
+        #expect(!status.message.localizedCaseInsensitiveContains("vpn"))
+        #expect(!status.message.localizedCaseInsensitiveContains("authenticated"))
+    }
+
     @Test("Ports stay closed until the person opens the group")
     func portsStartCollapsed() {
         #expect(CloudTreeNode.Kind.portsGroup(machine: .cloud("default-collapsed"))
@@ -213,6 +221,11 @@ struct CloudPortsVPNAffordanceTests {
         #expect(content.hitTest(point) === button)
         #expect(content.hitTest(content.convert(NSPoint(x: 4, y: 4), to: parent)) == nil)
         #expect(button.accessibilityRole() == .button)
+        #expect(button.title.isEmpty)
+        #expect(button.imagePosition == .imageOnly)
+        #expect(button.toolTip == status.actionTitle)
+        #expect(button.accessibilityLabel() == status.actionTitle)
+        #expect(button.frame.minX >= content.bounds.midX)
         button.performClick(nil)
         #expect(calls == 1)
     }
