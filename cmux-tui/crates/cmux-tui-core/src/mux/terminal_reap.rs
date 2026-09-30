@@ -223,10 +223,13 @@ impl Mux {
     }
 
     /// One reaper step at `now`: reconcile `schedule` with the current
-    /// reapable set and end every terminal whose deadline passed. Returns
-    /// the host ids it ended.
+    /// reapable set and end every terminal whose deadline passed. Several
+    /// due terminals are ended in parallel on the terminal work pool, so a
+    /// burst of closed tabs is reaped within the grace period plus the
+    /// slowest single reap instead of their sum. Returns the host ids it
+    /// ended.
     pub(crate) fn reap_unplaced_terminals(
-        &self,
+        self: &Arc<Self>,
         schedule: &mut ReapSchedule,
         now: Instant,
     ) -> Vec<String> {
@@ -238,9 +241,24 @@ impl Mux {
                 return Vec::new();
             }
         }
+        let due = schedule.due(now);
+        let outcomes: Vec<anyhow::Result<ReapOutcome>> = if due.len() <= 1 {
+            due.iter().map(|terminal_id| self.reap_unplaced_terminal(terminal_id)).collect()
+        } else {
+            let jobs = due
+                .iter()
+                .map(|terminal_id| {
+                    let mux = self.clone();
+                    let terminal_id = terminal_id.clone();
+                    Box::new(move || mux.reap_unplaced_terminal(&terminal_id))
+                        as Box<dyn FnOnce() -> anyhow::Result<ReapOutcome> + Send>
+                })
+                .collect();
+            self.terminal_work.run_all(jobs)
+        };
         let mut reaped = Vec::new();
-        for terminal_id in schedule.due(now) {
-            match self.reap_unplaced_terminal(&terminal_id) {
+        for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
+            match outcome {
                 Ok(ReapOutcome::Reaped) => {
                     schedule.forget(&terminal_id);
                     reaped.push(terminal_id);

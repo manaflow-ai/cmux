@@ -11,6 +11,7 @@ mod tab_drag;
 mod tab_groups;
 mod terminal_directory;
 mod terminal_reap;
+mod terminal_work;
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use presentation::{
@@ -2628,6 +2629,11 @@ pub struct Mux {
     /// The running reaper's event receiver, so keep and grace changes can
     /// wake it.
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
+    /// Parallel terminal host launches and reaps (`terminal_work`).
+    terminal_work: terminal_work::TerminalWorkPool,
+    /// Hosts launched ahead of their creation, by reserved terminal id.
+    #[cfg(unix)]
+    prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -3045,6 +3051,9 @@ impl Mux {
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
             terminal_reaper_events: Mutex::new(None),
+            terminal_work: terminal_work::TerminalWorkPool::default(),
+            #[cfg(unix)]
+            prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
@@ -7899,28 +7908,9 @@ impl Mux {
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
-        let mut opts = self.surface_options.lock().unwrap().clone();
-        if cwd.is_some() {
-            opts.cwd = cwd;
-        }
-        if command.is_some() {
-            opts.command = command;
-        }
-        if let Some(reservation) = &reservation {
-            opts.extra_env.extend(reservation.env.iter().cloned());
-        }
-        // Spawn at the latest client-owned size: starting at the default
-        // 80x24 and resizing a frame later makes shells emit artifacts
-        // (e.g. zsh's reverse-video %% partial-line marker).
-        let (cols, rows) = self.resolve_client_size(size, (opts.cols, opts.rows));
-        opts.cols = cols;
-        opts.rows = rows;
-        let cell_pixels = {
-            let cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-            let cell_pixels = self.cell_pixel_creation_size();
-            drop(cell_pixel_lifecycle);
-            cell_pixels
-        };
+        let reservation_env =
+            reservation.as_ref().map(|reservation| reservation.env.as_slice()).unwrap_or_default();
+        let (opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, reservation_env);
         #[cfg(test)]
         if let Some(hook) = self.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap().clone() {
             let unlocked = match self.cell_pixel_lifecycle.try_lock() {
@@ -7946,7 +7936,12 @@ impl Mux {
                 .map(Ok)
                 .unwrap_or_else(TerminalId::random)?;
             let terminal_hex = terminal_id.to_hex();
-            let launch_spec = terminal_launch_spec(&opts);
+            // A host launched ahead of this creation for the same reserved
+            // id (`terminal_work`): adopt it instead of launching one.
+            let prelaunched = self.take_prelaunched_terminal(&terminal_hex);
+            let launch_spec = terminal_launch_spec(
+                prelaunched.as_ref().map_or(&opts, |prelaunched| prelaunched.launch_opts()),
+            );
             let terminal = RegistryTerminal {
                 terminal_id: terminal_hex.clone(),
                 workspace_key: workspace_key.to_string(),
@@ -7993,13 +7988,19 @@ impl Mux {
             if reserve_replayed {
                 anyhow::bail!("terminal_create_replayed");
             }
-            let surface = match Surface::spawn_with_terminal_id_at_cell_pixels(
-                id,
-                opts,
-                Arc::downgrade(self),
-                Some(terminal_id),
-                cell_pixels,
-            ) {
+            let spawned = match prelaunched {
+                Some(prelaunched) => {
+                    Surface::spawn_prelaunched(prelaunched.into_host(), Arc::downgrade(self))
+                }
+                None => Surface::spawn_with_terminal_id_at_cell_pixels(
+                    id,
+                    opts,
+                    Arc::downgrade(self),
+                    Some(terminal_id),
+                    cell_pixels,
+                ),
+            };
+            let surface = match spawned {
                 Ok(surface) => surface,
                 Err(error) => {
                     let _ = self.persist_terminal_exit(
@@ -11720,6 +11721,39 @@ impl Mux {
             mux: Arc::downgrade(self),
             surface,
             initial_limits,
+            committed: false,
+        })
+    }
+
+    /// Reserve a Kitty image budget entry that owns no quota yet, without
+    /// waiting. For a host launched ahead of its creation
+    /// (`terminal_work`): an uncommitted entry cannot shrink when later
+    /// reservations do, so owning quota before the commit would make every
+    /// concurrent launch wait on it. The committed surface is promoted to a
+    /// quota owner and the budget worker applies its limits then.
+    pub(crate) fn reserve_kitty_image_surface_without_quota(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+    ) -> anyhow::Result<KittyImageBudgetReservation> {
+        let mut budget = self.kitty_image_budget.lock().unwrap();
+        Self::prune_dead_kitty_image_surfaces(&mut budget);
+        anyhow::ensure!(
+            !budget.entries.contains_key(&surface),
+            "Kitty image budget already reserved for surface {surface}"
+        );
+        budget.entries.insert(
+            surface,
+            KittyImageBudgetEntry {
+                surface: None,
+                applied: KittyGraphicsLimits::disabled(),
+                owns_quota: false,
+                removing: false,
+            },
+        );
+        Ok(KittyImageBudgetReservation {
+            mux: Arc::downgrade(self),
+            surface,
+            initial_limits: KittyGraphicsLimits::disabled(),
             committed: false,
         })
     }

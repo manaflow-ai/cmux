@@ -83,6 +83,7 @@ use crate::{
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[path = "server/image_paste.rs"]
 mod image_paste;
+mod terminal_create;
 mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
@@ -2392,6 +2393,9 @@ struct ConnectionSurfaceState {
     requests: VecDeque<PendingSurfaceRequest>,
     queued_bytes: usize,
     active_clear_surfaces: HashSet<SurfaceId>,
+    /// Terminal creates handed to the terminal work pool and not yet
+    /// answered (`terminal_create`).
+    active_creations: usize,
     dispatcher_started: bool,
     dispatcher_done: bool,
     closed: bool,
@@ -2404,6 +2408,7 @@ struct ConnectionSurfaceScheduler {
     cancelled: AtomicBool,
     dispatcher: Mutex<Option<JoinHandle<()>>>,
     connection_permit: Mutex<Option<ConnectionPermit>>,
+    creations: terminal_create::ConnectionCreations,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -2436,6 +2441,7 @@ impl ConnectionSurfaceScheduler {
             cancelled: AtomicBool::new(false),
             dispatcher: Mutex::new(None),
             connection_permit: Mutex::new(connection_permit),
+            creations: terminal_create::ConnectionCreations::default(),
         }
     }
 }
@@ -3385,7 +3391,10 @@ impl ConnectionSurfaceScheduler {
     fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
         let deadline = timeout.map(|timeout| Instant::now() + timeout);
         let mut state = self.state.lock().unwrap();
-        while !state.dispatcher_done || !state.active_clear_surfaces.is_empty() {
+        while !state.dispatcher_done
+            || !state.active_clear_surfaces.is_empty()
+            || state.active_creations != 0
+        {
             if let Some(deadline) = deadline {
                 if Instant::now() >= deadline {
                     break;
@@ -3397,7 +3406,9 @@ impl ConnectionSurfaceScheduler {
                 state = self.changed.wait(state).unwrap();
             }
         }
-        let drained = state.dispatcher_done && state.active_clear_surfaces.is_empty();
+        let drained = state.dispatcher_done
+            && state.active_clear_surfaces.is_empty()
+            && state.active_creations == 0;
         drop(state);
         if drained && let Some(dispatcher) = self.dispatcher.lock().unwrap().take() {
             let _ = dispatcher.join();
@@ -3513,6 +3524,11 @@ fn run_connection_surface_dispatcher(
                     scheduler.close();
                     return;
                 }
+            }
+        } else if pending.request.cmd.creates_terminal() {
+            if !scheduler.submit_creation(&mux, client, pending, &writer) {
+                scheduler.close();
+                return;
             }
         } else if !run_pending_request(&scheduler, &mux, client, pending, &writer) {
             scheduler.close();

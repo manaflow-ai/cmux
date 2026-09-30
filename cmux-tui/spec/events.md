@@ -84,6 +84,8 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 
 The server writes each response or event as one complete transport message. JSON lines and WebSocket text frames are not interleaved at the byte level.
 
+Requests on one connection are executed in the order they arrive, with two exceptions that may answer after later requests. `clear-history` waits for its surface's output stream. Commands that create a terminal (`new-tab`, `new-pane`, `new-pane-right`, `split`, `new-screen`, `new-workspace`, `create-terminal`) run on the owner's bounded terminal worker pool, which launches the hosts of several `new-tab` requests in parallel. Creates of one connection still commit and reply in request order, so the tabs of a pane land in the order they were requested, but a later non-creating request can be answered first. Match every response by its `id`. A client that needs a created terminal's topology waits for that create's response.
+
 For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
 
 Protocol v7 treats `title-changed` as a latest-state notification. A slow subscriber retains at most one pending title per surface. Repeated pending titles for the same surface coalesce to the newest `title` and take the newest event's position relative to ordinary events. Subscribers are independent, and a pending title is discarded when its surface exits.

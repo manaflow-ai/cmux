@@ -1687,6 +1687,43 @@ enum PtyLifetime {
     DaemonOwned,
 }
 
+/// When a new terminal surface takes its share of the Kitty image budget.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(unix), allow(dead_code))]
+enum KittyQuota {
+    /// Before its host launches, waiting for other surfaces to shrink.
+    AtLaunch,
+    /// Once the surface commits (`Mux::reserve_kitty_image_surface_without_quota`).
+    AfterCommit,
+}
+
+/// A launched terminal host whose surface is not built yet
+/// ([`Surface::prelaunch_hosted`]).
+#[cfg(unix)]
+pub(crate) struct PrelaunchedHost {
+    id: SurfaceId,
+    terminal_id: crate::terminal_host::TerminalId,
+    opts: SurfaceOptions,
+    attachment: crate::terminal_host_runtime::HostAttachment,
+    kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
+    terminal_public_id: Option<TerminalPublicId>,
+    resource_identity: TabResourceIdentity,
+}
+
+#[cfg(unix)]
+impl PrelaunchedHost {
+    pub(crate) fn terminal_id(&self) -> crate::terminal_host::TerminalId {
+        self.terminal_id
+    }
+
+    /// Write the workspace key into the host's recovery record now, so the
+    /// creation transaction finds it current and skips the synced write
+    /// (`Surface::persist_host_workspace`).
+    pub(crate) fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {
+        self.attachment.persist_workspace(workspace_key)
+    }
+}
+
 #[cfg(unix)]
 struct HostedSurfaceLaunch {
     attachment: crate::terminal_host_runtime::HostAttachment,
@@ -2291,17 +2328,20 @@ impl Surface {
         )
     }
 
-    fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+    /// The identity environment and Kitty image budget every terminal
+    /// surface gets before its process starts.
+    fn spawn_prelude(
         id: SurfaceId,
         mut opts: SurfaceOptions,
-        mux: Weak<Mux>,
-        terminal_id: Option<crate::terminal_host::TerminalId>,
-        resource_identity: Option<TabResourceIdentity>,
-        lifetime: PtyLifetime,
-        cell_pixels: (u16, u16),
-    ) -> anyhow::Result<Arc<Surface>> {
+        mux: &Weak<Mux>,
+        resource_identity: Option<&TabResourceIdentity>,
+        kitty_quota: KittyQuota,
+    ) -> anyhow::Result<(
+        SurfaceOptions,
+        Option<TerminalPublicId>,
+        Option<crate::mux::KittyImageBudgetReservation>,
+    )> {
         let terminal_public_id = resource_identity
-            .as_ref()
             .map(|identity| {
                 terminal_public_id_from_resource_identity(
                     identity,
@@ -2320,8 +2360,105 @@ impl Surface {
                 mux.session_public_id().as_str(),
             );
         }
-        let kitty_reservation =
-            mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
+        let kitty_reservation = mux
+            .upgrade()
+            .map(|mux| match kitty_quota {
+                KittyQuota::AtLaunch => mux.reserve_kitty_image_surface(id),
+                KittyQuota::AfterCommit => mux.reserve_kitty_image_surface_without_quota(id),
+            })
+            .transpose()?;
+        Ok((opts, terminal_public_id, kitty_reservation))
+    }
+
+    /// Launch the durable host of a new session-owned terminal without
+    /// building its surface, so a caller can launch several hosts in
+    /// parallel outside the creation transaction and finish each one with
+    /// [`Surface::spawn_prelaunched`] inside it. Dropping the result before
+    /// then exact-kills the host (the attachment's launch guard); a protocol
+    /// v4 host also never starts its child before activation. The host starts
+    /// with Kitty graphics disabled; its share of the image budget is applied
+    /// once the surface commits.
+    #[cfg(unix)]
+    pub(crate) fn prelaunch_hosted(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        terminal_id: crate::terminal_host::TerminalId,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<PrelaunchedHost> {
+        let root = opts
+            .terminal_host_root
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("prelaunch needs a terminal host root"))?;
+        let resource_identity = TabResourceIdentity::terminal(None)?;
+        let (opts, terminal_public_id, kitty_reservation) =
+            Self::spawn_prelude(id, opts, &mux, Some(&resource_identity), KittyQuota::AfterCommit)?;
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
+        let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let attachment = crate::terminal_host_runtime::launch_terminal_host_with_identity(
+            &opts,
+            &root,
+            default_colors,
+            cell_pixels,
+            initial_kitty_limits,
+            terminal_id,
+        )?;
+        Ok(PrelaunchedHost {
+            id,
+            terminal_id,
+            opts,
+            attachment,
+            kitty_reservation,
+            terminal_public_id,
+            resource_identity,
+        })
+    }
+
+    /// Build the surface of a host from [`Surface::prelaunch_hosted`].
+    #[cfg(unix)]
+    pub(crate) fn spawn_prelaunched(
+        host: PrelaunchedHost,
+        mux: Weak<Mux>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let PrelaunchedHost {
+            id,
+            terminal_id: _,
+            opts,
+            attachment,
+            kitty_reservation,
+            terminal_public_id,
+            resource_identity,
+        } = host;
+        Self::spawn_hosted(
+            id,
+            opts,
+            mux,
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation,
+                terminate_on_error: true,
+                defer_launch_activation: true,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id,
+                resource_identity: Some(resource_identity),
+            },
+        )
+    }
+
+    fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        terminal_id: Option<crate::terminal_host::TerminalId>,
+        resource_identity: Option<TabResourceIdentity>,
+        lifetime: PtyLifetime,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        let (opts, terminal_public_id, kitty_reservation) =
+            Self::spawn_prelude(id, opts, &mux, resource_identity.as_ref(), KittyQuota::AtLaunch)?;
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
