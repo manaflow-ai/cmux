@@ -20,4 +20,5 @@ extension CmuxTuiSurfaceProvider {
         await terminalMutationQueue.waitForIdle()
         await portAccessStore.remove(machineID: machineID)
     }
+
 }
