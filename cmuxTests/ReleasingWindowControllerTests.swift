@@ -71,6 +71,13 @@ struct ReleasingWindowControllerTests {
         window.performClose(nil)
 
         #expect(featureFlagsWindow() == nil)
+        #expect(window.contentView == nil)
+
+        // Reopening must build a new window, which proves the close released it.
+        InternalFlagsPresenter.present()
+        let reopened = try #require(featureFlagsWindow())
+        defer { reopened.close() }
+        #expect(reopened !== window)
     }
 
     private func featureFlagsWindow() -> NSWindow? {
