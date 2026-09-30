@@ -1443,6 +1443,7 @@ struct TitlebarControlsView: View {
         config: TitlebarControlsStyleConfig
     ) -> some View {
         ShortcutHintPill(shortcut: shortcut, fontSize: max(8, config.iconSize - 5))
+            .environment(\.colorScheme, titlebarControlColorScheme())
             .frame(minHeight: titlebarShortcutHintHeight(for: config))
     }
 

@@ -2096,7 +2096,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let originalPanelIds = Set(workspace.panels.keys)
 
-        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+        guard let rightPanel = newTerminalSplitForSplitAdmissionTesting(window: window, workspace: workspace, from: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -7320,7 +7320,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false) else {
+              let rightPanel = newTerminalSplitForSplitAdmissionTesting(window: window, workspace: workspace, from: leftPanelId, orientation: .horizontal, focus: false) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -7565,7 +7565,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+              let rightPanel = newTerminalSplitForSplitAdmissionTesting(window: window, workspace: workspace, from: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }

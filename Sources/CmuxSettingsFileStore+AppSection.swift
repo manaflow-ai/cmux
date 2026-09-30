@@ -26,8 +26,11 @@ extension CmuxSettingsFileStore {
         }
         if section.keys.contains("accentColor") {
             if let raw = jsonString(section["accentColor"]),
-               let mode = CmuxAccentColorMode(rawValue: raw) {
-                snapshot.managedUserDefaults[CmuxAccentColorMode.userDefaultsKey] = .string(mode.rawValue)
+               let parsed = CmuxAccentColorMode.parseSettingsFileValue(raw) {
+                snapshot.managedUserDefaults[CmuxAccentColorMode.userDefaultsKey] = .string(parsed.mode.rawValue)
+                if let hex = parsed.customHex {
+                    snapshot.managedUserDefaults[CmuxAccentColorMode.customHexUserDefaultsKey] = .string(hex)
+                }
             } else {
                 logInvalid("app.accentColor", sourcePath: sourcePath)
             }

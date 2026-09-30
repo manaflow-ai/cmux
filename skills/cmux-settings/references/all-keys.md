@@ -64,8 +64,8 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.textEditingGestures` | boolean | `false` | Replay macOS text-editing gestures as line-editor keys: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. Applications receive these translated keys instead of the original chords, so leave this off for full-screen TUIs that bind those chords. |
 | `terminal.showPasswordInputIndicator` | boolean | `true` | Show a lock badge in the terminal corner while the foreground program has turned echo off for a password prompt (sudo, ssh, passwd, gpg). cmux draws the badge itself and never changes terminal text. Only prompts on the local terminal are detected: an ssh password prompt counts, but sudo run inside an ssh session does not. Changes apply to an open prompt at once. |
 | `terminal.showPasswordInputDots` | boolean | `false` | When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted. |
-| `terminal.showTextBoxOnNewTerminals` | boolean | `false` | Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. |
-| `terminal.focusTextBoxOnNewTerminals` | boolean | `false` | Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox. |
+| `terminal.showTextBoxOnNewTerminals` | boolean | `false` | Show the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. |
+| `terminal.focusTextBoxOnNewTerminals` | boolean | `false` | Focus the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox. |
 | `terminal.agentHibernation` | object | — | Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, under memory pressure (critical pressure from macOS or from the cmux app's own footprint, or cmux's total memory use past its aggregate warning threshold) cmux may hibernate every safe idle background agent even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback. |
 | `terminal.rendererRealization` | object | — | Reclaim off-screen terminal GPU renderer memory. cmux releases the Metal renderer (IOSurface) of a terminal that has stayed off-screen and idle while keeping its process and terminal state alive, then rebuilds the renderer instantly when the tab is visited again. Non-destructive and on by default. |
 | `terminal.textBoxMaxLines` | integer | `10` | Maximum number of lines the rich terminal TextBox input can grow to before it scrolls. |
@@ -152,7 +152,7 @@ Sidebar tint settings from Settings > Sidebar Appearance.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `sidebarAppearance.matchTerminalBackground` | boolean | `false` | Use the terminal background instead of the sidebar tint. |
+| `sidebarAppearance.matchTerminalBackground` | boolean | `true` | Use the terminal background instead of the sidebar tint. |
 | `sidebarAppearance.tintColor` | colorHex | `"#000000"` | Base sidebar tint color used when light/dark overrides are not set. |
 | `sidebarAppearance.lightModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for light appearance. |
 | `sidebarAppearance.darkModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for dark appearance. |

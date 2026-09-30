@@ -1009,6 +1009,13 @@ def main() -> int:
         "fails rather than compiles if its reuse still misses (PR media tours use this)",
     )
     parser.add_argument(
+        "--adopt-main",
+        action="store_true",
+        help="with --adopt-only, for a pull request whose CI reused main's build: dispatch the head "
+        "without a CI run's product, and let test-e2e.yml adopt main's product of the same inputs "
+        "(it fails rather than compiles when that misses)",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="dispatch even if this selector already failed at this commit, "
@@ -1058,6 +1065,8 @@ def main() -> int:
     test_filter = ",".join(args.test_filter)
     if args.adopt_only and (test_target != "cmuxUITests" or args.runner not in (None, "auto") or args.full_build):
         parser.error("--adopt-only takes UI selectors on the default runner, without --full-build")
+    if args.adopt_main and not args.adopt_only:
+        parser.error("--adopt-main goes with --adopt-only")
     if args.ref is not None and not args.ref.strip():
         parser.error("--ref must not be empty")
     if args.workflow_ref is not None and not args.workflow_ref.strip():
@@ -1100,7 +1109,7 @@ def main() -> int:
                     flush=True,
                 )
 
-    if args.adopt_only and ui_source is None:
+    if args.adopt_only and ui_source is None and not args.adopt_main:
         if UNLOADABLE_SOURCES:
             print(f"{UNLOADABLE_SOURCES[0]} compiled {head}'s app-host products where no UI run can "
                   "load them; not compiling (--adopt-only).", flush=True)
@@ -1279,7 +1288,7 @@ def main() -> int:
             pr_xcode_app=repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
             log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
         )
-    if args.adopt_only and not adopts_on(runner, ui_source.get("family")):
+    if args.adopt_only and ui_source is not None and not adopts_on(runner, ui_source.get("family")):
         print(f"UI runs go to {runner}, which cannot load the products {ui_source['url']} "
               f"compiled on {ui_source.get('family') or 'an unknown pool'}; not compiling (--adopt-only).",
               flush=True)
