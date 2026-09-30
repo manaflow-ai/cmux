@@ -458,8 +458,13 @@ def long_top(seconds):
     ref = cli("new-workspace", "--name", name).stdout.split()[1]
     surface = wait(lambda: surfaces(ref), 20)[0][0]
     cli("send", "--surface", surface, "top -s 1\n")
+    cli("select-workspace", "--workspace", ref)
     time.sleep(3)
-    pane_key = pane_for(surface)
+    pane_key = wait(lambda: pane_for(surface), 20)
+    if not pane_key or not wait(lambda: mirror(pane_key), 20):
+        failures.append(f"long top: {surface} never showed a view")
+        print(f"  BAD long top: {surface} never showed a view")
+        return
     started = time.time()
     last_mirror, last_daemon = None, None
     mirror_since, stalls, samples = time.time(), [], 0
