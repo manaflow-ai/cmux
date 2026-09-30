@@ -60,7 +60,8 @@ final class TabDragSession: NSObject {
         finishLanding()
 
         let window = sourceWindow ?? services.windows.controllers.first { $0.content === pane?.workspace }
-        let context = pane.map { Self.context(of: $0, draggedCount: draggedCount) } ?? .workspaces(count: draggedCount)
+        var context = pane.map { Self.context(of: $0, draggedCount: draggedCount) } ?? .workspaces(count: draggedCount)
+        if let window { context.sourceWindowWorkspaceCount = max(1, services.windows.registry.members(of: window.state.id).count) }
         let content = pane?.view.bounds ?? window?.content?.layoutView?.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2

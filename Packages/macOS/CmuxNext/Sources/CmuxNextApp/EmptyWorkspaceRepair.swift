@@ -25,6 +25,9 @@ final class EmptyWorkspaceRepair {
         /// A create-terminal was sent (a repair) or answered (either path);
         /// waiting for the store to show a pane.
         case awaitingPane
+        /// This app is moving every tab out of the workspace and closes it
+        /// afterwards (a tab drag): it is empty on purpose, never repaired.
+        case closing
     }
 
     /// Creates the first terminal of `key` (`create-terminal`, which adds the
@@ -55,7 +58,7 @@ final class EmptyWorkspaceRepair {
         guard let key = workspace.key else { return }
         guard workspace.screens.allSatisfy(\.panes.isEmpty) else {
             // Populated: whoever created the terminal is done, unless this
-            // app is still inside its own populate call.
+            // app is still inside its own populate call or closing it.
             if states[key] == .awaitingPane { states[key] = nil }
             return
         }
@@ -72,6 +75,15 @@ final class EmptyWorkspaceRepair {
                 logger.error("empty workspace repair failed: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// `key` is emptied on purpose (its tabs are moving to another
+    /// workspace) and will close: no repair until `endClosing`.
+    func beginClosing(_ key: WorkspaceKey) { states[key] = .closing }
+
+    /// The move failed (the tabs stayed): repairs apply again.
+    func endClosing(_ key: WorkspaceKey) {
+        if states[key] == .closing { states[key] = nil }
     }
 
     /// Marks `key` as being populated by this app for the duration of

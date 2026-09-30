@@ -60,6 +60,23 @@ struct EmptyWorkspaceTests {
         withExtendedLifetime((services, state)) {}
     }
 
+    /// A tab drag moved the last tab out: the workspace is empty on purpose
+    /// and closes; it must not get a new terminal meanwhile. If the move
+    /// fails, repairs apply again.
+    @Test func workspaceEmptiedByATabDragIsNotRepaired() async throws {
+        let (services, recorder) = Self.services(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "emptied")])
+        services.emptyWorkspaces.beginClosing(Self.key)
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        services.emptyWorkspaces.check(workspace) { _ in }
+        await Self.settle { false }
+        #expect(recorder.keys.isEmpty)
+        services.emptyWorkspaces.endClosing(Self.key)
+        services.emptyWorkspaces.check(workspace) { _ in }
+        await Self.settle { !recorder.keys.isEmpty }
+        #expect(recorder.keys == [Self.key])
+        withExtendedLifetime(services) {}
+    }
+
     @Test func populatedWorkspaceIsLeftAlone() async throws {
         let services = ActionBindingCoverageTests.boundServices()
         let tree = try BridgeTreeFixture.tree()

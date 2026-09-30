@@ -13,7 +13,14 @@ extension TabDragSession {
     /// lifecycle (a rejection restores the source strip).
     func execute(_ outcome: TabDragOutcome, drag: Drag, transaction: ClientTransactionID) {
         let lifecycle = drag.lifecycle
-        let settle: @MainActor (Bool) -> Void = { ok in lifecycle.settle(transaction, ok: ok) }
+        let emptied = emptiedSourceWorkspace(drag)
+        // The tabs leave their workspace for another one: the emptied
+        // workspace closes once they landed, and is never repaired meanwhile.
+        emptied.map { claimClosing($0) }
+        let settle: @MainActor (Bool) -> Void = { [weak self] ok in
+            lifecycle.settle(transaction, ok: ok)
+            if let emptied { self?.finishClosing(emptied, moved: ok) }
+        }
         let dropWindow = drag.winner?.window ?? drag.source.window
         switch drag.source.item {
         case .tab(let id):

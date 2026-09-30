@@ -91,6 +91,11 @@ extension TabDragSession {
                 window.setFrame(tearOffFrame(drag, at: point, size: window.frame.size), display: true)
             }
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)
+        case .moveWorkspaceToNewWindow, .moveWorkspace:
+            // The tabs stay in their workspace; the workspace itself moves.
+            drag.lifecycle.cancel()
+            moveSourceWorkspace(outcome, drag: drag)
+            land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)
         default:
             winner?.provider.dropEnded(committed: winner?.proposal)
             guard let transaction = drag.lifecycle.beginCommit() else { return land(drag, at: drag.motion.targetRect, cardness: 0, opacity: 0, scale: 1) }

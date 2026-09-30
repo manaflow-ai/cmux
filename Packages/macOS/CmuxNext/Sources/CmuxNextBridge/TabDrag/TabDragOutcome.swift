@@ -105,7 +105,9 @@ public nonisolated enum TabDragResolver {
     public static func outcome(for proposal: TabDropProposal?, insideWindow: Bool, screenPoint: CGPoint,
                                context: TabDragContext) -> TabDragOutcome {
         guard insideWindow else {
-            return context.emptiesSourceWorkspace ? .moveWindow(screenPoint: screenPoint) : .tearOff(screenPoint: screenPoint)
+            guard context.emptiesSourceWorkspace else { return .tearOff(screenPoint: screenPoint) }
+            return context.sourceWindowWorkspaceCount <= 1 ? .moveWindow(screenPoint: screenPoint)
+                : .moveWorkspaceToNewWindow(screenPoint: screenPoint)
         }
         guard let proposal, accepts(proposal.kind, context: context) else { return .cancel }
         switch proposal.kind {
@@ -117,7 +119,8 @@ public nonisolated enum TabDragResolver {
             guard let after else { return .cancel }
             return .newColumn(screenID: screen, afterColumnID: after)
         case .newWorkspace(let group, let index):
-            return .newWorkspace(groupID: group, index: index < 0 ? nil : index)
+            let slot = index < 0 ? nil : index
+            return context.emptiesSourceWorkspace ? .moveWorkspace(groupID: group, index: slot) : .newWorkspace(groupID: group, index: slot)
         case .workspace(let id):
             return .workspace(id: id)
         }
