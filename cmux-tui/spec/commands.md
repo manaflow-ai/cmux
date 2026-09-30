@@ -3510,6 +3510,7 @@ object{terminal_id:string, idle_close_seconds:uint64|null}
 Marks (`keep:true`) or unmarks one hosted terminal as kept. Closing a tab,
 pane, screen, or workspace detaches a PTY terminal without ending it. Reaping
 is opt-in per daemon: an owner started with `--terminal-reap-grace-seconds <n>`
+(`cmux server ensure --terminal-reap-grace-seconds <n>` passes it to the owner it spawns)
 ends a terminal that is not kept once it has had no tab placement for `n`
 seconds (0 ends it at once). Without that option no terminal is reaped, so
 clients that rely on detached terminals surviving a close keep working, and
