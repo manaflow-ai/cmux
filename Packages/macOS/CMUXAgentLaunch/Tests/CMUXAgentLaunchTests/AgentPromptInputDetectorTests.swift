@@ -145,4 +145,63 @@ struct AgentPromptInputDetectorTests {
         let screen = claudeScreen(input: [[span(" ", at: 6), span("\u{276F}\u{00A0}", at: 0), span("abcd", at: 2)]])
         #expect(AgentPromptInputState(screenRows: screen) == .draft("abcd"))
     }
+
+    @Test("Submission snapshot identifies Claude and preserves a long wrapped draft")
+    func submissionSnapshotClaude() {
+        let screen = claudeScreen(input: [
+            [span("\u{276F}\u{00A0}first line")],
+            [span("  second line [Pasted text #1 +2 lines]")],
+        ])
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .claude)
+        #expect(snapshot.state == .draft("first line\n  second line [Pasted text #1 +2 lines]"))
+        #expect(!snapshot.busy)
+        #expect(!snapshot.queued)
+    }
+
+    @Test("Busy Codex exposes queue state")
+    func busyCodex() {
+        let screen = [
+            [span(" Working on your request... (esc to interrupt)")],
+            [span("\u{203A}"), span(" ", at: 1), span("Ask Codex to do anything", at: 2, faint: true)],
+            [span("  Tab to queue")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .codex)
+        #expect(snapshot.busy)
+        #expect(!snapshot.queued)
+    }
+
+    @Test("Codex queued status is exposed separately from busy")
+    func queuedCodex() {
+        let screen = [
+            [span(" Working on your request...")],
+            [span("\u{203A} queued follow-up")],
+            [span("Queued")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .codex)
+        #expect(snapshot.queued)
+    }
+
+    @Test("Slash command popup is visible and remains a dialog")
+    func slashCommandPopup() {
+        let screen = [
+            [span("\u{276F}\u{00A0}/goal resume")],
+            [span("  /goal resume    Resume a goal")],
+            [span("  /help           Show help")],
+            [span("  Enter to select \u{00B7} Esc to cancel")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .claude)
+        #expect(snapshot.slashCommandPopup)
+        #expect(snapshot.state == .dialog)
+    }
+
+    @Test("Text-only screen detection is available for remote panes")
+    func textOnlyScreen() {
+        let snapshot = AgentPromptSubmissionSnapshot(screenText: "Working...\\n› Ask Codex to do anything\\n  Tab to queue")
+        #expect(snapshot.agentKind == .codex)
+        #expect(snapshot.busy)
+    }
 }
