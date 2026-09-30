@@ -153,7 +153,11 @@ runs:
       if: ${{ inputs.record-video == 'true' }}
       shell: bash
       run: |
-        brew install --quiet ffmpeg
+        if [ -x scripts/ci/brew-ensure.sh ]; then
+          scripts/ci/brew-ensure.sh ffmpeg
+        else
+          brew install --quiet ffmpeg
+        fi
         FFMPEG_PATH=$(which ffmpeg)
         echo "ffmpeg: $FFMPEG_PATH"
         ffmpeg -version | head -1
@@ -235,7 +239,9 @@ runs:
     - name: Install tmux
       shell: bash
       run: |
-        if ! command -v tmux >/dev/null 2>&1; then
+        if [ -x scripts/ci/brew-ensure.sh ]; then
+          scripts/ci/brew-ensure.sh tmux
+        elif ! command -v tmux >/dev/null 2>&1; then
           brew install --quiet tmux
         fi
         tmux -V
