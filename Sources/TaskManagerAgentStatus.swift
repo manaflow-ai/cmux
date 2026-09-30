@@ -40,6 +40,7 @@ struct CmuxTaskManagerAgentStatus: Equatable {
         init(_ lifecycle: AgentHibernationLifecycleState) {
             switch lifecycle {
             case .running: self = .running
+            case .backgroundWorkPending: self = .running
             case .needsInput: self = .needsInput
             case .idle: self = .idle
             case .unknown: self = .unknown
