@@ -9705,7 +9705,8 @@ struct ContentView: View {
             commandSourcePaths: cmuxConfigStore.commandSourcePaths,
             tabManager: tabManager,
             baseCwd: baseCwd,
-            globalConfigPath: cmuxConfigStore.globalConfigPath
+            globalConfigPath: cmuxConfigStore.globalConfigPath,
+            settingPresets: cmuxConfigStore.settingPresets
         )
     }
 
