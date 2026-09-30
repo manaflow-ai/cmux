@@ -208,6 +208,22 @@ struct NotificationDismissalModelTests {
         #expect(host.log == ["markRead:\(prefix)", "clearFocusedRead:\(prefix)", "notificationFlash"])
     }
 
+    @Test func visibleNonFocusedSurfaceDismissesWhenWorkspaceIsSelected() {
+        let (model, host, workspaceId, _) = makeModel()
+        let visibleSurface = UUID()
+        host.unreadNotificationSurfaces = [visibleSurface]
+
+        // Selecting a workspace can render a split surface that is visible but
+        // not the focused panel. Seeing that pane must still clear its badge.
+        model.dismissPanelNotificationOnFocus(
+            workspaceId: workspaceId,
+            panelId: visibleSurface,
+            explicitFocusIntent: false
+        )
+
+        #expect(host.log.contains("markRead:\(visibleSurface.uuidString.prefix(4))"))
+    }
+
     @Test func surfaceAliasMarksBothSurfaceAndPanel() {
         let (model, host, workspaceId, panelId) = makeModel()
         let surfaceId = UUID()
