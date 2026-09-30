@@ -65,13 +65,18 @@ class Decide(unittest.TestCase):
         # cli-product-tests holds the gui token too, so it queues behind the shards for a gui runner.
         self.assertEqual(placed, {"shard-1": gui, "shard-2": gui})
         self.assertIn(f"2 idle `{gui}`", why)
-        # No gui count yet: the GUI jobs take the root label as before.
+        # The runners decide, not CI_OWNED_POOL_SLOTS: without a gui count the gui runners still route.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS='{"std": 40, "root-std": 19}'), runners)[0],
-                         {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
-        self.assertEqual(late.decide(FULL, runners)[0],
+                         {"shard-1": gui, "shard-2": gui})
+        self.assertEqual(late.decide(FULL, runners)[0], {"shard-1": gui, "shard-2": gui})
+        # No runner carries the gui label: the GUI jobs take the root label as before, whatever the slots.
+        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0],
                          {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
         # No idle gui runner: the gui-token jobs stay where the picker put them.
-        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0], {})
+        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots),
+                                     [*roots(idle=3), runner("gui-busy", gui, busy=True)])[0], {})
+        # An offline gui runner (a drained mini) still keeps them off the root label.
+        self.assertEqual(late.decide(FULL, [*roots(idle=3), runner("gui-off", gui, status="offline")])[0], {})
         # Enough gui runners: cli-product-tests takes one, never the root label.
         many = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(10))]
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), many)[0]["cli-product"], gui)
@@ -145,14 +150,12 @@ class GuiOverflow(unittest.TestCase):
         self.assertIn(f"and 50 on `{RETRY}`", why)
 
     def test_jobs_move_only_while_blacksmith_would_start_them_sooner(self):
-        # 25 ahead on ten gui runners: the next job starts in 26/10 x 407 s = 1,058 s there, and each that
-        # stays adds 40.7 s; behind 15 on 12vcpu's five it starts in 15 s + 16/5 x 295 s = 959 s, and each
-        # move adds 59 s. 1st and 2nd move (959, 1,018), 3rd stays (1,077 against 1,058), 4th moves
-        # (1,077 against 1,099), 5th stays, 6th moves (1,136 against 1,140), 7th and 8th stay, 9th moves.
+        # The shared account has 15 queued jobs and 17 measured slots, so the
+        # retry pool starts this run before the GUI backlog for every job.
         count, _ = self.backlog(queued=25, retry_queued=15)
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=0, busy=10)], count)
         mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
-        self.assertEqual(placed, {mine[i]: RETRY for i in (0, 1, 3, 5, 8)})
+        self.assertEqual(placed, {key: RETRY for key in mine})
 
     def test_an_empty_blacksmith_pool_takes_its_machines_at_once(self):
         # Twenty gui runners, twenty jobs ahead: each job waits over a round there, none on an idle 12vcpu.
@@ -162,7 +165,8 @@ class GuiOverflow(unittest.TestCase):
 
     def test_no_gui_runner_online_moves_every_owned_gui_job_without_a_read(self):
         count, calls = self.backlog(queued=0, retry_queued=99)
-        placed, _ = late.decide(OWNED, roots(idle=2), count)
+        offline = [runner(f"gui-off-{i}", GUI, status="offline") for i in range(10)]
+        placed, _ = late.decide(OWNED, [*roots(idle=2), *offline], count)
         self.assertEqual(set(placed.values()), {RETRY})
         self.assertEqual(len(placed), 9)
         self.assertEqual(calls, [])
@@ -187,12 +191,11 @@ class GuiOverflow(unittest.TestCase):
 
     def test_the_idle_gui_runners_keep_the_first_jobs_and_an_idle_blacksmith_takes_the_rest(self):
         count, _ = self.backlog(queued=0)
-        # Minis first: three idle gui runners take the three highest priority jobs. The other six would
-        # queue there (the first 1/10 x 407 s = 41 s): five start in 15 s on 12vcpu's five idle machines,
-        # and the sixth, 15 s + 1/5 x 295 s = 74 s there, stays.
+        # Minis first: three idle GUI runners take the three highest priority
+        # jobs. The shared Blacksmith account takes the remaining six.
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=3, busy=7)], count)
         mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
-        self.assertEqual(placed, {key: RETRY for key in mine[3:8]})
+        self.assertEqual(placed, {key: RETRY for key in mine[3:]})
 
     def test_a_tie_keeps_the_job_on_the_minis(self):
         # Nothing ahead on one gui runner of 20 s jobs, against an idle retry pool's 20 s start: minis first.
@@ -224,7 +227,7 @@ class GuiOverflow(unittest.TestCase):
         count, _ = self.backlog(queued=40)
         busy = [*roots(idle=0, busy=16), *guis(idle=0, busy=10)]
         self.assertEqual(late.decide(dict(OWNED, POOL_OWNED_GUI="0"), busy, count)[0], {})
-        self.assertEqual(late.decide(dict(OWNED, OWNED_SLOTS='{"std": 40, "root-std": 19}'), busy, count)[0], {})
+        self.assertEqual(late.decide(OWNED, roots(idle=0, busy=16), count)[0], {})
 
     def test_owned_jobs_that_stay_take_the_idle_gui_runners_before_unowned_ones(self):
         count, _ = self.backlog(queued=0)
@@ -241,12 +244,12 @@ class GuiOverflow(unittest.TestCase):
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=2, busy=8)], count)
         self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
         count, calls = self.backlog(queued=1)
-        # One queued ahead takes one of the two idle runners; the highest priority job the other. Of the
-        # rest, five take 12vcpu's idle machines (15 s against 41 s), the next stays (74 s against 41 s),
-        # one more moves (74 s against 81 s) and the last two stay (133 s against 81 s and 122 s).
+        # One queued ahead takes one of the two idle runners; the highest
+        # priority job takes the other. The shared account has enough measured
+        # capacity for the remaining jobs, so they move to Blacksmith.
         placed, _ = late.decide(OWNED, [*roots(idle=2), *guis(idle=2, busy=8)], count)
         mine = sorted({*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"}, key=late.pool.priority)
-        self.assertEqual(placed, {key: RETRY for key in (*mine[1:6], mine[7])})
+        self.assertEqual(placed, {key: RETRY for key in mine[1:]})
         self.assertEqual(calls, [[GUI, RETRY]])
 
     def test_the_kill_switch_with_nothing_idle_moves_every_owned_gui_job_without_a_read(self):
@@ -276,6 +279,8 @@ class GuiOverflow(unittest.TestCase):
             def runs_since(self, workflow, since, **filters):
                 self.statuses.append((workflow, filters["status"]))
                 # GitHub lists a run with a queued job as queued even while others run.
+                if workflow != "ci.yml":
+                    return []
                 if filters["status"] == "queued":
                     return [{"id": 5, "created_at": at(30)}, {"id": 4, "created_at": at(2)}]
                 return [{"id": 9, "created_at": at(10)}, {"id": 8, "created_at": at(50)},
@@ -289,7 +294,46 @@ class GuiOverflow(unittest.TestCase):
         # Run 4 is too young to have gui jobs and 7 is this run.
         self.assertEqual(late.gui_backlog(api, [GUI, ROOT_STD], exclude_run_id=7, now=now), {GUI: 8, ROOT_STD: 4})
         self.assertEqual(sorted(api.jobs_read), [5, 6, 8, 9])
-        self.assertEqual(api.statuses, [("ci.yml", "queued"), ("ci.yml", "in_progress")])
+        self.assertEqual(sorted(api.statuses), [("ci.yml", "in_progress"), ("ci.yml", "queued"),
+                                                ("test-e2e.yml", "in_progress"), ("test-e2e.yml", "queued")])
+
+    def test_backlog_counts_queued_e2e_gui_jobs(self):
+        import datetime as dt
+        now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
+        e2e = {"id": 21, "created_at": "2026-09-28T00:00:00Z"}
+
+        class API:
+            def runs_since(self, workflow, since, **filters):
+                return [e2e] if workflow == "test-e2e.yml" and filters["status"] == "in_progress" else []
+
+            def get(self, path):
+                return {"jobs": [{"status": "queued", "labels": [ROOT_STD]}]}
+
+        # E2E runs request the root/pool label but consume the GUI token inside the job.
+        self.assertEqual(late.gui_backlog(API(), [GUI, RETRY], exclude_run_id=None, now=now),
+                         {GUI: 1, RETRY: 0})
+
+    def test_e2e_fallback_rejects_unrelated_or_unowned_jobs(self):
+        import datetime as dt
+        now = dt.datetime(2026, 9, 28, 1, 0, tzinfo=dt.timezone.utc)
+        runs = [
+            ({"id": 22, "created_at": "2026-09-28T00:00:00Z"}, "test-e2e.yml", ["glaeda-other-xcode-26.6"]),
+            ({"id": 23, "created_at": "2026-09-28T00:00:00Z"}, "test-e2e.yml", ["ubuntu-latest"]),
+            ({"id": 24, "created_at": "2026-09-28T00:00:00Z"}, "ci.yml", ["glaeda-other-xcode-26.6"]),
+        ]
+
+        class API:
+            def runs_since(self, workflow, since, **filters):
+                return [run for run, run_workflow, _ in runs
+                        if workflow == run_workflow and filters["status"] == "in_progress"]
+
+            def get(self, path):
+                run_id = int(path.split("/")[3])
+                labels = next(labels for run, _, labels in runs if run["id"] == run_id)
+                return {"jobs": [{"status": "queued", "labels": labels}]}
+
+        self.assertEqual(late.gui_backlog(API(), [GUI, RETRY], exclude_run_id=None, now=now),
+                         {GUI: 0, RETRY: 0})
 
     def test_backlog_reads_runs_concurrently(self):
         import datetime as dt
@@ -305,7 +349,7 @@ class GuiOverflow(unittest.TestCase):
                 self.jobs_read, self.lock = [], threading.Lock()
 
             def runs_since(self, workflow, since, **filters):
-                return runs if filters["status"] == "in_progress" else []
+                return runs if workflow == "ci.yml" and filters["status"] == "in_progress" else []
 
             def get(self, path):
                 together.wait()
@@ -327,7 +371,7 @@ class GuiOverflow(unittest.TestCase):
                 self.jobs_read = []
 
             def runs_since(self, workflow, since, **filters):
-                return runs if filters["status"] == "in_progress" else []
+                return runs if workflow == "ci.yml" and filters["status"] == "in_progress" else []
 
             def get(self, path):
                 self.jobs_read.append(int(path.split("/")[3]))
@@ -344,7 +388,7 @@ class GuiOverflow(unittest.TestCase):
         class API:
             def runs_since(self, workflow, since, **filters):
                 return [{"id": i, "created_at": (now - dt.timedelta(minutes=30 + i)).strftime("%Y-%m-%dT%H:%M:%SZ")}
-                        for i in range(1, 4)] if filters["status"] == "in_progress" else []
+                        for i in range(1, 4)] if workflow == "ci.yml" and filters["status"] == "in_progress" else []
 
             def get(self, path):
                 if path.split("/")[3] == "2":
