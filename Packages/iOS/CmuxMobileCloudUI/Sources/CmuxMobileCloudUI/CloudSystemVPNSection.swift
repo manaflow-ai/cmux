@@ -162,7 +162,7 @@ private struct CloudVPNInfoVisual: View {
             infoIcon("lock.network", color: .green)
             Image(systemName: "arrow.right")
                 .foregroundStyle(.secondary)
-            infoIcon("server.rack", color: .tint)
+            infoIcon("server.rack", color: .orange)
         }
         .font(.title2)
         .frame(maxWidth: .infinity)

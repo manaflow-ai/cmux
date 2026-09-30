@@ -437,7 +437,7 @@ struct CloudCreateMachineSheet: View {
 
     private func lockedSizeMenuTitle(_ memoryMb: Int) -> String {
         guard let planID = upgradePlanID(for: memoryMb) else { return sizeMenuTitle(memoryMb) }
-        String(
+        return String(
             format: L10n.string(
                 "mobile.cloud.create.size.lockedMenu",
                 defaultValue: "%1$@ · Requires %2$@"

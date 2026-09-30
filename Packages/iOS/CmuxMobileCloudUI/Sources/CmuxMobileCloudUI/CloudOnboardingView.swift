@@ -270,7 +270,7 @@ private struct CloudVPNTopologyVisual: View {
             topologyIcon("shield.lefthalf.filled", color: .green)
             Image(systemName: "arrow.right")
                 .foregroundStyle(.secondary)
-            topologyIcon("server.rack", color: .tint)
+            topologyIcon("server.rack", color: .orange)
         }
         .font(.system(size: 30, weight: .medium))
         .frame(maxWidth: 360)
