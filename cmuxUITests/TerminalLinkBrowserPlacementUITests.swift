@@ -41,12 +41,20 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
     private func verifyLinkPlacement(_ placement: String) throws {
         let app = XCUIApplication.cmuxTestApplication()
         application = app
+        // Runner preferences (including host filters) must not change the route under test.
+        let home = fixture.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        app.launchEnvironment["HOME"] = home.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = home.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] = home.appendingPathComponent(".config").path
         let stateURL = fixture.appendingPathComponent("state.json")
         app.launchArguments += [
             "-socketControlMode", "allowAll",
             "-browserDisabledOverride", "NO",
             "-browserOpenTerminalLinksInCmuxBrowser", "YES",
             "-browserInterceptTerminalOpenCommandInCmuxBrowser", "YES",
+            "-browserHostWhitelist", "",
+            "-browserExternalOpenPatterns", "",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
