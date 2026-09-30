@@ -2370,11 +2370,14 @@ removes the tab from its pane, collapses an emptied pane and screen, keeps an
 emptied canonical workspace, and may emit `tree-changed`. Only explicit
 `close-workspace` can remove the workspace and produce `empty`.
 
+A tab whose terminal ended with `shutdown-daemon` `keep_layout` has no runtime
+surface after the restart (`dead: true`); it still closes by its `surface` id.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Must identify a live surface |
+| `surface` | `Id` | required | Must identify a live surface or a placed tab |
 
 Result:
 
