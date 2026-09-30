@@ -17,12 +17,16 @@ public struct AcpmuxWebHostHandshake: Codable, Sendable, Equatable {
     public let endpoint: String
     public let token: String
     public let sessionId: String?
+    public let newSessionHarness: String?
+    public let workingDirectory: String?
 
-    public init(endpoint: String, token: String, sessionId: String?) {
+    public init(endpoint: String, token: String, sessionId: String?, newSessionHarness: String? = nil, workingDirectory: String? = nil) {
         protocolVersion = AcpmuxWebBridgeProtocol().version
         transport = "acpmux-websocket"
         self.endpoint = endpoint
         self.token = token
         self.sessionId = sessionId
+        self.newSessionHarness = newSessionHarness
+        self.workingDirectory = workingDirectory
     }
 }

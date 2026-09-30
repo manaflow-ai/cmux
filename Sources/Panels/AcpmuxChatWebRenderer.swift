@@ -212,7 +212,7 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
             let endpoint = try await model.webSocketEndpoint()
             applyTheme()
             sendCustomization()
-            return Self.jsonObject(AcpmuxWebHostHandshake(endpoint: endpoint.endpoint, token: endpoint.token, sessionId: model.sessionId)) ?? [:]
+            return Self.jsonObject(AcpmuxWebHostHandshake(endpoint: endpoint.endpoint, token: endpoint.token, sessionId: model.sessionId, newSessionHarness: model.newSessionHarness, workingDirectory: panel.workingDirectory)) ?? [:]
         case "chat.persistSession":
             guard let sessionId = request.string("sessionId"), !sessionId.isEmpty else {
                 throw NSError(domain: "AcpmuxWebBridge", code: 3, userInfo: [NSLocalizedDescriptionKey: "Missing acpmux session id"])

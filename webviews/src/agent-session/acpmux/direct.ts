@@ -6,6 +6,8 @@ export type AcpmuxHostConfig = {
   endpoint: string;
   token: string;
   sessionId?: string;
+  newSessionHarness?: string;
+  workingDirectory?: string;
 };
 
 export type EventRecord = { sessionId?: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, any> };
@@ -203,12 +205,14 @@ export class AcpmuxDirectClient {
 
   private resyncAfterLag(params: any): void {
     const sessionId = String(params?.sessionId ?? "");
-    if (!sessionId || sessionId !== this.selectedSessionId) return;
+    if (sessionId && sessionId !== this.selectedSessionId) return;
+    const selectedSessionId = this.selectedSessionId;
+    if (!selectedSessionId) return;
     const generation = this.selectionGeneration;
     const afterSeq = this.lastSeq;
     this.emit("resyncing");
-    void this.request("_acpmux/events", { sessionId, afterSeq, limit: 5_000 }).then((result) => {
-      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+    void this.request("_acpmux/events", { sessionId: selectedSessionId, afterSeq, limit: 5_000 }).then((result) => {
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== selectedSessionId) return;
       this.events = mergeEventRecords(this.events, result?.events ?? []);
       this.rebuild();
       this.emit("resynced");
@@ -361,7 +365,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows.set(promptId, rowId); this.optimisticPromptTexts.set(promptId, text);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true }); this.emit();
     try {
-      await this.request("session/prompt", { sessionId, prompt: [{ type: "text", text }], _meta: { acpmux: { promptId } } });
+      await this.request("session/prompt", { sessionId, prompt: [{ type: "text", text }], _meta: { acpmux: { promptId, ...(this.turnOpen ? { delivery: "turn" } : {}) } } });
     } catch (error) {
       const row = this.rows.get(rowId);
       if (row) { row.pending = false; row.failed = true; row.version += 1; }
@@ -389,7 +393,7 @@ export class AcpmuxDirectClient {
     await this.attach(sessionId, undefined, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
-  async create(harness?: string): Promise<string | undefined> { const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } }); if (result?.sessionId) return this.select(String(result.sessionId)); return undefined; }
+  async create(harness?: string): Promise<string | undefined> { const selectedHarness = harness ?? this.host.newSessionHarness; const params: Record<string, unknown> = { mcpServers: [] }; if (this.host.workingDirectory) params.cwd = this.host.workingDirectory; if (selectedHarness) params._meta = { acpmux: { harness: selectedHarness } }; const result = await this.request("session/new", params); if (result?.sessionId) return this.select(String(result.sessionId)); return undefined; }
   async setModel(modelId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId }); }
   async setMode(modeId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId }); }
   async setConfig(configId: string, value: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_config_option", { sessionId: this.selectedSessionId, configId, value }); }
