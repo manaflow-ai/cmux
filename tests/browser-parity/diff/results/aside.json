@@ -1,0 +1,30 @@
+{
+ "meta": {
+  "backend": "aside",
+  "recordedAt": "2026-09-30T08:44:42.096Z",
+  "version": "1.26.916.1741"
+ },
+ "cases": {
+  "smoke.title-click": {
+   "value": {
+    "title": "Diff lab",
+    "status": "clicked",
+    "trusted": [
+     [
+      "mousedown",
+      true
+     ],
+     [
+      "mouseup",
+      true
+     ],
+     [
+      "click",
+      true
+     ]
+    ]
+   },
+   "ms": 1885
+  }
+ }
+}

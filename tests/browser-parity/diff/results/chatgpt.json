@@ -1,0 +1,29 @@
+{
+ "meta": {
+  "backend": "chatgpt",
+  "recordedAt": "2026-09-30T08:44:47.721Z"
+ },
+ "cases": {
+  "smoke.title-click": {
+   "value": {
+    "title": "Diff lab",
+    "status": "clicked",
+    "trusted": [
+     [
+      "mousedown",
+      true
+     ],
+     [
+      "mouseup",
+      true
+     ],
+     [
+      "click",
+      true
+     ]
+    ]
+   },
+   "ms": 1733
+  }
+ }
+}

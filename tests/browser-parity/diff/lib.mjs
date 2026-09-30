@@ -1,0 +1,256 @@
+// Differential harness core: case loading, dialect expansion, outcome
+// normalization and verdicts. Shared by run.mjs, the ChatGPT runner and
+// unit/diff.test.mjs, so a verdict is always recomputed from recorded
+// evidence, never read back from a file.
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+export const here = path.dirname(fileURLToPath(import.meta.url));
+export const MARK = "@@DIFF@@";
+export const REFERENCES = ["aside", "chatgpt"];
+export const CMUX_BACKENDS = ["cmux", "cmux-dev"];
+export const VERDICTS = ["same", "cmux-better", "cmux-worse", "not-applicable", "out-of-scope", "not-run"];
+
+// ---------------------------------------------------------------------------
+// Cases
+
+export async function loadCases() {
+  const dir = path.join(here, "cases");
+  const cases = [];
+  for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".mjs")).sort()) {
+    const mod = await import(pathToFileURL(path.join(dir, f)).href);
+    for (const c of mod.default) cases.push({ ...c, file: f });
+  }
+  const ids = new Set();
+  for (const c of cases) {
+    if (ids.has(c.id)) throw new Error(`duplicate case id ${c.id}`);
+    ids.add(c.id);
+    validateCase(c);
+  }
+  return cases;
+}
+
+function validateCase(c) {
+  const where = `${c.file}:${c.id}`;
+  if (!/^[a-z0-9][\w.:-]*$/i.test(c.id)) throw new Error(`${where}: bad id`);
+  if (!Array.isArray(c.members) && !c.edge) throw new Error(`${where}: needs members or edge`);
+  for (const m of c.members ?? []) if (!/^(aside|chatgpt):\S+$/.test(m)) throw new Error(`${where}: member "${m}" must be aside:X or chatgpt:X`);
+  if (!c.custom && dialectSource(c, "cmux") == null) throw new Error(`${where}: no cmux code`);
+  for (const ref of REFERENCES) {
+    const has = c.custom ? !!c.custom[ref] : dialectSource(c, ref) != null;
+    const why = c.na?.[ref] ?? c.scope?.[ref];
+    if (!has && !why) throw new Error(`${where}: ${ref} has no code and no not-applicable/out-of-scope reason`);
+    if (has && c.members?.some((m) => m.startsWith(`${ref}:`)) === false && !c.edge && !c.extra) {
+      // A reference run that proves no member of that reference is allowed
+      // (it still yields a verdict), so nothing to check here.
+    }
+  }
+  for (const [ref, b] of Object.entries(c.better ?? {})) {
+    if (!REFERENCES.includes(ref) || typeof b.check !== "function" || !(b.reason?.length > 15)) throw new Error(`${where}: better.${ref} needs { check(cmux, ref), reason }`);
+  }
+}
+
+// `code` is shared by the three dialects; `cmux`, `aside` and `chatgpt`
+// override it. null means the reference cannot express the task.
+export function dialectSource(c, dialect) {
+  const d = dialect === "cmux-dev" ? "cmux" : dialect;
+  if (Object.prototype.hasOwnProperty.call(c, d)) return c[d];
+  return c.code ?? null;
+}
+
+const PAGE = { cmux: "page", aside: "page", chatgpt: "t.playwright" };
+
+export function expand(src, dialect) {
+  const d = dialect === "cmux-dev" ? "cmux" : dialect;
+  return src
+    .replaceAll("$LOG", `(await ${PAGE[d]}.evaluate(() => JSON.parse(document.body.dataset.log || "[]")))`)
+    .replace(/\$T\(([^)]*)\)/g, (_, n) => (d === "chatgpt" ? `{ timeoutMs: ${n} }` : `{ timeout: ${n} }`))
+    .replace(/\$TO\b/g, d === "chatgpt" ? "timeoutMs" : "timeout")
+    .replaceAll("$P", PAGE[d]);
+}
+
+// The prelude every dialect gets: origins, E() to capture an error as a
+// value, ms() to time a call, sleep().
+export function prelude(origins) {
+  return [
+    `const ORIGINS = ${JSON.stringify(origins)};`,
+    "const U = (p, o = 'primary') => ORIGINS[o] + p;",
+    "const E = async (f) => { try { const v = await f(); return v === undefined ? { ok: true } : { ok: true, value: v }; } catch (e) { return { error: String((e && e.message) || e).slice(0, 600), name: (e && e.name) || null }; } };",
+    "const ms = async (f) => { const t0 = Date.now(); const r = await E(f); return { ms: Date.now() - t0, ...r }; };",
+    "const pause = (n) => new Promise((r) => setTimeout(r, n));",
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Outcome normalization
+
+export function normalizeStrings(v, origins) {
+  const reps = Object.entries(origins ?? {})
+    .filter(([, o]) => o)
+    .sort((a, b) => b[1].length - a[1].length);
+  const s = (x) => {
+    for (const [k, o] of reps) x = x.split(o).join(`<${k}>`);
+    for (const [k, o] of reps) {
+      const hostPort = o.replace(/^\w+:\/\//, "");
+      x = x.split(hostPort).join(`<${k}-host>`);
+    }
+    return x;
+  };
+  const walk = (x) => {
+    if (typeof x === "string") return s(x);
+    if (Array.isArray(x)) return x.map(walk);
+    if (x && typeof x === "object") return Object.fromEntries(Object.entries(x).map(([k, y]) => [k, walk(y)]));
+    return x;
+  };
+  return walk(v);
+}
+
+// Error text to a class that means the same across implementations. Order
+// matters: the most specific cue wins.
+const ERROR_CLASSES = [
+  ["absent", /is not a function|is not defined|Cannot read propert(y|ies) of undefined|undefined is not an object|not supported|does not support|unsupported|Capability is not available/i],
+  ["strict", /strict mode violation|resolved to [2-9]\d* elements/i],
+  ["intercepted", /intercepts pointer events|intercepted|is covered|obscured|receives the click|would receive the click/i],
+  ["stale", /\bstale\b|detached|not attached|no longer attached/i],
+  ["not-visible", /not visible|is hidden|element is not displayed/i],
+  ["disabled", /not enabled|is disabled|element is disabled/i],
+  ["not-editable", /not editable|readonly|read-only/i],
+  ["dialog", /dialog is open|blocked by (a|the) (javascript )?dialog/i],
+  ["auth", /\b401\b|authenticat/i],
+  ["tls", /certificate|SSL|TLS|ERR_CERT|secure connection/i],
+  ["dns", /ERR_NAME_NOT_RESOLVED|server with the specified hostname could not be found|NSURLErrorCannotFindHost|cannot find host|could not resolve|getaddrinfo/i],
+  ["refused", /ERR_CONNECTION_REFUSED|Could not connect|NSURLErrorCannotConnectToHost|connection refused|ECONNREFUSED/i],
+  ["redirects", /too many redirects|ERR_TOO_MANY_REDIRECTS|redirect loop|HTTPTooManyRedirects/i],
+  ["aborted", /ERR_ABORTED|interrupted by another navigation|navigation (was )?(cancel|abort)|NSURLErrorCancelled|frame load interrupted/i],
+  ["closed", /has been closed|tab (was |is )?closed|No open tab|Target closed|page is closed|No tab with id|Tab not found/i],
+  ["no-element", /no_matches|"matchCount":0|resolved to 0 elements|no element|does not exist|not found|waiting for (locator|selector|getBy)|waiting on \w+ for selector/i],
+  ["timeout", /timeout|timed out|deadline/i],
+  ["invalid-arg", /requires|invalid|expected|must be|not a valid|unknown (key|option|event|role)|TypeError|RangeError|SyntaxError|received an? /i],
+];
+export function classifyError(msg) {
+  const m = String(msg ?? "");
+  for (const [cls, re] of ERROR_CLASSES) if (re.test(m)) return cls;
+  return "other";
+}
+const SPECIFIC = new Set(["strict", "intercepted", "stale", "not-visible", "disabled", "not-editable", "dialog", "auth", "tls", "dns", "refused", "redirects", "aborted", "closed", "no-element"]);
+export const isSpecific = (cls) => SPECIFIC.has(cls);
+
+export function timingClass(n) {
+  if (typeof n !== "number") return n;
+  if (n < 400) return "instant";
+  if (n < 2000) return "short";
+  if (n < 8000) return "long";
+  return "very-long";
+}
+
+// Comparable form: errors become their class, times their class, and `_`
+// keys (raw evidence) are dropped.
+export function comparable(v, key = "") {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    if (typeof v.error === "string") return { error: classifyError(v.error) };
+    const out = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (k.startsWith("_") || k === "name") continue;
+      out[k] = comparable(x, k);
+    }
+    return out;
+  }
+  if (Array.isArray(v)) return v.map((x) => comparable(x));
+  if ((key === "ms" || /Ms$/.test(key)) && typeof v === "number") return timingClass(v);
+  return v;
+}
+
+export function project(value, keys) {
+  if (!keys || !value || typeof value !== "object") return value;
+  return Object.fromEntries(keys.map((k) => [k, value[k]]));
+}
+
+export function stable(v) {
+  if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}`;
+  return JSON.stringify(v);
+}
+
+export function differences(a, b, prefix = "") {
+  if (stable(a) === stable(b)) return [];
+  if (a && b && typeof a === "object" && typeof b === "object" && !Array.isArray(a) && !Array.isArray(b)) {
+    const out = [];
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) out.push(...differences(a[k], b[k], prefix ? `${prefix}.${k}` : k));
+    return out;
+  }
+  return [`${prefix || "value"}: cmux ${JSON.stringify(a)} vs ref ${JSON.stringify(b)}`.slice(0, 300)];
+}
+
+// ---------------------------------------------------------------------------
+// Verdicts
+
+// `expect` is what cmux must produce regardless of the references
+// (correctness); a mismatch is a failure even when a reference agrees.
+export function checkExpect(c, cmuxValue) {
+  if (!c.expect) return [];
+  const got = comparable(cmuxValue ?? {});
+  const want = comparable(c.expect);
+  const problems = [];
+  for (const [k, v] of Object.entries(want)) if (stable(got[k]) !== stable(v)) problems.push(`expect ${k}: got ${JSON.stringify(got[k])}, want ${JSON.stringify(v)}`.slice(0, 300));
+  return problems;
+}
+
+export function verdictFor(c, ref, cmuxRes, refRes) {
+  const scope = c.scope?.[ref];
+  const hasRef = c.custom ? !!c.custom[ref] : dialectSource(c, ref) != null;
+  if (!hasRef) return scope ? { verdict: "out-of-scope", reason: scope } : { verdict: "not-applicable", reason: c.na?.[ref] };
+  if (!cmuxRes) return { verdict: "not-run", reason: "no cmux result" };
+  if (!refRes) return { verdict: "not-run", reason: `no ${ref} result` };
+  if (cmuxRes.uncaught) return { verdict: "cmux-worse", reason: `cmux uncaught: ${cmuxRes.uncaught}`.slice(0, 300) };
+  const expectProblems = checkExpect(c, cmuxRes.value);
+  if (expectProblems.length) return { verdict: "cmux-worse", reason: expectProblems.join("; ") };
+  // Cases capture expected failures with E(); an uncaught reference error is
+  // a broken run, not evidence either way.
+  if (refRes.uncaught) return { verdict: "not-run", reason: `${ref} run failed: ${refRes.uncaught}`.slice(0, 300) };
+  const keys = c.compare;
+  const a = project(comparable(cmuxRes.value), keys);
+  const b = project(comparable(refRes.value), keys);
+  if (stable(a) === stable(b)) return { verdict: "same" };
+  const better = c.better?.[ref];
+  if (better) {
+    let ok = false;
+    try {
+      ok = !!better.check(cmuxRes.value ?? {}, refRes.value ?? {}, { comparable, classifyError, isSpecific });
+    } catch {
+      ok = false;
+    }
+    if (ok) return { verdict: "cmux-better", reason: better.reason };
+  }
+  return { verdict: "cmux-worse", reason: differences(a, b).join("; ") };
+}
+
+// Results: results/<backend>.json { meta, cases: { id: { value, uncaught, ms } } }.
+export function readResults(backend) {
+  const f = path.join(here, "results", `${backend}.json`);
+  return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : { meta: {}, cases: {} };
+}
+
+export function writeResults(backend, data) {
+  fs.mkdirSync(path.join(here, "results"), { recursive: true });
+  fs.writeFileSync(path.join(here, "results", `${backend}.json`), JSON.stringify(data, null, 1) + "\n");
+}
+
+// The cmux evidence for verdicts: the app's result when it ran the case,
+// else the dev driver's. `appOnly` cases need the app.
+export function cmuxResultFor(c, app, dev) {
+  if (app.cases[c.id]) return { res: app.cases[c.id], backend: "cmux" };
+  if (c.appOnly) return { res: null, backend: "cmux" };
+  return { res: dev.cases[c.id] ?? null, backend: "cmux-dev" };
+}
+
+export function allVerdicts(cases, results) {
+  const out = [];
+  for (const c of cases) {
+    const { res, backend } = cmuxResultFor(c, results.cmux, results["cmux-dev"]);
+    const row = { id: c.id, file: c.file, members: c.members ?? [], edge: c.edge ?? null, cmuxBackend: backend, refs: {} };
+    for (const ref of REFERENCES) row.refs[ref] = verdictFor(c, ref, res, results[ref].cases[c.id]);
+    out.push(row);
+  }
+  return out;
+}

@@ -1,0 +1,29 @@
+{
+ "meta": {
+  "backend": "cmux-dev",
+  "recordedAt": "2026-09-30T08:43:40.102Z"
+ },
+ "cases": {
+  "smoke.title-click": {
+   "value": {
+    "title": "Diff lab",
+    "status": "clicked",
+    "trusted": [
+     [
+      "mousedown",
+      true
+     ],
+     [
+      "mouseup",
+      true
+     ],
+     [
+      "click",
+      true
+     ]
+    ]
+   },
+   "ms": 945
+  }
+ }
+}
