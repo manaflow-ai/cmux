@@ -472,6 +472,12 @@ export function enrollVmTunnel(input: {
   readonly sessionIssuedAt?: Date | null;
   readonly clientPublicKey: string;
   readonly teamIds?: readonly string[];
+  /**
+   * True only when `teamIds` is the caller's complete, freshly listed Stack
+   * membership. Only then are attachments to other team networks detached; a
+   * partial list (one selected team) must never cut the caller's other teams.
+   */
+  readonly teamIdsComplete?: boolean;
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
@@ -555,7 +561,7 @@ export function enrollVmTunnel(input: {
             addressV6: current.addressV6,
             configIssued: true,
           });
-          const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: current, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input) });
+          const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: current, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
           return describeTunnel(current, row, network, { created: false, rotated }, teamNetworks);
         }
         // The control plane has a row for a tunnel the provider no longer has.
@@ -581,7 +587,7 @@ export function enrollVmTunnel(input: {
         addressV4: created.tunnel.addressV4,
         addressV6: created.tunnel.addressV6,
       });
-      const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: created.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input) });
+      const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: created.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
       return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated }, teamNetworks);
     }));
   });
@@ -594,6 +600,8 @@ export function readVmTunnel(input: {
   readonly deviceFingerprint: string;
   readonly tunnelPurpose: "terminal" | "browser";
   readonly teamIds?: readonly string[];
+  /** See `enrollVmTunnel`: detach other team networks only for a complete list. */
+  readonly teamIdsComplete?: boolean;
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
@@ -620,7 +628,7 @@ export function readVmTunnel(input: {
         new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }),
       );
     }
-    const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: live, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input) });
+    const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: live, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
     return describeTunnel(live, existing, network, { created: false, rotated: false }, teamNetworks);
   });
 }
@@ -881,14 +889,16 @@ function teamNetworkCandidates(input: { readonly userId: string; readonly teamId
 }
 
 /**
- * Attach the tunnel to the network of every team the caller belongs to, and
- * detach it from team networks the caller has left. The provider's attachment
+ * Attach the tunnel to the network of every team the caller belongs to, and,
+ * when the caller's complete membership is known, detach it from team networks
+ * the caller has left. The provider's attachment
  * list is the record: a tunnel is attached exactly when Freestyle says so, and
  * deleting a tunnel removes its attachments with it.
  *
- * A failed attach is logged and skipped so enrollment never fails on it. When a
- * team network lookup fails, stale attachments are kept, because the failed
- * lookup might have been a network the caller still belongs to.
+ * A failed attach is logged and skipped so enrollment never fails on it. When
+ * the team list is partial, or a team network lookup fails, stale attachments
+ * are kept, because the missing team might be one the caller still belongs to.
+ * Removal is handled by the Stack membership webhook and the reconcile cron.
  */
 function reconcileTunnelTeamNetworks(input: {
   readonly providers: PrivateNetworkingGateway;
@@ -896,6 +906,8 @@ function reconcileTunnelTeamNetworks(input: {
   readonly provider: ProviderId;
   readonly homeNetworkId: string;
   readonly teamIds?: readonly string[];
+  /** Detach networks outside `teamIds`; only safe when `teamIds` is complete. */
+  readonly detachStale: boolean;
 }): Effect.Effect<TeamNetwork[], never> {
   return Effect.gen(function* () {
     const { getNetwork, attachTunnelNetwork } = input.providers;
@@ -928,7 +940,7 @@ function reconcileTunnelTeamNetworks(input: {
       if (ok) attached.push(network);
     }
     const detach = input.providers.detachTunnelNetwork;
-    if (lookupFailed || !detach) return attached;
+    if (!input.detachStale || lookupFailed || !detach) return attached;
     // Only the home network and team networks are ever attached, so any other
     // attachment belongs to a team the caller has left.
     const keep = new Set([input.homeNetworkId, ...desired.map((network) => network.providerNetworkId)]);
