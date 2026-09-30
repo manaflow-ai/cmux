@@ -770,6 +770,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_release_homebrew_gate.py
 
+      - name: Validate production-secret jobs run only in the protected release environment
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_production_secrets_protected_env.py
+
       - name: Validate the Homebrew cask update keeps run metadata out of scripts
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_homebrew_untrusted_input.py
