@@ -275,7 +275,8 @@ struct AgentNotificationReconcilerTests {
         var reconciler = AgentNotificationReconciler()
         _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
         let result = event(2, .attentionResolved, source: source, turn: nil, request: "tool",
-                           pending: false, notify: false, occurredAt: 20, declaredPhase: .running)
+                           pending: false, notify: false, occurredAt: 20, declaredPhase: .running,
+                           nativeEvent: "PreToolUse")
         _ = reconciler.apply(result)
         #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .running)
     }
