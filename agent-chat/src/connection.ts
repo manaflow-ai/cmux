@@ -29,14 +29,27 @@ export function openSessionConnection(callbacks: SessionConnection): () => void 
     socket = ws;
     callbacks.onSocket(ws);
     const isCurrent = () => !closed && socket === ws;
-    ws.onopen = () => { if (isCurrent()) callbacks.onOpen(); };
-    ws.onmessage = (event) => { if (isCurrent()) callbacks.onMessage(event); };
-    ws.onclose = () => {
+    const scheduleReconnect = () => {
       if (!isCurrent()) return;
       socket = null;
       callbacks.onSocket(null);
       retry = setTimeout(connect, RETRY_DELAY_MS);
     };
+    ws.onopen = () => { if (isCurrent()) callbacks.onOpen(); };
+    ws.onmessage = (event) => { if (isCurrent()) callbacks.onMessage(event); };
+    ws.onerror = () => {
+      // Some browser/network failures emit `error` before a delayed (or
+      // missing) `close`. Release the dead socket immediately so the view
+      // cannot stay permanently disconnected without a retry timer.
+      if (!isCurrent()) return;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      scheduleReconnect();
+      try { ws.close(); } catch {}
+    };
+    ws.onclose = () => { scheduleReconnect(); };
   };
   connect();
   return () => {
@@ -54,6 +67,7 @@ export function openSessionConnection(callbacks: SessionConnection): () => void 
       // thing holding them is the unmounted view's state.
       ws.onopen = null;
       ws.onmessage = null;
+      ws.onerror = null;
       ws.onclose = null;
       ws.close();
     }
