@@ -557,6 +557,10 @@ path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_simple_pool_picker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
@@ -614,6 +618,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_sidebar_lazy_layout_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cli_contract_verb_guard.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1407,14 +1415,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_admission_placement.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_catch_up_pr.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_auto_catch_up_select.py"
 lane = "linux-guard"
 
 [[test]]

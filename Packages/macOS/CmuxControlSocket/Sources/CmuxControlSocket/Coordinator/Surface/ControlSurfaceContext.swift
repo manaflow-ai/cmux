@@ -60,6 +60,9 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The localized surface-not-found message.
     func controlSurfaceNotFoundMessage() -> String
 
+    /// App-bundle-resolved messages for close failures.
+    func controlSurfaceCloseStrings() -> ControlSurfaceCloseStrings
+
     // MARK: - focus / split / respawn / create / close
 
     /// Focuses a surface for `surface.focus`.
@@ -120,7 +123,8 @@ public protocol ControlSurfaceContext: AnyObject {
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        force: Bool
     ) -> ControlSurfaceCloseResolution
 
     // MARK: - move / reorder
@@ -428,4 +432,20 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Returns: The bridged payload, or `nil` when unavailable.
     func controlDebugTerminals() -> JSONValue?
+}
+
+public extension ControlSurfaceContext {
+    /// Backward-compatible non-forced close for app-owned callers.
+    func controlSurfaceClose(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
+    ) -> ControlSurfaceCloseResolution {
+        controlSurfaceClose(
+            routing: routing,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            force: false
+        )
+    }
 }
