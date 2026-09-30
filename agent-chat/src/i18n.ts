@@ -32,6 +32,9 @@ export type AgentChatTextKey =
   | "answerInTerminal"
   | "agentMessageFrom"
   | "agentMessageQueued";
+  | "loadingDiff"
+  | "diffUnavailable"
+  | "retryDiff";
 
 const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
   en: {
@@ -44,6 +47,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Answer in terminal",
     agentMessageFrom: "Message from {sender}",
     agentMessageQueued: "Waiting for the agent to take it",
+    loadingDiff: "Loading diff…",
+    diffUnavailable: "Couldn't load the diff. Try again.",
+    retryDiff: "Retry",
   },
   ja: {
     continuedNewChat: "新しいチャットで続行しました。以前のコンテキストはリンクされています。",
@@ -55,6 +61,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "ターミナルで回答",
     agentMessageFrom: "{sender} からのメッセージ",
     agentMessageQueued: "エージェントが受け取るのを待っています",
+    loadingDiff: "差分を読み込み中…",
+    diffUnavailable: "差分を読み込めませんでした。もう一度お試しください。",
+    retryDiff: "再試行",
   },
   "zh-CN": {
     continuedNewChat: "已在新聊天中继续。之前的上下文已关联。",
@@ -66,6 +75,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "在终端中回答",
     agentMessageFrom: "来自 {sender} 的消息",
     agentMessageQueued: "正在等待代理接收",
+    loadingDiff: "正在加载差异…",
+    diffUnavailable: "无法加载差异。请重试。",
+    retryDiff: "重试",
   },
   "zh-TW": {
     continuedNewChat: "已在新聊天中繼續。先前的內容已連結。",
@@ -77,6 +89,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "在終端機中回答",
     agentMessageFrom: "來自 {sender} 的訊息",
     agentMessageQueued: "正在等待代理程式接收",
+    loadingDiff: "正在載入差異…",
+    diffUnavailable: "無法載入差異。請再試一次。",
+    retryDiff: "重試",
   },
   ko: {
     continuedNewChat: "새 채팅에서 계속합니다. 이전 컨텍스트가 연결되어 있습니다.",
@@ -88,6 +103,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "터미널에서 답변",
     agentMessageFrom: "{sender}의 메시지",
     agentMessageQueued: "에이전트가 받기를 기다리는 중",
+    loadingDiff: "변경 사항을 불러오는 중…",
+    diffUnavailable: "변경 사항을 불러오지 못했습니다. 다시 시도하세요.",
+    retryDiff: "다시 시도",
   },
   de: {
     continuedNewChat: "In einem neuen Chat fortgesetzt. Der vorherige Kontext ist verknüpft.",
@@ -99,6 +117,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Im Terminal antworten",
     agentMessageFrom: "Nachricht von {sender}",
     agentMessageQueued: "Wartet darauf, dass der Agent sie abholt",
+    loadingDiff: "Diff wird geladen…",
+    diffUnavailable: "Der Diff konnte nicht geladen werden. Bitte erneut versuchen.",
+    retryDiff: "Erneut versuchen",
   },
   es: {
     continuedNewChat: "Se continuó en un chat nuevo. El contexto anterior está vinculado.",
@@ -110,6 +131,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Responder en la terminal",
     agentMessageFrom: "Mensaje de {sender}",
     agentMessageQueued: "Esperando a que el agente lo reciba",
+    loadingDiff: "Cargando diferencias…",
+    diffUnavailable: "No se pudieron cargar las diferencias. Inténtalo de nuevo.",
+    retryDiff: "Reintentar",
   },
   fr: {
     continuedNewChat: "La conversation continue dans un nouveau chat. Le contexte précédent est lié.",
@@ -121,6 +145,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Répondre dans le terminal",
     agentMessageFrom: "Message de {sender}",
     agentMessageQueued: "En attente de sa prise en charge par l’agent",
+    loadingDiff: "Chargement des différences…",
+    diffUnavailable: "Impossible de charger les différences. Réessayez.",
+    retryDiff: "Réessayer",
   },
   it: {
     continuedNewChat: "Continuazione in una nuova chat. Il contesto precedente è collegato.",
@@ -132,6 +159,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Rispondi nel terminale",
     agentMessageFrom: "Messaggio da {sender}",
     agentMessageQueued: "In attesa che l’agente lo riceva",
+    loadingDiff: "Caricamento delle differenze…",
+    diffUnavailable: "Impossibile caricare le differenze. Riprova.",
+    retryDiff: "Riprova",
   },
   da: {
     continuedNewChat: "Fortsat i en ny chat. Den tidligere kontekst er knyttet til.",
@@ -143,6 +173,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Svar i terminalen",
     agentMessageFrom: "Besked fra {sender}",
     agentMessageQueued: "Venter på, at agenten tager imod den",
+    loadingDiff: "Indlæser ændringer…",
+    diffUnavailable: "Kunne ikke indlæse ændringerne. Prøv igen.",
+    retryDiff: "Prøv igen",
   },
   pl: {
     continuedNewChat: "Kontynuowano w nowym czacie. Poprzedni kontekst jest połączony.",
@@ -154,6 +187,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Odpowiedz w terminalu",
     agentMessageFrom: "Wiadomość od {sender}",
     agentMessageQueued: "Czeka, aż agent ją odbierze",
+    loadingDiff: "Wczytywanie różnic…",
+    diffUnavailable: "Nie udało się wczytać różnic. Spróbuj ponownie.",
+    retryDiff: "Spróbuj ponownie",
   },
   ru: {
     continuedNewChat: "Продолжено в новом чате. Предыдущий контекст связан.",
@@ -165,6 +201,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Ответить в терминале",
     agentMessageFrom: "Сообщение от {sender}",
     agentMessageQueued: "Ждёт, пока агент его заберёт",
+    loadingDiff: "Загрузка изменений…",
+    diffUnavailable: "Не удалось загрузить изменения. Попробуйте ещё раз.",
+    retryDiff: "Повторить",
   },
   bs: {
     continuedNewChat: "Nastavljeno u novom chatu. Prethodni kontekst je povezan.",
@@ -176,6 +215,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Odgovori u terminalu",
     agentMessageFrom: "Poruka od {sender}",
     agentMessageQueued: "Čeka da je agent preuzme",
+    loadingDiff: "Učitavanje razlika…",
+    diffUnavailable: "Nije moguće učitati razlike. Pokušajte ponovo.",
+    retryDiff: "Pokušaj ponovo",
   },
   ar: {
     continuedNewChat: "تمت المتابعة في محادثة جديدة. السياق السابق مرتبط.",
@@ -187,6 +229,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "أجب في الطرفية",
     agentMessageFrom: "رسالة من {sender}",
     agentMessageQueued: "بانتظار أن يستلمها الوكيل",
+    loadingDiff: "جارٍ تحميل الفروقات…",
+    diffUnavailable: "تعذّر تحميل الفروقات. حاول مرة أخرى.",
+    retryDiff: "إعادة المحاولة",
   },
   no: {
     continuedNewChat: "Fortsatt i en ny chat. Tidligere kontekst er koblet til.",
@@ -198,6 +243,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Svar i terminalen",
     agentMessageFrom: "Melding fra {sender}",
     agentMessageQueued: "Venter på at agenten tar imot den",
+    loadingDiff: "Laster endringer…",
+    diffUnavailable: "Kunne ikke laste endringene. Prøv igjen.",
+    retryDiff: "Prøv igjen",
   },
   "pt-BR": {
     continuedNewChat: "Continuado em um novo chat. O contexto anterior está vinculado.",
@@ -209,6 +257,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Responder no terminal",
     agentMessageFrom: "Mensagem de {sender}",
     agentMessageQueued: "Aguardando o agente receber",
+    loadingDiff: "Carregando diferenças…",
+    diffUnavailable: "Não foi possível carregar as diferenças. Tente novamente.",
+    retryDiff: "Tentar novamente",
   },
   th: {
     continuedNewChat: "ดำเนินการต่อในแชทใหม่แล้ว โดยเชื่อมโยงบริบทก่อนหน้าไว้",
@@ -220,6 +271,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "ตอบในเทอร์มินัล",
     agentMessageFrom: "ข้อความจาก {sender}",
     agentMessageQueued: "กำลังรอให้เอเจนต์รับข้อความ",
+    loadingDiff: "กำลังโหลดความแตกต่าง…",
+    diffUnavailable: "ไม่สามารถโหลดความแตกต่างได้ โปรดลองอีกครั้ง",
+    retryDiff: "ลองอีกครั้ง",
   },
   tr: {
     continuedNewChat: "Yeni bir sohbette devam edildi. Önceki bağlam bağlantılı.",
@@ -231,6 +285,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Terminalde yanıtla",
     agentMessageFrom: "{sender} tarafından gönderilen mesaj",
     agentMessageQueued: "Aracının teslim alması bekleniyor",
+    loadingDiff: "Farklar yükleniyor…",
+    diffUnavailable: "Farklar yüklenemedi. Yeniden deneyin.",
+    retryDiff: "Yeniden dene",
   },
   km: {
     continuedNewChat: "បានបន្តនៅក្នុងការជជែកថ្មី។ បរិបទមុនត្រូវបានភ្ជាប់។",
@@ -242,6 +299,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "ឆ្លើយនៅក្នុងទែមីណាល់",
     agentMessageFrom: "សារពី {sender}",
     agentMessageQueued: "កំពុងរង់ចាំភ្នាក់ងារទទួលយក",
+    loadingDiff: "កំពុងផ្ទុកភាពខុសគ្នា…",
+    diffUnavailable: "មិនអាចផ្ទុកភាពខុសគ្នាបានទេ។ សូមព្យាយាមម្តងទៀត។",
+    retryDiff: "ព្យាយាមម្តងទៀត",
   },
   uk: {
     continuedNewChat: "Продовжено в новому чаті. Попередній контекст пов’язано.",
@@ -253,6 +313,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     answerInTerminal: "Відповісти в терміналі",
     agentMessageFrom: "Повідомлення від {sender}",
     agentMessageQueued: "Чекає, доки агент його забере",
+    loadingDiff: "Завантаження змін…",
+    diffUnavailable: "Не вдалося завантажити зміни. Спробуйте ще раз.",
+    retryDiff: "Повторити",
   },
 };
 
