@@ -60,11 +60,12 @@ struct CodexAutoNamingArgumentsTests {
         [model_providers.subrouter]
         base_url = "http://127.0.0.1:31415/v1"
         http_headers = { Authorization = "Bearer secret", X-API-Key = "api-secret" }
+        http_headers.X-Org-ID = "sensitive-value"
+        http_headers . X-Org-ID = "sensitive-value"
         [model_providers.subrouter.http_headers]
         X-Subrouter-Agent = "sr"
         [model_providers.subrouter."http_headers"]
         X-Org-ID = "sensitive-value"
-        http_headers.X-Org-ID = "sensitive-value"
         [model_providers.subrouter-extra]
         base_url = "http://127.0.0.1:9999/v1"
         """)

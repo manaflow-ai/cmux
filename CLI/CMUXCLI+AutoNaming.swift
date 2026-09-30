@@ -294,11 +294,12 @@ struct CodexAutoNamingArguments: Sendable {
         if sectionComponents.contains(where: { $0 == "headers" || $0 == "http_headers" || $0 == "env_http_headers" }) {
             return true
         }
-        let normalized = normalizeComponent(key)
-        if normalized == "headers" || normalized == "http_headers" || normalized == "env_http_headers"
-            || normalized.hasPrefix("headers.")
-            || normalized.hasPrefix("http_headers.")
-            || normalized.hasPrefix("env_http_headers.") {
+        let keyComponents = key.split(separator: ".").map { normalizeComponent(String($0)) }
+        let normalized = keyComponents.joined(separator: ".")
+        if let firstKeyComponent = keyComponents.first,
+           firstKeyComponent == "headers"
+            || firstKeyComponent == "http_headers"
+            || firstKeyComponent == "env_http_headers" {
             return true
         }
         return normalized.contains("token")
