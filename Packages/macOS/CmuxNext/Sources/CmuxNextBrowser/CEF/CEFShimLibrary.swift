@@ -131,6 +131,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let popupWindowBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
                                            UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
     let popupWindowAttach: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32) -> Int32
+    // Side panel header (fork API 13).
+    let sidePanelState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let sidePanelPress: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
     enum LoadError: Error, Equatable {
         case open(String)
@@ -243,6 +246,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setPopupWindowsEnabled = try r("cmux_shim_set_popup_windows_enabled")
         popupWindowBounds = try r("cmux_shim_popup_window_bounds")
         popupWindowAttach = try r("cmux_shim_popup_window_attach")
+        sidePanelState = try r("cmux_shim_side_panel_state")
+        sidePanelPress = try r("cmux_shim_side_panel_press")
     }
 
     /// Returns a string the shim allocated itself (`cmux_shim_ssl_status`)

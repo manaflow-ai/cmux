@@ -93,8 +93,10 @@ final class AppControl {
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
-            .mainActor("debug.cef") { [weak services] _ in
+            .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }
+                // {"side_panel": "<control>"} runs a side panel header control first.
+                if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.

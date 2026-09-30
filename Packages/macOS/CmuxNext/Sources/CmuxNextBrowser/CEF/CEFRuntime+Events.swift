@@ -205,6 +205,8 @@ extension CEFRuntime {
             popupWindowCreated(window: window, browser: browser)
         case .popupWindowBounds:
             popupWindowBoundsChanged(window: window)
+        case .sidePanelChanged:
+            for host in hosts.values where host.owns(window: window) { host.visibleTab?.scheduleSidePanelRefresh() }
         case .moved, .unknown:
             break
         }

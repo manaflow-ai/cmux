@@ -45,6 +45,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var devToolsViews: (host: CEFHostView, divider: CEFDevToolsDivider)?
     /// The window that holds `devToolsViews.host` while DevTools is not docked.
     @ObservationIgnored var devToolsWindow: CEFDevToolsWindow?
+    /// cmux's header over Chromium's side panel, while it is open.
+    @ObservationIgnored var sidePanelHeader: SidePanelHeaderView?
+    @ObservationIgnored var sidePanelState: CEFSidePanelState?
+    @ObservationIgnored var sidePanelRefreshPending = false
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
 
     var machine = BrowserTabStateMachine()

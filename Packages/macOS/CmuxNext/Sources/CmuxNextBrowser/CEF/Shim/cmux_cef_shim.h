@@ -299,6 +299,15 @@ CMUX_SHIM_EXPORT int cmux_shim_popup_window_bounds(int window_id, int* x, int* y
 // later run loop turn than its event.
 CMUX_SHIM_EXPORT int cmux_shim_popup_window_attach(int window_id, void* parent_view, int width, int height);
 
+// Side panel header (fork API 13). The side panel stays Chromium's; the
+// host draws its header over Chromium's header area. The fork's tab event
+// CMUX_SIDE_PANEL_CHANGED = 12 reports changes. State JSON (cef_cmux.h,
+// cmux_side_panel_state), freed with cmux_shim_free; NULL on older forks.
+CMUX_SHIM_EXPORT char* cmux_shim_side_panel_state(int browser_id);
+// control: "close", "pin", "open_in_new_tab", "more_info". Runs Chromium's
+// own control; 0 when it is not shown.
+CMUX_SHIM_EXPORT int cmux_shim_side_panel_press(int browser_id, const char* control);
+
 // Extension install and permission prompts (fork API 12). result: 0 abort,
 // 1 accept, 2 cancel, 3 accept withholding host permissions. Returns 0 when
 // the prompt is unknown.

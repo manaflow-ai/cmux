@@ -124,6 +124,9 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     case popupWindowCreated = 10
     /// Its bounds changed (chrome.windows.update).
     case popupWindowBounds = 11
+    /// The window's side panel was shown, hidden, resized or changed
+    /// (fork API 13); value = 1 when visible.
+    case sidePanelChanged = 12
     case unknown = -1
 }
 

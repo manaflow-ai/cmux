@@ -2,17 +2,26 @@ import AppKit
 import Foundation
 
 /// When cmux turns on the fork's popup windows. Fork API 11 (release
-/// cmux.10) has them, but live on cmux.10 the attached window never shows
-/// (it stays a hidden 86x64 window; the attach runs while the panel's view
-/// is still 0x0) and its CMUX_POPUP_WINDOW_CREATED window id is not the id
-/// chrome.windows returns (the fork reads the Browser's session id in its
-/// constructor, before it is set). Until a fork release fixes both (API 13
-/// or later), cmux keeps the older behavior: the window guard moves the
-/// popup's tab into the panel through a pane window.
+/// cmux.10) has them, but there the attached window never shows and its
+/// CMUX_POPUP_WINDOW_CREATED window id is not the id chrome.windows returns.
+/// Fork API 13 (cmux.11) reads the id when it sends the event and shows the
+/// window after it is a child window. Older forks keep the older behavior:
+/// the window guard moves the popup's tab into the panel through a pane
+/// window.
 nonisolated enum CEFPopupWindows {
     static let minimumForkAPI = 13
 
     static func isEnabled(forkAPIVersion: Int) -> Bool { forkAPIVersion >= minimumForkAPI }
+
+    /// True when `bounds` (a CMUX_POPUP_WINDOW_BOUNDS report) is only the
+    /// attached window following the panel's view (`hostFrame`, the view in
+    /// screen DIPs from the primary display's top-left). Feeding that back
+    /// would resize the panel by its title bar each time.
+    static func isOwnPlacement(_ bounds: CGRect, hostFrame: CGRect?) -> Bool {
+        guard let hostFrame else { return false }
+        return abs(bounds.minX - hostFrame.minX) <= 1 && abs(bounds.minY - hostFrame.minY) <= 1
+            && abs(bounds.width - hostFrame.width) <= 1 && abs(bounds.height - hostFrame.height) <= 1
+    }
 }
 
 /// Extension popup windows (fork API 11). `chrome.windows.create({type:
@@ -96,6 +105,7 @@ extension CEFRuntime {
     func popupWindowBoundsChanged(window: Int32) {
         guard let host = hosts.values.first(where: { $0.popupWindow == window }), let tab = host.visibleTab ?? host.tabs.first,
               let bounds = popupWindowBounds(window) else { return }
+        guard !CEFPopupWindows.isOwnPlacement(bounds, hostFrame: host.hostView.screenFrameFromTop) else { return }
         tab.emit(.resizePopup(BrowserPopupRequest(features: bounds)))
     }
 
@@ -106,5 +116,15 @@ extension CEFRuntime {
         var x: Int32 = 0, y: Int32 = 0, width: Int32 = 0, height: Int32 = 0
         guard shim.popupWindowBounds(window, &x, &y, &width, &height) == 1 else { return nil }
         return CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
+    }
+}
+
+extension NSView {
+    /// This view's frame in screen DIPs from the primary display's top-left
+    /// (Chromium's screen coordinates), or nil outside a window.
+    var screenFrameFromTop: CGRect? {
+        guard let window, let primary = NSScreen.screens.first else { return nil }
+        let frame = window.convertToScreen(convert(bounds, to: nil))
+        return CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
     }
 }

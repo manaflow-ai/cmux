@@ -105,6 +105,14 @@ class Client : public CefClient,
     return true;
   }
 
+  // MARK: Chrome Web Store
+
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+                                                                 CefRefPtr<CefRequest> request, bool, bool,
+                                                                 const CefString&, bool&) override {
+    return WebStoreRequestHandler(request->GetURL().ToString());
+  }
+
   // MARK: Renderer process failures
 
   // The host shows its own "sad tab" in the pane and reloads from it; Chrome
@@ -303,6 +311,10 @@ class Client : public CefClient,
   // MARK: Load
 
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool back, bool forward) override {
+    // The tab's Chromium window may not exist in OnAfterCreated or at the
+    // first activation; by its first load it does (the fork watches each
+    // window once).
+    if (fork_api().side_panel_watch) fork_api().side_panel_watch(browser->GetIdentifier());
     Emit(CMUX_SHIM_LOADING_STATE, browser->GetIdentifier(), 0, (loading ? 1 : 0) | (back ? 2 : 0) | (forward ? 4 : 0));
   }
 
