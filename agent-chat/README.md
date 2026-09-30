@@ -91,6 +91,7 @@ Capability differences are absorbed by the schema, not the UI:
 | claude    | persistent stdio     | deltas    | yes           | persistent proc            | permission mode |
 | codex     | app-server JSON-RPC  | deltas    | yes           | thread per session         | approvals + sandbox options |
 | opencode  | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
+| goose     | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
 | gemini    | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle (`--yolo` at start) |
 | pi        | persistent stdio     | deltas    | yes           | persistent proc            | none (always executes) |
 
