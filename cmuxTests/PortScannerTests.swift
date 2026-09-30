@@ -1569,6 +1569,8 @@ private actor PortLifecycleCommandRunner: CommandRunning {
             }
             return Self.output("\(sessionLeaderPID) \(processTTYName)\n\(pid) \(processTTYName)\n")
         }
+        // DIAG #15488: make every lsof call take 400 ms, as on a loaded host.
+        try? await Task.sleep(for: .milliseconds(400))
         lsofInvocationCount += 1
         lastLsofArguments = arguments
         // `lsof -w` suppresses filesystem warnings. They are unrelated to a
