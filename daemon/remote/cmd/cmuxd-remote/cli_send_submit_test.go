@@ -96,13 +96,14 @@ func (m *sendSubmitMock) request(method string) map[string]any {
 }
 
 func TestSendSubmitUsesSeparatePasteAndSubmitKey(t *testing.T) {
+	longText := strings.Repeat("long message ", 1024)
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 	}, nil)
 	output := captureStdout(t, func() {
-		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+		if code := runCLI([]string{"--socket", socket, "send", "--submit", longText}); code != 0 {
 			t.Fatalf("send --submit: exit %d", code)
 		}
 	})
@@ -114,7 +115,7 @@ func TestSendSubmitUsesSeparatePasteAndSubmitKey(t *testing.T) {
 		t.Fatalf("method sequence = %v", methods)
 	}
 	paste := mock.request("terminal.paste")
-	if params(paste)["text"] != "hello" || params(paste)["submit_key"] != "none" {
+	if params(paste)["text"] != longText || params(paste)["submit_key"] != "none" {
 		t.Fatalf("paste params = %v", params(paste))
 	}
 	if params(mock.request("surface.send_key"))["key"] != "return" {
