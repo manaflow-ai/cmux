@@ -1632,7 +1632,7 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
-        case "auth.team.list", "auth.team.use", "auth.team.create":
+        case _ where Self.authTeamSocketMethods.contains(request.method):
             return v2AuthTeamResponse(request)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
