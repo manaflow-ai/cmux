@@ -45,7 +45,15 @@ extension CmuxTuiSurfaceProvider {
             }
         )
         notificationSync = sync
-        hub.register(sync)
+        hub.register(sync, remoteWorkspaceID: { [weak self] terminalID in
+            guard let state = self?.cloudState else { return nil }
+            for tab in state.tabs where tab.contentID == terminalID {
+                guard let pane = state.lookupIndex.pane(id: tab.paneID),
+                      let screen = state.lookupIndex.screen(id: pane.screenID) else { continue }
+                return screen.workspaceID
+            }
+            return nil
+        })
         notificationPlacementObserver = NotificationCenter.default.addObserver(
             forName: SurfaceCatalog.didChangeNotification,
             object: nil,

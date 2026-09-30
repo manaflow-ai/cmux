@@ -42,11 +42,9 @@ struct CloudTreeNodeActions {
     let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
     /// End a terminal on its machine (the process and its remote tab).
     let closeTerminal: @MainActor (_ resource: SurfaceResourceID) -> Void
-    /// Close a workspace on its machine AND kill every terminal in it (austin,
-    /// 2026-08-31: a closed workspace never leaves stray terminals behind in the
-    /// pool). Confirms first when there is something to kill. The protocol's
-    /// keep-terminals close stays CLI-only (`cmux vm workspace close`).
+    /// Close a workspace on its machine AND kill every terminal in it (austin, 2026-08-31: a closed workspace never leaves stray terminals behind in the pool). Confirms first when there is something to kill. The protocol's keep-terminals close stays CLI-only (`cmux vm workspace close`).
     let closeWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
+    var markWorkspaceRead: @MainActor (_ machine: SurfaceMachineID, _ workspaceID: String) -> Void = { _, _ in }
     /// Rename a remote workspace via a text prompt.
     let renameWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
     /// Rename a remote terminal placement via a text prompt. A nil view means the

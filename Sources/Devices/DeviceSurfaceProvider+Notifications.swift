@@ -44,7 +44,9 @@ extension DeviceSurfaceProvider {
             }
         )
         notificationSync = sync
-        hub.register(sync)
+        hub.register(sync, remoteWorkspaceID: { [weak self] terminalID in
+            self?.terminalWorkspaceIDs[terminalID.lowercased()]
+        })
         // A row whose terminal is not open here yet is placed once it is.
         notificationPlacementObserver = NotificationCenter.default.addObserver(
             forName: SurfaceCatalog.didChangeNotification,

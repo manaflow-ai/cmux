@@ -670,8 +670,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _, _, let openIn):
-                // One open verb, THE SAME PATH as a click and Return (`open`):
-                // jump to the local workspace already showing it (the verb says so),
+                // One open verb, THE SAME PATH as a click and Return (`open`): jump to the local workspace already showing it (the verb says so),
                 // focus a stray pane showing one of its terminals, refuse an empty
                 // group, else open as an own local workspace (remote and local never
                 // intermingle, D13).
@@ -681,6 +680,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return [
                     item(openTitle) { [weak self] in self?.open(node) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
+                    item(String(localized: "cloudTree.menu.markWorkspaceRead", defaultValue: "Mark Workspace Read")) { [nodeActions] in nodeActions.markWorkspaceRead(machine, workspace.id) },
                     .separator(),
                     item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
