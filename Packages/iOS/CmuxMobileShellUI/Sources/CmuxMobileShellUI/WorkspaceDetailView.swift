@@ -551,7 +551,8 @@ struct WorkspaceDetailView: View {
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
             hadTrailingCollapse: trailingToolbarCollapseDetected,
-            isEnabled: hasTitleMenuActions || canReconnect || sshFilesTerminalID != nil,
+            isEnabled: hasTitleMenuActions || canReconnect || sshFilesTerminalID != nil
+                || connectedDevicesMenuItem != nil,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
             canCustomizeWorkspace: customizeWorkspace != nil,
@@ -560,6 +561,7 @@ struct WorkspaceDetailView: View {
             canCloseWorkspace: closeWorkspace != nil,
             canReconnect: canReconnect,
             canBrowseFiles: sshFilesTerminalID != nil,
+            connectedDevices: connectedDevicesMenuItem,
             labelToken: toolbarTitleLabelToken,
             terminalTheme: store.activeTerminalTheme
         )
@@ -576,12 +578,14 @@ struct WorkspaceDetailView: View {
                     canCloseWorkspace: value.canCloseWorkspace,
                     canReconnect: value.canReconnect,
                     canBrowseFiles: value.canBrowseFiles,
+                    connectedDevices: value.connectedDevices,
                     presentCustomization: presentCustomizationFromMenu,
                     presentRename: presentRenameFromMenu,
                     toggleReadState: toggleWorkspaceReadStateFromMenu,
                     requestClose: requestCloseWorkspaceFromMenu,
                     reconnect: reconnectToWorkspaceMac,
-                    browseFiles: browseFilesFromMenu
+                    browseFiles: browseFilesFromMenu,
+                    presentConnectedDevices: presentTerminalSizeSheet
                 )
             },
             label: {

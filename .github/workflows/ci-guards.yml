@@ -317,6 +317,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate CI process-tree cancellation cleanup
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_process_tree_reaping.py
+
       - name: Test Computer Use drag regression harness
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_cmux_cua_drag_cursor_harness.py
@@ -986,6 +990,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_release_homebrew_gate.py
 
+      - name: Validate production-secret jobs run only in the protected release environment
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_production_secrets_protected_env.py
+
       - name: Validate the Homebrew cask update keeps run metadata out of scripts
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_homebrew_untrusted_input.py
@@ -1296,7 +1304,9 @@ jobs:
       - workflow-guard-history
       - workflow-guard-cli-scripts
       - workflow-guard-source-lints
-    if: ${{ always() }}
+    # Preserve the guard verdict after a failure, but do not start a rollup
+    # after GitHub has cancelled the run.
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
