@@ -45,6 +45,49 @@ extension SSHStartupManualReconnectTests {
         )
     }
 
+    /// Set only while priming, so a primed fixture exits before doing any work.
+    static let primeExecEnvironmentKey = "CMUX_TEST_PRIME_EXEC"
+
+    /// The line a primeable fixture carries right after its shebang.
+    static let primeExecGuard = "if [ -n \"${\(primeExecEnvironmentKey):-}\" ]; then exit 0; fi"
+
+    /// Pays macOS's first-exec assessment for new fixtures before a timed wait.
+    ///
+    /// The first exec of every newly written file, scripts included, blocks
+    /// while syspolicyd assesses it; later execs of the same file do not. On
+    /// loaded fleet minis the first new file a fresh app host ran waited 6 to
+    /// 13 s, longer than the 3 s prompt waits, so each fixture runs once here,
+    /// untimed, as soon as it is written.
+    static func primeFirstExec(_ executables: URL...) throws {
+        for executable in executables {
+            let result = runProcess(
+                executablePath: executable.path,
+                arguments: [],
+                environment: ["PATH": "/usr/bin:/bin", primeExecEnvironmentKey: "1"],
+                timeout: 120
+            )
+            try #require(
+                !result.timedOut && result.status == 0,
+                "priming \(executable.lastPathComponent) failed with status \(result.status): \(result.stderr)"
+            )
+        }
+    }
+
+    /// Writes an executable shell fixture and primes it (see `primeFirstExec`).
+    static func writeShellFile(at url: URL, lines: [String]) throws {
+        var lines = lines
+        let isScript = lines.first?.hasPrefix("#!") == true
+        if isScript {
+            lines.insert(primeExecGuard, at: 1)
+        }
+        try lines.joined(separator: "\n")
+            .appending("\n")
+            .write(to: url, atomically: true, encoding: .utf8)
+        guard isScript else { return }
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        try primeFirstExec(url)
+    }
+
     /// Foreground-auth token the supervisor command expects in its environment.
     static let persistentAttachSupervisorAuthToken = UUID().uuidString.lowercased()
 
@@ -169,13 +212,19 @@ extension SSHStartupManualReconnectTests {
            !isDirectory.boolValue {
             let script = try String(contentsOf: commandURL, encoding: .utf8)
             try #require(script.contains(systemSSHPath))
-            try script
+            var scriptLines = script
                 .replacingOccurrences(of: systemSSHPath, with: fakeSSH.path)
+                .components(separatedBy: "\n")
+            try #require(scriptLines.first?.hasPrefix("#!") == true)
+            // The launcher deletes itself when it runs; a primed run exits first.
+            scriptLines.insert(primeExecGuard, at: 1)
+            try scriptLines.joined(separator: "\n")
                 .write(to: commandURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o700],
                 ofItemAtPath: commandURL.path
             )
+            try primeFirstExec(commandURL)
             return startupCommand
         }
 
