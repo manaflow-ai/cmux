@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define CMUX_CEF_SHIM_ABI 2
+#define CMUX_CEF_SHIM_ABI 3
 
 #define CMUX_SHIM_EXPORT __attribute__((visibility("default")))
 
@@ -43,6 +43,9 @@ typedef enum {
   CMUX_SHIM_CLOSE_REQUESTED = 15, // the page asked to close (window.close)
   CMUX_SHIM_TAB_EVENT = 16,       // request = cmux_tab_event_t, a = window id, b = value
   CMUX_SHIM_POPUP = 17,           // s1 = url, a = WindowOpenDisposition
+  // Reply to an async site call (ABI 3): request = the caller's reply id,
+  // a = result (1 success, or the deleted cookie count), s1 = JSON.
+  CMUX_SHIM_REPLY = 18,
 } cmux_shim_event_kind_t;
 
 
@@ -142,6 +145,28 @@ CMUX_SHIM_EXPORT void cmux_shim_close_all(void);
 CMUX_SHIM_EXPORT int cmux_shim_live_browser_count(void);
 CMUX_SHIM_EXPORT int cmux_shim_window_count(void);  // -1 when the fork API is missing
 CMUX_SHIM_EXPORT void cmux_shim_shutdown(void);
+
+// Site state for Page Info (ABI 3). Content types are named as
+// SitePermissionKind raw values ("location", "popups", "thirdPartySignIn",
+// see shim_site.mm); values are cef_content_setting_values_t.
+//
+// The effective setting for url in the browser's request context; url NULL
+// or "" returns the default for the type. -1 for an unknown type or browser.
+CMUX_SHIM_EXPORT int cmux_shim_content_setting(int browser_id, const char* url, const char* type);
+// Stores value for url (0 = CEF_CONTENT_SETTING_VALUE_DEFAULT clears it).
+// Returns 1 when stored.
+CMUX_SHIM_EXPORT int cmux_shim_set_content_setting(int browser_id, const char* url, const char* type, int value);
+// Visits every cookie of the browser's request context. REPLY with `reply`
+// follows, s1 = [{"name","domain","path"}]. Returns 0 when not started.
+CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int browser_id, int reply);
+// Deletes the host and domain cookies of url named name (every name when
+// name is NULL or ""). REPLY with `reply` follows, a = deleted count.
+CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const char* url, const char* name);
+// The visible entry's SSL status as JSON {"secure","certStatus",
+// "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
+// NULL. Free with cmux_shim_free_owned.
+CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int browser_id);
+CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 
 #ifdef __cplusplus
 }

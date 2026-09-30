@@ -29,6 +29,8 @@ extension CEFTab {
             pageInfoDocumentCommitted(URL(string: url))
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
+            // Mixed content shows up while the page loads subresources.
+            syncSecurityFromChromium()
             // Extensions finish loading after the first window exists and
             // badges are per page; refresh cheaply on each document load.
             refreshExtensionActions()

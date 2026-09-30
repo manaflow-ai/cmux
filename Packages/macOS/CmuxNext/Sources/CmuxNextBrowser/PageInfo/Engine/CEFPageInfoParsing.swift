@@ -2,23 +2,9 @@ import Foundation
 
 /// Parsing of the DevTools results Page Info uses (pure, tested).
 nonisolated enum CEFPageInfoParsing {
-    struct Cookie: Hashable {
-        var name: String
-        var domain: String
-        var path: String
-    }
-
     /// `Network.getCertificate`: `tableNames` holds base64 DER, leaf first.
     static func certificates(_ json: String) -> [Data] {
         (object(json)?["tableNames"] as? [String] ?? []).compactMap { Data(base64Encoded: $0) }
-    }
-
-    /// `Network.getCookies` / `Storage.getCookies`.
-    static func cookies(_ json: String) -> [Cookie] {
-        (object(json)?["cookies"] as? [[String: Any]] ?? []).compactMap { cookie in
-            guard let name = cookie["name"] as? String, let domain = cookie["domain"] as? String else { return nil }
-            return Cookie(name: name, domain: domain, path: cookie["path"] as? String ?? "/")
-        }
     }
 
     /// Origins of every frame and resource in `Page.getResourceTree`.
@@ -38,18 +24,6 @@ nonisolated enum CEFPageInfoParsing {
         }
         if let tree = object(json)?["frameTree"] as? [String: Any] { visit(tree) }
         return origins
-    }
-
-    /// `Target.getTargetInfo` browser context of the tab.
-    static func browserContextID(_ json: String) -> String? {
-        (object(json)?["targetInfo"] as? [String: Any])?["browserContextId"] as? String
-    }
-
-    /// A script whose value is each permission's state ("granted",
-    /// "denied", "prompt", or null when the name is unknown).
-    static func permissionQueryScript(names: [String]) -> String {
-        let list = names.map { "'\($0)'" }.joined(separator: ",")
-        return "Promise.all([\(list)].map(n => navigator.permissions.query(n === 'midi' ? {name: n, sysex: true} : {name: n}).then(s => s.state, () => null)))"
     }
 
     private static func object(_ json: String) -> [String: Any]? {

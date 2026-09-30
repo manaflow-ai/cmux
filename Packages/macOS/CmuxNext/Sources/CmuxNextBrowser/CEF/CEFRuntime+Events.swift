@@ -45,6 +45,11 @@ extension CEFRuntime {
         case .devToolsResult(let browser, let messageID, let success, let json):
             devToolsCalls.resolve(CEFDevToolsKey(browser: browser, message: messageID),
                                   with: success ? .success(json) : .failure(BrowserTabError.javaScript(json)))
+        case .reply(_, let id, let value, let json):
+            let reply = CEFSiteReply(value: value, json: json)
+            if !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
+                earlySiteReplies[id] = reply
+            }
         case .tab(let kind, let browser, let window, let value):
             forkTabEvent(kind, browser: browser, window: window, value: value)
         case .unknown:
@@ -94,6 +99,7 @@ extension CEFRuntime {
             tab.browserDidClose()
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
+        siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count)
         shutdownProgressed()
         pump?.schedule(after: 0)
@@ -164,6 +170,7 @@ extension CEFRuntime {
         shutdownTimeout?.cancel()
         shutdownTimeout = nil
         devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
+        siteReplies.failAll(where: { _ in true }, with: BrowserTabError.closed)
         pump?.stop()
         guard shutdownSequence?.phase == .readyToShutdown else {
             logger.error("CEF shutdown timed out; exiting without CefShutdown")
@@ -197,7 +204,8 @@ extension CEFShimEvent {
         case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
              .loadStart(let b, _), .loadEnd(let b, _), .loadError(let b, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _),
-             .afterCreated(let b, _, _), .beforeClose(let b), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _):
+             .afterCreated(let b, _, _), .beforeClose(let b), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
+             .reply(let b, _, _, _):
             b
         case .contextInitialized, .unknown:
             nil

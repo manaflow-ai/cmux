@@ -18,29 +18,53 @@ public nonisolated enum SitePermissionKind: String, CaseIterable, Codable, Codin
     case serial
     case hid
     case clipboard
+    // Chromium-only kinds (WebKit has no per-site hook for them).
+    case sensors
+    case bluetooth
+    case fileEditing
+    case windowManagement
+    case localFonts
+    case backgroundSync
+    case autoPictureInPicture
+    case thirdPartySignIn
+    case insecureContent
 
     /// The value a site gets until the user decides (Chrome's defaults).
     public var defaultSetting: SitePermissionSetting {
         switch self {
-        case .javascript, .images, .sound: .allow
-        case .popups: .block
+        case .javascript, .images, .sound, .sensors, .backgroundSync, .thirdPartySignIn: .allow
+        case .popups, .insecureContent: .block
         case .location, .camera, .microphone, .notifications, .automaticDownloads,
-             .midi, .usb, .serial, .hid, .clipboard: .ask
+             .midi, .usb, .serial, .hid, .clipboard, .bluetooth, .fileEditing,
+             .windowManagement, .localFonts, .autoPictureInPicture: .ask
         }
     }
 
     /// Content settings are allow or block only; permissions can also ask.
     public var allowsAsk: Bool {
         switch self {
-        case .javascript, .images, .popups, .sound: false
+        case .javascript, .images, .popups, .sound, .sensors, .backgroundSync, .thirdPartySignIn, .insecureContent: false
+        default: true
+        }
+    }
+
+    /// Chromium's guard kinds (device choosers, file editing) are ask or
+    /// block: a site is granted single devices or files, never all of them.
+    public var allowsAllow: Bool {
+        switch self {
+        case .usb, .serial, .hid, .bluetooth, .fileEditing: false
         default: true
         }
     }
 
     /// The choices the permission subpage and Site settings offer.
     public var choices: [SitePermissionSetting] {
-        allowsAsk ? [.ask, .allow, .block] : [.allow, .block]
+        if !allowsAsk { return [.allow, .block] }
+        return allowsAllow ? [.ask, .allow, .block] : [.ask, .block]
     }
+
+    /// What the row's toggle stores when switched on.
+    public var enabledSetting: SitePermissionSetting { allowsAllow ? .allow : .ask }
 
     /// Stable id for the CLI and the persisted file.
     public var id: String { rawValue }
@@ -71,6 +95,6 @@ public nonisolated struct SitePermissionState: Hashable, Sendable {
         self.isInUse = isInUse
     }
 
-    /// The row's toggle: on when allowed.
-    public var isOn: Bool { setting == .allow }
+    /// The row's toggle: on when allowed (guard kinds: when not blocked).
+    public var isOn: Bool { kind.allowsAllow ? setting == .allow : setting != .block }
 }

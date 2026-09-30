@@ -7,7 +7,7 @@ extension ActionCatalog {
         [
             page("browser.pageInfo", title: t("action.pageInfo", "View Site Information"), symbol: "slider.horizontal.3",
                  keywords: ["site", "information", "security", "certificate", "permissions", "cookies", "lock"],
-                 cli: "browser page-info", surfaces: [.palette, .keyboard, .contextMenu]),
+                 cli: "browser page-info", shortcut: Shortcut("i", modifiers: [.control, .command])),
             page("browser.pageInfo.connection", title: t("action.pageInfo.connection", "Show Connection Details"), symbol: "lock",
                  keywords: ["site", "security", "https", "connection", "secure"], cli: "browser page-info-connection"),
             page("browser.pageInfo.certificate", title: t("action.pageInfo.certificate", "Show Certificate"), symbol: "checkmark.seal",
@@ -20,14 +20,14 @@ extension ActionCatalog {
                 id: "browser.pageInfo.deleteSiteData",
                 title: t("action.pageInfo.deleteSiteData", "Delete Site Data"),
                 keywords: ["site", "cookies", "storage", "clear", "delete"], category: .browser, symbol: "trash",
-                surfaces: [.palette], requires: [.browserFocused], arguments: [domainArgument.optional], targets: [.pane],
+                surfaces: allSurfaces, requires: [.browserFocused], arguments: [domainArgument.optional], targets: [.pane],
                 cliName: "browser delete-site-data", destructive: true
             ),
             ActionDescriptor(
                 id: "browser.pageInfo.setPermission",
                 title: t("action.pageInfo.setPermission", "Set Site Permission…"),
                 keywords: ["site", "permission", "camera", "microphone", "location", "notifications", "javascript", "allow", "block"],
-                category: .browser, symbol: "hand.raised", surfaces: [.palette], requires: [.browserFocused],
+                category: .browser, symbol: "hand.raised", surfaces: allSurfaces, requires: [.browserFocused],
                 arguments: [permissionArgument, settingArgument], targets: [.pane], cliName: "browser set-site-permission"
             ),
             page("browser.pageInfo.resetPermissions", title: t("action.pageInfo.resetPermissions", "Reset Site Permissions"),
@@ -39,10 +39,14 @@ extension ActionCatalog {
         ]
     }
 
+    /// Every Page Info control is in the palette, the browser page context
+    /// menu's Site Information submenu, the CLI, and takes a user shortcut.
+    private static let allSurfaces: ActionSurfaces = [.palette, .keyboard, .contextMenu]
+
     private static func page(_ id: ActionID, title: String, symbol: String, keywords: [String], cli: String,
-                             surfaces: ActionSurfaces = [.palette]) -> ActionDescriptor {
-        ActionDescriptor(id: id, title: title, keywords: keywords, category: .browser, symbol: symbol, surfaces: surfaces,
-                         requires: [.browserFocused], targets: [.pane], cliName: cli)
+                             shortcut: Shortcut? = nil) -> ActionDescriptor {
+        ActionDescriptor(id: id, title: title, keywords: keywords, defaultShortcut: shortcut, category: .browser, symbol: symbol,
+                         surfaces: allSurfaces, requires: [.browserFocused], targets: [.pane], cliName: cli)
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
@@ -51,7 +55,9 @@ extension ActionCatalog {
 
     /// Permission ids (`SitePermissionKind.rawValue` in CmuxNextBrowser).
     static let permissionIDs = ["location", "camera", "microphone", "notifications", "javascript", "images", "popups",
-                                "sound", "automaticDownloads", "midi", "usb", "serial", "hid", "clipboard"]
+                                "sound", "automaticDownloads", "midi", "usb", "serial", "hid", "clipboard", "sensors",
+                                "bluetooth", "fileEditing", "windowManagement", "localFonts", "backgroundSync",
+                                "autoPictureInPicture", "thirdPartySignIn", "insecureContent"]
 
     private static var permissionArgument: ActionArgument {
         let titles: [String: String] = [
@@ -69,6 +75,15 @@ extension ActionCatalog {
             "serial": t("argument.permission.serial", "Serial ports"),
             "hid": t("argument.permission.hid", "HID devices"),
             "clipboard": t("argument.permission.clipboard", "Clipboard"),
+            "sensors": t("argument.permission.sensors", "Motion sensors"),
+            "bluetooth": t("argument.permission.bluetooth", "Bluetooth devices"),
+            "fileEditing": t("argument.permission.fileEditing", "File editing"),
+            "windowManagement": t("argument.permission.windowManagement", "Window management"),
+            "localFonts": t("argument.permission.localFonts", "Fonts"),
+            "backgroundSync": t("argument.permission.backgroundSync", "Background sync"),
+            "autoPictureInPicture": t("argument.permission.autoPictureInPicture", "Auto picture-in-picture"),
+            "thirdPartySignIn": t("argument.permission.thirdPartySignIn", "Third-party sign-in"),
+            "insecureContent": t("argument.permission.insecureContent", "Insecure content"),
         ]
         return ActionArgument(name: "permission", title: t("argument.permission", "Permission"),
                               kind: .enumeration(permissionIDs.map { ActionEnumCase(value: $0, title: titles[$0] ?? $0) }))

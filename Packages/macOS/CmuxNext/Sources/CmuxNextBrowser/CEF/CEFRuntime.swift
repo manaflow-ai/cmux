@@ -37,6 +37,12 @@ final class CEFRuntime {
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
+    let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
+    /// Browser of each pending site reply, so a closed browser fails them.
+    var siteReplyBrowsers: [Int32: Int32] = [:]
+    /// Replies that arrived before their caller awaited.
+    var earlySiteReplies: [Int32: CEFSiteReply] = [:]
+    var nextSiteReply: Int32 = 1
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
     var shutdownTimeout: Task<Void, Never>?

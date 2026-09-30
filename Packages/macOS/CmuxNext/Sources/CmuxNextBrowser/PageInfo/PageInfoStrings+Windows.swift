@@ -2,42 +2,6 @@ import Foundation
 
 nonisolated extension PageInfoStrings {
     // Permission names (Chromium `IDS_SITE_SETTINGS_TYPE_*`)
-    static func name(_ kind: SitePermissionKind) -> String {
-        switch kind {
-        case .location: String(localized: "pageInfo.permission.location", defaultValue: "Location", table: "PageInfo", bundle: .module)
-        case .camera: String(localized: "pageInfo.permission.camera", defaultValue: "Camera", table: "PageInfo", bundle: .module)
-        case .microphone: String(localized: "pageInfo.permission.microphone", defaultValue: "Microphone", table: "PageInfo", bundle: .module)
-        case .notifications: String(localized: "pageInfo.permission.notifications", defaultValue: "Notifications", table: "PageInfo", bundle: .module)
-        case .javascript: String(localized: "pageInfo.permission.javascript", defaultValue: "JavaScript", table: "PageInfo", bundle: .module)
-        case .images: String(localized: "pageInfo.permission.images", defaultValue: "Images", table: "PageInfo", bundle: .module)
-        case .popups: String(localized: "pageInfo.permission.popups", defaultValue: "Pop-ups and redirects", table: "PageInfo", bundle: .module)
-        case .sound: String(localized: "pageInfo.permission.sound", defaultValue: "Sound", table: "PageInfo", bundle: .module)
-        case .automaticDownloads: String(localized: "pageInfo.permission.automaticDownloads", defaultValue: "Automatic downloads", table: "PageInfo", bundle: .module)
-        case .midi: String(localized: "pageInfo.permission.midi", defaultValue: "MIDI device control & reprogram", table: "PageInfo", bundle: .module)
-        case .usb: String(localized: "pageInfo.permission.usb", defaultValue: "USB devices", table: "PageInfo", bundle: .module)
-        case .serial: String(localized: "pageInfo.permission.serial", defaultValue: "Serial ports", table: "PageInfo", bundle: .module)
-        case .hid: String(localized: "pageInfo.permission.hid", defaultValue: "HID devices", table: "PageInfo", bundle: .module)
-        case .clipboard: String(localized: "pageInfo.permission.clipboard", defaultValue: "Clipboard", table: "PageInfo", bundle: .module)
-        }
-    }
-
-    /// Chrome's "Can ask to …" state text for a permission at its ask default.
-    static func askText(_ kind: SitePermissionKind) -> String? {
-        switch kind {
-        case .location: String(localized: "pageInfo.ask.location", defaultValue: "Can ask for your location", table: "PageInfo", bundle: .module)
-        case .camera: String(localized: "pageInfo.ask.camera", defaultValue: "Can ask to use your camera", table: "PageInfo", bundle: .module)
-        case .microphone: String(localized: "pageInfo.ask.microphone", defaultValue: "Can ask to use your microphone", table: "PageInfo", bundle: .module)
-        case .notifications: String(localized: "pageInfo.ask.notifications", defaultValue: "Can ask to send notifications", table: "PageInfo", bundle: .module)
-        case .automaticDownloads: String(localized: "pageInfo.ask.automaticDownloads", defaultValue: "Can ask to automatically download multiple files", table: "PageInfo", bundle: .module)
-        case .midi: String(localized: "pageInfo.ask.midi", defaultValue: "Can ask to control and reprogram your MIDI devices", table: "PageInfo", bundle: .module)
-        case .usb: String(localized: "pageInfo.ask.usb", defaultValue: "Can ask to connect to USB devices", table: "PageInfo", bundle: .module)
-        case .serial: String(localized: "pageInfo.ask.serial", defaultValue: "Can ask to connect to serial ports", table: "PageInfo", bundle: .module)
-        case .hid: String(localized: "pageInfo.ask.hid", defaultValue: "Can ask to connect to HID devices", table: "PageInfo", bundle: .module)
-        case .clipboard: String(localized: "pageInfo.ask.clipboard", defaultValue: "Can ask to see text and images on your clipboard", table: "PageInfo", bundle: .module)
-        case .javascript, .images, .popups, .sound: nil
-        }
-    }
-
     // On-device site data dialog
     static var siteDataTitle: String { String(localized: "pageInfo.siteData.title", defaultValue: "On-device site data", table: "PageInfo", bundle: .module) }
     static var siteDataSubtitle: String { String(localized: "pageInfo.siteData.subtitle", defaultValue: "Sites that stored data on your device while you were on this page", table: "PageInfo", bundle: .module) }

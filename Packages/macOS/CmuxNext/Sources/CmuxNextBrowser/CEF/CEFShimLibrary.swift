@@ -10,7 +10,7 @@ import Foundation
 /// Immutable C function pointers: safe to hand from the loading thread to the
 /// main thread.
 nonisolated struct CEFShimLibrary: @unchecked Sendable {
-    static let abiVersion: Int32 = 2
+    static let abiVersion: Int32 = 3
 
     typealias ScheduleFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void
     typealias EventFn = @convention(c) (
@@ -59,6 +59,14 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let liveBrowserCount: @convention(c) () -> Int32
     let windowCount: @convention(c) () -> Int32
     let shutdown: @convention(c) () -> Void
+
+    // Page Info site state (ABI 3).
+    let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    let setContentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
+    let visitCookies: @convention(c) (Int32, Int32) -> Int32
+    let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
 
     enum LoadError: Error, Equatable {
         case open(String)
@@ -126,9 +134,23 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         liveBrowserCount = try r("cmux_shim_live_browser_count")
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
+        contentSetting = try r("cmux_shim_content_setting")
+        setContentSetting = try r("cmux_shim_set_content_setting")
+        visitCookies = try r("cmux_shim_visit_cookies")
+        deleteCookies = try r("cmux_shim_delete_cookies")
+        sslStatus = try r("cmux_shim_ssl_status")
+        freeOwned = try r("cmux_shim_free_owned")
     }
 
-    /// Returns a shim string as Swift and frees it.
+    /// Returns a string the shim allocated itself (`cmux_shim_ssl_status`)
+    /// and frees it.
+    func takeOwnedString(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
+        guard let pointer else { return nil }
+        defer { freeOwned(pointer) }
+        return String(cString: pointer)
+    }
+
+    /// Returns a fork string as Swift and frees it.
     func takeString(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
         guard let pointer else { return nil }
         defer { free(pointer) }

@@ -77,7 +77,7 @@ import CmuxNextDesign
             accessory: .toggle(state.isOn), identifier: "pageInfo.permission.\(state.kind.rawValue)"
         )
         row.toolTip = PageInfoStrings.permissionDetailsTooltip(PageInfoStrings.name(state.kind))
-        row.onToggle = { on in send(.setPermission(state.kind, on ? .allow : .block)) }
+        row.onToggle = { on in send(.setPermission(state.kind, on ? state.kind.enabledSetting : .block)) }
         row.onActivate = { send(.show(.permission(state.kind))) }
         return row
     }

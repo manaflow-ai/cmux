@@ -21,6 +21,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case closeRequested(browser: Int32)
     case tab(CEFForkTabEvent, browser: Int32, window: Int32, value: Int)
     case popup(browser: Int32, url: String, disposition: Int)
+    /// Reply to an async site call (`cmux_shim_visit_cookies`,
+    /// `cmux_shim_delete_cookies`): `value` is 1 or the deleted count.
+    case reply(browser: Int32, id: Int32, value: Int64, json: String)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -48,6 +51,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
             self = .tab(CEFForkTabEvent(rawValue: request) ?? .unknown, browser: browser,
                         window: Int32(truncatingIfNeeded: a), value: Int(b))
         case 17: self = .popup(browser: browser, url: s1, disposition: Int(a))
+        case 18: self = .reply(browser: browser, id: request, value: a, json: s1)
         default: self = .unknown(kind: kind)
         }
     }

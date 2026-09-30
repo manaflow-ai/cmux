@@ -36,7 +36,7 @@ extension PageInfoPages {
         let toggle = PageInfoRowView(symbol: Self.symbol(kind, blocked: state.setting == .block), title: name,
                                      subtitle: PageInfoModel.stateText(state), accessory: .toggle(state.isOn),
                                      identifier: "pageInfo.permissionToggle")
-        toggle.onToggle = { on in send(.setPermission(kind, on ? .allow : .block)) }
+        toggle.onToggle = { on in send(.setPermission(kind, on ? kind.enabledSetting : .block)) }
         views.append(toggle)
         views.append(separator())
         for choice in kind.choices {
@@ -117,6 +117,15 @@ extension PageInfoPages {
         case .serial: "cable.connector.horizontal"
         case .hid: "gamecontroller"
         case .clipboard: "doc.on.clipboard"
+        case .sensors: "gyroscope"
+        case .bluetooth: "dot.radiowaves.left.and.right"
+        case .fileEditing: "doc.badge.gearshape"
+        case .windowManagement: "macwindow.on.rectangle"
+        case .localFonts: "textformat"
+        case .backgroundSync: "arrow.triangle.2.circlepath"
+        case .autoPictureInPicture: "pip"
+        case .thirdPartySignIn: "person.badge.key"
+        case .insecureContent: blocked ? "exclamationmark.shield" : "shield.slash"
         }
     }
 }

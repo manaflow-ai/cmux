@@ -41,13 +41,8 @@ struct PageInfoSiteDataTests {
 
     @Test func devToolsParsing() {
         #expect(CEFPageInfoParsing.certificates(#"{"tableNames":["AAEC","AwQ="]}"#) == [Data([0, 1, 2]), Data([3, 4])])
-        let cookies = CEFPageInfoParsing.cookies(#"{"cookies":[{"name":"a","domain":".x.com","path":"/"},{"name":"b","domain":"y.com"}]}"#)
-        #expect(cookies.map(\.domain) == [".x.com", "y.com"])
-        #expect(cookies.last?.path == "/")
         let tree = #"{"frameTree":{"frame":{"url":"https://a.test/"},"resources":[{"url":"https://cdn.b.test/x.js"},{"url":"data:image/png;base64,"},{"url":"https://a.test/y.css"}],"childFrames":[{"frame":{"url":"https://c.test:8443/f"},"resources":[]}]}}"#
         #expect(CEFPageInfoParsing.resourceOrigins(tree) == ["https://a.test", "https://cdn.b.test", "https://c.test:8443"])
-        #expect(CEFPageInfoParsing.browserContextID(#"{"targetInfo":{"browserContextId":"CTX"}}"#) == "CTX")
-        #expect(CEFPageInfoParsing.permissionQueryScript(names: ["camera", "midi"]).contains("sysex: true"))
     }
 
     @Test func commandsRoundTripThroughRegistryArguments() throws {

@@ -123,7 +123,14 @@ public enum ContextMenuCatalog {
     static let browserPage: [ContextMenuEntry] =
         actions("browserBack", "browserForward", "browserReload") + [.separator]
         + actions("palette.browserOpenDefault", "browserScreenshotPage", "browserScreenshotSection") + [.separator]
-        + actions("browser.pageInfo", "toggleBrowserDeveloperTools")
+        + [.submenu("browser.pageInfo", pageInfo)] + actions("toggleBrowserDeveloperTools")
+
+    /// Every Page Info control (the omnibar's site information bubble).
+    static let pageInfo: [ContextMenuEntry] =
+        actions("browser.pageInfo", "browser.pageInfo.connection", "browser.pageInfo.certificate") + [.separator]
+        + actions("browser.pageInfo.setPermission", "browser.pageInfo.resetPermissions") + [.separator]
+        + actions("browser.pageInfo.cookies", "browser.pageInfo.manageSiteData", "browser.pageInfo.deleteSiteData") + [.separator]
+        + actions("browser.pageInfo.siteSettings", "browser.pageInfo.aboutThisPage")
 
     static let link: [ContextMenuEntry] =
         actions("openLinkInNewTab", "openLinkInDefaultBrowser") + [.separator] + actions("terminalCopy")
