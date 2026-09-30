@@ -3,20 +3,35 @@ import Testing
 
 @Suite("ACP host capabilities")
 struct ACPHostCapabilitiesTests {
-    @Test("Initialize negotiates down, echoes lower versions, and defaults missing versions")
-    func protocolVersionNegotiation() {
-        let higher = ACPHostCapabilities.initializeResult(clientProtocolVersion: 99)
-        let lower = ACPHostCapabilities.initializeResult(clientProtocolVersion: 0)
-        let missing = ACPHostCapabilities.initializeResult(clientProtocolVersion: nil)
+    private let capabilities = ACPHostCapabilities()
 
-        #expect(higher["protocolVersion"] as? Int == ACPHostCapabilities.protocolVersion)
-        #expect(lower["protocolVersion"] as? Int == 0)
-        #expect(missing["protocolVersion"] as? Int == ACPHostCapabilities.protocolVersion)
+    private func protocolVersion(for requested: Int?) -> Int? {
+        capabilities.initializeResult(clientProtocolVersion: requested)["protocolVersion"] as? Int
+    }
+
+    @Test("Initialize echoes the supported client version")
+    func supportedVersionIsReturned() {
+        #expect(protocolVersion(for: capabilities.protocolVersion) == capabilities.protocolVersion)
+    }
+
+    @Test("Initialize returns the host version for a lower client version")
+    func lowerVersionDoesNotDowngradeHost() {
+        #expect(protocolVersion(for: capabilities.protocolVersion - 1) == capabilities.protocolVersion)
+    }
+
+    @Test("Initialize returns the host version for a higher client version")
+    func higherVersionDoesNotUpgradeHost() {
+        #expect(protocolVersion(for: capabilities.protocolVersion + 1) == capabilities.protocolVersion)
+    }
+
+    @Test("Initialize returns the host version when the client omits one")
+    func missingVersionUsesHostVersion() {
+        #expect(protocolVersion(for: nil) == capabilities.protocolVersion)
     }
 
     @Test("Initialize advertises the read-only host capability shape")
     func advertisesReadOnlyCapabilities() throws {
-        let result = ACPHostCapabilities.initializeResult(clientProtocolVersion: nil)
+        let result = capabilities.initializeResult(clientProtocolVersion: nil)
         let agents = try #require(result["agentCapabilities"] as? [String: Any])
         let prompts = try #require(agents["promptCapabilities"] as? [String: Any])
         let metadata = try #require(result["_meta"] as? [String: Any])
@@ -32,4 +47,12 @@ struct ACPHostCapabilitiesTests {
         #expect(cmux["extensionMethods"] as? [String] == ACPHostMethod.extensionMethodNames)
     }
 
+    @Test("The host can explicitly keep writes disabled")
+    func writesFlagIsControlledByCaller() throws {
+        let result = ACPHostCapabilities(writesEnabled: false)
+            .initializeResult(clientProtocolVersion: nil)
+        let metadata = try #require(result["_meta"] as? [String: Any])
+        let cmux = try #require(metadata["cmux"] as? [String: Any])
+        #expect(cmux["writes"] as? Bool == false)
+    }
 }

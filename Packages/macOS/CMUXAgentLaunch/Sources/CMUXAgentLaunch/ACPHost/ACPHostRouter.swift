@@ -34,46 +34,55 @@ public struct ACPHostRouter {
         // host must drop it silently rather than report it as unimplemented.
         guard let id = message.id else { return .ignore(method: message.method) }
 
-        switch message.method {
-        case ACPHostMethod.initialize:
+        switch ACPHostMethod(rawValue: message.method) {
+        case .some(.initialize):
             let requested = message.params["protocolVersion"] as? Int
             return .respond(
                 id: id,
-                result: ACPHostCapabilities.initializeResult(clientProtocolVersion: requested)
+                result: ACPHostCapabilities().initializeResult(clientProtocolVersion: requested)
             )
 
-        case ACPHostMethod.authenticate:
+        case .some(.authenticate):
             // No auth methods are advertised, so there is nothing to check and
             // nothing to refuse. Succeeding is the honest answer: a client that
             // calls this anyway is already authorized by owning the socket.
             return .respond(id: id, result: [:])
 
-        case ACPHostMethod.cmuxSessionList:
+        case .some(.cmuxSessionList):
             return .listSessions(id: id)
 
-        case ACPHostMethod.sessionLoad:
+        case .some(.sessionLoad):
             guard let sessionID = Self.nonEmptyString(message.params["sessionId"]) else {
                 return .fail(
                     id: id,
-                    code: ACPErrorCode.invalidParams,
+                    code: ACPErrorCode.invalidParams.rawValue,
                     message: "session/load needs a non-empty sessionId. "
                         + "Use _cmux/session/list to get the live session ids."
                 )
             }
             return .loadSession(id: id, sessionID: sessionID)
 
-        default:
-            if let phase = ACPHostMethod.deferredMethods[message.method] {
+        case .some(let method):
+            if let phase = ACPHostMethod.deferredMethods[method.rawValue] {
                 return .fail(
                     id: id,
-                    code: ACPErrorCode.methodNotFound,
+                    code: ACPErrorCode.methodNotFound.rawValue,
                     message: "\(message.method) is not implemented in this build. "
                         + "It lands in \(phase); this host is read-only."
                 )
             }
+            // A name this host knows but does not answer as a request.
+            // `session/update` is the notification the host sends, so a client
+            // calling it has the direction backwards.
             return .fail(
                 id: id,
-                code: ACPErrorCode.methodNotFound,
+                code: ACPErrorCode.methodNotFound.rawValue,
+                message: "\(message.method) is not a request this host answers."
+            )
+        case .none:
+            return .fail(
+                id: id,
+                code: ACPErrorCode.methodNotFound.rawValue,
                 message: "Unknown method \(message.method)."
             )
         }
@@ -81,33 +90,46 @@ public struct ACPHostRouter {
 
     /// The JSON-RPC answer for a line that could not be decoded.
     ///
-    /// Returns nil when the problem left no id to answer, which JSON-RPC covers
-    /// with a null-id error but which is also indistinguishable from a client
-    /// sending noise. Reporting it on stderr and reading the next line keeps one
-    /// bad frame from ending the session.
+    /// Returns a JSON-RPC error with a null id when the problem left no id to
+    /// answer. The caller can report it and keep reading the next line.
     public func failure(for problem: ACPIncomingMessage.Problem) -> [String: Any]? {
         switch problem {
-        case .notJSON, .notAnObject:
-            return nil
+        case .notJSON:
+            return ACPOutgoingMessage.failure(
+                id: nil,
+                code: .parseError,
+                message: "Invalid JSON.",
+                data: nil
+            ).envelope
+        case .notAnObject:
+            return ACPOutgoingMessage.failure(
+                id: nil,
+                code: .invalidRequest,
+                message: "JSON-RPC message must be an object.",
+                data: nil
+            ).envelope
         case .wrongVersion(let found):
             let seen = found.map { "'\($0)'" } ?? "nothing"
             return ACPOutgoingMessage.failure(
                 id: nil,
-                code: ACPErrorCode.invalidRequest,
-                message: "Expected \"jsonrpc\": \"2.0\", found \(seen)."
-            )
+                code: .invalidRequest,
+                message: "Expected \"jsonrpc\": \"2.0\", found \(seen).",
+                data: nil
+            ).envelope
         case .missingMethod(let id):
             return ACPOutgoingMessage.failure(
                 id: id,
-                code: ACPErrorCode.invalidRequest,
-                message: "Missing method."
-            )
+                code: .invalidRequest,
+                message: "Missing method.",
+                data: nil
+            ).envelope
         case .paramsNotAnObject(let id):
             return ACPOutgoingMessage.failure(
                 id: id,
-                code: ACPErrorCode.invalidParams,
-                message: "params must be an object."
-            )
+                code: .invalidParams,
+                message: "params must be an object.",
+                data: nil
+            ).envelope
         }
     }
 

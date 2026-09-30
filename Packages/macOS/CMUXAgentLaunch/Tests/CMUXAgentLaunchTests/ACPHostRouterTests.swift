@@ -15,64 +15,50 @@ struct ACPHostRouterTests {
     }
 
     private func failure(_ outcome: ACPRouterOutcome) throws -> (Int, String) {
-        guard case .fail(_, let code, let message) = outcome else {
-            Issue.record("Expected a failure outcome, got \(String(describing: outcome))")
-            throw TestError.unexpectedOutcome
-        }
-        return (code, message)
+        let value: (Int, String)? = {
+            guard case .fail(_, let code, let message) = outcome else { return nil }
+            return (code, message)
+        }()
+        return try #require(value)
     }
 
-    private enum TestError: Error { case unexpectedOutcome }
+    private func response(_ outcome: ACPRouterOutcome) -> (ACPRequestIdentifier, [String: Any])? {
+        guard case .respond(let id, let result) = outcome else { return nil }
+        return (id, result)
+    }
 
-    @Test("Initialize routes the negotiated protocol version through the host")
-    func initializeRouteNegotiatesVersion() {
-        let cases: [(Int?, Int)] = [(99, ACPHostCapabilities.protocolVersion), (0, 0), (nil, ACPHostCapabilities.protocolVersion)]
-        for (requested, expected) in cases {
-            let params: [String: Any] = requested.map { ["protocolVersion": $0] } ?? [:]
-            guard case .respond(let id, let result) = router.route(request(
-                ACPHostMethod.initialize,
-                params: params
-            )) else {
-                Issue.record("initialize should return a response")
-                continue
-            }
-            #expect(id == .number(1))
-            #expect(result["protocolVersion"] as? Int == expected)
-        }
+    private func errorCode(in envelope: [String: Any]) -> Int? {
+        (envelope["error"] as? [String: Any])?["code"] as? Int
+    }
+
+    @Test("Initialize routes the host protocol version")
+    func initializeRouteReturnsHostVersion() throws {
+        let result = try #require(response(router.route(request(
+            ACPHostMethod.initialize.rawValue,
+            params: ["protocolVersion": 99]
+        ))))
+        #expect(result.0 == .number(1))
+        #expect(result.1["protocolVersion"] as? Int == ACPHostCapabilities().protocolVersion)
     }
 
     @Test("Authenticate succeeds without advertised auth methods")
-    func authenticateSucceeds() {
-        guard case .respond(let id, let result) = router.route(request(ACPHostMethod.authenticate)) else {
-            Issue.record("authenticate should return a response")
-            return
-        }
-        #expect(id == .number(1))
-        #expect(result.isEmpty)
+    func authenticateSucceeds() throws {
+        let result = try #require(response(router.route(request(ACPHostMethod.authenticate.rawValue))))
+        #expect(result.0 == .number(1))
+        #expect(result.1.isEmpty)
     }
 
     @Test("The session list extension delegates to the caller")
-    func listsSessions() {
-        guard case .listSessions(let id) = router.route(request("_cmux/session/list")) else {
-            Issue.record("The extension should request the live session registry")
-            return
+    func listsSessions() throws {
+        guard case .listSessions(let id) = router.route(request(ACPHostMethod.cmuxSessionList.rawValue)) else {
+            throw TestError.unexpectedOutcome
         }
         #expect(id == .number(1))
     }
 
     @Test("Notifications are always ignored, including session cancel")
     func notificationsAreNeverAnswered() {
-        let methods = [
-            ACPHostMethod.initialize,
-            ACPHostMethod.authenticate,
-            ACPHostMethod.cmuxSessionList,
-            ACPHostMethod.sessionLoad,
-            ACPHostMethod.sessionNew,
-            ACPHostMethod.sessionPrompt,
-            ACPHostMethod.sessionCancel,
-            ACPHostMethod.sessionSetMode,
-            "unknown/method",
-        ]
+        let methods = ACPHostMethod.allCases.map(\.rawValue) + ["unknown/method"]
 
         for method in methods {
             guard case .ignore(let ignoredMethod) = router.route(request(method, id: nil)) else {
@@ -94,31 +80,38 @@ struct ACPHostRouterTests {
 
         for params in invalidParameters {
             let (code, message) = try failure(router.route(request(
-                ACPHostMethod.sessionLoad,
+                ACPHostMethod.sessionLoad.rawValue,
                 params: params
             )))
-            #expect(code == ACPErrorCode.invalidParams)
+            #expect(code == ACPErrorCode.invalidParams.rawValue)
             #expect(message.contains("session/load"))
         }
     }
 
     @Test("Session load trims a valid id before replay")
-    func sessionLoadTrimsID() {
+    func sessionLoadTrimsID() throws {
         guard case .loadSession(_, let sessionID) = router.route(request(
-            ACPHostMethod.sessionLoad,
+            ACPHostMethod.sessionLoad.rawValue,
             params: ["sessionId": "  session-123  "]
         )) else {
-            Issue.record("A non-empty session id should load")
-            return
+            throw TestError.unexpectedOutcome
         }
         #expect(sessionID == "session-123")
     }
 
-    @Test("Every deferred method names its owning phase")
-    func allDeferredMethodsAreCoveredByTheTable() throws {
-        for (method, phase) in ACPHostMethod.deferredMethods {
+    @Test("Every deferred method is explicitly covered by its phase contract")
+    func allDeferredMethodsAreCoveredByTheContract() throws {
+        let expected: [(String, String)] = [
+            (ACPHostMethod.sessionNew.rawValue, "phase 2"),
+            (ACPHostMethod.sessionPrompt.rawValue, "phase 2"),
+            (ACPHostMethod.sessionCancel.rawValue, "phase 2"),
+            (ACPHostMethod.sessionSetMode.rawValue, "phase 3"),
+        ]
+        #expect(ACPHostMethod.deferredMethods == Dictionary(uniqueKeysWithValues: expected))
+
+        for (method, phase) in expected {
             let (code, message) = try failure(router.route(request(method)))
-            #expect(code == ACPErrorCode.methodNotFound)
+            #expect(code == ACPErrorCode.methodNotFound.rawValue)
             #expect(message.contains(phase))
             #expect(message.contains(method))
         }
@@ -127,32 +120,42 @@ struct ACPHostRouterTests {
     @Test("Unknown methods return methodNotFound")
     func unknownMethodFails() throws {
         let (code, message) = try failure(router.route(request("session/unknown")))
-        #expect(code == ACPErrorCode.methodNotFound)
+        #expect(code == ACPErrorCode.methodNotFound.rawValue)
         #expect(message.contains("Unknown method"))
     }
 
-    @Test("Undecodable lines only answer when an id or protocol error is available")
+    @Test("A notification this host sends is not answered as a request")
+    func notificationMethodIsNotARequest() throws {
+        // session/update travels host to client. A client that sends it has the
+        // direction backwards, which is a different mistake from a typo, so the
+        // message must not call the name unknown.
+        let (code, message) = try failure(router.route(request(ACPHostMethod.sessionUpdate.rawValue)))
+        #expect(code == ACPErrorCode.methodNotFound.rawValue)
+        #expect(message.contains("is not a request this host answers"))
+        #expect(message.contains("Unknown method") == false)
+    }
+
+    @Test("Undecodable lines use JSON-RPC error codes")
     func decodeFailuresUseJSONRPCCodes() throws {
-        #expect(router.failure(for: .notJSON) == nil)
-        #expect(router.failure(for: .notAnObject) == nil)
+        let parse = try #require(router.failure(for: .notJSON))
+        #expect(errorCode(in: parse) == ACPErrorCode.parseError.rawValue)
+        #expect(parse["id"] is NSNull)
+
+        let object = try #require(router.failure(for: .notAnObject))
+        #expect(errorCode(in: object) == ACPErrorCode.invalidRequest.rawValue)
+        #expect(object["id"] is NSNull)
 
         let wrongVersion = try #require(router.failure(for: .wrongVersion("1.0")))
-        #expect(wrongVersion["jsonrpc"] as? String == "2.0")
-        #expect(wrongVersion["id"] is NSNull)
-        #expect(errorCode(in: wrongVersion) == ACPErrorCode.invalidRequest)
+        #expect(errorCode(in: wrongVersion) == ACPErrorCode.invalidRequest.rawValue)
 
         let missingMethod = try #require(router.failure(for: .missingMethod(.string("request"))))
-        #expect(missingMethod["jsonrpc"] as? String == "2.0")
-        #expect(errorCode(in: missingMethod) == ACPErrorCode.invalidRequest)
+        #expect(errorCode(in: missingMethod) == ACPErrorCode.invalidRequest.rawValue)
         #expect(missingMethod["id"] as? String == "request")
 
         let badParams = try #require(router.failure(for: .paramsNotAnObject(.number(7))))
-        #expect(badParams["jsonrpc"] as? String == "2.0")
-        #expect(errorCode(in: badParams) == ACPErrorCode.invalidParams)
+        #expect(errorCode(in: badParams) == ACPErrorCode.invalidParams.rawValue)
         #expect(badParams["id"] as? Int == 7)
     }
 
-    private func errorCode(in envelope: [String: Any]) -> Int? {
-        (envelope["error"] as? [String: Any])?["code"] as? Int
-    }
+    private enum TestError: Error { case unexpectedOutcome }
 }

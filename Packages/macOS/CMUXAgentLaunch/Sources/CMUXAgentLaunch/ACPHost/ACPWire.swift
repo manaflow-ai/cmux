@@ -109,50 +109,63 @@ public struct ACPIncomingMessage {
     }
 }
 
-/// JSON-RPC 2.0 error codes, plus the one range ACP reserves for itself.
-public enum ACPErrorCode {
-    public static let parseError = -32700
-    public static let invalidRequest = -32600
-    public static let methodNotFound = -32601
-    public static let invalidParams = -32602
-    public static let internalError = -32603
-    /// ACP's own space for agent-defined failures, which starts at -32000.
-    public static let sessionNotFound = -32000
-    public static let hostUnavailable = -32001
+/// JSON-RPC and ACP error codes used by this host.
+public enum ACPErrorCode: Int, CaseIterable, Sendable {
+    case parseError = -32700
+    case invalidRequest = -32600
+    case methodNotFound = -32601
+    case invalidParams = -32602
+    case internalError = -32603
+    case requestCancelled = -32800
+    /// Source: `agent-client-protocol-schema/src/v1/error.rs`.
+    case authRequired = -32000
+    case resourceNotFound = -32002
+    /// cmux extension code, unused by ACP.
+    case hostUnavailable = -32001
+    /// cmux extension code, unused by ACP.
+    case sessionNotFound = -32003
 }
 
 /// Builds the envelopes this host writes back to the client.
+///
+/// Deliberately not `Sendable`. The payloads are `[String: Any]` holding
+/// decoded Foundation JSON, which cannot be checked, and an `@unchecked`
+/// conformance would promise thread safety this type does not have. A value
+/// is built and serialized on one actor, so the conformance is not needed.
 public enum ACPOutgoingMessage {
     /// A successful response. `result` is always an object, never bare `null`,
     /// so a client can add fields to its handling later without special-casing.
-    public static func result(id: ACPRequestIdentifier, _ result: [String: Any]) -> [String: Any] {
-        ["jsonrpc": "2.0", "id": id.jsonValue, "result": result]
-    }
-
+    case result(id: ACPRequestIdentifier, [String: Any])
     /// An error response. A nil id becomes JSON `null`, which is what JSON-RPC
     /// requires when the request's own id could not be read.
-    public static func failure(
-        id: ACPRequestIdentifier?,
-        code: Int,
-        message: String,
-        data: [String: Any]? = nil
-    ) -> [String: Any] {
-        var error: [String: Any] = ["code": code, "message": message]
-        if let data { error["data"] = data }
-        return ["jsonrpc": "2.0", "id": id?.jsonValue ?? NSNull(), "error": error]
+    case failure(id: ACPRequestIdentifier?, code: ACPErrorCode, message: String, data: [String: Any]?)
+    /// A notification has no id and must not receive a response.
+    case notification(method: String, params: [String: Any])
+
+    /// The JSON-RPC envelope represented by this message.
+    public var envelope: [String: Any] {
+        switch self {
+        case .result(let id, let result):
+            return ["jsonrpc": "2.0", "id": id.jsonValue, "result": result]
+        case .failure(let id, let code, let message, let data):
+            var error: [String: Any] = ["code": code.rawValue, "message": message]
+            if let data { error["data"] = data }
+            return ["jsonrpc": "2.0", "id": id?.jsonValue ?? NSNull(), "error": error]
+        case .notification(let method, let params):
+            return ["jsonrpc": "2.0", "method": method, "params": params]
+        }
     }
 
-    public static func notification(method: String, params: [String: Any]) -> [String: Any] {
-        ["jsonrpc": "2.0", "method": method, "params": params]
-    }
-
-    /// Serializes one envelope as a single line.
+    /// Serializes this envelope as a single line.
     ///
     /// No pretty printing and sorted keys: the framing is one JSON object per
     /// line, so an embedded newline would split one message into two, and
     /// stable key order makes the stream diffable in a test or a capture.
     /// Returns nil for a payload JSONSerialization refuses, which the caller
     /// has to report rather than send a truncated frame.
+    public var jsonLine: String? { Self.line(envelope) }
+
+    /// Serializes an envelope that was built outside this value type.
     public static func line(_ envelope: [String: Any]) -> String? {
         guard JSONSerialization.isValidJSONObject(envelope),
               let data = try? JSONSerialization.data(

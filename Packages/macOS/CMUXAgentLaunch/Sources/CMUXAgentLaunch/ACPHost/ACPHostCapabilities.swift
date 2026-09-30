@@ -14,27 +14,36 @@ import Foundation
 /// `_cmux` key. ACP reserves underscore prefixes on *method* names for
 /// extensions and `_meta` on *objects*, so `_meta.cmux` is the sanctioned
 /// place for a capability a client has to feature-detect.
-public enum ACPHostCapabilities {
+public struct ACPHostCapabilities: Sendable {
     /// The protocol version this host speaks.
-    public static let protocolVersion = 1
+    public let protocolVersion: Int
+
+    /// Whether this host advertises write operations.
+    public let writesEnabled: Bool
+
+    /// Creates the capability set for this host.
+    ///
+    /// - Parameter writesEnabled: False for the read-only phase. A client
+    ///   reads this instead of discovering the gap by having `session/prompt`
+    ///   rejected mid-conversation.
+    public init(writesEnabled: Bool = false) {
+        protocolVersion = 1
+        self.writesEnabled = writesEnabled
+    }
 
     /// Builds the `initialize` result.
     ///
-    /// - Parameters:
-    ///   - clientProtocolVersion: What the client asked for, when it said. The
-    ///     reply always names the version this host will actually speak, which
-    ///     is the lower of the two: answering with the client's number would
-    ///     promise behavior this build does not have.
-    ///   - writesEnabled: False for the read-only phase. A client reads this
-    ///     instead of discovering the gap by having `session/prompt` rejected
-    ///     mid-conversation.
-    public static func initializeResult(
-        clientProtocolVersion: Int?,
-        writesEnabled: Bool = false
-    ) -> [String: Any] {
-        let negotiated = min(clientProtocolVersion ?? protocolVersion, protocolVersion)
+    /// - Parameter clientProtocolVersion: What the client asked for, when it
+    ///   said. If the Agent supports the requested version, it MUST respond
+    ///   with the same version. Otherwise, the Agent MUST respond with the
+    ///   latest version it supports. This host supports one version, so its
+    ///   own version is always returned.
+    public func initializeResult(clientProtocolVersion: Int?) -> [String: Any] {
+        // Kept as a local read so phase 2 can log a mismatch without changing
+        // the response contract.
+        _ = clientProtocolVersion
         return [
-            "protocolVersion": negotiated,
+            "protocolVersion": protocolVersion,
             "agentCapabilities": [
                 // Host mode exists to attach to sessions that are already
                 // running, which is exactly what loadSession is for.
@@ -66,30 +75,27 @@ public enum ACPHostCapabilities {
 }
 
 /// Every method name this host recognizes, in one place.
-///
-/// Spelled out as constants because a typo in a method name is invisible in a
-/// test that uses the same typo on both sides.
-public enum ACPHostMethod {
-    public static let initialize = "initialize"
-    public static let authenticate = "authenticate"
-    public static let sessionNew = "session/new"
-    public static let sessionLoad = "session/load"
-    public static let sessionPrompt = "session/prompt"
-    public static let sessionCancel = "session/cancel"
-    public static let sessionSetMode = "session/set_mode"
-    public static let sessionUpdate = "session/update"
-    public static let cmuxSessionList = "_cmux/session/list"
+public enum ACPHostMethod: String, CaseIterable, Sendable {
+    case initialize
+    case authenticate
+    case sessionNew = "session/new"
+    case sessionLoad = "session/load"
+    case sessionPrompt = "session/prompt"
+    case sessionCancel = "session/cancel"
+    case sessionSetMode = "session/set_mode"
+    case sessionUpdate = "session/update"
+    case cmuxSessionList = "_cmux/session/list"
 
     /// The extension methods this build answers, advertised at `initialize`.
-    public static let extensionMethodNames = [cmuxSessionList]
+    public static let extensionMethodNames = [cmuxSessionList.rawValue]
 
     /// Methods ACP defines that this phase does not implement yet, each with
     /// the phase that owns it. A client gets that phase back in the error, so
     /// "not implemented" is actionable instead of just a refusal.
     public static let deferredMethods: [String: String] = [
-        sessionNew: "phase 2",
-        sessionPrompt: "phase 2",
-        sessionCancel: "phase 2",
-        sessionSetMode: "phase 3",
+        sessionNew.rawValue: "phase 2",
+        sessionPrompt.rawValue: "phase 2",
+        sessionCancel.rawValue: "phase 2",
+        sessionSetMode.rawValue: "phase 3",
     ]
 }

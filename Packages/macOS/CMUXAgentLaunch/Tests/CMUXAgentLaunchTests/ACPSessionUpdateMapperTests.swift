@@ -70,7 +70,9 @@ struct ACPSessionUpdateMapperTests {
                 "summary": "Search sources",
                 "status": "succeeded",
                 "output": "match",
-                "referenced_paths": ["Sources/App.swift"],
+                // Absolute, because ACP locations must be. The two tests
+                // below own what happens to a relative path.
+                "referenced_paths": ["/repo/Sources/App.swift"],
                 "input_detail": "pattern=ACP",
             ],
         ]))
@@ -79,11 +81,38 @@ struct ACPSessionUpdateMapperTests {
         #expect(value["title"] as? String == "Search sources")
         #expect(value["kind"] as? String == "search")
         #expect(value["status"] as? String == "completed")
-        #expect((value["locations"] as? [[String: Any]])?.first?["path"] as? String == "Sources/App.swift")
+        #expect((value["locations"] as? [[String: Any]])?.first?["path"] as? String == "/repo/Sources/App.swift")
         #expect((value["rawInput"] as? [String: Any])?["detail"] as? String == "pattern=ACP")
         let content = try #require((value["content"] as? [[String: Any]])?.first)
         #expect(content["type"] as? String == "content")
         #expect((content["content"] as? [String: Any])?["text"] as? String == "match")
+    }
+
+    @Test("Resolves relative tool locations against the session cwd")
+    func resolvesRelativeToolLocations() throws {
+        let mapper = ACPSessionUpdateMapper(sessionID: "session-1", cwd: "/tmp/session")
+        let value = try update(mapper.mapping(for: [
+            "kind": [
+                "type": "tool_use",
+                "referenced_paths": ["Sources/App.swift", "/opt/absolute.swift"],
+            ],
+        ]))
+        let locations = try #require(value["locations"] as? [[String: Any]])
+        #expect(locations.map { $0["path"] as? String } == [
+            "/tmp/session/Sources/App.swift",
+            "/opt/absolute.swift",
+        ])
+    }
+
+    @Test("Drops relative tool locations when the session cwd is unknown")
+    func dropsRelativeToolLocationsWithoutCWD() throws {
+        let value = try update(mapper.mapping(for: [
+            "kind": [
+                "type": "tool_use",
+                "referenced_paths": ["Sources/App.swift"],
+            ],
+        ]))
+        #expect(value.keys.contains("locations") == false)
     }
 
     @Test("Maps a terminal event to an execute tool call")
@@ -145,7 +174,10 @@ struct ACPSessionUpdateMapperTests {
         #expect(content["uri"] as? String == "file:///tmp/screenshot.png")
         #expect(value["sessionUpdate"] as? String == "agent_message_chunk")
         #expect(content["name"] as? String == "Screenshot")
-        #expect(content["mimeType"] as? String == "image/*")
+        // An image attachment carries no media type. `ChatAttachment` records
+        // only image-or-file, so the link omits `mimeType` rather than send
+        // `"image/*"`, which is a wildcard pattern and not a media type.
+        #expect(content.keys.contains("mimeType") == false)
     }
 
     @Test("Maps a named attachment without a path to text")

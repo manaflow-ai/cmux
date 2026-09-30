@@ -37,9 +37,11 @@ public struct ACPSessionUpdateMapper {
     }
 
     private let sessionID: String
+    private let sessionCWD: String?
 
-    public init(sessionID: String) {
+    public init(sessionID: String, cwd: String? = nil) {
         self.sessionID = sessionID
+        sessionCWD = Self.absolutePath(cwd, cwd: nil)
     }
 
     /// Maps a whole history page, oldest first.
@@ -90,13 +92,13 @@ public struct ACPSessionUpdateMapper {
             ])
 
         case "tool_use":
-            return .update(Self.toolCall(kind: kind, identifier: identifier))
+            return .update(Self.toolCall(kind: kind, identifier: identifier, cwd: sessionCWD))
 
         case "terminal":
             return .update(Self.terminalToolCall(kind: kind, identifier: identifier))
 
         case "file_edit":
-            return .update(Self.fileEditToolCall(kind: kind, identifier: identifier))
+            return .update(Self.fileEditToolCall(kind: kind, identifier: identifier, cwd: sessionCWD))
 
         case "attachment":
             guard let block = Self.attachmentBlock(kind) else { return .skipped(reason: "empty") }
@@ -115,7 +117,11 @@ public struct ACPSessionUpdateMapper {
 
     // MARK: - Tool calls
 
-    private static func toolCall(kind: [String: Any], identifier: String) -> [String: Any] {
+    private static func toolCall(
+        kind: [String: Any],
+        identifier: String,
+        cwd: String?
+    ) -> [String: Any] {
         let toolName = (kind["tool_name"] as? String) ?? "tool"
         var update: [String: Any] = [
             "sessionUpdate": "tool_call",
@@ -130,7 +136,10 @@ public struct ACPSessionUpdateMapper {
         }
         if !content.isEmpty { update["content"] = content }
         if let paths = kind["referenced_paths"] as? [String], !paths.isEmpty {
-            update["locations"] = paths.map { ["path": $0] }
+            let locations = paths.compactMap { path in
+                Self.absolutePath(path, cwd: cwd).map { ["path": $0] }
+            }
+            if !locations.isEmpty { update["locations"] = locations }
         }
         if let detail = Self.text(kind["input_detail"]) {
             // Kept as `rawInput` text rather than parsed: the transcript stores
@@ -159,7 +168,11 @@ public struct ACPSessionUpdateMapper {
         return update
     }
 
-    private static func fileEditToolCall(kind: [String: Any], identifier: String) -> [String: Any] {
+    private static func fileEditToolCall(
+        kind: [String: Any],
+        identifier: String,
+        cwd: String?
+    ) -> [String: Any] {
         let path = Self.text(kind["file_path"]) ?? "(file)"
         let operation = (kind["operation"] as? String) ?? "edit"
         var update: [String: Any] = [
@@ -170,8 +183,10 @@ public struct ACPSessionUpdateMapper {
             // An edit is in the transcript because it already happened, so
             // there is no state in which replaying it is still pending.
             "status": "completed",
-            "locations": [["path": path]],
         ]
+        if let absolutePath = Self.absolutePath(path, cwd: cwd) {
+            update["locations"] = [["path": absolutePath]]
+        }
         // ACP's diff content block wants the file's before and after text.
         // cmux records a unified diff, so sending it as text is accurate where
         // splitting it into oldText/newText would be a reconstruction.
@@ -236,7 +251,11 @@ public struct ACPSessionUpdateMapper {
             "uri": URL(fileURLWithPath: path).absoluteString,
             "name": name ?? (path as NSString).lastPathComponent,
         ]
-        if (kind["media"] as? String) == "image" { block["mimeType"] = "image/*" }
+        // No `mimeType`. It is optional on a resource_link, and cmux does not
+        // record one: `ChatAttachment` carries only `media` (image or file),
+        // `display_name` and `host_path`. The previous `"image/*"` was not a
+        // media type, and reading a `mime_type` key would suggest cmux has a
+        // value to send.
         return block
     }
 
@@ -253,11 +272,23 @@ public struct ACPSessionUpdateMapper {
 
     /// Fallback identity for a message whose `id` did not survive the wire.
     ///
-    /// Derived from `seq` so it is stable across a re-load of the same
-    /// transcript: a tool call the client already saw keeps its id and updates
-    /// in place instead of arriving twice.
+    /// Uses an integer `seq` when one is present. Without one it returns a
+    /// process-unique UUID, so callers must not rely on fallback stability.
     static func identifier(forSeq raw: Any?) -> String {
         if let seq = raw as? Int { return "seq-\(seq)" }
         return "seq-unknown-\(UUID().uuidString)"
+    }
+
+    /// Returns an absolute path, resolving a relative path against a known cwd.
+    /// A relative path without a cwd is omitted because ACP locations require
+    /// absolute paths.
+    private static func absolutePath(_ raw: Any?, cwd: String?) -> String? {
+        guard let path = Self.text(raw) else { return nil }
+        if path.hasPrefix("/") { return URL(fileURLWithPath: path).standardizedFileURL.path }
+        guard let cwd, cwd.hasPrefix("/") else { return nil }
+        return URL(fileURLWithPath: cwd, isDirectory: true)
+            .appendingPathComponent(path)
+            .standardizedFileURL
+            .path
     }
 }
