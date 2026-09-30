@@ -587957,6 +587957,419 @@
           }
         }
       }
+    },
+    "socket.sidebar.closeSurface.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface has a running process; retry with --force"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي السطح على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche hat einen laufenden Prozess; erneut mit --force versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La superficie tiene un proceso en ejecución; vuelve a intentarlo con --force"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La surface a un processus en cours d’exécution ; réessayez avec --force"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスでプロセスが実行中です。--force を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면에서 실행 중인 프로세스가 있습니다. --force로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在运行的进程；请使用 --force 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
+    "socket.sidebar.closeSurface.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to close surface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إغلاق السطح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche konnte nicht geschlossen werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cerrar la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la fermeture de la surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを閉じられませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면을 닫지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关闭此表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法關閉表面"
+          }
+        }
+      }
+    },
+    "socket.surface.close.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface has a running process; retry with force=true"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي السطح على عملية قيد التشغيل؛ أعد المحاولة باستخدام force=true"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche hat einen laufenden Prozess; erneut mit force=true versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La superficie tiene un proceso en ejecución; vuelve a intentarlo con force=true"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La surface a un processus en cours d’exécution ; réessayez avec force=true"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスでプロセスが実行中です。force=true を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면에서 실행 중인 프로세스가 있습니다. force=true로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在运行的进程；请使用 force=true 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在執行的程序；請使用 force=true 重試"
+          }
+        }
+      }
+    },
+    "socket.surface.close.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to close surface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إغلاق السطح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche konnte nicht geschlossen werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cerrar la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la fermeture de la surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを閉じられませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면을 닫지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关闭此表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法關閉表面"
+          }
+        }
+      }
+    },
+    "socket.tabAction.close.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One or more surfaces have a running process; retry with force=true"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سطح واحد أو أكثر يحتوي على عملية قيد التشغيل؛ أعد المحاولة باستخدام force=true"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mindestens eine Oberfläche hat einen laufenden Prozess; erneut mit force=true versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una o más superficies tienen un proceso en ejecución; vuelve a intentarlo con force=true"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une ou plusieurs surfaces ont un processus en cours d’exécution ; réessayez avec force=true"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つ以上のサーフェスでプロセスが実行中です。force=true を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 이상의 표면에서 프로세스가 실행 중입니다. force=true로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个或多个表面有正在运行的进程；请使用 force=true 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個或多個表面有正在執行的程序；請使用 force=true 重試"
+          }
+        }
+      }
+    },
+    "cli.socket.error.workspaceCloseConfirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace has a running process; retry with --force"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي مساحة العمل على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich mit laufendem Prozess; erneut mit --force versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El espacio de trabajo tiene un proceso en ejecución; vuelve a intentarlo con --force"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’espace de travail a un processus en cours d’exécution ; réessayez avec --force"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースでプロセスが実行中です。--force を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스에서 프로세스가 실행 중입니다. --force로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作区有正在运行的进程；请使用 --force 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作區有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
+    "cli.socket.error.windowCloseConfirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One or more workspaces or Dock surfaces have a running process; retry with --force"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي مساحة عمل واحدة أو أكثر أو أسطح Dock على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mindestens ein Workspace oder eine Dock-Oberfläche hat einen laufenden Prozess; erneut mit --force versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno o más espacios de trabajo o superficies del Dock tienen un proceso en ejecución; vuelve a intentarlo con --force"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un ou plusieurs espaces de travail ou surfaces du Dock ont un processus en cours d’exécution ; réessayez avec --force"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つ以上のワークスペースまたは Dock サーフェスでプロセスが実行中です。--force を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 이상의 워크스페이스 또는 Dock 표면에서 실행 중인 프로세스가 있습니다. --force로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个或多个工作区或 Dock 表面有正在运行的进程；请使用 --force 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個或多個工作區或 Dock 表面有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

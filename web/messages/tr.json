@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "genel bakış",
-      "team": "ekip",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Genel bakış",
+      "team": "Ekip",
       "mobileDevices": "Mobil cihazlar",
-      "settings": "ayarlar",
-      "teams": "ekipler"
+      "settings": "Ayarlar",
+      "teams": "Ekipler"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirin.",
-      "coderouterLink": "coderouter'ı aç",
+      "coderouterLink": "Coderouter'ı aç",
       "iosAppName": "iOS uygulaması",
       "iosAppDescription": "cmux iOS uygulamasını TestFlight üzerinden yükleyin (beta erişimi).",
       "iosLink": "iOS uygulamasını aç"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
-      "title": "coderouter",
-      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
+      "title": "Coderouter",
+      "description": "Coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
       "machines": {
         "title": "Makineler",
         "description": "Son {days} günde {team} için makine başına coderouter kullanımı.",
@@ -407,7 +407,8 @@
       "signingOut": "Çıkış yapılıyor…",
       "signOutError": "Çıkış yapılamadı. Tekrar deneyin.",
       "organizationSwitchError": "Kuruluş değiştirilemedi. Tekrar deneyin.",
-      "signIn": "Giriş yap"
+      "signIn": "Giriş yap",
+      "upgrade": "Yükselt"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "Ekip oluştur"
+      },
+      "title": "Plan ve faturalandırma",
+      "picker": {
+        "current": "Mevcut plan",
+        "upgradeTo": "{plan} planına yükselt",
+        "switchTo": "{plan} planına geç",
+        "cancelPlan": "Planı iptal et",
+        "resume": "{plan} planını sürdür",
+        "renewsOn": "{date} tarihinde yenilenir",
+        "endsOn": "{date} tarihinde sona erer",
+        "perMonth": "aylık",
+        "perSeatMonth": "koltuk başına aylık",
+        "paymentMethod": "Ödeme yöntemini yönet",
+        "invoices": "Faturalar",
+        "heading": "Planlar",
+        "actionError": "Plan değiştirilemedi. Tekrar deneyin.",
+        "unavailable": {
+          "cancelScheduled": "Değiştirmek için planınızı sürdürün.",
+          "granted": "cmux tarafından verildi. Değiştirilecek bir şey yok.",
+          "adminOnly": "Planı yalnızca ekip yöneticileri değiştirebilir."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "macOS için eksiksiz cmux terminali",
+            "Kendi anahtarlarınızla her CLI ajanı",
+            "Yerel oturum geçmişi"
+          ],
+          "go": [
+            "1 etkin Cloud VM",
+            "Ayda 40 VM saati",
+            "2 kayıtlı VM"
+          ],
+          "pro": [
+            "Cloud VMs üzerinde bulut ajanları",
+            "VM'ler arasında paylaşılan 24 GB RAM ve 6 vCPU",
+            "cmux iOS uygulaması"
+          ],
+          "max": [
+            "VM'ler arasında paylaşılan 64 GB RAM ve 16 vCPU",
+            "Daha büyük makine boyutları",
+            "Pro'daki her şey"
+          ],
+          "team": [
+            "Her üyeye Pro'daki her şey",
+            "Tüm ekip için tek fatura",
+            "Öncelikli destek"
+          ]
+        },
+        "billedAnnually": "yıllık faturalandırılır"
+      },
+      "change": {
+        "title": "{plan} planına geçilsin mi?",
+        "upgradeBody": "{plan} şimdi başlar. Bu fatura döneminin kalanı için bugün {amount} ödersiniz. {date} tarihinden itibaren aylık {price} ödersiniz.",
+        "downgradeBody": "{plan} şimdi başlar. Mevcut planınızın kullanılmayan kısmı olan {credit}, sonraki faturalarınıza alacak olarak yansıtılır. {date} tarihindeki sonraki faturanız {amount}.",
+        "confirm": "{plan} planına geç",
+        "keep": "Mevcut planı koru",
+        "switching": "Geçiliyor…",
+        "previewError": "Fiyat hesaplanamadı. Tekrar deneyin.",
+        "paymentFailed": "Kartınız reddedildi. Ödeme yönteminizi güncelleyip tekrar deneyin.",
+        "error": "Plan değiştirilemedi. Tekrar deneyin."
+      },
+      "cancelDialog": {
+        "title": "{plan} iptal edilsin mi?",
+        "body": "{plan} planı {date} tarihine kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
+        "bodyNoDate": "{plan} planı bu fatura döneminin sonuna kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
+        "reasonLabel": "Neden iptal ediyorsunuz? (isteğe bağlı)",
+        "otherPlaceholder": "Bize daha fazlasını anlatın (isteğe bağlı)",
+        "confirm": "Planı iptal et",
+        "keep": "{plan} planını koru",
+        "error": "Plan iptal edilemedi. Tekrar deneyin.",
+        "resumeError": "Plan sürdürülemedi. Tekrar deneyin.",
+        "reasons": {
+          "too_expensive": "Çok pahalı",
+          "missing_feature": "İhtiyacım olan bir özellik eksik",
+          "not_using": "Yeterince kullanmıyorum",
+          "other": "Diğer"
+        }
+      },
+      "welcome": {
+        "title": "{plan} planına hoş geldiniz",
+        "body": "Planınız etkin. Önce bunları deneyin:",
+        "ios": "iOS uygulamasını yükleyin",
+        "cloud": "Cloud'u açın",
+        "team": "Ekip oluşturun",
+        "banner": "Artık {plan} planındasınız.",
+        "bannerLink": "Plan ve faturalandırma"
       }
     },
     "mobileDevices": {
@@ -467,7 +561,7 @@
       "relaySettings": "Aktarma ayarları",
       "relaySettingsDescription": "Bu ekibin kullandığı aktarma sunucularını seçin. Her satıra bir URL girin.",
       "saveRelaySettings": "Aktarma ayarlarını kaydet",
-      "eyebrow": "bulut / cihazlar",
+      "eyebrow": "Bulut / cihazlar",
       "scopeActive": "Bu takım gösteriliyor",
       "emptyTitle": "Henüz bağlı cihaz yok",
       "emptyDescription": "Bir cmux cihazı bu takımla eşleştirildiğinde platformu, sürümü ve erişim denetimleriyle birlikte burada görünür.",
@@ -488,7 +582,10 @@
         "account": "Hesap",
         "billing": "Faturalandırma",
         "teamsGroup": "Ekipler",
-        "createTeam": "Ekip oluştur"
+        "createTeam": "Ekip oluştur",
+        "accountGroup": "Hesap",
+        "billingGroup": "Faturalandırma",
+        "planBilling": "Plan ve faturalandırma"
       },
       "ui": {
         "save": "Kaydet",
@@ -1015,8 +1112,8 @@
       "apiKeySecretBody": "Bu gizli değer tekrar gösterilmeyecek.",
       "apiKeyCopy": "API anahtarını kopyala",
       "apiKeyCopied": "Kopyalandı",
-      "apiKeyCreatedAt": "oluşturulma {at}",
-      "apiKeyLastUsed": "son kullanım {at}",
+      "apiKeyCreatedAt": "Oluşturulma {at}",
+      "apiKeyLastUsed": "Son kullanım {at}",
       "apiKeyRevoked": "İptal edildi",
       "apiKeyLabelPlaceholder": "Örneğin CI veya üretim",
       "createApiKeyAction": "API anahtarı oluştur",
@@ -1026,11 +1123,13 @@
       "revokingApiKeyAction": "İptal ediliyor",
       "apiKeyRevokeError": "API anahtarı iptal edilemedi.",
       "revokeApiKeyConfirmTitle": "Bu API anahtarı iptal edilsin mi?",
-      "apiKeyUsageDetail": "son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
+      "apiKeyUsageDetail": "Son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
       "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz.",
       "apiKeysEmptyTitle": "Henüz API anahtarı yok",
-      "apiKeysEmptyHint": "Bir CodeRouter istemcisinin kimliğini doğrulamak için bir anahtar oluşturun."
+      "apiKeysEmptyHint": "Bir CodeRouter istemcisinin kimliğini doğrulamak için bir anahtar oluşturun.",
+      "unavailableTitle": "Paylaşılan hesaplar kullanılamıyor",
+      "unavailableBody": "cmux şu anda paylaşılan hesap hizmetine ulaşamıyor. cr add ile eklenen hesaplar ile Anthropic ve Bedrock hesapları çalışmaya devam ediyor."
     },
     "notFound": {
       "title": "Sayfa bulunamadı",
@@ -1050,6 +1149,14 @@
       },
       "retry": "Tekrar dene",
       "retrying": "Tekrar deneniyor…"
+    },
+    "upgrade": {
+      "title": "Pro gerekir",
+      "cloud": "Cloud VMs ve bulut ajanları Pro'ya dahildir.",
+      "testflight": "cmux iOS uygulaması Pro'ya dahildir.",
+      "mobileDevices": "Telefon ve tabletinizi bağlamak Pro'ya dahildir.",
+      "action": "Pro'ya yükselt",
+      "comparePlans": "Planları karşılaştır"
     }
   },
   "community": {
