@@ -1021,6 +1021,9 @@
 		ED654029AEB34F08A9420402 /* CloudWorkspaceRenameService+Reconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFEB2668D80B41349D7CA539 /* CloudWorkspaceRenameService+Reconciliation.swift */; };
 		C12986000000000000000002 /* CloudWorkspaceRenameSurfaceParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12986000000000000000001 /* CloudWorkspaceRenameSurfaceParityTests.swift */; };
 		B12438010000000000000001 /* CloudWorkspaceRestoreNamesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12438010000000000000002 /* CloudWorkspaceRestoreNamesTests.swift */; };
+		1BEC4326B33A3F93AB26A3C7 /* CloudWorkspaceRowOpenFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BDC314879AD09AEABBBBCBC /* CloudWorkspaceRowOpenFixture.swift */; };
+		894321CB47C05CC1B1FC0D4C /* CloudWorkspaceRowOpenProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ED028255308F9B421D2ABF /* CloudWorkspaceRowOpenProvider.swift */; };
+		A83BD70AC026CE2E01D30235 /* CloudWorkspaceRowOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C038464D085920513576A927 /* CloudWorkspaceRowOpenTests.swift */; };
 		D3D88AECC723469EAF760A5D /* CloudWorkspaceSidebarPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AD117951D664D05A4D9612C /* CloudWorkspaceSidebarPresentation.swift */; };
 		D13184000000000000000008 /* CloudWorkspaceTargetingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000007 /* CloudWorkspaceTargetingFixture.swift */; };
 		D1318400000000000000000A /* CloudWorkspaceTargetingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000009 /* CloudWorkspaceTargetingTests.swift */; };
@@ -5334,6 +5337,9 @@
 		BFEB2668D80B41349D7CA539 /* CloudWorkspaceRenameService+Reconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameService+Reconciliation.swift"; sourceTree = "<group>"; };
 		C12986000000000000000001 /* CloudWorkspaceRenameSurfaceParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameSurfaceParityTests.swift"; sourceTree = "<group>"; };
 		B12438010000000000000002 /* CloudWorkspaceRestoreNamesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceRestoreNamesTests.swift; sourceTree = "<group>"; };
+		7BDC314879AD09AEABBBBCBC /* CloudWorkspaceRowOpenFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRowOpenFixture.swift"; sourceTree = "<group>"; };
+		14ED028255308F9B421D2ABF /* CloudWorkspaceRowOpenProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRowOpenProvider.swift"; sourceTree = "<group>"; };
+		C038464D085920513576A927 /* CloudWorkspaceRowOpenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRowOpenTests.swift"; sourceTree = "<group>"; };
 		7AD117951D664D05A4D9612C /* CloudWorkspaceSidebarPresentation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceSidebarPresentation.swift; sourceTree = "<group>"; };
 		D13184000000000000000007 /* CloudWorkspaceTargetingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceTargetingFixture.swift"; sourceTree = "<group>"; };
 		D13184000000000000000009 /* CloudWorkspaceTargetingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceTargetingTests.swift"; sourceTree = "<group>"; };
@@ -12738,6 +12744,9 @@
 				FDD2286462BDC54589245BFF /* CloudManualMirrorStartupRenderingTests.swift */,
 				368256F9809FB229ABB03830 /* CloudTreeCategoryCreateActionTests.swift */,
 				4AD84F07ADB08D5E8EBAA10D /* DeviceDiscoverabilityGatingTests.swift */,
+				7BDC314879AD09AEABBBBCBC /* CloudWorkspaceRowOpenFixture.swift */,
+				14ED028255308F9B421D2ABF /* CloudWorkspaceRowOpenProvider.swift */,
+				C038464D085920513576A927 /* CloudWorkspaceRowOpenTests.swift */,
 				34A1987FFA112D2457B20A9C /* LocalTerminalSizingHostLifecycleTests.swift */,
 			);
 			path = cmuxTests;
@@ -16768,6 +16777,9 @@
 				1DCF35C8B8C57B45635CBAE1 /* CloudWorkspaceRenameRefreshTests.swift in Sources */,
 				C12986000000000000000002 /* CloudWorkspaceRenameSurfaceParityTests.swift in Sources */,
 				B12438010000000000000001 /* CloudWorkspaceRestoreNamesTests.swift in Sources */,
+				1BEC4326B33A3F93AB26A3C7 /* CloudWorkspaceRowOpenFixture.swift in Sources */,
+				894321CB47C05CC1B1FC0D4C /* CloudWorkspaceRowOpenProvider.swift in Sources */,
+				A83BD70AC026CE2E01D30235 /* CloudWorkspaceRowOpenTests.swift in Sources */,
 				D13184000000000000000008 /* CloudWorkspaceTargetingFixture.swift in Sources */,
 				D1318400000000000000000A /* CloudWorkspaceTargetingTests.swift in Sources */,
 				C0DE43000000000000000009 /* CmuxAgentChatConfigTests.swift in Sources */,
