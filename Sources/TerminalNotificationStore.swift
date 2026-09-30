@@ -2110,11 +2110,13 @@ final class TerminalNotificationStore: ObservableObject {
         sessionId: String? = nil,
         correlationKey: String? = nil,
         before: Date? = nil,
-        requiresSoleCandidate: Bool = false,
         suppressFutureSupersession: Bool = false
     ) -> Bool {
         let surfaceKey = TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
-        if requiresSoleCandidate && agentAttentionSupersessionSuppressed.contains(surfaceKey) {
+        // A direct answer has already retired the prompt the user saw. Keep
+        // later uncorrelated hooks from consuming another unanswered prompt;
+        // a newly delivered prompt clears this latch in applyNotification.
+        if agentAttentionSupersessionSuppressed.contains(surfaceKey) {
             return false
         }
         let liveTabId = AppDelegate.shared?
@@ -2130,8 +2132,10 @@ final class TerminalNotificationStore: ObservableObject {
             if let sessionId, notification.agentSessionId != sessionId { return false }
             return correlationKey == nil || notification.correlationKey == correlationKey
         }
-        guard !requiresSoleCandidate || matching.count == 1,
-              let index = matching.min(by: { lhs, rhs in
+        // Hook progress is ordered and fenced by `before`, so the oldest
+        // matching prompt is the answered one even when a newer prompt for
+        // the same session is already waiting on the surface.
+        guard let index = matching.min(by: { lhs, rhs in
             let lhsNotification = notifications[lhs.offset]
             let rhsNotification = notifications[rhs.offset]
             if lhsNotification.createdAt != rhsNotification.createdAt {

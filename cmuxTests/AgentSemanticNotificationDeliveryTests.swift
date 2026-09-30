@@ -115,7 +115,7 @@ extension AgentNotificationRegressionTests {
     @Test func codexProgressHookClearsPromptRingAndWorkspaceCount() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
-        let event = semanticEvent(fixture, source: "codex", session: "codex-session")
+        let event = semanticEvent(fixture, source: "codex", session: "session")
         var reconciler = AgentNotificationReconciler()
         let decision = reconciler.apply(event)
         AgentJournalLifecycleCenter.deliverNotification(
@@ -147,7 +147,7 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 2)
 
         let progressed = WorkstreamEvent(
-            sessionId: "codex-session",
+            sessionId: "session",
             hookEventName: .postToolUse,
             source: "codex",
             workspaceId: fixture.source.id.uuidString,
