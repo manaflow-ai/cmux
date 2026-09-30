@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxAgentChat
 
 /// Wire mapping for a live agent-session listing, free of AppKit and
 /// controller state.
@@ -57,8 +58,10 @@ public struct AgentSessionListPayload {
         if let outputAt { json["last_agent_output_at"] = formatter.string(from: outputAt) }
         if let branch = record.branch { json["branch"] = branch }
         if let worktree = record.worktree { json["worktree"] = worktree }
-        json["linked_prs"] = record.linkedPullRequests.map { pr in
-            ["number": pr.number, "state": pr.state, "title": pr.title ?? NSNull()]
+        json["linked_prs"] = record.linkedPullRequests.map { pr -> [String: Any] in
+            var payload: [String: Any] = ["number": pr.number, "state": pr.state]
+            if let title = pr.title { payload["title"] = title }
+            return payload
         }
         json["linked_prs_resolved"] = record.pullRequestsResolved || record.workingDirectory == nil
         let settled = Self.isSettled(record: record, idleFor: idleFor, threshold: settledIdleThreshold)
