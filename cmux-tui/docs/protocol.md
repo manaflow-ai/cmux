@@ -184,6 +184,19 @@ launchd environment:
 {"id":19,"cmd":"new-tab","pane":2,"cwd":"/Users/me/src","env":{"PATH":"/opt/homebrew/bin:/usr/bin:/bin"}}
 ```
 
+`loopback-forward-v1` gives an opted-in Unix client TCP streams to this
+machine's loopback services (browser tabs whose machine is this daemon), with
+credit flow control in both directions. See "Loopback forwarding" in
+`spec/commands.md` for the full contract:
+
+```json
+{"id":21,"cmd":"set-client-info","capabilities":["loopback-forward-v1"]}
+{"id":22,"cmd":"loopback-open","stream":1,"host":"localhost","port":5173}
+{"id":22,"ok":true,"data":{"stream":1,"address":"127.0.0.1:5173","window":262144}}
+{"cmd":"loopback-data","stream":1,"data":"R0VUIC8gSFRUUC8xLjENCg0K"}
+{"event":"loopback-data","stream":1,"data":"SFRUUC8xLjEgMjAwIE9LDQo="}
+```
+
 `terminal-placement-env-v1` adds a caller-chosen `terminal_id` to `new-tab`,
 `split`, `new-pane`, and `new-pane-right` (and `cwd`/`env` to the last two),
 so the child starts with its own id in its environment:

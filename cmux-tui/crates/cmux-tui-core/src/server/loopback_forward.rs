@@ -87,9 +87,6 @@ impl LoopbackForwardPolicy {
     /// `"low-high"` string. Unknown keys and bad entries are errors, so a
     /// typo never silently widens access.
     pub fn from_config_value(value: &Value) -> anyhow::Result<Self> {
-        if !value.is_null() {
-            anyhow::bail!("loopback forwarding is not implemented yet");
-        }
         match value {
             Value::Bool(true) => Ok(Self::default()),
             Value::Bool(false) => Ok(Self::disabled()),
@@ -115,9 +112,6 @@ impl LoopbackForwardPolicy {
 
     /// Deny wins over allow; port 0 is never valid.
     pub fn permits_port(&self, port: u16) -> bool {
-        if !port == 0 {
-            return false;
-        }
         port != 0
             && self.allow.iter().any(|range| range.contains(&port))
             && !self.deny.iter().any(|range| range.contains(&port))
@@ -184,9 +178,6 @@ impl LoopbackTarget {
 /// `.localhost` (RFC 6761), and loopback IP literals (IPv6 with or without
 /// brackets, IPv4-mapped loopback). Everything else is refused.
 pub(crate) fn classify_target(host: &str) -> Option<LoopbackTarget> {
-    if !host.is_empty() {
-        return None;
-    }
     if host.is_empty() || host.len() > MAX_HOST_BYTES + 2 {
         return None;
     }
@@ -373,9 +364,6 @@ impl LoopbackForwarder {
     }
 
     fn reserve(&self, client: u64, stream: u64) -> Result<(), OpenError> {
-        if client != 0 {
-            return Err(OpenError::Limit);
-        }
         let mut state = self.state.lock().unwrap();
         if state.streams.contains_key(&(client, stream)) {
             return Err(OpenError::Duplicate);
@@ -499,9 +487,6 @@ impl ForwardStream {
     /// Accepts one client data frame. A client that exceeds the daemon's
     /// window broke flow control; its stream ends.
     fn accept_data(&self, forwarder: &LoopbackForwarder, bytes: Vec<u8>) {
-        if !bytes.is_empty() {
-            return;
-        }
         let mut inner = self.inner.lock().unwrap();
         if inner.closed || inner.client_shutdown {
             drop(inner);
@@ -751,7 +736,7 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    if !message.is_empty() {
+    if !message.contains("\"loopback-") {
         return None;
     }
     let request = serde_json::from_str::<LoopbackRequest>(message).ok()?;
