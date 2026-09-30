@@ -5,7 +5,9 @@
     "Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/LinkRouting/*",
     "Packages/macOS/CmuxTerminalCore/Tests/CmuxTerminalCoreTests/*"
   ],
-  "launch": {"zoom": true},
+  "launch": {
+    "zoom": true
+  },
   "steps": [
     {
       "socket": "workspace.create",
@@ -16,18 +18,48 @@
       },
       "save": "workspace"
     },
-    {"wait": 2.0},
+    {
+      "wait": 2.0
+    },
     {
       "socketLine": "report_meta_block github-reference --priority=1 --tab=${workspace.workspace_id} -- Markdown reference: manaflow-ai/cmux#15850"
     },
-    {"wait": 2.0},
-    {"tree": "sidebar-reference"},
-    {"shot": "sidebar-reference"},
-    {"hoverAt": {"x": 0.14, "y": 0.17}},
-    {"wait": 0.5},
-    {"shot": "sidebar-reference-hover"},
-    {"clickAt": {"x": 0.14, "y": 0.17}},
-    {"wait": 3.0},
-    {"shot": "sidebar-reference-clicked"}
+    {
+      "wait": 2.0
+    },
+    {
+      "tree": "sidebar-reference"
+    },
+    {
+      "shot": "sidebar-reference"
+    },
+    {
+      "hoverAt": {
+        "x": 0.14,
+        "y": 0.17
+      }
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "hover": {
+        "label": "manaflow-ai/cmux#15850"
+      }
+    },
+    {
+      "clickAt": {
+        "x": 0.14,
+        "y": 0.17
+      }
+    },
+    {
+      "click": {
+        "label": "manaflow-ai/cmux#15850"
+      }
+    },
+    {
+      "shot": "sidebar-reference-clicked"
+    }
   ]
 }
