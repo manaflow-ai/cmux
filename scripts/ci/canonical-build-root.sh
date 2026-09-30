@@ -105,7 +105,13 @@ if [ "$move_packages" = true ] && { [ -e "$workspace/.ci-source-packages" ] || [
   mv "$workspace/.ci-source-packages" "$incoming"
 fi
 rm -rf "$src"
-if ! clone_error="$(cp -cpR "$workspace"/. "$src" 2>&1)"; then
+# One clonefile(2) of the whole tree first: about a tenth of cp's per-file
+# clone time (scripts/ci/apfs_clone.py). Directories then carry the copy's
+# time instead of the checkout's, which the seed replay restores where it
+# matters.
+if python3 "$(dirname "${BASH_SOURCE[0]}")/apfs_clone.py" "$workspace" "$src"; then
+  :
+elif ! clone_error="$(cp -cpR "$workspace"/. "$src" 2>&1)"; then
   echo "canonical-build-root: clone failed (${clone_error%%$'\n'*}); copying with rsync" >&2
   rm -rf "$src"
   mkdir -p "$src"

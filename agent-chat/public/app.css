@@ -602,6 +602,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .turn-activity-detail .tool,
 .turn-activity-detail .files-changed,
 .turn-activity-detail .status-line,
+.turn-activity-detail .plan-block,
 .turn-activity-detail .error-block-wrap,
 .turn-activity-detail details.thinking {
   max-width: none; margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0;
@@ -610,6 +611,10 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   white-space: pre-wrap; color: var(--text-faint); font: calc(var(--font-size-base) - 2px)/1.5 var(--font-sans);
   padding: 4px 6px 6px;
 }
+/* A running turn renders its activity directly in the turn, outside the
+   collapsed summary; keep thinking and interim text in the content column. */
+.turn-live-activity { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; }
+.turn-live-activity .turn-thinking-detail { padding-left: 0; padding-right: 0; }
 
 .turn-actions {
   max-width: 760px; margin: -8px auto 18px; padding: 0 24px; display: flex; align-items: center; gap: 6px;
@@ -635,6 +640,12 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .error-block { padding: 8px 14px; color: var(--red); font-size: calc(var(--font-size-base) - 1.5px); border-left: 2px solid var(--red); }
 .error-block-wrap { max-width: 760px; margin: 0 auto 14px; padding: 0 24px; }
 .status-line { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; font-size: calc(var(--font-size-base) - 2.5px); color: var(--text-faint); }
+.plan-block { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; color: var(--text-dim); font-size: calc(var(--font-size-base) - 2px); }
+.plan-entry { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 3px 0; }
+.plan-entry-status { flex: none; min-width: 74px; color: var(--text-faint); font-family: var(--font-mono); font-size: calc(var(--font-size-code) - 1px); text-transform: lowercase; }
+.plan-entry-text { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.plan-entry-priority { flex: none; color: var(--text-faint); font-family: var(--font-mono); font-size: calc(var(--font-size-code) - 1px); }
+.plan-entry-in_progress .plan-entry-status { color: var(--accent); font-weight: 600; }
 .files-changed {
   max-width: 760px; margin: -8px auto 18px; padding: 0 24px; color: var(--text-dim);
 }
@@ -664,12 +675,38 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .files-diff { padding: 0 0 6px 18px; }
 .diff-loading { color: var(--text-faint); font: calc(var(--font-size-base) - 2px) var(--font-sans); padding: 8px; }
 
-#chat-input-row { flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
+#chat-input-row { position: relative; flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
 .routing-notice {
   margin: 0 0 7px; padding: 7px 10px; border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-input));
   color: var(--text-dim); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
 }
+.transcript-composer-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0 0 1px 8px;
+}
+.transcript-hint {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  color: var(--text-faint); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.transcript-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+.transcript-dot.running { background: var(--accent); animation: transcript-pulse 1.4s ease-in-out infinite; }
+@keyframes transcript-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .transcript-dot.running { animation: none; } }
+.terminal-attention {
+  position: absolute; left: 24px; right: 24px; bottom: calc(100% + 7px); z-index: 2;
+  display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 8px 8px 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-input));
+  color: var(--text); font: 400 calc(var(--font-size-base) - 1.5px) var(--font-sans);
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 22%, transparent);
+  max-height: min(96px, 22vh); overflow: auto;
+}
+.terminal-attention-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.terminal-attention-btn {
+  flex: none; height: 28px; padding: 0 11px; border: 0; border-radius: 8px; cursor: default;
+  background: var(--accent); color: #fff; font: 500 calc(var(--font-size-base) - 2px) var(--font-sans);
+}
+.terminal-attention-btn:hover { filter: brightness(1.08); }
 #chat-card {
   display: flex; flex-direction: column; gap: 6px; padding: 6px;
   background: var(--bg-input); border: 0; border-radius: 14px;

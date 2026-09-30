@@ -150,10 +150,12 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/app_host_layer_transport.py",
     "scripts/ci/parallel_artifact_download.py",
+    "scripts/ci/apfs_clone.py",
     "scripts/ci/canonical-build-root.sh",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
     "scripts/ci/peer_product_source.py",
+    "scripts/ci/relocate_package_framework_rpaths.py",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/reuse_app_host_products.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -550,7 +552,10 @@ def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optio
     for node in ast.walk(tree):
         if isinstance(node, ast.Import) and any(alias.name.split(".")[-1] == token for alias in node.names):
             return True
-        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[-1] == token:
+        # `from scripts.ci import helper` and `from . import helper` import helper too.
+        if isinstance(node, ast.ImportFrom) and (
+            (node.module or "").split(".")[-1] == token or any(alias.name == token for alias in node.names)
+        ):
             return True
         if (not imports_only and isinstance(node, ast.Constant) and isinstance(node.value, str)
                 and id(node) not in docstrings and whole_name.search(node.value)):
@@ -865,9 +870,17 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
     "scripts/ci/require_selected_test_execution.sh",
+    # The Python product lane consumes these alongside the host-free bundle.
+    "scripts/ci/run_python_test_lane.py",
+    "scripts/ci/test_execution_registry.py",
+    "tests/test_claude_hook_spool.py",
+    "tests/claude_teams_test_utils.py",
     # What restore-app-host-test-product.sh itself runs.
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/canonical-build-root.sh",
+    # What canonical-build-root.sh clones the tree with.
+    "scripts/ci/apfs_clone.py",
+    "scripts/ci/relocate_package_framework_rpaths.py",
     # Seeds the checkout of compile admission and cli-product-tests.
     "scripts/ci/git-seed.sh",
 })
@@ -897,11 +910,11 @@ CLI_LANE_INPUT_PREFIXES = (
 # deliberate on both sides:
 #
 #   * select_package_tests.py fails open, so an unrecognized path (or an edit
-#     to the lane's own workflow) selects all 33 packages. On main that is
+#     to the lane's own workflow) selects every package. On main that is
 #     right, because the lane is running regardless and only its list is in
 #     question. Routing a pull request that way would be the 30-minute sweep
 #     under another name: over the last 200 merged pull requests it would have
-#     queued 34 full 33-package runs. Those changes keep their existing
+#     queued 34 full package sweeps. Those changes keep their existing
 #     coverage from the push to main.
 #   * A package outside the job's own list selects nothing, so the lane would
 #     start, check out submodules, and test zero packages. Asking the selector
@@ -909,8 +922,10 @@ CLI_LANE_INPUT_PREFIXES = (
 # ---------------------------------------------------------------------------
 
 SWIFT_PACKAGE_ROOT_PREFIX = "Packages/"
-# The job's package list, as a shell array inside its "Select package tests"
-# step. Reading it here keeps one list rather than a copy that can drift.
+# The job's package list, as a shell array in the lane script the job runs
+# (on a runner or as a fleet step). Reading it here keeps one list rather than
+# a copy that can drift.
+SWIFT_PACKAGE_LANE_SCRIPT_PATH = "scripts/ci/package-test-lane.sh"
 _SWIFT_PACKAGE_JOB_LIST_RE = re.compile(
     r"(?m)^[ \t]*PACKAGES=\(\n(?P<body>(?:[ \t]*[A-Za-z0-9_]+\n)+)[ \t]*\)\n"
 )
@@ -938,14 +953,14 @@ def swift_package_test_packages() -> Optional[tuple[str, ...]]:
     """The packages ci-macos.yml's swift-package-tests job runs, in job order."""
     root = Path(__file__).resolve().parents[2]
     try:
-        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+        script = (root / SWIFT_PACKAGE_LANE_SCRIPT_PATH).read_text(encoding="utf-8")
     except OSError as error:
-        print(f"Could not read {MACOS_WORKFLOW_PATH}: {error}", file=sys.stderr)
+        print(f"Could not read {SWIFT_PACKAGE_LANE_SCRIPT_PATH}: {error}", file=sys.stderr)
         return None
-    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(workflow)
+    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(script)
     if len(matches) != 1:
         print(
-            f"Expected one PACKAGES=( ... ) list in {MACOS_WORKFLOW_PATH}, "
+            f"Expected one PACKAGES=( ... ) list in {SWIFT_PACKAGE_LANE_SCRIPT_PATH}, "
             f"found {len(matches)}",
             file=sys.stderr,
         )
@@ -1638,6 +1653,7 @@ def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
 # this an exact list: test_linux_guard_only_scripts_reach_no_other_runner
 # fails if anything else starts naming one.
 LINUX_GUARD_ONLY_SCRIPTS = frozenset({
+    "scripts/check-cli-contract-verbs.py",
     "scripts/check-package-resolved-policy.py",
     "scripts/check-sidebar-lazy-layout.py",
     "scripts/lint-stored-dispatch-work-items.py",

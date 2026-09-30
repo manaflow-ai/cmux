@@ -114,6 +114,17 @@ export class MailConflictError extends Error {
   }
 }
 
+export class MailUnknownParentError extends Error {
+  readonly code = "MAIL_UNKNOWN_PARENT" as const;
+  readonly parentMessageId: MailId;
+
+  constructor(parentMessageId: MailId) {
+    super(`mail parent ${parentMessageId} is not in this broker, so a reply to it cannot be threaded`);
+    this.name = "MailUnknownParentError";
+    this.parentMessageId = parentMessageId;
+  }
+}
+
 export class MailFanoutError extends Error {
   readonly code = "MAIL_FANOUT_LIMIT" as const;
   readonly recipientCount: number;
@@ -153,7 +164,25 @@ export class InMemoryMailBroker {
   /** Append once. Re-appending an identical id is a safe, idempotent no-op. */
   append(input: MailInput | MailEnvelope): MailAppendResult {
     const replyParent = input.inReplyTo ? this.messagesById.get(input.inReplyTo) : undefined;
-    const envelope = normalizeEnvelope(input, (input as MailInput).threadId ?? replyParent?.threadId);
+    const declaredThreadId = (input as MailInput).threadId;
+    // Without the parent or an explicit thread, there is nothing to attach the
+    // reply to, and normalizeEnvelope would root a new thread at the reply's
+    // own id while still stamping it kind "reply". Refuse instead, matching
+    // reply(). A caller replicating a reply from another broker names its
+    // threadId and still gets through.
+    //
+    // A thread naming the reply's own id is that same orphan, not a federated
+    // one: a thread is rooted at a message that is not itself a reply, so no
+    // legitimate reply is its own thread root. This is the shape createMail
+    // produces, since it normalizes with no broker to look the parent up in and
+    // falls back to the id. Treat a blank threadId as absent for the same
+    // reason, so it cannot be used to slip past the check above.
+    const declaredThread = declaredThreadId?.trim() ? declaredThreadId : undefined;
+    const threadRootedAtSelf = declaredThread !== undefined && declaredThread === input.id;
+    if (input.inReplyTo && !replyParent && (declaredThread === undefined || threadRootedAtSelf)) {
+      throw unknownParentError(input.inReplyTo);
+    }
+    const envelope = normalizeEnvelope(input, declaredThread ?? replyParent?.threadId);
     if (envelope.recipients.length > this.maxRecipients) throw new MailFanoutError(envelope.recipients.length, this.maxRecipients);
     const envelopeFingerprint = fingerprint(envelope);
     const existing = this.messagesById.get(envelope.id);
@@ -211,7 +240,7 @@ export class InMemoryMailBroker {
     const parentMessageId = typeof parentOrInput === "string" ? parentOrInput : parentOrInput.inReplyTo;
     const input = typeof parentOrInput === "string" ? maybeInput! : parentOrInput;
     const parent = this.messagesById.get(parentMessageId);
-    if (!parent) throw new Error(`cannot reply to unknown mail message ${parentMessageId}`);
+    if (!parent) throw unknownParentError(parentMessageId);
     return this.append({
       ...input,
       threadId: parent.threadId,
@@ -343,7 +372,10 @@ function normalizeEnvelope(input: MailInput | MailEnvelope, fallbackThreadId?: T
   const recipients = [...new Set(input.recipients.map((recipient) => recipient.trim()).filter(Boolean))];
   if (!recipients.length) throw new Error("mail recipients are required");
   const id = input.id ?? newMailId();
-  const threadId = input.threadId ?? fallbackThreadId ?? id;
+  // A blank threadId is not a thread. Fall back rather than store it, so it
+  // cannot name an empty thread that listThread and the append guard disagree
+  // about.
+  const threadId = input.threadId?.trim() ? input.threadId : (fallbackThreadId ?? id);
   const references = [...new Set([...(input.references ?? []), ...(input.inReplyTo ? [input.inReplyTo] : [])])];
   const envelope: MailEnvelope = {
     id,
@@ -367,8 +399,22 @@ function freezeEnvelope(envelope: MailEnvelope): MailEnvelope {
   return deepFreeze(envelope);
 }
 
+/**
+ * Deliberately not worded as "unknown mail message <id>": `updateDelivery`
+ * already throws that for an unknown message id, and a caller matching on the
+ * text would not be able to tell the two apart. Callers should match the
+ * exported class, not the message.
+ */
+function unknownParentError(parentMessageId: MailId): MailUnknownParentError {
+  return new MailUnknownParentError(parentMessageId);
+}
+
 function fingerprint(envelope: MailEnvelope): string {
-  return JSON.stringify(canonicalize(envelope));
+  // Recipients are a set, so a retry listing them in another order is the same
+  // message and must stay idempotent. Sort for the comparison only; the stored
+  // envelope keeps the order the first append supplied. `references` is left
+  // alone because its order is the ancestry chain.
+  return JSON.stringify(canonicalize({ ...envelope, recipients: [...envelope.recipients].sort() }));
 }
 
 function canonicalize(value: unknown, ancestors = new Set<object>()): JsonValue {

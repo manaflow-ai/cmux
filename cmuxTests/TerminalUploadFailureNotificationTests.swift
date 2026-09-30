@@ -316,8 +316,8 @@ struct UploadResultDeliveryOriginTests {
     @Test func textIsNotTypedIntoASurfaceTheViewWasReattachedTo() {
         let origin = TerminalPanel(workspaceId: UUID())
         let reattached = TerminalPanel(workspaceId: UUID())
-        origin.surface.releaseSurfaceForTesting()
-        reattached.surface.releaseSurfaceForTesting()
+        origin.surface.releaseHostedSurfaceForTesting()
+        reattached.surface.releaseHostedSurfaceForTesting()
         let view = origin.surface.hostedView.surfaceView
         view.terminalSurface = reattached.surface
 
@@ -335,7 +335,7 @@ struct UploadResultDeliveryOriginTests {
 
     @Test func textIsTypedIntoTheOriginSurfaceWhileItIsStillMounted() {
         let origin = TerminalPanel(workspaceId: UUID())
-        origin.surface.releaseSurfaceForTesting()
+        origin.surface.releaseHostedSurfaceForTesting()
         let view = origin.surface.hostedView.surfaceView
         #expect(view.terminalSurface === origin.surface)
 

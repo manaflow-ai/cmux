@@ -18,6 +18,8 @@ import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
+  ProviderMachineRecreateRequiredError,
+  ProviderNetworkFullError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -29,6 +31,8 @@ import {
   type ExecResult,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelAttachment,
+  ProviderTunnelNetworkOverlapError,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SnapshotRef,
@@ -48,6 +52,7 @@ import {
   devboxDesktopOpenUrl,
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import {
   CMUX_TUI_PORT,
@@ -110,9 +115,11 @@ import {
 // supervisor in services/vms/images/devbox/cmux-devbox-boot) and bump
 // images/manifest.json. If it needs per-machine identity, derive it in the
 // guest at boot from the platform instance id, or fetch it asynchronously
-// from the guest (cmux-prompt-sync) without gating terminal access. Old
-// images without `cmuxTuiContract: "snapshot-v2"` are refused on purpose;
-// do not reintroduce create- or attach-time healing to support them.
+// from the guest (cmux-prompt-sync) without gating terminal access. Rows
+// without `cmuxTuiContract: "snapshot-v2"` are refused; do not reintroduce
+// create- or attach-time healing to support them. Running machines are
+// brought onto the contract out of band instead (an in-place cmux-tui upgrade
+// plus a guarded backfill): docs/cloud-guest-upgrades.md.
 // Explicit user operations (`exec`, `resize`, file push/pull) are separate
 // and stay. The one sanctioned guest exec around create is the prompt-name
 // push in workflows.ts (schedulePromptIdentityPush): display-only, run after
@@ -154,8 +161,8 @@ export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
 const GUEST_LINUX_USER = "root";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
-const CREATE_TIMEOUT_MS = 15 * 60 * 1000;
-const SNAPSHOT_TIMEOUT_MS = 15 * 60 * 1000;
+const CREATE_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
+const SNAPSHOT_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
 /** Page size and ceiling for `listSnapshots`; a machine rarely has more than a handful. */
 const SNAPSHOT_LIST_PAGE = 100;
 const SNAPSHOT_LIST_MAX = 1_000;
@@ -238,10 +245,10 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
  *   machine is reachable at all. Session auth is the daemon's Noise device
  *   enrollment, the same posture the e2b driver builds by hand with iptables.
  */
-export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean }) {
+export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean; memberIngressNetworkId?: string }) {
   const rules: Array<{
     action: "allow";
-    source: { public?: true };
+    source: { public?: true; vpcId?: string };
     destination: { public?: true; port?: number; protocol?: "tcp" };
   }> = [{ action: "allow", source: {}, destination: { public: true } }];
   if (options?.publicDaemonIngress) {
@@ -250,6 +257,9 @@ export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean
       source: { public: true },
       destination: { port: CMUX_TUI_PORT, protocol: "tcp" },
     });
+  }
+  if (options?.memberIngressNetworkId) {
+    rules.push({ action: "allow", source: { vpcId: options.memberIngressNetworkId }, destination: {} });
   }
   return rules;
 }
@@ -440,6 +450,11 @@ export function mapFreestyleTunnel(data: TunnelData, networkId: string): Provide
     routes: data.routes ?? [],
     addressV4: attachment?.ipv4 ?? null,
     addressV6: attachment?.ipv6 ?? null,
+    attachments: data.attachments.map((entry) => ({
+      networkId: entry.vpcId,
+      addressV4: entry.ipv4 ?? null,
+      addressV6: entry.ipv6 ?? null,
+    })),
   };
 }
 
@@ -535,10 +550,28 @@ const TUNNEL_CREATE_TIMEOUT_MS = 10_000;
 export function tunnelCreateMayHaveSucceeded(err: unknown): boolean {
   // Our own configuration failures (no credentials) never reached the provider.
   if (err instanceof ProviderError) return false;
+  // A full network is a definite refusal that shares the slug conflict's code.
+  if (isFreestyleNetworkFull(err)) return false;
   if (err instanceof FreestyleApiError) {
     return (err.status === 409 && err.code === "CONFLICT") || err.status >= 500;
   }
   return true;
+}
+
+/**
+ * Freestyle's 409 when every address in a VPC is assigned. It shares the
+ * generic CONFLICT code with slug conflicts and network overlap, so only the
+ * message tells them apart.
+ */
+export function isFreestyleNetworkFull(err: unknown): boolean {
+  return err instanceof FreestyleApiError && err.status === 409 && /no free addresses/i.test(err.message);
+}
+
+/** Wraps a provider failure, keeping a full network distinguishable from an outage. */
+function freestyleOperationError(operation: string, err: unknown): ProviderError {
+  return isFreestyleNetworkFull(err)
+    ? new ProviderNetworkFullError("freestyle", `${operation}: private network has no free addresses`, err)
+    : new ProviderError("freestyle", operation, err);
 }
 
 function tunnelRecoveryReason(err: unknown): string {
@@ -571,7 +604,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
    * it is off the request path because a rule deleted out of band is an
    * operator event, not something every create should pay to re-check.
    */
-  async ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork> {
+  async ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork> {
     const slug = options.slug.trim();
     if (!slug) throw new ProviderError("freestyle", "ensureNetwork requires a slug");
     return withVmSpan(
@@ -583,7 +616,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         if (options.heal) {
           const existing = await this.readNetworkBySlug(fs, slug);
           if (!existing) throw new ProviderError("freestyle", `ensureNetwork(${slug}): no network to heal`);
-          await this.ensureMembersRule(fs, existing.id);
+          if (options.membersRule !== false) await this.ensureMembersRule(fs, existing.id);
           setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
           return existing;
         }
@@ -594,7 +627,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           const { data } = await fs.vpc.create({
             slug,
             displayName: options.displayName,
-            firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES },
+            firewall: { rules: options.membersRule === false ? [] : FREESTYLE_NETWORK_FIREWALL_RULES },
           });
           setSpanAttributes(span, { "cmux.vm.network.id": data.id, "cmux.vm.network.created": true });
           return mapFreestyleNetwork(data);
@@ -606,7 +639,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           }
           const existing = await this.readNetworkBySlug(fs, slug);
           if (existing) {
-            await this.ensureMembersRule(fs, existing.id);
+            if (options.membersRule !== false) await this.ensureMembersRule(fs, existing.id);
             setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
             return existing;
           }
@@ -616,12 +649,12 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     );
   }
 
-  async getNetwork(networkId: string): Promise<ProviderNetwork | null> {
+  async getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null> {
     try {
-      return mapFreestyleNetwork(await this.client().vpc.get(networkId));
+      return mapFreestyleNetwork(await this.client().vpc.get(networkIdOrSlug));
     } catch (err) {
       if (isNotFound(err)) return null;
-      throw new ProviderError("freestyle", `getNetwork(${networkId})`, err);
+      throw new ProviderError("freestyle", `getNetwork(${networkIdOrSlug})`, err);
     }
   }
 
@@ -665,7 +698,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           return { tunnel, created: true, rotated: false };
         } catch (err) {
           if (!tunnelCreateMayHaveSucceeded(err)) {
-            throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
+            throw freestyleOperationError(`createTunnel(${options.slug})`, err);
           }
           span.setAttribute("cmux.vm.tunnel.recovery_reason", tunnelRecoveryReason(err));
           // A duplicate create may reuse only the exact same client identity.
@@ -733,7 +766,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
       return mapFreestyleTunnel(data, networkId);
     } catch (err) {
       if (isNotFound(err)) return null;
-      throw new ProviderError("freestyle", `getTunnel(${tunnelId})`, err);
+      throw freestyleOperationError(`getTunnel(${tunnelId})`, err);
     }
   }
 
@@ -754,6 +787,40 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     } catch (err) {
       if (isNotFound(err)) return; // already gone; delete is idempotent
       throw new ProviderError("freestyle", `deleteTunnel(${tunnelId})`, err);
+    }
+  }
+
+  async attachTunnelNetwork(tunnelId: string, networkId: string): Promise<ProviderTunnelAttachment> {
+    try {
+      const data = await this.client().tunnels.attachVpc(tunnelId, networkId);
+      const attachment = data.attachments.find((entry) => entry.vpcId === networkId);
+      if (!attachment) throw new Error("missing attachment");
+      return { networkId, addressV4: attachment.ipv4 ?? null, addressV6: attachment.ipv6 ?? null };
+    } catch (err) {
+      if (isFreestyleNetworkFull(err)) throw freestyleOperationError(`attachTunnelNetwork(${tunnelId})`, err);
+      // Freestyle uses generic CONFLICT for 409s; apart from a full network, overlap is the only reachable 409 without remoteCidrs or pinned addresses.
+      if (err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT") {
+        throw new ProviderTunnelNetworkOverlapError(`Freestyle refused overlapping tunnel network ${networkId}`);
+      }
+      throw new ProviderError("freestyle", `attachTunnelNetwork(${tunnelId})`, err);
+    }
+  }
+
+  async detachTunnelNetwork(tunnelId: string, networkId: string): Promise<void> {
+    try {
+      await this.client().tunnels.detachVpc(tunnelId, networkId);
+    } catch (err) {
+      if (isNotFound(err)) return;
+      throw new ProviderError("freestyle", `detachTunnelNetwork(${tunnelId})`, err);
+    }
+  }
+
+  async listNetworkTunnelIds(networkId: string): Promise<string[]> {
+    try {
+      const { tunnels } = await this.client().vpc.ref(networkId).tunnels.list();
+      return tunnels.map((tunnel) => tunnel.tunnelId ?? tunnel.id);
+    } catch (err) {
+      throw new ProviderError("freestyle", `listNetworkTunnelIds(${networkId})`, err);
     }
   }
 
@@ -900,7 +967,7 @@ export class FreestyleProvider implements VMProvider {
               maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
             } : {}),
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
           });
@@ -968,7 +1035,8 @@ export class FreestyleProvider implements VMProvider {
             },
           };
         } catch (err) {
-          throw err instanceof ProviderError ? err : new ProviderError("freestyle", `create(${image}) failed`, err);
+          if (err instanceof ProviderError) throw err;
+          throw freestyleOperationError(`create(${image}) failed`, err);
         }
       },
     );
@@ -1271,7 +1339,7 @@ export class FreestyleProvider implements VMProvider {
             displayName: "cmux Cloud VM",
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
           });
@@ -1303,7 +1371,8 @@ export class FreestyleProvider implements VMProvider {
             },
           };
         } catch (err) {
-          throw err instanceof ProviderError ? err : new ProviderError("freestyle", `restore(${snapshotId})`, err);
+          if (err instanceof ProviderError) throw err;
+          throw freestyleOperationError(`restore(${snapshotId})`, err);
         }
       },
     );
@@ -1318,11 +1387,12 @@ export class FreestyleProvider implements VMProvider {
         try {
           // Attach never runs guest work (NO-WORK INVARIANT at the top of this
           // file) and reads no provider state: a snapshot-v2 row records its
-          // private addresses at create. Cloud has no older rows to support,
-          // so a row without the contract or its addresses is refused.
+          // private addresses at create. A row without the contract or its
+          // addresses is refused; older running machines get the contract by
+          // the upgrade and backfill in docs/cloud-guest-upgrades.md.
           const routeAddresses = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
           if (options?.providerMetadata?.cmuxTuiContract !== "snapshot-v2" || !routeAddresses) {
-            throw new ProviderError(
+            throw new ProviderMachineRecreateRequiredError(
               "freestyle",
               `VM ${vmId} predates the snapshot-v2 machine contract (no recorded contract or private address); recreate the machine`,
             );

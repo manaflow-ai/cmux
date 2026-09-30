@@ -30,6 +30,8 @@ def condition(expression, *, full_suite, publish="true", cli="false", compile_ad
             return repr(cli)
         if name.endswith(".outputs.publish"):
             return repr(publish)
+        if name.endswith(".outputs.unit_tested"):
+            return repr("")
         if name == "inputs.unit_in_admission":
             # Admission running the changed suites itself only drops the
             # separate worker; it never changes what gets published.

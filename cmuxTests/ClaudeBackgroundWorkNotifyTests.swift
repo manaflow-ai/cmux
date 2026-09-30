@@ -18,8 +18,10 @@ struct ClaudeBackgroundWorkNotifyTests {
         {"session_id":"continued-session","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}
         """)
         #expect(result.cachedPending == false)
-        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=1") != nil)
-        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: true) != nil)
+        // `stop_hook_active` describes hook recursion, not live background work. It
+        // must not mark the completion as pending or poison the later idle signal.
+        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=0") != nil)
+        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: false) != nil)
     }
 
     private func statusLine(_ snapshot: [String], value: String) -> String? {
@@ -36,6 +38,13 @@ struct ClaudeBackgroundWorkNotifyTests {
                 && capture.agentKey == "claude_code"
                 && (pendingWork == nil || capture.pendingWork == pendingWork)
         }
+    }
+
+    /// The pane state a hook sequence LEFT behind: `set_status` is
+    /// last-write-wins, so only the final one of a run describes what the
+    /// sidebar ends up showing.
+    private func lastLine(_ snapshot: [String], prefix: String) -> String? {
+        snapshot.last { $0.hasPrefix(prefix) }
     }
 
     private func runStopHook(
@@ -303,5 +312,171 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "Idle reminders must not invent a blocking Needs input state; saw \(snapshot)")
         #expect(journalEvent(snapshot, kind: "agent.idle.observed") != nil,
                 "Idle idle_prompt must journal a settled-idle observation; saw \(snapshot)")
+    }
+
+    @Test func idlePromptAfterStopHookContinuationTagsNotPending() throws {
+        let session = "idle-after-continuation"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "idle-continuation")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-idle-continuation",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-idle-continuation",
+            storeURL: storeURL
+        )
+        let stopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}"#,
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(stopResult)
+
+        let notificationResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#,
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(notificationResult)
+        #expect(notifyLine(context.state.snapshot(), containing: "c=idle-reminder;p=0") != nil,
+                "stop_hook_active must not cache pending work for idle_prompt; saw \(context.state.snapshot())")
+    }
+
+    @Test func agentCompletedNotificationLeavesPaneRunning() throws {
+        // `agent_completed` is Claude Code's user-facing form of SubagentStop: a
+        // Task subagent finished while the parent agent keeps working on its
+        // turn. It is progress, not an attention state, so it must not flip the
+        // pane to "Needs input" (which makes the workspace infer
+        // needs-attention) and must not fire a turn-complete ping.
+        // https://github.com/manaflow-ai/cmux/issues/10233
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-subagent")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-subagent",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-subagent",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        // Seed the working pane the parent agent is mid-turn in, so the
+        // assertions below distinguish "left the pane Running" from "published
+        // some other state" or "published nothing at all".
+        let promptResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"notif-subagent-session","cwd":"/tmp/x","hook_event_name":"UserPromptSubmit","prompt":"review this"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(promptResult)
+        let result = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"notif-subagent-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Agent code-reviewer completed","notification_type":"agent_completed"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(result)
+        let snapshot = context.state.snapshot()
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "A finished subagent must not set the Needs input pill; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.turn.completed") == nil,
+                "A finished subagent must not journal a turn completion (it settles the parent to idle mid-turn); saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.question.requested") == nil,
+                "A finished subagent must not journal a needs-input question; saw \(snapshot)")
+        #expect(notifyLine(snapshot, containing: "Agent code-reviewer completed") == nil,
+                "A finished subagent must not fire a turn-complete ping; saw \(snapshot)")
+        let lastStatus = try #require(
+            lastLine(snapshot, prefix: "set_status claude_code "),
+            "Expected the seeded Running pill in \(snapshot)"
+        )
+        #expect(lastStatus.hasPrefix("set_status claude_code Running "),
+                "The pane must be left Running after a subagent finishes; saw \(lastStatus)")
+    }
+
+    @Test func agentCompletedNotificationDoesNotSwallowTheParentStop() throws {
+        // The subagent that finishes LAST still hands the turn back to the
+        // parent, whose own Stop owns the real turn-complete transition. The
+        // suppressed `agent_completed` must leave that signal intact.
+        // https://github.com/manaflow-ai/cmux/issues/10233
+        let session = "subagent-then-stop"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-subagent-stop")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-subagent-stop",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-subagent-stop",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        let notifResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Agent code-reviewer completed","notification_type":"agent_completed"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(notifResult)
+        let stopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(stopResult)
+        let snapshot = context.state.snapshot()
+        // Exactly one turn-complete ping, and it carries the parent's own last
+        // assistant message: asserting mere presence would be satisfied by the
+        // subagent's ping, which is the thing this fix removes.
+        // Count delivered effects only: the fixture already appends each
+        // admitted notification to the snapshot, so adding candidate
+        // presentations would count the same ping twice.
+        let notifyLines = snapshot.filter { $0.hasPrefix("notify_target_async ") && $0.contains("c=turn-complete") }
+        #expect(notifyLines.count == 1,
+                "Only the parent Stop may ping for this turn; saw \(notifyLines)")
+        #expect(notifyLines.first?.contains("|ok|c=turn-complete;p=0") == true,
+                "The surviving ping must be the parent Stop's turn-complete; saw \(notifyLines)")
+        let completions = AgentJournalAppendCapture.captures(in: snapshot).filter {
+            $0.kind == "agent.turn.completed" && $0.agentKey == "claude_code"
+        }
+        #expect(!completions.isEmpty && completions.allSatisfy { ($0.draft["native_event"] as? String) == "Stop" },
+                "Only the parent Stop may journal the turn completion; saw \(snapshot)")
+        #expect(completions.allSatisfy { !$0.pendingWork })
+        let lastStatus = try #require(
+            lastLine(snapshot, prefix: "set_status claude_code "),
+            "Expected the parent Stop's pill in \(snapshot)"
+        )
+        #expect(lastStatus.hasPrefix("set_status claude_code Idle "),
+                "The parent Stop must leave the Idle pill; saw \(lastStatus)")
     }
 }

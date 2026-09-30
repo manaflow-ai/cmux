@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 spec = importlib.util.spec_from_file_location("verify_local", ROOT / "scripts/verify-local.py")

@@ -19,7 +19,7 @@ final class CloudRestoreReplayFixture {
     let socket: CloudManualMirrorSocketFixture
     private let session: CloudTuiManualMirrorSession
 
-    init(initiallyClaimsGeometry: Bool = true) throws {
+    init(initiallyClaimsGeometry: Bool = true, bindSurface: Bool = true) throws {
         _ = NSApplication.shared
         socket = try CloudManualMirrorSocketFixture()
         session = CloudTuiManualMirrorSession(
@@ -44,7 +44,7 @@ final class CloudRestoreReplayFixture {
         content.layoutSubtreeIfNeeded()
         hosted.setVisibleInUI(false)
         hosted.setActive(false)
-        session.bind(surface: surface)
+        if bindSurface { session.bind(surface: surface) }
     }
 
     func setGrid(columns: Int, rows: Int) async throws {
@@ -61,8 +61,32 @@ final class CloudRestoreReplayFixture {
         }
     }
 
-    func attach(replay: Data) async throws {
+    func attach(replay: Data, columns: Int = 80, rows: Int = 24) async throws {
         session.reconnect(socketPath: socket.socketPath)
+        let attach = try await answerHandshake()
+        #expect(!attach.hasInitialSize, "Hidden restores must not claim their temporary grid")
+        socket.send(["id": attach.id, "ok": true, "data": [:]])
+        try await deliver(replay, event: "vt-state", marker: "STATUS_READY", columns: columns, rows: rows)
+        try await waitUntil { self.session.phase == .attached }
+    }
+
+    func attachBeforeSurfaceBinding(replay: Data, columns: Int = 80, rows: Int = 24) async throws {
+        session.reconnect(socketPath: socket.socketPath)
+        let attach = try await answerHandshake()
+        socket.send(["id": attach.id, "ok": true, "data": [:]])
+        try await deliver(replay, event: "vt-state", marker: "prompt", columns: columns, rows: rows, waitForSurface: false)
+        try await waitUntil { self.session.lastRemoteGrid != nil }
+    }
+
+    func bindSurface() { session.bind(surface: surface) }
+
+    func waitForText(_ text: String) async throws {
+        try await waitUntil { self.surface.readText(region: .screen)?.contains(text) == true }
+    }
+
+    /// Answers identify and client registration on the session's newest
+    /// connection and returns its unanswered attach-surface request.
+    func answerHandshake() async throws -> CloudManualMirrorFixtureCommand {
         let identify = try #require(await socket.nextCommand(timeout: .seconds(5)))
         #expect(identify.cmd == "identify")
         socket.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-initial-size"]]])
@@ -71,10 +95,14 @@ final class CloudRestoreReplayFixture {
         socket.send(["id": registration.id, "ok": true, "data": [:]])
         let attach = try #require(await socket.nextCommand(timeout: .seconds(5)))
         #expect(attach.cmd == "attach-surface")
-        #expect(!attach.hasInitialSize, "Hidden restores must not claim their temporary grid")
-        socket.send(["id": attach.id, "ok": true, "data": [:]])
-        try await deliver(replay, event: "vt-state", marker: "STATUS_READY")
-        try await waitUntil { self.session.phase == .attached }
+        return attach
+    }
+
+    /// Visible rows of the local terminal, trailing blanks trimmed.
+    func screenRows() -> [String] {
+        (surface.readText(region: .screen) ?? "")
+            .components(separatedBy: "\n")
+            .map { String($0.reversed().drop(while: { $0 == " " }).reversed()) }
     }
 
     func setVisible(_ visible: Bool) {
@@ -82,6 +110,12 @@ final class CloudRestoreReplayFixture {
     }
 
     func focus() { session.claimGeometry() }
+
+    /// One explicit keystroke, through the hook and router a real key uses.
+    func type(_ text: String) {
+        session.noteExplicitInput()
+        session.inputRouter.send(.bytes(Data(text.utf8)))
+    }
 
     func seedLocalOutput(_ bytes: Data, marker: String) async throws {
         surface.processRemoteOutput(bytes)
@@ -100,14 +134,18 @@ final class CloudRestoreReplayFixture {
         #expect(input.inputBytes == bytes)
     }
 
-    func deliver(_ bytes: Data, event: String, marker: String, colors: [String: Any]? = nil) async throws {
+    func deliver(
+        _ bytes: Data, event: String, marker: String, colors: [String: Any]? = nil,
+        columns: Int = 80, rows: Int = 24, waitForSurface: Bool = true, pending: Data? = nil
+    ) async throws {
         var payload: [String: Any] = [
-            "event": event, "surface": 17, "cols": 80, "rows": 24,
+            "event": event, "surface": 17, "cols": columns, "rows": rows,
             "data": bytes.base64EncodedString()
         ]
         if let colors { payload["colors"] = colors }
+        if let pending { payload["pending"] = pending.base64EncodedString() }
         socket.send(payload)
-        try await waitUntil { self.surface.readText(region: .screen)?.contains(marker) == true }
+        if waitForSurface { try await waitUntil { self.surface.readText(region: .screen)?.contains(marker) == true } }
     }
 
     func close() {
@@ -116,6 +154,18 @@ final class CloudRestoreReplayFixture {
         surface.teardownSurface()
         window.orderOut(nil)
         workspace.tearDown()
+    }
+
+    /// Waits until Ghostty's terminal holds `columns` × `rows`, then returns
+    /// the screen text.
+    func waitForTerminalGrid(columns: Int, rows: Int) async throws -> String {
+        try await waitUntil {
+            let frame = self.surface.mobileRenderGridFrame(
+                stateSeq: 0, scrollbackLines: 0, includeTheme: false
+            )?.frame
+            return frame?.columns == columns && frame?.rows == rows
+        }
+        return try #require(surface.readText(region: .screen))
     }
 
     private func waitUntil(_ condition: @MainActor () -> Bool) async throws {

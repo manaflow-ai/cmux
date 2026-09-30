@@ -12,16 +12,15 @@ import XCTest
 ///
 /// What *is* observable through XCUITest, deterministically and without
 /// adding any app seam, is the Settings window's own reaction to a
-/// changed setting: several App rows recompute their subtitle text from
-/// the stored value, and the "Menu Bar Only" row disables the "Show in
-/// Menu Bar" row. Those rows expose stable accessibility identifiers
+/// changed setting: several App toggles report the stored value while
+/// their row keeps one fixed subtitle, and the "Menu Bar Only" row
+/// disables the "Show in Menu Bar" row. Those rows expose stable accessibility identifiers
 /// (`SettingsMinimalModeToggle`,
 /// `SettingsWorkspaceInheritWorkingDirectoryToggle`,
 /// `SettingsMenuBarOnlyToggle`, `CommandPaletteSearchAllSurfacesToggle`).
-/// Each test below flips one of those, then asserts the *effect* — the
-/// new subtitle string appears / the old one disappears, or the gated
-/// control's enabled state flips — not merely that the toggle changed
-/// value.
+/// Each test below flips one of those, then asserts the toggle value
+/// tracks the stored setting and the fixed subtitle stays, or that the
+/// gated control's enabled state flips.
 ///
 /// Subtitle strings are matched against the English `defaultValue`s in
 /// `AppSection.swift`; the harness forces `-AppleLanguages (en)` so the
@@ -105,10 +104,11 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             navigate(window, to: "Mobile")
             let pairingToggle = window.checkBoxes["SettingsMobileIOSPairingHostToggle"].firstMatch
             XCTAssertTrue(pairingToggle.waitForExistence(timeout: 5))
-            let detail = window.staticTexts["Allows iOS pairing and Iroh networking for this Mac."].firstMatch
-            if !detail.exists {
+            let detail = window.staticTexts["Lets iPhone and iPad pair with and connect to this Mac."].firstMatch
+            if !isOn(pairingToggle) {
                 pairingToggle.click()
             }
+            XCTAssertTrue(poll(timeout: 5) { self.isOn(pairingToggle) })
             let title = window.staticTexts["Enable iOS pairing"].firstMatch
             XCTAssertTrue(title.waitForExistence(timeout: 5))
             XCTAssertTrue(detail.waitForExistence(timeout: 5))
@@ -187,8 +187,11 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         search.click()
         search.typeText(languageLabel)
         XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
-        search.typeKey("a", modifierFlags: .command)
-        search.typeText("Language")
+        // Typing into the search field can replace its accessibility
+        // element, so select and retype through the app, which sends the
+        // keys to the field that still has focus.
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText("Language")
         XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
     }
 
@@ -219,14 +222,9 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     // MARK: - English subtitle strings (must match AppSection defaultValues)
 
     private enum Subtitle {
-        static let minimalOn = "Hide the workspace title bar and move workspace controls into the sidebar."
-        static let minimalOff = "Use the standard workspace title bar and controls."
-
-        static let inheritOn = "New workspaces start in the focused workspace's working directory."
-        static let inheritOff = "New workspaces use Ghostty's working-directory setting instead."
-
-        static let paletteOn = "Cmd+P also matches panel surfaces across workspaces."
-        static let paletteOff = "Cmd+P matches workspace rows only."
+        static let minimal = "Hides the workspace title bar and shows its controls in the sidebar."
+        static let inherit = "Starts new workspaces in the working directory of the current workspace."
+        static let palette = "Includes terminal, browser, and Markdown surfaces from every workspace in command palette results."
     }
 
     // MARK: - Helpers
@@ -248,41 +246,18 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     }
 
     func testMobilePushForwardingIsVisibleAndDefaultsToAlways() {
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += settingsLaunchArguments
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
-        // Headless CI leaves the app running in the background. Keep XCTest
-        // alive through that known launch failure, then restore fail-fast so
-        // every Settings assertion below remains a real regression failure.
-        continueAfterFailure = true
-        let launchOptions = XCTExpectedFailure.Options()
-        launchOptions.isStrict = false
-        XCTExpectFailure(
-            "Headless CI may launch the app without foreground activation",
-            options: launchOptions
-        ) {
-            app.launch()
-        }
-        continueAfterFailure = false
-        XCTAssertTrue(
-            poll(timeout: 10.0) {
-                app.state == .runningForeground || app.state == .runningBackground
-            },
-            "App failed to launch. state=\(app.state.rawValue)"
-        )
-        let window = app.windows["Settings"]
-        XCTAssertTrue(
-            poll(timeout: 8.0) { window.exists },
-            "Settings window did not open"
-        )
+        // Open Settings after launch activation, like the other tests: a
+        // window opened at launch ends up behind the main window, and its
+        // controls have no hit point.
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
         navigate(window, to: "Mobile")
 
         let forwarding = toggle(
             window,
             id: "SettingsMobilePhonePushForwardingToggle"
         )
-        XCTAssertEqual(forwarding.value as? String, "1")
+        XCTAssertTrue(isOn(forwarding), "Forward Notifications to Phone should start on")
 
         let mode = requireElement(
             candidates: [
@@ -297,99 +272,121 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         _ = toggle(window, id: "SettingsMobilePhonePushHideContentToggle")
     }
 
-    // MARK: - TIER 1: Minimal Mode subtitle swap
+    // MARK: - TIER 1: Minimal Mode toggle keeps its fixed subtitle
 
-    /// Toggling Minimal Mode flips the row subtitle between the
-    /// standard-title-bar and the hidden-title-bar wording. This proves
-    /// the stored `workspacePresentationMode` propagated through the
-    /// view-model and re-rendered the row, which is the observable effect
-    /// of the setting inside Settings.
-    func testMinimalModeToggleSwapsSubtitle() {
+    /// Toggling Minimal Mode flips the stored `workspacePresentationMode`,
+    /// which the toggle value reads back through the view-model. The row
+    /// shows the same subtitle in both states.
+    func testMinimalModeToggleKeepsFixedSubtitle() {
         let app = makeLaunchedApp()
         let window = openAppSection(app)
 
-        // Default .standard → "off" subtitle present, "on" absent.
         XCTAssertTrue(
-            poll(timeout: 4.0) { subtitleText(window, Subtitle.minimalOff).exists },
-            "Expected standard-mode subtitle at default"
+            poll(timeout: 4.0) { subtitleText(window, Subtitle.minimal).exists },
+            "Expected the Minimal Mode subtitle"
         )
-
         let minimal = toggle(window, id: "SettingsMinimalModeToggle")
-        minimal.click()
+        let initial = isOn(minimal)
 
-        XCTAssertTrue(
-            poll(timeout: 4.0) { subtitleText(window, Subtitle.minimalOn).exists },
-            "Enabling Minimal Mode should show the hidden-title-bar subtitle"
-        )
-        XCTAssertTrue(
-            poll(timeout: 4.0) { !subtitleText(window, Subtitle.minimalOff).exists },
-            "Standard-mode subtitle should disappear once Minimal Mode is on"
-        )
-
-        // Toggle back and assert the subtitle reverts — confirms the bind
-        // is two-way and the effect tracks the stored value, not a latch.
         minimal.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { subtitleText(window, Subtitle.minimalOff).exists },
-            "Disabling Minimal Mode should restore the standard-mode subtitle"
+            poll(timeout: 4.0) { self.isOn(minimal) != initial },
+            "Minimal Mode should flip after one click"
+        )
+        XCTAssertTrue(
+            subtitleText(window, Subtitle.minimal).exists,
+            "The same subtitle should be shown after Minimal Mode flips"
+        )
+
+        // Toggle back to confirm the bind is two-way and tracks the stored
+        // value, not a latch, and to leave the machine's setting as it was.
+        minimal.click()
+        XCTAssertTrue(
+            poll(timeout: 4.0) { self.isOn(minimal) == initial },
+            "Minimal Mode should return to its starting state after a second click"
+        )
+        XCTAssertTrue(
+            subtitleText(window, Subtitle.minimal).exists,
+            "The same subtitle should be shown after Minimal Mode flips back"
         )
 
         closeSettings(app, window)
     }
 
-    // MARK: - TIER 1: Inherit Working Directory subtitle swap
+    // MARK: - TIER 1: Inherit Working Directory toggle keeps its fixed subtitle
 
-    /// Toggling Inherit Working Directory flips the row subtitle between
-    /// the inherit-on and inherit-off wording. Default is `true`, so the
-    /// "on" subtitle is present first.
-    func testInheritWorkingDirectoryToggleSwapsSubtitle() {
+    /// Each click flips the toggle and the row keeps the same subtitle. The
+    /// test starts from whatever state the toggle is in: on the fleet
+    /// minis a value an earlier run left behind survives `resetDefaults`.
+    func testInheritWorkingDirectoryToggleKeepsFixedSubtitle() {
         let app = makeLaunchedApp()
         let window = openAppSection(app)
 
         XCTAssertTrue(
-            poll(timeout: 4.0) { subtitleText(window, Subtitle.inheritOn).exists },
-            "Expected inherit-on subtitle at default (true)"
+            poll(timeout: 4.0) { subtitleText(window, Subtitle.inherit).exists },
+            "Expected the inherit subtitle"
         )
-
         let inherit = toggle(window, id: "SettingsWorkspaceInheritWorkingDirectoryToggle")
-        inherit.click()
+        let initial = isOn(inherit)
 
+        inherit.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { subtitleText(window, Subtitle.inheritOff).exists },
-            "Disabling inherit should show the Ghostty working-directory subtitle"
+            poll(timeout: 4.0) { self.isOn(inherit) != initial },
+            "Inherit Working Directory should flip after one click"
         )
         XCTAssertTrue(
-            poll(timeout: 4.0) { !subtitleText(window, Subtitle.inheritOn).exists },
-            "Inherit-on subtitle should disappear once inherit is off"
+            subtitleText(window, Subtitle.inherit).exists,
+            "The same subtitle should be shown after Inherit Working Directory flips"
+        )
+
+        // Flip back: the bind is two-way, and the machine keeps its setting.
+        inherit.click()
+        XCTAssertTrue(
+            poll(timeout: 4.0) { self.isOn(inherit) == initial },
+            "Inherit Working Directory should return to its starting state after a second click"
+        )
+        XCTAssertTrue(
+            subtitleText(window, Subtitle.inherit).exists,
+            "The same subtitle should be shown after Inherit Working Directory flips back"
         )
 
         closeSettings(app, window)
     }
 
-    // MARK: - TIER 1: Command Palette Searches All Surfaces subtitle swap
+    // MARK: - TIER 1: Command Palette Searches All Surfaces keeps its fixed subtitle
 
-    /// Toggling "Command Palette Searches All Surfaces" flips the row
-    /// subtitle between the all-surfaces and workspace-rows-only wording.
-    /// Default is `false`, so the "off" subtitle is present first.
-    func testCommandPaletteAllSurfacesToggleSwapsSubtitle() {
+    /// Each click flips the toggle and the row keeps the same subtitle,
+    /// from whatever state it starts in (see the inherit test above).
+    func testCommandPaletteAllSurfacesToggleKeepsFixedSubtitle() {
         let app = makeLaunchedApp()
         let window = openAppSection(app)
 
         XCTAssertTrue(
-            poll(timeout: 4.0) { subtitleText(window, Subtitle.paletteOff).exists },
-            "Expected workspace-rows-only subtitle at default (false)"
+            poll(timeout: 4.0) { subtitleText(window, Subtitle.palette).exists },
+            "Expected the all-surfaces subtitle"
         )
-
         let palette = toggle(window, id: "CommandPaletteSearchAllSurfacesToggle")
-        palette.click()
+        let initial = isOn(palette)
 
+        palette.click()
         XCTAssertTrue(
-            poll(timeout: 4.0) { subtitleText(window, Subtitle.paletteOn).exists },
-            "Enabling all-surfaces should show the panel-surfaces subtitle"
+            poll(timeout: 4.0) { self.isOn(palette) != initial },
+            "All-surfaces search should flip after one click"
         )
         XCTAssertTrue(
-            poll(timeout: 4.0) { !subtitleText(window, Subtitle.paletteOff).exists },
-            "Workspace-rows-only subtitle should disappear once all-surfaces is on"
+            subtitleText(window, Subtitle.palette).exists,
+            "The same subtitle should be shown after All-surfaces search flips"
+        )
+
+        // Flip back: the bind is two-way, and the machine keeps its setting.
+        palette.click()
+        XCTAssertTrue(
+            poll(timeout: 4.0) { self.isOn(palette) == initial },
+            "All-surfaces search should return to its starting state after a second click"
+        )
+        XCTAssertTrue(
+            subtitleText(window, Subtitle.palette).exists,
+            "The same subtitle should be shown after All-surfaces search flips back"
         )
 
         closeSettings(app, window)

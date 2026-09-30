@@ -30,7 +30,7 @@ afterAll(async () => {
 describe("VM alert checks", () => {
   dbTest("detects create failures, stuck provisioning VMs, and expired unrevoked leases", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_alert_states, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     const now = new Date("2026-07-04T12:00:00.000Z");
     const [stuckVm] = await sql<{ id: string }[]>`
@@ -100,14 +100,31 @@ describe("VM alert checks", () => {
     `;
     await sql`
       insert into cloud_vm_leases (vm_id, user_id, kind, token_hash, expires_at)
-      select ${runningVm.id}, 'user-alerts', 'ssh', 'expired-alert-' || n, ${new Date(now.getTime() - 60 * 1000)}
+      select ${runningVm.id}, 'user-alerts', 'preview', 'expired-preview-alert-' || n, ${new Date(now.getTime() - 60 * 1000)}
       from generate_series(1, 51) as n
+    `;
+    await sql`
+      insert into cloud_vm_leases (
+        vm_id, user_id, kind, token_hash, provider_identity_handle, expires_at
+      )
+      select ${runningVm.id}, 'user-alerts', 'ssh', 'expired-identity-alert-' || n,
+        'provider-identity-alert-' || n, ${new Date(now.getTime() - 60 * 1000)}
+      from generate_series(1, 51) as n
+    `;
+    await sql`
+      insert into cloud_vm_leases (
+        vm_id, user_id, kind, token_hash, provider_identity_handle, expires_at
+      )
+      values (
+        ${runningVm.id}, 'user-alerts', 'ssh', 'expired-empty-identity-alert', '',
+        ${new Date(now.getTime() - 60 * 1000)}
+      )
     `;
 
     const alerts: AlertInput[] = [];
-    const summary = await runVmAlertChecks({
+    const run = (runNow = now) => runVmAlertChecks({
       db: cloudDb(),
-      now,
+      now: runNow,
       env: {
         CMUX_VM_ALERT_CREATE_FAILURES_15M: "3",
         CMUX_VM_ALERT_EXPIRED_LEASES: "50",
@@ -117,6 +134,7 @@ describe("VM alert checks", () => {
         return { sent: true, configured: true, status: 200 };
       },
     });
+    const summary = await run();
 
     expect(summary).toEqual({
       createFailures: { triggered: true, count: 3 },
@@ -134,5 +152,85 @@ describe("VM alert checks", () => {
     expect(alertText).not.toContain("must-not-leak");
     expect(alertText).not.toContain("providerToken");
     expect(alertText).not.toContain("secret");
+
+    await run();
+    expect(alerts).toHaveLength(3);
+    await run(new Date(now.getTime() + 24 * 60 * 60 * 1000 + 1));
+    expect(alerts).toHaveLength(5);
+  });
+
+  dbTest("retries a failed Slack delivery after the durable delivery lease expires", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_alert_states, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const now = new Date("2026-07-04T12:00:00.000Z");
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (
+        user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status
+      )
+      values ('user-alert-retry', 'team-alert-retry', 'free', 'freestyle',
+        'provider-alert-retry', 'snapshot-alert-retry', 'running')
+      returning id
+    `;
+    await sql`
+      insert into cloud_vm_leases (
+        vm_id, user_id, kind, token_hash, provider_identity_handle, expires_at
+      )
+      select ${vm.id}, 'user-alert-retry', 'ssh', 'retry-identity-' || n,
+        'retry-provider-identity-' || n, ${new Date(now.getTime() - 60 * 1000)}
+      from generate_series(1, 51) as n
+    `;
+
+    let attempts = 0;
+    const run = (runNow: Date) => runVmAlertChecks({
+      db: cloudDb(),
+      now: runNow,
+      env: { CMUX_VM_ALERT_EXPIRED_LEASES: "50" },
+      sendAlert: async (): Promise<AlertResult> => {
+        attempts += 1;
+        return attempts === 1
+          ? { sent: false, configured: true, status: 503 }
+          : { sent: true, configured: true, status: 200 };
+      },
+    });
+
+    await run(now);
+    await run(new Date(now.getTime() + 5 * 60 * 1000 + 1));
+    expect(attempts).toBe(2);
+  });
+
+  dbTest("does not page the create-failure spike for reconciliation housekeeping", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_alert_states, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const now = new Date("2026-07-04T12:00:00.000Z");
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (
+        user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status
+      )
+      values ('user-alert-housekeeping', 'team-alert-housekeeping', 'free', 'freestyle',
+        'provider-alert-housekeeping', 'snapshot-alert-housekeeping', 'running')
+      returning id
+    `;
+    await sql`
+      insert into cloud_vm_usage_events (
+        user_id, billing_team_id, billing_plan_id, vm_id, event_type, provider, image_id, metadata, created_at
+      )
+      select 'user-alert-housekeeping', 'team-alert-housekeeping', 'free', ${vm.id},
+        'vm.create.failed', 'freestyle', 'snapshot-alert-housekeeping',
+        case when n <= 3 then '{"operation":"create_abandoned"}'::jsonb else '{}'::jsonb end,
+        ${new Date(now.getTime() - 60 * 1000)}
+      from generate_series(1, 5) as n
+    `;
+    const alerts: AlertInput[] = [];
+    const summary = await runVmAlertChecks({
+      db: cloudDb(),
+      now,
+      env: { CMUX_VM_ALERT_CREATE_FAILURES_15M: "3" },
+      sendAlert: async (input): Promise<AlertResult> => {
+        alerts.push(input);
+        return { sent: true, configured: true, status: 200 };
+      },
+    });
+    expect(summary.createFailures).toEqual({ triggered: false, count: 2 });
+    expect(alerts).toEqual([]);
   });
 });

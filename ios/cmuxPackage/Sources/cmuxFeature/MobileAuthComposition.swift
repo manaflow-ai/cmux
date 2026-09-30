@@ -408,17 +408,36 @@ public struct MobileAuthComposition {
         #endif
     }
 
-    private static func tokenStore(
+    static func tokenStore(
         appNamespace: MobileIOSAppNamespace?,
         accessGroup: String?,
         legacyProjectID: String
     ) -> TokenStoreInit {
-        #if DEBUG && targetEnvironment(simulator)
-        .memory
-        #else
         guard let appNamespace else {
-            return .none
+            // A malformed or test bundle must not leave StackClientApp without
+            // a token store: any authenticated operation would fatalError in
+            // the SDK. Memory storage keeps the failure recoverable (and
+            // deliberately avoids attributing persisted credentials to an
+            // unknown bundle).
+            return .memory
         }
+        #if DEBUG && targetEnvironment(simulator)
+        // Unsigned simulator apps cannot rely on Keychain entitlements. Keep
+        // tokens in this simulator app's sandbox so a process restart exercises
+        // real session restoration. Bundle and Stack project remain isolated.
+        guard let support = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else { return .none }
+        let projectComponent = Data(legacyProjectID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return .custom(FileStackTokenStore(directory: support
+            .appendingPathComponent("cmux-simulator-auth", isDirectory: true)
+            .appendingPathComponent(appNamespace.bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("project-\(projectComponent)", isDirectory: true)))
+        #else
         return .custom(
             KeychainStackTokenStore(
                 service: appNamespace.keychainService(

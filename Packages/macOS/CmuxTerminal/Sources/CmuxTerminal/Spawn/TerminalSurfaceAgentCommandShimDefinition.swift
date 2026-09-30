@@ -2,6 +2,7 @@
 public enum TerminalSurfaceAgentCommand: String, CaseIterable, Hashable, Sendable {
     case claude
     case codex
+    case pi
     case amp
     case hermes
 }
@@ -25,6 +26,11 @@ struct TerminalSurfaceAgentCommandShimDefinition: Sendable {
             command: .codex,
             wrapperName: "cmux-codex-wrapper",
             environmentVariablePrefix: "CMUX_CODEX"
+        ),
+        Self(
+            command: .pi,
+            wrapperName: "cmux-pi-wrapper",
+            environmentVariablePrefix: "CMUX_PI"
         ),
         Self(
             command: .amp,

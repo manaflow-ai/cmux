@@ -39,6 +39,15 @@ BUILD_JOB = "build"
 # the same runner, so the product is adoptable once the step succeeds, however
 # long the tests take and whether or not they pass.
 PUBLISH_STEP = "Upload the compiled test product"
+# On an owned Mac the build job tests first and uploads after, under this name.
+PUBLISH_AFTER_TESTS_STEP = "Upload the compiled test product after the tests"
+# A build job that adopted a product skips the compile step, then packages the
+# product, and uploads nothing when it tests itself: the product is already
+# published by the run it adopted, so a waiter adopts it from there at once
+# instead of waiting for these tests. A compile skipped because an earlier
+# step failed is followed by no successful package.
+COMPILE_STEP = "Build the app-host and UI test product"
+PACKAGE_STEP = "Package the compiled test product"
 UNFINISHED = frozenset({"queued", "in_progress", "waiting", "requested", "pending"})
 # "<selectors> on <runner> @ <ref> [<dispatch id>]"; run-e2e.sh passes a full SHA.
 TITLE = re.compile(r" on (\S+) @ ([0-9a-f]{40})(?: \[[^\]]*\])?$")
@@ -76,13 +85,40 @@ def started(run: dict) -> tuple[str, int]:
     return str(run.get("run_started_at") or ""), int(run["id"])
 
 
-def earlier_sibling(runs: list[dict], this: dict, revision: str, runner: str) -> dict | None:
+def title_pool(run: dict) -> str:
+    """The pool a dispatch asked for, from its title."""
+    match = TITLE.search(str(run.get("display_title", "")))
+    return match.group(1) if match else ""
+
+
+def routed_pool(get: Callable[[str], dict], run: dict) -> str:
+    """The pool a run's build job was routed to, or the one its title asked for.
+
+    The runner job may route a dispatch to another pool than its title names:
+    with CI_PR_POOL_OWNED set, a `blacksmith-6vcpu-macos-26` dispatch builds on
+    an owned Mac. Matching titles against the routed label found no sibling for
+    any such run, so on 2026-09-25 runs 36175110586, 36175263632 and
+    36176202852 each compiled 2a40caa on an owned Mac within 11 minutes.
+    Once the build job exists its runs-on label is the routed pool; before
+    that the run is still choosing, and its title is the best guess.
+    """
+    jobs = get(f"actions/runs/{run['id']}/jobs?filter=latest&per_page=100").get("jobs", [])
+    build = next((job for job in jobs if job.get("name") == BUILD_JOB), None)
+    labels = build.get("labels") if isinstance(build, dict) else None
+    if isinstance(labels, list) and labels and isinstance(labels[0], str):
+        return labels[0]
+    return title_pool(run)
+
+
+def earlier_sibling(runs: list[dict], this: dict, revision: str, runner: str,
+                    pool: Callable[[dict], str] = title_pool) -> dict | None:
     """The unfinished dispatch compiling `revision` on the same macOS that started first, before `this`."""
     matches = []
     for run in runs:
         match = TITLE.search(str(run.get("display_title", "")))
-        if (match and match.group(2) == revision and same_macos(match.group(1), runner)
-                and run.get("status") in UNFINISHED and started(run) < started(this)):
+        if (match and match.group(2) == revision
+                and run.get("status") in UNFINISHED and started(run) < started(this)
+                and same_macos(pool(run), runner)):
             matches.append(run)
     return min(matches, key=started) if matches else None
 
@@ -92,10 +128,11 @@ def build_state(jobs: list[dict]) -> str:
     if job is None:
         return "running"
     steps = job.get("steps")
-    if isinstance(steps, list) and any(
-        isinstance(step, dict) and step.get("name") == PUBLISH_STEP and step.get("conclusion") == "success"
-        for step in steps
-    ):
+    if not isinstance(steps, list):
+        steps = []
+    conclusions = {step.get("name"): step.get("conclusion") for step in steps if isinstance(step, dict)}
+    if (any(conclusions.get(name) == "success" for name in (PUBLISH_STEP, PUBLISH_AFTER_TESTS_STEP))
+            or conclusions.get(COMPILE_STEP) == "skipped" and conclusions.get(PACKAGE_STEP) == "success"):
         return "success"
     if job.get("status") != "completed":
         return "running"
@@ -111,10 +148,11 @@ def wait(
     get: Callable[[str], dict] = gh_api,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    pool: Callable[[dict], str] | None = None,
 ) -> bool:
     runs = get(RUNNING).get("workflow_runs", [])
     this = next((run for run in runs if str(run.get("id")) == run_id), None) or get(f"actions/runs/{run_id}")
-    sibling = earlier_sibling(runs, this, revision, runner)
+    sibling = earlier_sibling(runs, this, revision, runner, pool or (lambda run: routed_pool(get, run)))
     if sibling is None:
         print("No earlier run is compiling this revision.")
         return False

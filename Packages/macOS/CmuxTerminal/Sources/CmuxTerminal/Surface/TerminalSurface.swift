@@ -20,6 +20,11 @@ internal import CMUXDebugLog
 /// stored properties are unannotated (the class itself is not `Sendable`, so
 /// they never cross an isolation boundary) which keeps the nonisolated
 /// `deinit` teardown path exactly as it was.
+struct TerminalSurfacePendingRemoteReplayCompletion: Sendable {
+    let applied: @MainActor @Sendable () -> Void
+    let discarded: @MainActor @Sendable () -> Void
+}
+
 public final class TerminalSurface: Identifiable, ObservableObject {
     static let committedTextInputChunkByteLimit = 96
 
@@ -192,9 +197,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// When true, a deferred restore was cancelled before its first runtime.
     /// Suppresses the payload while retaining its persistence/debug configuration.
     var suppressConfiguredInitialInput = false
-    /// The command to use when a deferred restore is cancelled, if it needs to
-    /// keep a transport attach alive without running the resume payload.
-    var startupRestoreAdmissionFallbackCommand: String?
     var startupRestoreAdmissionCommandOverride: String?
     var hasStartupRestoreAdmissionCommandOverride = false
     let initialEnvironmentOverrides: [String: String]
@@ -215,6 +217,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Identifies who owns the process, PTY, and terminal protocol.
     public let ioMode: TerminalSurfaceIOMode
+    /// Whether the process or PTY is supplied by a remote SSH/Cloud transport.
+    /// Remote exec terminals still use ``ioMode`` ``.exec`` because Ghostty
+    /// owns their local PTY, so protocol callbacks need this origin bit too.
+    public let isRemoteTerminal: Bool
+    /// Whether OSC 52 may publish into the local clipboard without a gesture.
+    /// Manual mirrors and remote exec PTYs are both untrusted terminal input.
+    public var allowsAutomaticClipboardWrite: Bool {
+        !ioMode.usesManualIO && !isRemoteTerminal
+    }
     /// Ordered input from the manual transport (literal bytes or named keys).
     let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
     /// Resolves physical keys that the manual transport should encode itself.
@@ -234,6 +245,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor public var onManualVisibilityChanged: (@MainActor (Bool) -> Void)?
     /// Requests owner-scoped visual bell attention without activating the app.
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
+    /// Called when the pane's natural grid may have changed: its own
+    /// (uncapped) pixel size or its cell size (a font-size change) changed.
+    /// A shared-sizing host uses it to re-report the Mac pane's grid as a
+    /// participant viewport.
+    @MainActor public var onNaturalGridInputsChanged: (@MainActor () -> Void)?
+
+    /// Reports a cell-size change (the font size changed), which changes the
+    /// natural grid without changing the pane's pixel size.
+    @MainActor public func cellSizeDidChange() {
+        // A pin fixes pixels from the old cell size; recompute them so the
+        // assigned grid survives a font change.
+        if assignedGrid != nil { reapplyAssignedGrid() }
+        onNaturalGridInputsChanged?()
+    }
     /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
     /// Notifies the owner when explicit input cancels a deferred auto-resume.
@@ -253,6 +278,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Output delivered before the runtime surface exists. Flushed once the
     /// surface is created so background mirror output is not lost.
     var pendingRemoteOutput = Data()
+    /// Completion callbacks for replacement replays buffered with
+    /// ``pendingRemoteOutput``. They must run after the buffered bytes have
+    /// crossed the native output lane, otherwise replay-fidelity tracking can
+    /// race runtime creation and trigger an unnecessary reconnect.
+    var pendingRemoteReplayCompletions: [TerminalSurfacePendingRemoteReplayCompletion] = []
     let maxPendingRemoteOutputBytes = 4 * 1_048_576
     /// FIFO native-output lane for the current runtime surface generation.
     var remoteOutputLane: TerminalSurfaceRemoteOutputLane
@@ -551,6 +581,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         ioMode: TerminalSurfaceIOMode = .exec,
+        isRemoteTerminal: Bool = false,
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
@@ -588,6 +619,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
         self.ioMode = ioMode
+        self.isRemoteTerminal = isRemoteTerminal
         self.manualInputHandler = manualInputHandler
         self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry

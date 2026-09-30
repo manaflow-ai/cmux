@@ -62,11 +62,38 @@ if test "$_cmux_integration_enabled" != 0
         string join \x1f -- $parts
     end
 
+    # A published environment only matters to a running default tmux server;
+    # skip the tmux client spawn on every prompt when none is running. tmux
+    # ignores a TMUX_TMPDIR that does not resolve and falls back to /tmp.
+    function _cmux_tmux_default_server_socket
+        set -q _CMUX_TMUX_UID; or set -g _CMUX_TMUX_UID (id -u)
+        set -l tmpdir /tmp
+        if set -q TMUX_TMPDIR; and test -n "$TMUX_TMPDIR"; and test -e "$TMUX_TMPDIR"
+            set tmpdir (string replace -r '/$' '' -- "$TMUX_TMPDIR")
+        end
+        printf '%s\n' "$tmpdir/tmux-$_CMUX_TMUX_UID/default"
+    end
+
+    function _cmux_tmux_default_server_running
+        test -S (_cmux_tmux_default_server_socket)
+    end
+
     function _cmux_tmux_publish_cmux_environment
         if set -q TMUX; and test -n "$TMUX"
             return 0
         end
         command -sq tmux; or functions -q tmux; or return 0
+        set -l server_socket (_cmux_tmux_default_server_socket)
+        test -S "$server_socket"; or return 0
+        # An exited server can leave its socket behind. When tmux reports nothing
+        # listening there, the marker records that socket as dead; a new server rebinds the socket,
+        # which makes it newer than the marker. test exits 2 when -nt is not
+        # supported, which keeps the old always-try behavior.
+        set -l stale_marker "$server_socket.cmux-unreachable"
+        if test -e "$stale_marker"
+            test "$server_socket" -nt "$stale_marker" 2>/dev/null
+            test $status -eq 1; and return 0
+        end
 
         set -l signature (_cmux_tmux_shell_env_signature)
         test -n "$signature"; or return 0
@@ -75,7 +102,14 @@ if test "$_cmux_integration_enabled" != 0
         for key in $_CMUX_TMUX_SYNC_KEYS
             set -q $key; or continue
             test -n "$$key"; or continue
-            tmux set-environment -g "$key" "$$key" >/dev/null 2>&1; or return 0
+            set -l tmux_error (tmux set-environment -g "$key" "$$key" 2>&1 >/dev/null)
+            if test $status -ne 0
+                # Only a dead socket earns the marker; other failures retry.
+                if string match -qr 'no server running|error connecting|Connection refused' -- "$tmux_error"
+                    printf '' 2>/dev/null >"$stale_marker"
+                end
+                return 0
+            end
         end
         for key in $_CMUX_TMUX_SURFACE_SCOPED_KEYS
             tmux set-environment -gu "$key" >/dev/null 2>&1; or return 0
@@ -152,6 +186,26 @@ if test "$_cmux_integration_enabled" != 0
         printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$host" "$PWD"
     end
     _cmux_restore_scrollback_once
+
+    # First-launch welcome banner. cmux passes the path of a one-shot token file
+    # in CMUX_SHOW_WELCOME_FILE instead of typing `cmux welcome` into the first
+    # workspace's shell, so the banner prints during startup and never lands in
+    # shell history. Only the shell whose `rm` of the token succeeds prints it,
+    # and never inside tmux, so children that inherited the variable cannot repeat it.
+    function _cmux_show_welcome_once
+        set -l token "$CMUX_SHOW_WELCOME_FILE"
+        set -e CMUX_SHOW_WELCOME_FILE
+        test -n "$token"; or return 0
+        /bin/rm -- "$token" >/dev/null 2>&1; or return 0
+        test -z "$TMUX"; or return 0
+        set -l cli (string replace -r '/?shell-integration/?$' '' -- "$CMUX_SHELL_INTEGRATION_DIR")/bin/cmux
+        if not test -x "$cli"
+            set cli (command -s cmux)
+        end
+        test -n "$cli"; or return 0
+        "$cli" welcome 2>/dev/null; or true
+    end
+    _cmux_show_welcome_once
 
     function _cmux_now
         if test -n "$EPOCHSECONDS"
@@ -330,6 +384,74 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_path_prepend_unique_directory "$bin_dir" "$gui_dir"
     end
 
+    # Succeeds when every directory, checked in order, is an absolute path to
+    # a real directory (not a symlink) owned by this user that no one else can
+    # write to, with a safe ancestry. Sticky shared ancestors (such as /tmp)
+    # are safe; a non-sticky writable ancestor can rename a checked child.
+    function _cmux_private_dirs --argument-names create
+        set -e argv[1]
+        test (count $argv) -gt 0; or return 1
+        for dir in $argv
+            string match -q '/*' -- "$dir"; or return 1
+            # A directory mkdir just created is ours and already 0700.
+            if test "$create" = 1; and not test -e "$dir"; and not test -L "$dir"
+                /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1; or return 1
+            end
+            test -d "$dir"; and not test -L "$dir"; and test -O "$dir"; or return 1
+            # fish can't read mode bits; find's -type d uses lstat here.
+            set -l private_dir (/usr/bin/find "$dir" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)
+            test "$private_dir" = "$dir"; or return 1
+            _cmux_private_path_chain "$dir"; or return 1
+        end
+    end
+
+    function _cmux_private_path_chain --argument-names start
+        set -l paths "$start"
+        set -l canonical (_cmux_resolve_path "$start"); or return 1
+        test "$canonical" = "$start"; or set -a paths "$canonical"
+        for chain_start in $paths
+            set -l current "$chain_start"
+            while true
+                _cmux_private_path_node "$current"; or return 1
+                test "$current" = /; and break
+                set current (string replace -r '/[^/]*$' '' -- "$current")
+                test -n "$current"; or set current /
+            end
+        end
+    end
+
+    function _cmux_resolve_path --argument-names path
+        if test -x /usr/bin/realpath
+            /usr/bin/realpath -- "$path"
+        else if test -x /bin/realpath
+            /bin/realpath -- "$path"
+        else if test -x /usr/bin/readlink
+            /usr/bin/readlink -f -- "$path"
+        else
+            return 1
+        end
+    end
+
+    function _cmux_private_path_node --argument-names current
+        set -l owner
+        if test -d "$current"; and not test -L "$current"
+            set owner (/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)
+            test "$owner" = "$current"; or return 1
+            set -l private (/usr/bin/find -P "$current" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)
+            test "$private" = "$current"; and return 0
+            set -l sticky (/usr/bin/find -P "$current" -prune -type d -perm -1000 -print 2>/dev/null)
+            test "$sticky" = "$current"; and return 0
+            return 1
+        end
+        if test -L "$current"
+            set owner (/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)
+            test "$owner" = "$current"
+            return $status
+        end
+        return 1
+    end
+
+    set -g _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED ""
     function _cmux_install_cli_command_shim --argument-names command_name wrapper_path
         set -l surface_component "$fish_pid"
         if set -q CMUX_SURFACE_ID; and test -n "$CMUX_SURFACE_ID"
@@ -339,15 +461,38 @@ if test "$_cmux_integration_enabled" != 0
         if set -q CMUX_CLAUDE_WRAPPER_SHIM_ROOT
             set shim_root (string trim -r -c / -- "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT")
         end
-        if test -z "$shim_root"; or not string match -q "*/cmux-cli-shims/$surface_component" -- "$shim_root"
-            set -l tmp_root /tmp
-            if set -q TMPDIR; and test -n "$TMPDIR"
-                set tmp_root "$TMPDIR"
+        set -l tmp_root /tmp
+        if set -q TMPDIR; and test -n "$TMPDIR"
+            set tmp_root (string trim -r -c / -- "$TMPDIR")
+        end
+        set -l legacy_shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        set -l shim_state "$HOME/.cmuxterm"
+        set -l rejected_root ""
+        # An inherited root is reused only while it is still private.
+        # Otherwise the shell makes its own, and skips the shim if it can't.
+        if test -z "$shim_root"; or not string match -q "*/cmux-cli-shims/$surface_component" -- "$shim_root"; or test "$shim_root" = "$legacy_shim_root"; or not _cmux_private_dirs 0 (string replace -r '/[^/]*$' '' -- "$shim_root") "$shim_root"
+            # Keep a shim root this shell did not accept off PATH.
+            if string match -qr '/cmux-cli-shims/[^/]+$' -- "$shim_root"
+                set rejected_root "$shim_root"
             end
-            set shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+            set shim_root "$shim_state/cmux-cli-shims/$surface_component"
+            if not string match -q '/*' -- "$HOME"; or not _cmux_private_dirs 1 "$shim_state" "$shim_state/cmux-cli-shims" "$shim_root"
+                if test "$command_name" = claude
+                    set -e CMUX_CLAUDE_WRAPPER_SHIM
+                    set -e CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+                    set -g _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED ""
+                end
+                if test -n "$rejected_root"
+                    set -l next_path
+                    for entry in $PATH
+                        test "$entry" = "$rejected_root"; or set -a next_path "$entry"
+                    end
+                    set -gx PATH $next_path
+                end
+                return 0
+            end
         end
         set -l shim_path "$shim_root/$command_name"
-        mkdir -p "$shim_root" >/dev/null 2>&1; or return 0
         begin
             printf '%s\n' '#!/usr/bin/env bash'
             if test "$command_name" = claude
@@ -396,8 +541,9 @@ if test "$_cmux_integration_enabled" != 0
         if test "$command_name" = claude
             set -gx CMUX_CLAUDE_WRAPPER_SHIM "$shim_path"
             set -gx CMUX_CLAUDE_WRAPPER_SHIM_ROOT "$shim_root"
+            set -g _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED "$shim_path"
         end
-        _cmux_path_prepend_unique_directory "$shim_root"
+        _cmux_path_prepend_unique_directory "$shim_root" "$rejected_root"
     end
 
     function _cmux_install_cli_wrapper --argument-names command_name wrapper_file
@@ -417,7 +563,8 @@ if test "$_cmux_integration_enabled" != 0
         switch "$command_name"
             case claude
                 function claude --wraps "$wrapper_path" --inherit-variable wrapper_path
-                    if test -x "$CMUX_CLAUDE_WRAPPER_SHIM"
+                    # Only run a shim this shell wrote into a directory it checked.
+                    if test -n "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED"; and test "$CMUX_CLAUDE_WRAPPER_SHIM" = "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED"; and test -x "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED"
                         "$CMUX_CLAUDE_WRAPPER_SHIM" $argv
                     else if test -x "$wrapper_path"
                         "$wrapper_path" $argv

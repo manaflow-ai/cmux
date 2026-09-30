@@ -180,6 +180,7 @@ final class TerminalPanel: Panel, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        isRemoteTerminal: Bool = false,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         let surface = TerminalSurface(
@@ -194,7 +195,9 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
+            focusPlacement: focusPlacement,
+            isRemoteTerminal: isRemoteTerminal,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)
@@ -660,6 +663,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        GlobalSearchCoordinator.shared.purgePanel(id: id)
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id
@@ -762,6 +766,14 @@ final class TerminalPanel: Panel, ObservableObject {
         _ = requestAgentHibernationResume(focus: false)
     }
 
+    /// A viewer attaching from another device is visiting this terminal, the
+    /// same as selecting its tab here. Resume a hibernated agent so the attach
+    /// mirrors a live runtime instead of a torn-down surface.
+    func resumeAgentHibernationForRemoteAttach() {
+        guard isAgentHibernated else { return }
+        _ = requestAgentHibernationResume(focus: false)
+    }
+
     @discardableResult
     private func requestAgentHibernationResume(focus: Bool) -> Bool {
         guard isAgentHibernated else { return false }
@@ -777,12 +789,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func needsConfirmClose() -> Bool {
         surface.needsConfirmClose()
-    }
-
-    func shouldPersistScrollbackForSessionSnapshot() -> Bool {
-        // Session restore only replays terminal output into a fresh shell. If Ghostty
-        // says we are not safely at a prompt, replaying that state later is misleading.
-        !surface.needsConfirmClose()
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {

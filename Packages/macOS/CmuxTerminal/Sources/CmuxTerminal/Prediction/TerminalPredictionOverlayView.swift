@@ -56,15 +56,61 @@ public final class TerminalPredictionOverlayView: NSView {
     /// Mouse events belong to the terminal underneath; this is decoration.
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    public override func draw(_ dirtyRect: NSRect) {
-        guard let style, let layout else { return }
-        let attributes: [NSAttributedString.Key: Any] = [
+    /// The run is rendered into the layer's contents here, not in `draw(_:)`.
+    ///
+    /// Ghostty makes the terminal view layer-hosting (its own IOSurface layer
+    /// is the view's layer). For a subview of such a view, AppKit's drawing
+    /// pass handed `draw(_:)` the host's whole bounds as the dirty rect, and
+    /// what it drew never showed on screen, though the view was placed,
+    /// unhidden and on top. An image of exactly this view's size, set as the
+    /// layer's contents, does not depend on that pass.
+    public override var wantsUpdateLayer: Bool { true }
+
+    public override func updateLayer() {
+        guard let layer else { return }
+        layer.contents = renderedContents(scale: window?.backingScaleFactor ?? layer.contentsScale)
+    }
+
+    /// The run as an image of this view's size at `scale` pixels per point,
+    /// or `nil` when nothing is drawn.
+    func renderedContents(scale: CGFloat) -> CGImage? {
+        guard let style, let layout, bounds.width > 0, bounds.height > 0, scale > 0,
+              let bitmap = NSBitmapImageRep(
+                  bitmapDataPlanes: nil,
+                  pixelsWide: Int((bounds.width * scale).rounded(.up)),
+                  pixelsHigh: Int((bounds.height * scale).rounded(.up)),
+                  bitsPerSample: 8,
+                  samplesPerPixel: 4,
+                  hasAlpha: true,
+                  isPlanar: false,
+                  colorSpaceName: .deviceRGB,
+                  bytesPerRow: 0,
+                  bitsPerPixel: 0
+              ),
+              let bitmapContext = NSGraphicsContext(bitmapImageRep: bitmap)
+        else { return nil }
+        // Top-left origin, in points, like the cell math below.
+        let context = bitmapContext.cgContext
+        context.translateBy(x: 0, y: CGFloat(bitmap.pixelsHigh))
+        context.scaleBy(x: scale, y: -scale)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        Self.drawRun(layout: layout, style: style)
+        NSGraphicsContext.restoreGraphicsState()
+        layer?.contentsScale = scale
+        return bitmap.cgImage
+    }
+
+    private static func drawRun(layout: PredictionOverlayLayout, style: Style) {
+        let confirmedAttributes: [NSAttributedString.Key: Any] = [
             .font: style.font,
             .foregroundColor: style.foreground,
-            // Underlining unconfirmed text is the convention mosh established,
-            // and it is the only cue that separates a guess from the truth.
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
+        // Underlining unconfirmed text is the convention mosh established, and
+        // it is the only cue that separates a guess from the truth. A confirmed
+        // glyph held until its frame presents is the truth, so it is plain.
+        var speculativeAttributes = confirmedAttributes
+        speculativeAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
 
         // Laid out by offset, not by position in the list: a keystroke typed
         // before the run armed is not drawn but still owns its cell.
@@ -78,7 +124,11 @@ public final class TerminalPredictionOverlayView: NSView {
 
             style.background.setFill()
             cell.fill()
+            // A deleted character: the background covers its echo until the
+            // remote's erase lands.
+            if glyph.standing == .erased { continue }
 
+            let attributes = glyph.standing == .speculative ? speculativeAttributes : confirmedAttributes
             let text = String(glyph.character) as NSString
             let size = text.size(withAttributes: attributes)
             text.draw(
@@ -137,9 +187,14 @@ public final class TerminalPredictionOverlayView: NSView {
             width: CGFloat(layout.cellCount) * style.cellSize.width,
             height: style.cellSize.height
         )
+        // The contents are an image of the old size until redrawn.
+        needsDisplay = true
         isHidden = false
         return true
     }
+
+    /// Whether a run is on screen.
+    public var isShowingGlyphs: Bool { !isHidden && layout != nil }
 
     /// Hides the run and forgets it.
     public func withdraw() {

@@ -39,7 +39,7 @@ on:
           This is the dev-build offload path (reload-cloud), not required CI, so
           targeting the fleet for a build is intentional.
         required: false
-        default: blacksmith-6vcpu-macos-26
+        default: auto
         type: string
       nonce:
         description: Opaque marker echoed into run-name so the dispatcher can find this run.
@@ -81,7 +81,14 @@ jobs:
   build:
     needs: resolve-ref
     # Depot is retired for cmux builds. Legacy Depot requests use Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner) }}
+    # The default runner (auto, or blacksmith-6vcpu-macos-26, which older
+    # reload-cloud checkouts pass explicitly) builds on the std minis' side
+    # runners first: attempts 1 and 2 there (ci-owned-pool-rescue.yml re-runs a
+    # stuck or refused build, and cmuxterm-hq's reload-cloud follows the
+    # re-run), then Blacksmith. iOS builds stay on Blacksmith: the side runners
+    # do not carry the glaeda-ios-sim capability (an iOS Simulator runtime).
+    # Any other label is honored.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (inputs.platform == 'macos' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner) }}
     timeout-minutes: 60
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
@@ -129,7 +136,11 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          ./scripts/select-ci-xcode.sh
+          # Cap the newest-SDK ranking at the repo's pinned toolchain major:
+          # hosted images now also carry the Xcode 27 RC, whose SDK main's
+          # iOS SwiftUI does not compile under (toolbarMinimizeBehavior).
+          pin_major="$(cut -d. -f1 .xcode-version 2>/dev/null || true)"
+          CMUX_CI_MAX_MACOS_SDK_MAJOR="${pin_major:-}" ./scripts/select-ci-xcode.sh
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -681,6 +692,10 @@ jobs:
           # build supplies both the unsigned phone archive and the exact same
           # source revision for an isolated Simulator verification.
           # The prebuilt GhosttyKit simulator slice is arm64-only.
+          # Sign to Run Locally (identity "-"): Xcode then embeds the
+          # simulator entitlements, so Keychain works in the Simulator. An
+          # unsigned simulator app gets errSecMissingEntitlement on every
+          # SecItem call (SSH keys, auth tokens).
           scripts/ci/xcodebuild_noninteractive.py xcodebuild build \
             -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
@@ -697,9 +712,12 @@ jobs:
             CMUX_API_BASE_URL="$api_base_url" \
             CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
             EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            PROVISIONING_PROFILE_SPECIFIER= \
             SWIFT_OPTIMIZATION_LEVEL=-O \
             SWIFT_COMPILATION_MODE=wholemodule \
             GCC_OPTIMIZATION_LEVEL=s \

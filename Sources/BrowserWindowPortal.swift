@@ -413,7 +413,11 @@ final class WindowBrowserHostView: NSView {
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
         let eventType = routingContext.eventType
-        let titlebarPassThrough = shouldPassThroughToTitlebar(at: point)
+        let resolveHostedBrowserHitView = hostedBrowserHitViewResolver(at: point)
+        let titlebarPassThrough = shouldPassThroughToTitlebar(
+            at: point,
+            hostedBrowserHitView: resolveHostedBrowserHitView
+        )
         let tabStripPassThrough = shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
         let sidebarPassThrough = shouldPassThroughToSidebarResizer(
             at: point,
@@ -659,13 +663,56 @@ final class WindowBrowserHostView: NSView {
         super.mouseUp(with: event)
     }
 
-    private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
+    private func hostedBrowserHitView(at point: NSPoint) -> NSView? {
+        for subview in subviews.reversed() {
+            guard let slot = subview as? WindowBrowserSlotView,
+                  !slot.isHidden,
+                  slot.alphaValue > 0,
+                  slot.frame.contains(point) else {
+                continue
+            }
+            let pointInSlot = slot.convert(point, from: self)
+            guard let webView = slot.hostedWebViewForFileDrop(at: pointInSlot) else {
+                continue
+            }
+            let pointInWebView = webView.convert(pointInSlot, from: slot)
+            return webView.hitTest(pointInWebView) ?? webView
+        }
+        return nil
+    }
+
+    private func hostedBrowserHitViewResolver(at point: NSPoint) -> () -> NSView? {
+        var cachedHitView: NSView?
+        var didResolve = false
+        return {
+            if !didResolve {
+                cachedHitView = self.hostedBrowserHitView(at: point)
+                didResolve = true
+            }
+            return cachedHitView
+        }
+    }
+
+    private func shouldPassThroughToTitlebar(
+        at point: NSPoint,
+        hostedBrowserHitView: () -> NSView?
+    ) -> Bool {
         guard let window else { return false }
         // Window-level portal hosts sit above SwiftUI content. Never intercept
         // hits that land in native titlebar space or the custom titlebar strip
         // we reserve directly under it for window drag/double-click behaviors.
         let windowPoint = convert(point, to: nil)
-        return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+        guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
+            return false
+        }
+        if isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint) {
+            return true
+        }
+
+        // Browser content can reach the titlebar interaction band when a pane is
+        // flush with the top of the window. Keep the concrete WebKit hit target
+        // interactive, just as the terminal portal does for its top row.
+        return hostedBrowserHitView() == nil
     }
 
     private func shouldPassThroughToPaneTabBar(
@@ -1263,16 +1310,15 @@ final class WindowBrowserSlotView: NSView {
     }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
-    private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
+    lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
+    private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlayRoot>?
     private var designComposerHostingView: BrowserDesignModeComposerHostingView?
     private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
-    private var forwardedDropZone: DropZone?
-    private var portalDragDropZone: DropZone?
-    private var displayedDropZone: DropZone?
-    private var dropZoneOverlayAnimationGeneration: UInt64 = 0
+    var forwardedDropZone: DropZone?
+    var portalDragDropZone: DropZone?
     private var isRefreshingInteractionLayers = false
     private var paneTopChromeHeight: CGFloat = 0
     var preferredHostedInspectorWidth: CGFloat?
@@ -1292,12 +1338,7 @@ final class WindowBrowserSlotView: NSView {
 
         paneDropTargetView.slotView = self
 
-        dropZoneOverlayView.wantsLayer = true
-        dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
-        dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
-        dropZoneOverlayView.layer?.borderWidth = 2
-        dropZoneOverlayView.layer?.cornerRadius = 8
-        dropZoneOverlayView.isHidden = true
+        _ = dropZoneOverlayAnimator
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
     }
 
@@ -1361,11 +1402,6 @@ final class WindowBrowserSlotView: NSView {
 
     func setDropZoneOverlay(zone: DropZone?) {
         forwardedDropZone = zone
-        applyResolvedDropZoneOverlay()
-    }
-
-    func setPortalDragDropZone(_ zone: DropZone?) {
-        portalDragDropZone = zone
         applyResolvedDropZoneOverlay()
     }
 
@@ -1462,6 +1498,7 @@ final class WindowBrowserSlotView: NSView {
             onClose: configuration.onClose,
             onFieldDidFocus: configuration.onFieldDidFocus
         )
+        .cmuxAccentColorEnvironment()
 
         if let overlay = searchOverlayHostingView {
             logSearchOverlayEvent("updateExisting", panelId: configuration.panelId)
@@ -1758,79 +1795,19 @@ final class WindowBrowserSlotView: NSView {
         container.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: nil)
     }
 
-    private func applyResolvedDropZoneOverlay() {
+    func applyResolvedDropZoneOverlay() {
         let resolvedZone = activeDropZone
         if resolvedZone != nil, (bounds.width <= 2 || bounds.height <= 2) {
             bringInteractionLayersToFrontIfNeeded()
             return
         }
 
-        let previousZone = displayedDropZone
-        displayedDropZone = resolvedZone
-        let previousFrame = dropZoneOverlayView.frame
-
-        guard let zone = resolvedZone else {
-            guard !dropZoneOverlayView.isHidden else {
-                bringInteractionLayersToFrontIfNeeded()
-                return
-            }
-
-            dropZoneOverlayAnimationGeneration &+= 1
-            let animationGeneration = dropZoneOverlayAnimationGeneration
-            dropZoneOverlayView.layer?.removeAllAnimations()
-            bringInteractionLayersToFrontIfNeeded()
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.14
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                dropZoneOverlayView.animator().alphaValue = 0
-            } completionHandler: { [weak self] in
-                guard let self else { return }
-                guard self.dropZoneOverlayAnimationGeneration == animationGeneration else { return }
-                guard self.displayedDropZone == nil else { return }
-                self.dropZoneOverlayView.isHidden = true
-                self.dropZoneOverlayView.alphaValue = 1
-            }
-            return
-        }
-        attachDropZoneOverlayIfNeeded()
-
-        let targetFrame = dropZoneOverlayFrame(for: zone, in: bounds.size)
-        let needsFrameUpdate = !Self.rectApproximatelyEqual(previousFrame, targetFrame)
-        let zoneChanged = previousZone != zone
-
-        if !dropZoneOverlayView.isHidden && !needsFrameUpdate && !zoneChanged {
-            bringInteractionLayersToFrontIfNeeded()
-            return
-        }
-
-        dropZoneOverlayAnimationGeneration &+= 1
-        dropZoneOverlayView.layer?.removeAllAnimations()
-
-        if dropZoneOverlayView.isHidden {
-            applyDropZoneOverlayFrame(targetFrame)
-            dropZoneOverlayView.alphaValue = 0
-            dropZoneOverlayView.isHidden = false
-            bringInteractionLayersToFrontIfNeeded()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                dropZoneOverlayView.animator().alphaValue = 1
-            }
-            return
-        }
-
-        bringInteractionLayersToFrontIfNeeded()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            if needsFrameUpdate {
-                dropZoneOverlayView.animator().frame = targetFrame
-            }
-            if dropZoneOverlayView.alphaValue < 1 {
-                dropZoneOverlayView.animator().alphaValue = 1
-            }
-        }
+        dropZoneOverlayAnimator.setZone(
+            resolvedZone,
+            frameForZone: { dropZoneOverlayFrame(for: $0, in: bounds.size) },
+            ensureAttached: attachDropZoneOverlayIfNeeded,
+            bringToFront: bringInteractionLayersToFrontIfNeeded
+        )
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
@@ -1867,14 +1844,6 @@ final class WindowBrowserSlotView: NSView {
         }, context: context)
     }
 
-    private func applyDropZoneOverlayFrame(_ frame: CGRect) {
-        if Self.rectApproximatelyEqual(dropZoneOverlayView.frame, frame) { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        dropZoneOverlayView.frame = frame
-        CATransaction.commit()
-    }
-
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
         let localFrame = BrowserPaneDropRouting.overlayFrame(
             for: zone,
@@ -1883,13 +1852,6 @@ final class WindowBrowserSlotView: NSView {
         )
         guard let superview else { return localFrame }
         return superview.convert(localFrame, from: self)
-    }
-
-    private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
-        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-            abs(lhs.size.width - rhs.size.width) <= epsilon &&
-            abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 }
 
