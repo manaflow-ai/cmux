@@ -13,7 +13,10 @@ import Testing
 @Suite(.serialized)
 struct PaneDropTargetIdentityTests {
     private func browserOverlay(in slot: WindowBrowserSlotView) -> NSView? {
-        var pending = slot.subviews
+        // Browser drop overlays are drawn in the slot's parent container so they
+        // can cover the slot without being clipped by its bounds.
+        let roots: [NSView] = [slot] + (slot.superview.map { [$0] } ?? [])
+        var pending = roots.flatMap(\.subviews)
         while let view = pending.popLast() {
             if String(describing: type(of: view)).contains("BrowserDropZoneOverlayView") {
                 return view
@@ -101,7 +104,7 @@ struct PaneDropTargetIdentityTests {
         #expect(state.isHidden)
     }
 
-    @Test("Browser pane context changes clear the old preview", .disabled("Fails on main since #15116/#15550; see #15564"))
+    @Test("Browser pane context changes clear the old preview")
     func browserContextChangeClearsPreview() throws {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
         let window = NSWindow(
@@ -148,7 +151,7 @@ struct PaneDropTargetIdentityTests {
         #expect(state.isHidden)
     }
 
-    @Test("Browser pane drag exit hides its preview immediately", .disabled("Fails on main since #15116/#15550; see #15564"))
+    @Test("Browser pane drag exit hides its preview immediately")
     func browserPaneDragExitHidesImmediately() throws {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
         let window = NSWindow(
