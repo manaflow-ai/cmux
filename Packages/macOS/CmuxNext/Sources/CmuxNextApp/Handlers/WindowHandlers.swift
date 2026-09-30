@@ -40,10 +40,6 @@ enum WindowHandlers {
 
         let unbuilt: [(ActionID, String)] = [
             ("globalSearch", "search-all-windows"),
-            ("focusHistoryBack", "focus-history"),
-            ("focusHistoryForward", "focus-history"),
-            ("focusHistoryLast", "focus-history"),
-            ("recentlyFocused", "focus-history"),
             ("palette.openTaskManager", "task-manager"),
             ("taskManager.killProcess", "task-manager"),
             ("palette.sleepyMode", "sleepy-mode"),
@@ -51,9 +47,6 @@ enum WindowHandlers {
         for (id, feature) in unbuilt {
             registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
         }
-        // Closed workspaces and tabs are gone from the daemon tree; reopening
-        // needs a daemon-side closed-item history.
-        registry.bindUnavailable(["recentlyClosed"], ActionFailure.needsDaemonCapability("closed-history-v1"))
     }
 
     private static func showMainWindow(_ context: AppActionContext) {

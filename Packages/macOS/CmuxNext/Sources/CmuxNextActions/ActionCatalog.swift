@@ -52,6 +52,7 @@ public nonisolated enum ActionCatalog {
         all += settingsActions()
         all += hibernationActions()
         all += layoutActions()
+        all += historyActions()
         return all
     }
 }

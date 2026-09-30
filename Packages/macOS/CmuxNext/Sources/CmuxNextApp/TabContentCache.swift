@@ -36,13 +36,18 @@ final class TabContentCache {
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
     let cef = CEFEngine()
-    /// Pages visited this session in the default browser profile, shared by
-    /// its omnibars for suggestions and inline autocomplete (in memory; not
-    /// persisted yet). Other profiles keep their own (`history(for:)`).
+    /// Pages visited in the default browser profile, shared by its omnibars
+    /// for suggestions and inline autocomplete (in memory, made durable by
+    /// `HistoryService` once the app launched). Other profiles keep their
+    /// own (`history(for:)`).
     let history = InMemoryBrowserHistory()
     private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
     /// History and suggestions of each non-default browser profile.
     var profileHistories: [BrowserProfileID: ProfileHistory] = [:]
+    /// A profile's omnibar history was created or dropped (the App makes
+    /// it durable, plans/cmux-next/history.md).
+    var onProfileHistoryCreated: ((BrowserProfileID, InMemoryBrowserHistory) -> Void)?
+    var onProfileHistoryDropped: ((BrowserProfileID) -> Void)?
     /// Incognito pages' history and page installs (`TabContentCache+Incognito`).
     var incognitoMemory = IncognitoPageMemory()
     let pageInstalls = PageInstallCounter()
@@ -183,6 +188,7 @@ final class TabContentCache {
             return tracked(install(adopted, for: key), tab)
         }
         let url = recordURL(tab)
+        if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.openedSurfaces.contains(tab.surface) {
             return deferred(tab, url: url)
         }
@@ -294,6 +300,7 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        serveAppPages(entry, key: key)
         entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
         entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }

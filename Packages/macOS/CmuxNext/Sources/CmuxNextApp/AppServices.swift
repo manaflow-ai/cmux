@@ -58,6 +58,12 @@ final class AppServices {
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
+    /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
+    private(set) lazy var locationTrail = LocationTrailService(services: self)
+    /// The merged history read side and the per-profile visit logs.
+    private(set) lazy var history = HistoryService(services: self)
+    /// `cmux://history`: opens the page and serves its data.
+    private(set) lazy var historyPage = HistoryPageService(services: self)
     /// Recently closed screens (Reopen Closed Screen).
     let closedScreens = ClosedScreenHistory()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
@@ -156,7 +162,10 @@ final class AppServices {
         cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
         resources = AppResourceSource(services: self)
         windows = WindowManager(services: self)
-        windows.incognitoHistoryReset = { [weak cache] in cache?.resetIncognitoHistory() }
+        windows.incognitoHistoryReset = { [weak cache, weak self] in
+            cache?.resetIncognitoHistory()
+            self?.locationTrail.forgetIncognito()
+        }
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
         compat = AppCompatFrontend(services: self)

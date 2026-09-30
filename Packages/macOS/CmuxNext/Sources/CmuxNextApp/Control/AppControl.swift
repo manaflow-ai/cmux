@@ -38,6 +38,7 @@ final class AppControl {
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
         let probe = frameProbe
+        service.router.register(HistoryControl.methods(services: services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).

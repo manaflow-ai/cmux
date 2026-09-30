@@ -128,37 +128,6 @@ nonisolated extension ActionCatalog {
                 arguments: [CatalogArgument.workspaceWorkspace], cliName: "app go-to-workspace", mainMenu: .window
             ),
             ActionDescriptor(
-                id: "focusHistoryBack",
-                title: String(localized: "action.focusHistoryBack", defaultValue: "Focus Back", bundle: .module),
-                keywords: ["history", "previous"], defaultShortcut: Shortcut("[", modifiers: [.command]),
-                category: .window, symbol: "chevron.backward", surfaces: [.keyboard, .menu], cliName: "app focus-back",
-                mainMenu: .window
-            ),
-            ActionDescriptor(
-                id: "focusHistoryForward",
-                title: String(localized: "action.focusHistoryForward", defaultValue: "Focus Forward", bundle: .module),
-                keywords: ["history", "next"], defaultShortcut: Shortcut("]", modifiers: [.command]), category: .window,
-                symbol: "chevron.forward", surfaces: [.keyboard, .menu], cliName: "app focus-forward", mainMenu: .window
-            ),
-            ActionDescriptor(
-                id: "focusHistoryLast",
-                title: String(localized: "action.focusHistoryLast", defaultValue: "Focus Last", bundle: .module),
-                keywords: ["history", "toggle", "recent"], category: .window, symbol: "arrow.uturn.backward",
-                surfaces: [.keyboard, .menu], cliName: "app focus-last", mainMenu: .window
-            ),
-            ActionDescriptor(
-                id: "recentlyFocused",
-                title: String(localized: "action.recentlyFocused", defaultValue: "Recently Focused…", bundle: .module),
-                keywords: ["history"], category: .window, symbol: "clock", surfaces: [.menu],
-                cliName: "app recently-focused", mainMenu: .window
-            ),
-            ActionDescriptor(
-                id: "recentlyClosed",
-                title: String(localized: "action.recentlyClosed", defaultValue: "Recently Closed…", bundle: .module),
-                keywords: ["history", "reopen", "undo"], category: .window, symbol: "clock.arrow.circlepath",
-                surfaces: [.menu], cliName: "app recently-closed", mainMenu: .window
-            ),
-            ActionDescriptor(
                 id: "palette.openTaskManager",
                 title: String(localized: "action.palette.openTaskManager", defaultValue: "Task Manager", bundle: .module),
                 keywords: ["processes", "cpu", "memory", "activity"], category: .window,
