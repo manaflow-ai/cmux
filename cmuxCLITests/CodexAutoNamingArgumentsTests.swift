@@ -20,11 +20,34 @@ struct CodexAutoNamingArgumentsTests {
         #expect(overrides.contains("model_provider=\"subrouter\""))
         #expect(overrides.contains("model=\"gpt-5-codex\""))
         #expect(overrides.contains("model_providers.subrouter.base_url=\"http://127.0.0.1:31415/v1\""))
-        #expect(overrides.contains("model_providers.subrouter.experimental_bearer_token=\"secret\""))
+        #expect(!overrides.contains(where: { $0.contains("experimental_bearer_token") }))
         #expect(overrides.contains("model_providers.subrouter.http_headers.X-Subrouter-Agent=\"sr\""))
         #expect(!overrides.contains(where: { $0.contains("profiles") }))
         #expect(args.contains("--ignore-user-config"))
         #expect(args.contains("--ignore-rules"))
+    }
+
+    @Test func temporaryConfigKeepsProviderCredentialsOutOfArguments() {
+        let args = CodexAutoNamingArguments.build(configToml: """
+        model = "gpt-5-codex"
+        model_provider = "subrouter"
+        [model_providers.subrouter]
+        base_url = "http://127.0.0.1:31415/v1"
+        experimental_bearer_token = "secret"
+        [model_providers.subrouter.http_headers]
+        Authorization = "Bearer secret"
+        X-API-Key = "api-secret"
+        """, usesTemporaryConfig: true)
+        let overrides = configOverrides(args)
+        #expect(overrides.contains("model_provider=\"subrouter\""))
+        #expect(overrides.contains("model=\"gpt-5-codex\""))
+        #expect(overrides.contains("model_providers.subrouter.base_url=\"http://127.0.0.1:31415/v1\""))
+        #expect(!overrides.contains(where: {
+            $0.contains("secret") || $0.contains("experimental_bearer_token") || $0.contains("api-secret")
+        }))
+        #expect(!args.joined(separator: " ").contains("secret"))
+        #expect(!args.joined(separator: " ").contains("api-secret"))
+        #expect(!args.contains("--ignore-user-config"))
     }
 
     @Test func keepsIsolationWhenUserConfigIsMissing() {
