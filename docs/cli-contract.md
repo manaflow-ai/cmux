@@ -93,11 +93,6 @@ Environment:
 | `sudo pending` | List queued privileged command request IDs. |
 | `sudo setup-touch-id` | Install or refresh the Touch ID sudo helper used by cmux privileged commands. |
 | `capabilities` | Print server capabilities as JSON. |
-
-`sudo run` accepts exactly one script source: `-c <command>`, a regular UTF-8 script file, or `-` for standard input. `-r` supplies the approval reason. `-t` must be a positive integer no larger than 86,400 seconds; omitted requests wait up to 300 seconds. Script input is bounded by the sudo broker resource policy and oversized, unreadable, non-regular, or non-UTF-8 input is rejected before queueing.
-
-After queueing, cmux launches the app and the app shows the pending request for approval before execution. Denied requests print the denial and exit 77. Approved scripts return the script's exit code on completion; broker or runner failures return a failure message and a non-zero exit. Pending approval or approved execution timeouts return exit code 124. `sudo pending` lists queued request IDs, one per line, for requests still waiting for approval or completion.
-
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `automation` | Manage config-backed event rules: `list`, `show <id>`, dry-run `test <id> --event <json>`, `enable`, `disable`, `logs`, and `reload`. Rules live in `~/.cmuxterm/automations.json`; actions are dispatched by the running app. |
 | `glaeda` | Emit one caller-neutral `glaeda-external-execution-request/v1` and validate/correlate one bounded Glaeda receipt. `request` and `observe` are local data operations and do not require a running cmux socket. They carry exact Git source plus caller correlation only; CMUX workspace/UI and provider placement stay outside the request. |
@@ -208,6 +203,10 @@ After queueing, cmux launches the app and the app shows the pending request for 
 | `ssh-pty-attach` | Internal helper used by SSH terminal startup scripts to bridge a local terminal surface to a remote PTY session. |
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
+
+`sudo run` accepts exactly one script source: `-c <command>`, a regular UTF-8 script file, or `-` for standard input. `-r` supplies the approval reason. `-t` must be a positive integer no larger than 86,400 seconds; omitted requests wait up to 300 seconds. Script input is bounded by the sudo broker resource policy and oversized, unreadable, non-regular, or non-UTF-8 input is rejected before queueing.
+
+After queueing, cmux launches the app and the app shows the pending request for approval before execution. Denied requests print the denial and exit 77. Approved scripts return the script's exit code on completion; broker or runner failures return a failure message and a non-zero exit. Pending approval or approved execution timeouts return exit code 124. `sudo pending` lists queued request IDs, one per line, for requests still waiting for approval or completion.
 
 
 ## Glaeda execution exchange and current-work ownership

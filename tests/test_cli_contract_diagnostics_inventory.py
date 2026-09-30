@@ -28,3 +28,23 @@ def test_diagnostics_commands_are_in_cli_contract_and_no_socket_probes() -> None
     missing = [fragment for fragment in required_fragments if fragment not in contract]
 
     assert missing == []
+
+    lines = contract.splitlines()
+    sudo_detail_line = next(
+        index
+        for index, line in enumerate(lines)
+        if line.startswith("`sudo run` accepts exactly one script source")
+    )
+    sudo_outcome_line = next(
+        index
+        for index, line in enumerate(lines)
+        if line.startswith("After queueing, cmux launches")
+    )
+    final_top_level_row = next(
+        index
+        for index, line in enumerate(lines)
+        if line.startswith("| `__tmux-compat` |")
+    )
+
+    assert sudo_detail_line > final_top_level_row
+    assert sudo_outcome_line > final_top_level_row
