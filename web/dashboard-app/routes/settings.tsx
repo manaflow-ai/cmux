@@ -38,13 +38,23 @@ async function settled(...prefetches: readonly Promise<void>[]): Promise<void> {
 }
 
 /**
+ * The Settings hub: one subnav (Account, Billing, Teams) beside every account,
+ * billing, and team page. Pathless, so `/dashboard/billing` and
+ * `/dashboard/teams/*` keep their public URLs.
+ */
+export const settingsHubRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  id: "hub",
+  component: lazyRouteComponent(() => import("../screens/settings/settings-layout"), "SettingsLayout"),
+});
+
+/**
  * Account settings. Sections read typed oRPC queries (prefetched here and by
  * the page's server render); writes use the Hexclave client SDK.
  */
 const settingsRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => settingsHubRoute,
   path: "/dashboard/settings",
-  component: lazyRouteComponent(() => import("../screens/settings/settings-layout"), "SettingsLayout"),
 });
 
 const profileRoute = createRoute({
@@ -100,6 +110,4 @@ const accountRoute = createRoute({
   component: lazyRouteComponent(pages, "SettingsAccountPage"),
 });
 
-export const settingsRoutes = [
-  settingsRoute.addChildren([profileRoute, authRoute, notificationsRoute, sessionsRoute, apiKeysRoute, accountRoute]),
-] as const;
+export const settingsRouteTree = settingsRoute.addChildren([profileRoute, authRoute, notificationsRoute, sessionsRoute, apiKeysRoute, accountRoute]);
