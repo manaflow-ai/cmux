@@ -770,6 +770,57 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(truncated.contains("private status payload"))
     }
 
+    func testTruncatedScrollbackHandlesDCSAPCAndPMStringSequences() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        for (marker, fill) in [("P", "D"), ("_", "A"), ("^", "M")] {
+            let sequence = "\u{001B}\(marker)control payload\u{001B}\\"
+            let cutOffset = 6
+            let tailCount = maxChars - (sequence.count - cutOffset)
+            let source = sequence + String(repeating: fill, count: tailCount)
+
+            guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+                XCTFail("Expected truncated scrollback for \(marker)")
+                continue
+            }
+
+            XCTAssertTrue(truncated.hasPrefix(fill), marker)
+            XCTAssertFalse(truncated.contains("control payload"), marker)
+        }
+    }
+
+    func testBELDoesNotTerminatePartialDCSSequence() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}Pbefore\u{0007}after\u{001B}\\"
+        let cutOffset = 5
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "Q", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("Q"))
+        XCTAssertFalse(truncated.contains("after"))
+    }
+
+    func testMalformedANSIStringScanDoesNotDropDistantRealOutput() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let malformed = "\u{001B}]0;unterminated-title"
+        let cutOffset = 8
+        let realOutput = String(repeating: "R", count: 1_500)
+        let suffixCount = malformed.count - cutOffset + realOutput.count + 1
+        let filler = String(repeating: "F", count: maxChars - suffixCount)
+        let source = malformed + realOutput + "\u{0007}" + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.contains(realOutput))
+    }
+
     func testNormalizedExportedScreenPathAcceptsAbsoluteAndFileURL() {
         XCTAssertEqual(
             TerminalController.normalizedExportedScreenPath("/tmp/cmux-screen.txt"),
