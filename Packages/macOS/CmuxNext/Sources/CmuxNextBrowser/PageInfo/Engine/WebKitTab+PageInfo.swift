@@ -104,11 +104,23 @@ extension WebKitTab: PageInfoProviding {
         }
     }
 
-    /// JavaScript on or off for the document a main-frame navigation loads.
+    /// JavaScript on or off for the document a navigation loads.
     func applySiteSettings(to preferences: WKWebpagePreferences, for action: WKNavigationAction) {
-        guard action.targetFrame?.isMainFrame ?? true, let url = action.request.url,
-              let origin = PageInfoSite.origin(of: url) else { return }
-        preferences.allowsContentJavaScript = sitePermissions.setting(.javascript, for: origin) != .block
+        let isMainFrame = action.targetFrame?.isMainFrame ?? true
+        let topOrigin = isMainFrame ? action.request.url.flatMap(PageInfoSite.origin(of:)) : webView.url.flatMap(PageInfoSite.origin(of:))
+        let frameOrigin = action.request.url.flatMap(PageInfoSite.origin(of:))
+        if let allowed = Self.allowsJavaScript(isMainFrame: isMainFrame, frameOrigin: frameOrigin, topOrigin: topOrigin,
+                                               store: sitePermissions) {
+            preferences.allowsContentJavaScript = allowed
+        }
+    }
+
+    /// Whether a document may run JavaScript under the per-site setting;
+    /// nil leaves WebKit's default.
+    static func allowsJavaScript(isMainFrame: Bool, frameOrigin: String?, topOrigin: String?,
+                                 store: SitePermissionStore) -> Bool? {
+        guard isMainFrame, let origin = frameOrigin else { return nil }
+        return store.setting(.javascript, for: origin) != .block
     }
 
     /// Records the server's certificate when WebKit's own evaluation fails,

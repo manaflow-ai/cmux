@@ -36,6 +36,24 @@ struct PageInfoPermissionTests {
         #expect(relaunched.setting(.camera, for: "https://other.example") == .ask)
     }
 
+    /// A per-site JavaScript block holds in every frame: a blocked site's
+    /// frames (its own iframes too) and a blocked origin framed by another
+    /// site run no script. It was applied to main-frame navigations only.
+    @Test func javaScriptBlockAppliesToSubframes() async {
+        let store = SitePermissionStore(profile: .default, persistence: MemorySitePermissionPersistence())
+        await store.whenLoaded()
+        let blocked = "https://blocked.example", other = "https://other.example"
+        store.set(.block, .javascript, for: blocked)
+        func allows(_ main: Bool, _ frame: String, _ top: String) -> Bool? {
+            WebKitTab.allowsJavaScript(isMainFrame: main, frameOrigin: frame, topOrigin: top, store: store)
+        }
+        #expect(allows(true, blocked, blocked) == false)
+        #expect(allows(true, other, other) == true)
+        #expect(allows(false, blocked, other) == false, "a blocked origin framed by another site")
+        #expect(allows(false, other, blocked) == false, "any frame of a blocked site")
+        #expect(allows(false, other, other) == true)
+    }
+
     @Test func resetClearsEveryDecisionOfTheOrigin() async {
         let persistence = MemorySitePermissionPersistence(SitePermissionSnapshot(origins: [
             origin: [.camera: .allow, .javascript: .block], "https://keep.example": [.location: .block],
