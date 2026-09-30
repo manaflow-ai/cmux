@@ -192,13 +192,23 @@ export function leaveTeamMutation(_queryClient: QueryClient, teamId: string): Us
 }
 
 export function resendInvitationMutation(queryClient: QueryClient, teamId: string) {
-  return optimisticDetailMutation(
-    queryClient,
-    teamId,
-    (invitationId: string) => teamApi.resendInvitation(teamId, invitationId),
-    // The new expiry is only known from the response; the refetch picks it up.
-    (detail) => detail,
-  );
+  return {
+    ...optimisticDetailMutation(
+      queryClient,
+      teamId,
+      (invitationId: string) => teamApi.resendInvitation(teamId, invitationId),
+      (detail) => detail,
+    ),
+    // A resend replaces the Stack invitation, so its id changes. Swap it in
+    // now: a Revoke before the refetch lands must target the new id.
+    onSuccess: ({ invitation }: { invitation: TeamInvitation }, invitationId: string) => {
+      queryClient.setQueryData<TeamDetail>(teamQueryKeys.detail(teamId), (detail) =>
+        detail
+          ? { ...detail, invitations: detail.invitations.map((existing) => (existing.id === invitationId ? invitation : existing)) }
+          : detail,
+      );
+    },
+  };
 }
 
 export function updateTeamMutation(queryClient: QueryClient, teamId: string) {
