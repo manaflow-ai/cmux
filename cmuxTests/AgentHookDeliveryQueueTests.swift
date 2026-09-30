@@ -188,6 +188,86 @@ struct AgentHookDeliveryQueueTests {
         #expect(await probe.completedPayloads() == [activePayload, stopPayload, endPayload])
     }
 
+    @Test("A second stop keeps the first turn boundary")
+    func repeatedStopsPreserveBothTurnBoundaries() async throws {
+        let activePayload = "active"
+        let firstStop = "stop-turn-1"
+        let secondStop = "stop-turn-2"
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: [activePayload])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 4,
+            maximumTerminalIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: activePayload,
+            surfaceID: "surface-a"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: firstStop,
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: secondStop,
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: activePayload)
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [activePayload, firstStop, secondStop])
+    }
+
+    @Test("Session end has a reserved ingress slot when terminal ingress is full")
+    func sessionEndUsesReservedIngressSlot() async throws {
+        let activePayload = "active"
+        let firstStop = "stop-a"
+        let secondStop = "stop-b"
+        let endPayload = "session-end-a"
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: [activePayload])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 4,
+            maximumTerminalIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: activePayload,
+            surfaceID: "surface-active"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: firstStop,
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: secondStop,
+            surfaceID: "surface-b"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: endPayload,
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: activePayload)
+        try await probe.waitUntilCompleted(count: 4)
+        #expect(await probe.completedPayloads() == [activePayload, firstStop, secondStop, endPayload])
+    }
+
     @Test("Terminal lifecycle has reserved execution capacity")
     func terminalLifecycleHasReservedExecutionCapacity() async throws {
         let ordinaryPayloads = (1...4).map { "ordinary-\($0)" }
