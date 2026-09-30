@@ -13,6 +13,7 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
     private let permissionCard = AcpmuxPermissionCardView(frame: .zero)
     private let queueStrip = AcpmuxQueueStripView(frame: .zero)
     private let jumpPill = AcpmuxJumpToLatestPill()
+    private let morphOverlay = AcpmuxMorphBubbleView()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private var theme: AcpmuxChatTheme
     private var showsPermissionCard = false
@@ -39,6 +40,7 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         jumpPill.target = self
         jumpPill.action = #selector(jumpPressed)
         addSubview(jumpPill)
+        addSubview(morphOverlay)
 
         header.pickerButton.target = self
         header.pickerButton.action = #selector(showSessionMenu)
@@ -255,17 +257,16 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         // Put the overlay over the composer text before anything else changes, so every
         // frame shows the message somewhere: in the composer, in flight, or in its bubble.
+        if activeMorph != nil { finishMorph(nil) }
         var overlay: AcpmuxMorphBubbleView?
         if !reduceMotion, window != nil {
-            let view = AcpmuxMorphBubbleView(text: trimmed, theme: theme, from: startFrame, textWidth: max(1, startFrame.width - 8))
-            addSubview(view)
-            view.layoutSubtreeIfNeeded()
-            view.displayIfNeeded()
-            overlay = view
+            morphOverlay.prepare(text: trimmed, theme: theme, from: startFrame, textWidth: max(1, startFrame.width - 8))
+            morphOverlay.displayIfNeeded()
+            overlay = morphOverlay
         }
         composer.clear()
         guard let rowID = model.send(text), let overlay else {
-            overlay?.removeFromSuperview()
+            overlay?.isHidden = true
             transcript.jumpToLatest()
             return
         }
@@ -280,7 +281,7 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         transcript.layoutSubtreeIfNeeded()
         guard let target = transcript.bubbleFrame(of: rowID).map({ convert($0, from: transcript) }) else {
             transcript.setRowHidden(rowID, hidden: false)
-            overlay.removeFromSuperview()
+            overlay.isHidden = true
             return
         }
         let horizontal = AcpmuxRowLayoutEngine.bubbleHorizontalPadding
@@ -302,7 +303,7 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         CATransaction.setDisableActions(true)
         transcript.setRowHidden(morph.rowID, hidden: false)
         morph.overlay.layer?.removeAllAnimations()
-        morph.overlay.removeFromSuperview()
+        morph.overlay.isHidden = true
         CATransaction.commit()
     }
 

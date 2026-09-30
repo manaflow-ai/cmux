@@ -14,27 +14,43 @@ final class AcpmuxMorphBubbleView: NSView {
 
     override var isFlipped: Bool { true }
 
-    init(text: String, theme: AcpmuxChatTheme, from start: CGRect, textWidth: CGFloat) {
-        super.init(frame: start)
+    /// Creates the reusable overlay, hidden. The pane keeps one instance so a send never
+    /// inserts a new layer, which can reach the screen a frame after the rest of the update.
+    init() {
+        super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = false
-        fill.backgroundColor = theme.userBubble.cgColor
-        fill.cornerRadius = 8
-        fill.opacity = 0
-        fill.frame = bounds
         layer?.addSublayer(fill)
-        for (label, color) in [(sourceLabel, theme.foreground), (finalLabel, theme.userText)] {
-            label.stringValue = text
-            label.font = theme.bodyFont
-            label.textColor = color
+        for label in [sourceLabel, finalLabel] {
             label.isSelectable = false
             label.drawsBackground = false
             label.isBordered = false
             label.lineBreakMode = .byWordWrapping
             addSubview(label)
         }
-        setTextWidth(textWidth)
+        isHidden = true
+    }
+
+    /// Places the overlay over the composer text and shows it.
+    func prepare(text: String, theme: AcpmuxChatTheme, from start: CGRect, textWidth: CGFloat) {
+        layer?.removeAllAnimations()
+        fill.removeAllAnimations()
+        frame = start
+        fill.backgroundColor = theme.userBubble.cgColor
+        fill.cornerRadius = 8
+        fill.opacity = 0
+        fill.frame = bounds
+        for (label, color) in [(sourceLabel, theme.foreground), (finalLabel, theme.userText)] {
+            label.layer?.removeAllAnimations()
+            label.stringValue = text
+            label.font = theme.bodyFont
+            label.textColor = color
+            label.frame.origin = .zero
+        }
+        sourceLabel.alphaValue = 1
         finalLabel.alphaValue = 0
+        setTextWidth(textWidth)
+        isHidden = false
     }
 
     /// Re-wraps the text at `width`, the final bubble's text width once it is known.
