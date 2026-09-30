@@ -21,23 +21,6 @@ extension cmuxApp {
         return (machinePinStore, workspaceCoordinator)
     }
 
-    /// The fleet, in its reported order, minus every machine that cannot receive
-    /// a new workspace: one being deleted, or one locked past its free-access
-    /// window (the same rule the sidebar's New Workspace row uses). Lock state
-    /// is computed exactly as the sidebar computes it for the machine's row.
-    static func cloudWorkspaceTargetMachineIDs(
-        page: VMListPage,
-        deleting: Set<String>,
-        now: Date = Date()
-    ) -> [String] {
-        let windowDays = page.limits?.freeAccessWindowDays ?? 0
-        return page.vms.filter { summary in
-            !deleting.contains(summary.id) && MachineSnapshotBuilder
-                .snapshot(from: summary, freeAccessWindowDays: windowDays, now: now)
-                .acceptsNewWorkspaces
-        }.map(\.id)
-    }
-
     /// Composes live authentication, sidebar ordering, and workspace projection.
     static func makeCloudWorkspaceCoordinator(
         auth: MacAuthComposition,
@@ -50,10 +33,10 @@ extension cmuxApp {
                 guard let client = VMClient.shared else { throw VMClientError.notSignedIn }
                 // GET /api/vm returns the entire owned fleet; SurfaceCatalog may be cold
                 // or contain only providers discovered by an earlier background pass.
-                return cloudWorkspaceTargetMachineIDs(
-                    page: try await client.listPage(),
-                    deleting: MachineDeleteCoordinator.shared.hiddenMachineIDs
-                )
+                let machineIDs = try await client.listPage().vms.map(\.id)
+                // A machine being deleted is never a workspace target.
+                let deleting = MachineDeleteCoordinator.shared.hiddenMachineIDs
+                return machineIDs.filter { !deleting.contains($0) }
             },
             createWorkspace: { request in
                 guard let manager = AppDelegate.shared?.tabManagerFor(windowId: request.windowID) else { return nil }

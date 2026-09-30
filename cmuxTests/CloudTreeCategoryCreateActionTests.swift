@@ -52,8 +52,7 @@ struct CloudTreeCategoryCreateActionTests {
         fixture.apply(
             machines: state.machines(fixture),
             pendingCreates: state.pendingCreates,
-            canCreateCloudMachine: state.canCreateCloudMachine,
-            fleetListIsCurrent: state.fleetListIsCurrent
+            canCreateCloudMachine: state.canCreateCloudMachine
         )
 
         let section = try #require(fixture.cloudSection)
@@ -216,15 +215,12 @@ struct CloudTreeCategoryCreateActionTests {
 
         var canCreateCloudMachine: Bool { self != .featureGatedOff }
 
-        /// A failed or offline fleet read leaves the last machines listed.
-        var fleetListIsCurrent: Bool { self != .unavailable }
-
         @MainActor
         func machines(_ fixture: Fixture) -> [MachineSnapshot] {
             switch self {
-            case .empty, .creatingOnly: []
-            // The read failed after a good one: the old machines stay listed.
-            case .unavailable, .oneMachine, .creatingBesideMachine: fixture.machines(1)
+            // The panel passes no machines while the fleet list is failing or off.
+            case .empty, .unavailable, .creatingOnly: []
+            case .oneMachine, .creatingBesideMachine: fixture.machines(1)
             case .severalMachines: fixture.machines(3)
             case .lockedOnly: [fixture.locked("locked-machine")]
             case .lockedBesideMachine: [fixture.locked("locked-machine")] + fixture.machines(1)
@@ -301,8 +297,7 @@ struct CloudTreeCategoryCreateActionTests {
         func apply(
             machines: [MachineSnapshot],
             pendingCreates: [MachineCreateOperation] = [],
-            canCreateCloudMachine: Bool = true,
-            fleetListIsCurrent: Bool = true
+            canCreateCloudMachine: Bool = true
         ) {
             let snapshot = SurfaceCatalogSnapshot(
                 machines: machines.map { machine in
@@ -321,8 +316,7 @@ struct CloudTreeCategoryCreateActionTests {
                 localWorkspaces: [],
                 includeLocalMachine: false,
                 source: .cloudWithDevicesSection,
-                canCreateCloudMachine: canCreateCloudMachine,
-                cloudFleetListIsCurrent: fleetListIsCurrent
+                canCreateCloudMachine: canCreateCloudMachine
             ))
             coordinator.outlineView?.expandItem(nil, expandChildren: true)
             container.layoutSubtreeIfNeeded()
