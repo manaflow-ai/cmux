@@ -28,6 +28,8 @@ TAG=""
 SIM_UDID=""
 EVIDENCE_DIR=""
 BUNDLE_ID=""
+WORKSPACE_ID="${CMUX_E2E_WORKSPACE_ID:-}"
+SURFACE_ID="${CMUX_E2E_SURFACE_ID:-}"
 STEP_TIMEOUT=45
 BACKGROUND_SECONDS="${CMUX_E2E_BACKGROUND_SECONDS:-0}"
 VIDEO_PATH="${CMUX_E2E_VIDEO:-}"
@@ -36,7 +38,8 @@ VIDEO_PID=""
 usage() {
   cat <<'EOF'
 Usage: scripts/e2e/ios-e2e-run.sh --tag <tag> --sim-udid <udid> --evidence-dir <dir>
-       [--bundle-id <id>] [--step-timeout <seconds>] [--background-seconds <seconds>]
+       [--bundle-id <id>] [--workspace-id <id>] [--surface-id <id>]
+       [--step-timeout <seconds>] [--background-seconds <seconds>]
        [--video <path>]
 EOF
 }
@@ -47,6 +50,8 @@ while [[ $# -gt 0 ]]; do
     --sim-udid) SIM_UDID="${2:-}"; shift 2 ;;
     --evidence-dir) EVIDENCE_DIR="${2:-}"; shift 2 ;;
     --bundle-id) BUNDLE_ID="${2:-}"; shift 2 ;;
+    --workspace-id) WORKSPACE_ID="${2:-}"; shift 2 ;;
+    --surface-id) SURFACE_ID="${2:-}"; shift 2 ;;
     --step-timeout) STEP_TIMEOUT="${2:-}"; shift 2 ;;
     --background-seconds) BACKGROUND_SECONDS="${2:-}"; shift 2 ;;
     --video) VIDEO_PATH="${2:-}"; shift 2 ;;
@@ -55,6 +60,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$TAG" && -n "$SIM_UDID" && -n "$EVIDENCE_DIR" ]] || { usage >&2; exit 2; }
+[[ -n "$WORKSPACE_ID" && -n "$SURFACE_ID" || -z "$WORKSPACE_ID" && -z "$SURFACE_ID" ]] || {
+  echo "error: workspace and surface IDs must be provided together" >&2
+  exit 2
+}
 [[ "$BACKGROUND_SECONDS" =~ ^[0-9]+$ ]] || { echo "error: background seconds must be a non-negative integer" >&2; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -135,7 +144,13 @@ phone_text() {
 }
 
 mac_text() {
-  CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" read-screen 2>/dev/null || true
+  if [[ -n "$WORKSPACE_ID" ]]; then
+    CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" read-screen \
+      --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" --lines 40 \
+      2>/dev/null || true
+  else
+    CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" read-screen 2>/dev/null || true
+  fi
 }
 
 # wait_for <label> <fn> <needle>: bounded poll, never a bare sleep.
@@ -192,9 +207,16 @@ ensure_terminal_surface() {
   terminal_surface_visible && return 0
 
   local row_id
-  row_id="$("$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null \
-    | grep -oE 'MobileWorkspaceRow-[A-Za-z0-9._:-]+' \
-    | head -1 || true)"
+  if [[ -n "$WORKSPACE_ID" ]]; then
+    row_id="MobileWorkspaceRow-$WORKSPACE_ID"
+    "$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null \
+      | grep -qF "$row_id" \
+      || fail "target workspace row is not visible: $row_id"
+  else
+    row_id="$("$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null \
+      | grep -oE 'MobileWorkspaceRow-[A-Za-z0-9._:-]+' \
+      | head -1 || true)"
+  fi
   [[ -n "$row_id" ]] || fail "workspace list is visible but no MobileWorkspaceRow was exposed"
   echo "opening workspace row: $row_id"
   "$AXE" tap --id "$row_id" --wait-timeout 15 --poll-interval 0.25 \

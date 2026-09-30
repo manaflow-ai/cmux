@@ -1323,6 +1323,23 @@ if [[ "$REAL_USAGE" -eq 1 ]]; then
     exit 1
   fi
   CODEX_WORKLOAD_PID=""
+  read -r TARGET_WORKSPACE_ID TARGET_SURFACE_ID < <(
+    /usr/bin/python3 - "$REAL_USAGE_DIR/codex-workload.jsonl" <<'PY_TARGET'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    for line in handle:
+        row = json.loads(line)
+        if row.get("event") == "session_started":
+            print(row["workspace_id"], row["surface_id"])
+            break
+PY_TARGET
+  )
+  [[ -n "${TARGET_WORKSPACE_ID:-}" && -n "${TARGET_SURFACE_ID:-}" ]] || {
+    echo "error: Codex workload produced no target workspace/surface" >&2
+    exit 1
+  }
   for cycle in 1 2 3; do
     cycle_dir="$REAL_USAGE_DIR/background-cycle-$cycle"
     mkdir -p "$cycle_dir"
@@ -1332,6 +1349,8 @@ if [[ "$REAL_USAGE" -eq 1 ]]; then
     CMUX_E2E_TAG="$TAG" \
     CMUX_E2E_SIM_UDID="$SIMULATOR_ID" \
     CMUX_E2E_EVIDENCE_DIR="$cycle_dir" \
+    CMUX_E2E_WORKSPACE_ID="$TARGET_WORKSPACE_ID" \
+    CMUX_E2E_SURFACE_ID="$TARGET_SURFACE_ID" \
     CMUX_E2E_BACKGROUND_SECONDS="$background_seconds" \
     CMUX_E2E_VIDEO="$cycle_dir/ios-e2e.mp4" \
       "$SCRIPT_DIR/e2e/ios-e2e-run.sh" \
@@ -1339,6 +1358,8 @@ if [[ "$REAL_USAGE" -eq 1 ]]; then
         --sim-udid "$SIMULATOR_ID" \
         --evidence-dir "$cycle_dir" \
         --bundle-id "$IOS_BUNDLE_ID" \
+        --workspace-id "$TARGET_WORKSPACE_ID" \
+        --surface-id "$TARGET_SURFACE_ID" \
         --background-seconds "$background_seconds" \
         --video "$cycle_dir/ios-e2e.mp4"
   done
