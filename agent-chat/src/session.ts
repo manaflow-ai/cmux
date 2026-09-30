@@ -363,7 +363,7 @@ export function useSession(): SessionState {
   const pendingHandoffSourceSessionRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
-  const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
+  const pendingFileDiffRequestsRef = useRef(new Map<string, { sessionId: string; key: string }>());
   const pendingStartRef = useRef<{
     requestId: string;
     conversationId: string;
@@ -376,6 +376,13 @@ export function useSession(): SessionState {
     failed?: boolean;
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
+  const takeFileDiffRequest = useCallback((msg: { requestId?: unknown; sessionId?: unknown }) => {
+    if (typeof msg.requestId !== "string" || msg.sessionId !== sessionIdRef.current) return null;
+    const request = pendingFileDiffRequestsRef.current.get(msg.requestId);
+    if (!request || request.sessionId !== msg.sessionId) return null;
+    pendingFileDiffRequestsRef.current.delete(msg.requestId);
+    return request;
+  }, []);
   const optimisticUsersRef = useRef<string[]>([]);
   // The last status the server sent: reply() shows "running" before the server
   // knows, and a send that fails puts this back.
@@ -414,7 +421,7 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
-    pendingFileDiffKeysRef.current = {};
+    pendingFileDiffRequestsRef.current.clear();
     setFileDiffs({});
     setLastError(message);
     setPhase("composer");
@@ -494,7 +501,7 @@ export function useSession(): SessionState {
             setOptions([]);
             setActions({});
             setCommands([]);
-            pendingFileDiffKeysRef.current = {};
+            pendingFileDiffRequestsRef.current.clear();
             setFileDiffs({});
             setPhase("chat");
             break;
@@ -516,7 +523,7 @@ export function useSession(): SessionState {
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
             setCommands(latestCommands(msg.events as AgentEvent[]));
-            pendingFileDiffKeysRef.current = {};
+            pendingFileDiffRequestsRef.current.clear();
             setFileDiffs({});
             setPhase("chat");
             break;
@@ -530,7 +537,7 @@ export function useSession(): SessionState {
             setOptions([]);
             setActions({});
             setCommands([]);
-            pendingFileDiffKeysRef.current = {};
+            pendingFileDiffRequestsRef.current.clear();
             setFileDiffs({});
             setPhase("composer");
             optimisticUsersRef.current = [];
@@ -628,12 +635,9 @@ export function useSession(): SessionState {
             if (msg.vars && typeof msg.vars === "object") applyThemeVars(msg.vars, msg.theme);
             break;
           case "file-diff":
-            if (msg.sessionId === sessionIdRef.current) {
-              const path = String(msg.path);
-              const queue = pendingFileDiffKeysRef.current[path];
-              const key = queue?.shift() ?? path;
-              if (queue && !queue.length) delete pendingFileDiffKeysRef.current[path];
-              setFileDiffs((m) => ({ ...m, [key]: String(msg.diff ?? "") }));
+            {
+              const request = takeFileDiffRequest(msg);
+              if (request) setFileDiffs((m) => ({ ...m, [request.key]: String(msg.diff ?? "") }));
             }
             break;
           case "error":
@@ -651,12 +655,9 @@ export function useSession(): SessionState {
               closeHandoffWindow();
               setHandoffPending(false);
             }
-            if (msg.op === "get-file-diff" && typeof msg.path === "string" && msg.path) {
-              const path = String(msg.path);
-              const queue = pendingFileDiffKeysRef.current[path];
-              const key = queue?.shift() ?? path;
-              if (queue && !queue.length) delete pendingFileDiffKeysRef.current[path];
-              setFileDiffs((m) => ({ ...m, [key]: String(msg.message ?? "Failed to load diff") }));
+            if (msg.op === "get-file-diff") {
+              const request = takeFileDiffRequest(msg);
+              if (request) setFileDiffs((m) => ({ ...m, [request.key]: String(msg.message ?? "Failed to load diff") }));
             }
             break;
         }
@@ -667,7 +668,7 @@ export function useSession(): SessionState {
       clearPendingStartTimeout();
       closeHandoffWindow();
     };
-  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
+  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw, takeFileDiffRequest]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
@@ -697,7 +698,7 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
-    pendingFileDiffKeysRef.current = {};
+    pendingFileDiffRequestsRef.current.clear();
     setFileDiffs({});
     setPhase("chat");
     return true;
@@ -716,7 +717,7 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
-    pendingFileDiffKeysRef.current = {};
+    pendingFileDiffRequestsRef.current.clear();
     setFileDiffs({});
     setPhase("composer");
   }, [clearPendingStartTimeout, closeHandoffWindow]);
@@ -782,9 +783,11 @@ export function useSession(): SessionState {
     sendRaw({ op: "list-files", cwd, query });
   }, [sendRaw]);
   const requestFileDiff = useCallback((sessionId: string, path: string) => {
+    if (sessionId !== sessionIdRef.current) return;
     const request = decodeFileDiffRequest(path);
-    if (sendRaw({ op: "get-file-diff", sessionId, path: request.path })) {
-      pendingFileDiffKeysRef.current[request.path] = [...(pendingFileDiffKeysRef.current[request.path] ?? []), request.key];
+    const requestId = newClientRequestId("diff");
+    if (sendRaw({ op: "get-file-diff", sessionId, path: request.path, requestId })) {
+      pendingFileDiffRequestsRef.current.set(requestId, { sessionId, key: request.key });
     }
   }, [sendRaw]);
   const checkCwd = useCallback((cwd: string) => {

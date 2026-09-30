@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
@@ -82,13 +82,10 @@ try {
   assert.deepEqual(state.fileDiffs, {}, "old replies must not consume a request after history replacement");
   await receive({ kind: "file-diff", sessionId: "current", path: "tracked.txt", requestId: replacement.requestId, diff: "after history replacement" });
   assert.equal(state.fileDiffs[firstKey], "after history replacement");
-  await act(async () => { renderer!.unmount(); });
-  renderer = undefined;
-  assert.equal(timers.size, 0);
-
   // Exercise the same server response path the WebSocket handler invokes,
   // including a real Git diff and every validation/error exit.
   const { sendFileDiffResponse, recordFilesChangedForTest } = await import("../server");
+  await mkdir(join(import.meta.dir, "../scratch"), { recursive: true });
   gitFixture = await mkdtemp(join(import.meta.dir, "../scratch/diff-response-"));
   const git = async (args: string[]) => {
     const proc = Bun.spawn(["git", ...args], { cwd: gitFixture, stdout: "pipe", stderr: "pipe" });
@@ -116,17 +113,33 @@ try {
   assert.equal(success.kind, "file-diff");
   assert.equal(success.path, "tracked.txt");
   assert.match(success.diff, /\+after/);
-  for (const path of ["", "../outside", "not-reported.txt"]) {
-    assert.equal((await invoke(path, `invalid:${path}`)).kind, "error");
+  const originalError = console.error;
+  const expectedErrors: unknown[][] = [];
+  try {
+    console.error = (...args) => { expectedErrors.push(args); };
+    for (const path of ["", "../outside", "not-reported.txt"]) {
+      assert.equal((await invoke(path, `invalid:${path}`)).kind, "error");
+    }
+    assert.equal((await invoke("tracked.txt", "missing-session", null)).kind, "error");
+    socket.data.subscribed = "different";
+    assert.equal((await invoke("tracked.txt", "wrong-subscription")).kind, "error");
+    socket.data.subscribed = "current";
+    assert.equal((await invoke("tracked.txt", "git-error", { ...sess, cwd: join(gitFixture, "missing-cwd") })).kind, "error");
+  } finally {
+    console.error = originalError;
   }
-  assert.equal((await invoke("tracked.txt", "missing-session", null)).kind, "error");
-  socket.data.subscribed = "different";
-  assert.equal((await invoke("tracked.txt", "wrong-subscription")).kind, "error");
-  socket.data.subscribed = "current";
-  assert.equal((await invoke("tracked.txt", "git-error", { ...sess, cwd: join(gitFixture, "missing-cwd") })).kind, "error");
+  assert.equal(expectedErrors.length, 6);
   await sendFileDiffResponse(socket, { sessionId: "current", path: "tracked.txt" }, sess);
   assert.equal(replies.at(-1).kind, "file-diff", "older callers without request IDs still receive a response");
   assert.equal(replies.at(-1).requestId, undefined);
+  const normalizedKey = fileDiffCacheKey("5", "./tracked.txt");
+  await update(() => state.requestFileDiff("current", normalizedKey));
+  await sendFileDiffResponse(socket, ws.sent.at(-1), sess);
+  await receive(replies.at(-1));
+  assert.match(state.fileDiffs[normalizedKey], /\+after/, "a real server reply with a normalized path reaches the originating client cache entry");
+  await act(async () => { renderer!.unmount(); });
+  renderer = undefined;
+  assert.equal(timers.size, 0);
   console.log("server diff success, normalized path, and validation failures echo request IDs: OK");
 } finally {
   if (renderer) await act(async () => { renderer!.unmount(); });

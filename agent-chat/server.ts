@@ -2159,20 +2159,21 @@ function sendWsErrorDetails(
 /** Handles diff validation and replies for the WebSocket route. */
 export function sendFileDiffResponse(
   ws: Pick<Bun.ServerWebSocket<WsData>, "data" | "send">,
-  msg: { sessionId?: unknown; path?: unknown },
+  msg: { sessionId?: unknown; path?: unknown; requestId?: unknown },
   sess?: Pick<Session, "id" | "cwd" | "internal">,
 ) {
   const path = String(msg.path ?? "");
+  const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
   if (!path) {
-    sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path });
+    sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
     return;
   }
   if (!sess) {
-    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path });
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
     return;
   }
   if (ws.data.subscribed !== sess.id) {
-    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path });
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path, requestId });
     return;
   }
   let safePath: string;
@@ -2180,12 +2181,12 @@ export function sendFileDiffResponse(
     safePath = resolveFileDiffPath(sess.cwd, path);
     assertFileDiffAllowed(sess, safePath);
   } catch (err) {
-    sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path });
+    sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId });
     return;
   }
   return Promise.resolve(fileDiff(sess.cwd, safePath))
-    .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff })))
-    .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path }));
+    .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff, requestId })))
+    .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId }));
 }
 
 function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
