@@ -16,6 +16,6 @@ enum QuitCompletion {
     static func run(_ choice: QuitSessionsChoice, remember: Bool, _ steps: QuitSteps) async {
         if remember { await steps.remember(QuitPolicy.remembered(choice)) }
         await steps.prepareWindows()
-        if choice.ends { await steps.endLocalSessions(false) } // not implemented yet
+        if choice.ends { await steps.endLocalSessions(choice == .endEverything) }
     }
 }

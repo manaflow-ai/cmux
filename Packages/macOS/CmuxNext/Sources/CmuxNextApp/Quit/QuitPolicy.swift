@@ -13,7 +13,7 @@ enum QuitPolicy {
     /// The origin of a `quit` action run: its flags, else scripted for a
     /// capturing caller (control socket, CLI), else interactive.
     static func origin(for invocation: ActionInvocation, scripted: Bool) throws(QuitArgumentConflict) -> QuitOrigin {
-        let flags: [(String, QuitSessionsChoice)] = [("keepSessions", .keep), ("endSessions", .endKeepLayout)]  // --end-everything not implemented yet
+        let flags: [(String, QuitSessionsChoice)] = [("keepSessions", .keep), ("endSessions", .endKeepLayout), ("endEverything", .endEverything)]
         let chosen = flags.filter { invocation[$0.0]?.boolValue == true }.map(\.1)
         guard chosen.count <= 1 else { throw QuitArgumentConflict() }
         if let choice = chosen.first { return .explicit(choice) }

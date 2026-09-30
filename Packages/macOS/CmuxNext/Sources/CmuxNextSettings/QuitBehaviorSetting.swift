@@ -27,6 +27,7 @@ public nonisolated enum QuitBehaviorSetting {
     /// default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (QuitBehavior, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }
+        if value.stringValue == legacyEnd { return (.endKeepLayout, nil) }
         guard let text = value.stringValue, let behavior = QuitBehavior(rawValue: text) else {
             let choices = QuitBehavior.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
             return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "app.quitBehavior", message: "expected one of \(choices)"))
@@ -40,6 +41,8 @@ extension SettingsController {
     /// Settings window shows it. Returns whether it wrote.
     @discardableResult
     public func migrateLegacyQuitBehavior() async throws -> Bool {
-        false  // not implemented yet
+        guard try await file.value(at: QuitBehaviorSetting.configPath)?.stringValue == QuitBehaviorSetting.legacyEnd else { return false }
+        try await file.set(.string(QuitBehavior.endKeepLayout.rawValue), at: QuitBehaviorSetting.configPath)
+        return true
     }
 }

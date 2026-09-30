@@ -63,6 +63,9 @@ nonisolated extension ActionCatalog {
                     ActionArgument(name: "endSessions",
                                    title: String(localized: "argument.endSessionsKeepLayout", defaultValue: "End Sessions, Keep Layout", bundle: .module),
                                    kind: .bool, isRequired: false),
+                    ActionArgument(name: "endEverything",
+                                   title: String(localized: "argument.endEverything", defaultValue: "End Everything", bundle: .module),
+                                   kind: .bool, isRequired: false),
                 ],
                 cliName: "app quit", mainMenu: .app
             ),

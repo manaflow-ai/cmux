@@ -322,7 +322,7 @@ extension DaemonConnection {
     @discardableResult
     public func endSessionsAndStop(deletingWorkspaces: Bool = false) async throws -> UInt64 {
         await close()
-        _ = deletingWorkspaces  // not implemented yet
+        if deletingWorkspaces { try await closeEveryWorkspace() }
         return try await shutdownDaemon(endTerminals: true).endedTerminals ?? 0
     }
 
