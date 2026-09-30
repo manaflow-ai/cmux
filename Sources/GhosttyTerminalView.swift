@@ -4264,15 +4264,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// chord, not a character.
     ///
     /// The binding classifications come from the caller, which has to inspect
-    /// the key before Ghostty consumes it. A consumed binding leaves the
-    /// prediction run intact; an unconsumed binding performs an action and
-    /// then continues to the PTY, so its echo is untracked.
+    /// the key before Ghostty consumes it. Ghostty marks a binding as local
+    /// only when it is consumed without a PTY write or terminal-grid change.
+    /// Every other binding is treated as untracked input.
     private func recordPredictedEchoInput(
         _ keyEvent: ghostty_input_key_s,
         isPlainBackspace: Bool,
         isLineErase: Bool,
-        isConsumedBinding: Bool,
-        isUnconsumedBinding: Bool
+        isLocalOnlyBinding: Bool,
+        isUntrackedBinding: Bool
     ) {
         guard let surfaceID = terminalSurface?.id,
               TerminalPredictionCenter.shared.predictsInput(surfaceID: surfaceID) else { return }
@@ -4284,11 +4284,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             TerminalPredictionCenter.shared.typedLineErase(surfaceID: surfaceID)
             return
         }
-        if isConsumedBinding {
+        if isLocalOnlyBinding {
             TerminalPredictionCenter.shared.typedNothing(surfaceID: surfaceID)
             return
         }
-        if isUnconsumedBinding {
+        if isUntrackedBinding {
             TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: surfaceID)
             return
         }
@@ -7612,10 +7612,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var predictionBindingFlags = ghostty_binding_flags_e(0)
         let isBoundForPrediction = predictsInput
             && ghostty_surface_key_is_binding(surface, keyEvent, &predictionBindingFlags)
-        let isConsumedBindingForPrediction = isBoundForPrediction
-            && (predictionBindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue) != 0
-        let isUnconsumedBindingForPrediction = isBoundForPrediction
-            && !isConsumedBindingForPrediction
+        let isLocalOnlyBindingForPrediction = isBoundForPrediction
+            && (predictionBindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_PREDICTION_LOCAL_ONLY.rawValue) != 0
+        let isUntrackedBindingForPrediction = isBoundForPrediction
+            && !isLocalOnlyBindingForPrediction
         let isPlainBackspace = predictsInput
             && !isBoundForPrediction
             && Self.isPlainBackspace(keyEvent)
@@ -7631,8 +7631,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEvent,
                 isPlainBackspace: isPlainBackspace,
                 isLineErase: isLineErase,
-                isConsumedBinding: isConsumedBindingForPrediction,
-                isUnconsumedBinding: isUnconsumedBindingForPrediction
+                isLocalOnlyBinding: isLocalOnlyBindingForPrediction,
+                isUntrackedBinding: isUntrackedBindingForPrediction
             )
         }
         return handled
