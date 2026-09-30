@@ -1481,7 +1481,7 @@ actor MobileHostConnection {
     nonisolated var connectionID: UUID { id }
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
-    private let independentEventWriter: (any MobileHostIndependentEventWriting)?
+    internal let independentEventWriter: (any MobileHostIndependentEventWriting)?
     private let firstFrameTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     /// Per-request authorization for transports whose admission lease can
@@ -1520,12 +1520,14 @@ actor MobileHostConnection {
     private var independentEventNegotiationInProgress = false
     /// Whether the event queue currently routes render-grid frames onto
     /// per-surface lanes (mirrors the subscriptions that negotiated them).
-    private var surfaceEventLanesActive = false
+    internal var surfaceEventLanesActive = false
     /// Last surface this connection wrote terminal input to; its output lane
     /// is scheduled first so keystroke echo never waits behind other surfaces.
-    private var lastInteractiveSurfaceKey: String?
+    internal var lastInteractiveSurfaceKey: String?
+    /// Monotonic owner for focus transitions across actor suspension.
+    internal var focusTransitionGeneration: UInt64 = 0
     private var didDecodeFirstFrame = false
-    private var isClosed = false
+    internal var isClosed = false
     private var exit = CmxIrohAdmittedConnectionExit(
         lifecycle: .explicitlyInvalidated,
         failure: .none
@@ -1775,7 +1777,6 @@ actor MobileHostConnection {
         if case let .success(request) = decodedRequest,
            request.isOrderedTerminalInput {
             let surfaceKey = request.orderedInputSurfaceKey
-            noteInteractiveSurface(surfaceKey)
             orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
                 .enqueue(MobileHostOrderedRequest(
                     frameByteCount: frame.count,
@@ -1977,6 +1978,9 @@ actor MobileHostConnection {
         let result = await handleRequest(request)
         guard !isClosed, !Task.isCancelled else {
             return nil
+        }
+        if case .ok = result, request.isOrderedTerminalInput {
+            await noteInteractiveSurface(request.orderedInputSurfaceKey)
         }
         return PreparedResponse(
             data: MobileHostRPCEnvelope.encodeResponse(
@@ -2523,10 +2527,10 @@ actor MobileHostConnection {
             )
             eventQueue.noteSurfaceLaneDelivered(surfaceID: surfaceID)
         } catch {
-            let resync = eventQueue.retireSurfaceLane(
-                surfaceID: surfaceID,
-                generation: event.laneGeneration
-            )
+            let isLaneLimit = (error as? IrxSurfaceEventLanes.LaneError) == .laneLimit
+            let resync = isLaneLimit
+                ? eventQueue.pinSurfaceLaneToShared(surfaceID: surfaceID, generation: event.laneGeneration)
+                : eventQueue.retireSurfaceLane(surfaceID: surfaceID, generation: event.laneGeneration)
             mobileHostLog.info(
                 "mobile host retired surface event lane \(surfaceID, privacy: .public): \(String(describing: error), privacy: .public)"
             )
@@ -2537,12 +2541,7 @@ actor MobileHostConnection {
             }
         }
     }
-
-    /// Aligns the queue's render-grid routing and the writer's surface lanes
-    /// with the subscriptions that negotiated them. Surface lanes stay active
-    /// only while a render-grid subscription still uses the independent
-    /// events path; a fallback to control returns every surface to the shared
-    /// lane and re-bases each chain with a full frame.
+    /// Aligns queue routing and native surface lanes with negotiated subscriptions.
     private func syncSurfaceEventLanes() async {
         guard let independentEventWriter, !isClosed else { return }
         let desired = subscriptions.values.contains {
@@ -2559,10 +2558,17 @@ actor MobileHostConnection {
             eventQueue.enableSurfaceLanes(
                 limit: independentEventWriter.maximumSurfaceEventLaneCount
             )
-            let focusedSurfaceKey = lastInteractiveSurfaceKey
+            await independentEventWriter.setInteractiveSurfaceHandler { [weak self] surfaceKey in
+                await self?.noteInteractiveSurface(surfaceKey)
+            }
             await independentEventWriter.setSurfaceEventLanesEnabled(true)
-            if let focusedSurfaceKey {
-                await independentEventWriter.noteInteractiveSurface(focusedSurfaceKey)
+            if let focusedSurfaceKey = lastInteractiveSurfaceKey {
+                focusTransitionGeneration &+= 1
+                await focusSurfaceLane(
+                    focusedSurfaceKey,
+                    writer: independentEventWriter,
+                    transitionGeneration: focusTransitionGeneration
+                )
             }
         } else {
             let resync = eventQueue.disableSurfaceLanes()
@@ -2572,16 +2578,9 @@ actor MobileHostConnection {
                 )
             }
             await independentEventWriter.setSurfaceEventLanesEnabled(false)
+            await independentEventWriter.setInteractiveSurfaceHandler(nil)
         }
     }
-
-    private func noteInteractiveSurface(_ surfaceKey: String) {
-        guard !surfaceKey.isEmpty, lastInteractiveSurfaceKey != surfaceKey else { return }
-        lastInteractiveSurfaceKey = surfaceKey
-        guard surfaceEventLanesActive, let independentEventWriter else { return }
-        Task { await independentEventWriter.noteInteractiveSurface(surfaceKey) }
-    }
-
     /// Writes one serialized frame until the transport completes or fails.
     /// An application deadline cannot cancel writeAll safely: it may already
     /// have sent a prefix. Native transport failure still ends the drain.

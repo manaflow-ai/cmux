@@ -139,7 +139,9 @@ enum MobileHostIrxTerminalLaneServer {
                 payload: Data()
             )
             try await writer.send(baseline)
-            // The phone keeps an input lane for the terminal it shows.
+            // This lane was admitted only after the peer and surface were
+            // authorized; the baseline establishes the phone's visible
+            // terminal before its first input frame arrives.
             await onInteractiveSurface(surfaceID)
             _ = await receiveInput(
                 surfaceID: surfaceID,
@@ -280,9 +282,12 @@ enum MobileHostIrxTerminalLaneServer {
                 }
                 for input in try MobileTerminalInputFrame.decode(from: &buffer)
                 {
-                    await onInteractiveSurface(surfaceID)
                     switch await deliverInput(input, surfaceID: surfaceID) {
                     case .continue(let acknowledgement):
+                        // Focus follows an input that the host accepted or
+                        // queued. Mismatched, unavailable, and other closing
+                        // outcomes must not release another surface's lane.
+                        await onInteractiveSurface(surfaceID)
                         if let acknowledgement {
                             try await writer.send(
                                 .inputAcknowledgement(acknowledgement)

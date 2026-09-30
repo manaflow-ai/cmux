@@ -19,8 +19,12 @@ public import Foundation
 ///   for the stuck write (iroh-ffi serializes stream calls), so recovery never
 ///   waits for it: the next send opens a fresh stream while the reset runs
 ///   in the background.
-/// - At most ``Configuration/maximumLaneCount`` lanes stay open; opening one
-///   more finishes the least recently written lane.
+/// - At most ``Configuration/maximumLaneCount`` lanes are open or opening at
+///   once. A stream waiting for the peer's credit reserves a slot, so
+///   concurrent opens cannot overshoot the negotiated limit. A send over the
+///   limit is refused instead of evicting another surface's lane.
+/// - ``release(surfaceID:belowGeneration:)`` resets a surface's lane, drops
+///   its unsent backlog, and rejects stale sends from before the release.
 /// - The focused surface's stream runs at ``Configuration/focusedPriority``;
 ///   every other surface shares ``Configuration/backgroundPriority`` with the
 ///   bulk events lane, so interactive echo is scheduled first. Priority
@@ -35,7 +39,7 @@ public actor IrxSurfaceEventLanes {
         public var stallDeadline: Duration
 
         public init(
-            maximumLaneCount: Int = 16,
+            maximumLaneCount: Int = 4,
             focusedPriority: Int32 = 100,
             backgroundPriority: Int32 = 50,
             openDeadline: Duration = .seconds(5),
@@ -53,12 +57,15 @@ public actor IrxSurfaceEventLanes {
         case disabled
         case openTimedOut
         case writeStalled
+        case laneLimit
+        case released
     }
 
     // Stream reset codes, visible to the phone as the lane's stop reason.
     public static let supersededResetCode: UInt64 = 0
     public static let writeFailedResetCode: UInt64 = 6
     public static let stalledResetCode: UInt64 = 7
+    public static let releasedResetCode: UInt64 = 8
 
     public typealias Opener = @Sendable (IrxLaneDescriptor) async throws -> any IrxEventLaneWriting
 
@@ -67,8 +74,12 @@ public actor IrxSurfaceEventLanes {
         let generation: UInt64
         let writer: any IrxEventLaneWriting
         var priority: Int32
-        var lastUse: UInt64
         var priorityUpdate: Task<Void, Never>?
+    }
+
+    private struct BackgroundOperation {
+        let task: Task<Void, Never>
+        let cancelOnShutdown: Bool
     }
 
     public nonisolated let configuration: Configuration
@@ -77,8 +88,21 @@ public actor IrxSurfaceEventLanes {
     private var lanes: [String: Lane] = [:]
     private var focusedSurfaceID: String?
     private var isEnabled = true
+    /// Changes whenever surface-lane delivery is disabled or re-enabled. An
+    /// open that started before a fallback must never install its native
+    /// stream after the fallback, even if delivery is enabled again before the
+    /// cancellation-insensitive native open returns.
+    private var enableEpoch: UInt64 = 0
     private var nextToken: UInt64 = 0
-    private var useTick: UInt64 = 0
+    private var pendingOpenCount = 0
+    /// Native finish/reset calls keep a uni stream alive until they return.
+    /// Count those calls so a blocked cleanup cannot let later focus changes
+    /// oversubscribe the peer's stream credit.
+    private var retiringLaneCount = 0
+    private var nextBackgroundOperationID: UInt64 = 0
+    private var backgroundOperations: [UInt64: BackgroundOperation] = [:]
+    /// Lowest generation a released surface may send from now on.
+    private var minimumGenerationBySurfaceID: [String: UInt64] = [:]
 
     public init(
         configuration: Configuration = Configuration(),
@@ -95,8 +119,6 @@ public actor IrxSurfaceEventLanes {
         guard isEnabled else { throw LaneError.disabled }
         let surfaceID = IrxSurfaceEventLaneProtocol().normalizedSurfaceID(rawSurfaceID)
         let lane = try await openedLane(surfaceID: surfaceID, generation: generation)
-        useTick &+= 1
-        lanes[surfaceID]?.lastUse = useTick
         let writer = lane.writer
         let result: IrxDeadlineResult<Bool>
         do {
@@ -130,7 +152,8 @@ public actor IrxSurfaceEventLanes {
     public func setEnabled(_ enabled: Bool) {
         guard isEnabled != enabled else { return }
         isEnabled = enabled
-        if !enabled { finishAll() }
+        enableEpoch &+= 1
+        if !enabled { finishAll(cancelBackgroundOperations: false) }
     }
 
     /// Finishes one surface's lane, if the lane is still `generation`'s.
@@ -139,14 +162,34 @@ public actor IrxSurfaceEventLanes {
         guard let lane = lanes[surfaceID],
               generation == nil || lane.generation == generation else { return }
         lanes.removeValue(forKey: surfaceID)
+        lane.priorityUpdate?.cancel()
         let writer = lane.writer
-        Task { await writer.finish() }
+        startRetiringOperation { await writer.finish() }
+    }
+
+    /// Resets a surface's lane and refuses sends from generations before the
+    /// caller's newly assigned generation. Reset is intentionally detached:
+    /// native stream reset can wait behind an in-flight write, while the
+    /// connection's focused-lane transition must remain bounded.
+    public func release(surfaceID rawSurfaceID: String, belowGeneration generation: UInt64) {
+        let surfaceID = IrxSurfaceEventLaneProtocol().normalizedSurfaceID(rawSurfaceID)
+        minimumGenerationBySurfaceID[surfaceID] = max(
+            generation,
+            minimumGenerationBySurfaceID[surfaceID] ?? 0
+        )
+        guard let lane = lanes[surfaceID], lane.generation < generation else { return }
+        lanes.removeValue(forKey: surfaceID)
+        lane.priorityUpdate?.cancel()
+        let writer = lane.writer
+        journal?.record("host-surface-lanes", "released", ["surface": surfaceID])
+        startRetiringOperation { await writer.reset(errorCode: Self.releasedResetCode) }
     }
 
     /// Finishes every lane and permanently refuses new ones.
     public func closeAll() {
         isEnabled = false
-        finishAll()
+        enableEpoch &+= 1
+        finishAll(cancelBackgroundOperations: true)
     }
 
     public func openSurfaceIDs() -> Set<String> { Set(lanes.keys) }
@@ -156,56 +199,123 @@ public actor IrxSurfaceEventLanes {
     }
 
     private func openedLane(surfaceID: String, generation: UInt64) async throws -> Lane {
+        guard generation >= minimumGenerationBySurfaceID[surfaceID, default: 0] else {
+            throw LaneError.released
+        }
+        // Record the newest requested generation before the native open
+        // suspends. An older open that completes later must not replace it.
+        minimumGenerationBySurfaceID[surfaceID] = generation
         if let lane = lanes[surfaceID] {
             if lane.generation == generation { return lane }
             // A newer generation means frames on the old stream may be lost;
             // never mix the chain across the two streams.
             lanes.removeValue(forKey: surfaceID)
+            lane.priorityUpdate?.cancel()
             let writer = lane.writer
-            Task { await writer.finish() }
+            startRetiringOperation { await writer.finish() }
         }
-        evictLeastRecentlyUsedLaneIfFull()
+        guard lanes.count + pendingOpenCount + retiringLaneCount < configuration.maximumLaneCount else {
+            journal?.record(
+                "host-surface-lanes", "open-refused",
+                [
+                    "surface": surfaceID,
+                    "open": String(lanes.count),
+                    "pending": String(pendingOpenCount),
+                    "retiring": String(retiringLaneCount),
+                ]
+            )
+            throw LaneError.laneLimit
+        }
         let descriptor = IrxSurfaceEventLaneProtocol().descriptor(surfaceID: surfaceID)
         let opener = open
-        // Opening waits for stream credit. The native open ignores task
-        // cancellation, so a late stream is released instead of leaked.
+        let openEpoch = enableEpoch
+        // Opening waits for stream credit. Reserve the slot across the await;
+        // otherwise concurrent sends all pass the limit check before any open
+        // completes. The native open ignores task cancellation, so a late
+        // stream is released instead of leaked.
+        pendingOpenCount += 1
         let openTask = Task { try await opener(descriptor) }
-        let result = try await withIrxDeadlineResult(configuration.openDeadline) {
-            try await openTask.value
+        let result: IrxDeadlineResult<any IrxEventLaneWriting>
+        do {
+            result = try await withIrxDeadlineResult(configuration.openDeadline) {
+                try await openTask.value
+            }
+        } catch {
+            pendingOpenCount -= 1
+            throw error
         }
         guard case .operation(let opened?) = result else {
-            Task {
+            // The native open ignores cancellation and may still consume the
+            // peer's stream credit after our deadline. Keep the slot reserved
+            // until that late stream returns and is reset; otherwise each
+            // timeout can launch another native open and recreate credit
+            // exhaustion.
+            startBackgroundOperation(cancelOnShutdown: false) { [weak self] in
                 if let late = try? await openTask.value {
                     await late.reset(errorCode: Self.supersededResetCode)
                 }
+                await self?.pendingOpenFinished()
             }
             journal?.record("host-surface-lanes", "open-timed-out", ["surface": surfaceID])
             throw LaneError.openTimedOut
         }
-        guard isEnabled else {
-            await opened.reset(errorCode: Self.supersededResetCode)
+        guard isEnabled, enableEpoch == openEpoch else {
+            pendingOpenCount -= 1
+            startRetiringOperation { await opened.reset(errorCode: Self.supersededResetCode) }
             throw LaneError.disabled
+        }
+        guard generation >= minimumGenerationBySurfaceID[surfaceID, default: 0] else {
+            pendingOpenCount -= 1
+            startRetiringOperation { await opened.reset(errorCode: Self.releasedResetCode) }
+            throw LaneError.released
         }
         if let raced = lanes[surfaceID], raced.generation == generation {
             // A concurrent send for the same generation won the open.
-            await opened.reset(errorCode: Self.supersededResetCode)
+            pendingOpenCount -= 1
+            startRetiringOperation { await opened.reset(errorCode: Self.supersededResetCode) }
             return raced
         }
-        nextToken &+= 1
         let priority = priorityFor(surfaceID: surfaceID)
         try? await opened.setPriority(priority)
+        // Setting native priority can suspend behind a stream write. The
+        // release/focus path may advance the generation while it waits, so
+        // revalidate every admission condition before committing the lane.
+        guard isEnabled, enableEpoch == openEpoch else {
+            pendingOpenCount -= 1
+            startRetiringOperation { await opened.reset(errorCode: Self.supersededResetCode) }
+            throw LaneError.disabled
+        }
+        guard generation >= minimumGenerationBySurfaceID[surfaceID, default: 0] else {
+            pendingOpenCount -= 1
+            startRetiringOperation { await opened.reset(errorCode: Self.releasedResetCode) }
+            throw LaneError.released
+        }
+        if let raced = lanes[surfaceID], raced.generation == generation {
+            pendingOpenCount -= 1
+            startRetiringOperation { await opened.reset(errorCode: Self.supersededResetCode) }
+            return raced
+        }
+        // The current native stream is still part of pendingOpenCount. It may
+        // commit only when all installed, pending, and retiring streams fit.
+        guard lanes.count + pendingOpenCount + retiringLaneCount <= configuration.maximumLaneCount else {
+            pendingOpenCount -= 1
+            startRetiringOperation { await opened.reset(errorCode: Self.supersededResetCode) }
+            throw LaneError.laneLimit
+        }
+        nextToken &+= 1
         let lane = Lane(
             token: nextToken,
             generation: generation,
             writer: opened,
-            priority: priority,
-            lastUse: useTick
+            priority: priority
         )
         if let replaced = lanes[surfaceID] {
+            replaced.priorityUpdate?.cancel()
             let writer = replaced.writer
-            Task { await writer.finish() }
+            startRetiringOperation { await writer.finish() }
         }
         lanes[surfaceID] = lane
+        pendingOpenCount -= 1
         journal?.record(
             "host-surface-lanes", "opened",
             ["surface": surfaceID, "priority": String(priority), "open": String(lanes.count)]
@@ -213,31 +323,77 @@ public actor IrxSurfaceEventLanes {
         return lane
     }
 
-    private func evictLeastRecentlyUsedLaneIfFull() {
-        while lanes.count >= configuration.maximumLaneCount,
-              let victim = lanes.min(by: { $0.value.lastUse < $1.value.lastUse }) {
-            lanes.removeValue(forKey: victim.key)
-            let writer = victim.value.writer
-            Task { await writer.finish() }
-            journal?.record("host-surface-lanes", "evicted", ["surface": victim.key])
-        }
+    private func pendingOpenFinished() {
+        pendingOpenCount = max(0, pendingOpenCount - 1)
     }
 
     private func retire(surfaceID: String, token: UInt64, errorCode: UInt64) {
         guard let lane = lanes[surfaceID], lane.token == token else { return }
         lanes.removeValue(forKey: surfaceID)
+        lane.priorityUpdate?.cancel()
         let writer = lane.writer
         // Reset crosses a cancellation-insensitive native bridge; never make
         // the caller's recovery wait on it.
-        Task { await writer.reset(errorCode: errorCode) }
+        startRetiringOperation { await writer.reset(errorCode: errorCode) }
     }
 
-    private func finishAll() {
+    private func finishAll(cancelBackgroundOperations: Bool) {
         let writers = lanes.values.map(\.writer)
+        for lane in lanes.values { lane.priorityUpdate?.cancel() }
         lanes.removeAll()
-        for writer in writers {
-            Task { await writer.finish() }
+        if cancelBackgroundOperations {
+            for operation in backgroundOperations.values where operation.cancelOnShutdown {
+                operation.task.cancel()
+            }
         }
+        for writer in writers {
+            startRetiringOperation { await writer.finish() }
+        }
+    }
+
+    private func startRetiringOperation(
+        _ operation: @escaping @Sendable () async -> Void
+    ) {
+        retiringLaneCount += 1
+        startBackgroundOperation(cancelOnShutdown: false) { [weak self] in
+            await operation()
+            await self?.retiringOperationFinished()
+        }
+    }
+
+    private func retiringOperationFinished() {
+        retiringLaneCount = max(0, retiringLaneCount - 1)
+    }
+
+    private func startBackgroundOperation(
+        cancelOnShutdown: Bool = true,
+        operation: @escaping @Sendable () async -> Void
+    ) {
+        nextBackgroundOperationID &+= 1
+        let operationID = nextBackgroundOperationID
+        let (start, startContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let task = Task { [weak self] in
+            var iterator = start.makeAsyncIterator()
+            _ = await iterator.next()
+            if cancelOnShutdown, Task.isCancelled {
+                await self?.finishBackgroundOperation(operationID)
+                return
+            }
+            await operation()
+            await self?.finishBackgroundOperation(operationID)
+        }
+        backgroundOperations[operationID] = BackgroundOperation(
+            task: task,
+            cancelOnShutdown: cancelOnShutdown
+        )
+        startContinuation.yield(())
+        startContinuation.finish()
+    }
+
+    private func finishBackgroundOperation(_ operationID: UInt64) {
+        backgroundOperations.removeValue(forKey: operationID)
     }
 
     private func priorityFor(surfaceID: String) -> Int32 {
@@ -258,6 +414,7 @@ public actor IrxSurfaceEventLanes {
         let previous = lane.priorityUpdate
         lanes[surfaceID]?.priorityUpdate = Task {
             await previous?.value
+            guard !Task.isCancelled else { return }
             try? await writer.setPriority(priority)
         }
     }

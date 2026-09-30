@@ -40,8 +40,9 @@ struct MobileHostSurfaceEventLaneTests {
             )
         )
 
-        // Surface A's replay is stuck in flight: the phone has not granted
-        // stream credit for its bytes yet.
+        // The user is looking at surface B, so it owns the one dedicated
+        // stream. Surface A's background replay remains on the shared lane.
+        await session.noteInteractiveSurface("surface-b")
         #expect(await session.sendEvent(
             topic: "terminal.render_grid",
             payload: ["surface_id": "surface-a", "full": true, "rows": ["replay"]]
@@ -90,6 +91,9 @@ struct MobileHostSurfaceEventLaneTests {
             // be sent a second one.
             #expect((acknowledgement["surface_event_lanes"] as? String) == (asks ? "v1" : nil))
 
+            if asks {
+                await session.noteInteractiveSurface("surface-a")
+            }
             #expect(await session.sendEvent(
                 topic: "terminal.render_grid",
                 payload: ["surface_id": "surface-a", "full": true]
@@ -125,6 +129,7 @@ struct MobileHostSurfaceEventLaneTests {
                 auth: nil
             )
         )
+        await session.noteInteractiveSurface("surface-a")
         #expect(await session.sendEvent(
             topic: "terminal.render_grid",
             payload: ["surface_id": "surface-a", "full": true]
@@ -153,10 +158,53 @@ struct MobileHostSurfaceEventLaneTests {
         await session.close(reason: "test complete")
     }
 
+    @Test func staleFocusContinuationCannotReprioritizeAfterANewerFocus() async throws {
+        let writer = FocusOrderingIndependentEventWriter()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: RecordingMobileHostByteTransport(),
+            independentEventWriter: writer,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        _ = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "s",
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": "events",
+                    "topics": ["terminal.render_grid"],
+                    "event_transport": "iroh_server_events_v1",
+                    "surface_event_lanes": "v1",
+                ],
+                auth: nil
+            )
+        )
+        await session.noteInteractiveSurface("surface-x")
+        #expect(await session.sendEvent(
+            topic: "terminal.render_grid",
+            payload: ["surface_id": "surface-x", "full": true]
+        ))
+
+        let first = Task { await session.noteInteractiveSurface("surface-a") }
+        await writer.waitForReleaseStart()
+        let second = Task { await session.noteInteractiveSurface("surface-b") }
+        await writer.waitForNote("surface-b")
+        await writer.releaseBlockedOperation()
+        await first.value
+        await second.value
+
+        #expect(await writer.notes() == ["surface-x", "surface-b"])
+        await session.close(reason: "test complete")
+    }
+
     @Test func surfaceLaneFallbackToControlRebasesEachSurfaceWithAFullFrame() {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid"])
         queue.enableSurfaceLanes(limit: 4)
+        _ = queue.focusSurfaceLane("s")
         let full = queue.enqueue(
             topic: "terminal.render_grid", coalesceKey: "s", isFullRenderGridFrame: true, frame: Data([1])
         )
@@ -190,6 +238,7 @@ struct MobileHostSurfaceEventLaneTests {
         // Lanes are negotiated mid-chain: a delta may not follow its base
         // onto a different stream, where it could overtake it.
         queue.enableSurfaceLanes(limit: 4)
+        _ = queue.focusSurfaceLane("s")
         let crossing = queue.enqueue(
             topic: "terminal.render_grid", coalesceKey: "s", isFullRenderGridFrame: false, frame: Data([2])
         )
@@ -210,6 +259,8 @@ struct MobileHostSurfaceEventLaneTests {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid", "workspace.updated"])
         queue.enableSurfaceLanes(limit: 2)
+        _ = queue.focusSurfaceLane("a")
+        _ = queue.focusSurfaceLane("b")
         let a = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "a", isFullRenderGridFrame: true, frame: Data([1]))
         let b = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "b", isFullRenderGridFrame: true, frame: Data([2]))
         let c = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "c", isFullRenderGridFrame: true, frame: Data([3]))
@@ -229,6 +280,7 @@ struct MobileHostSurfaceEventLaneTests {
         let queue = MobileHostConnectionEventQueue()
         queue.updateSubscribedTopics(["terminal.render_grid"])
         queue.enableSurfaceLanes(limit: 4)
+        _ = queue.focusSurfaceLane("s")
         for attempt in 0..<MobileHostConnectionEventQueue.maximumSurfaceLaneFailureCount {
             let generation = queue.surfaceLaneGeneration(surfaceID: "s")
             #expect(generation == UInt64(attempt))
@@ -343,4 +395,52 @@ actor SurfaceGatedIndependentEventWriter: MobileHostIndependentEventWriting {
               let body = envelope["payload"] as? [String: Any] else { return nil }
         return body["surface_id"] as? String
     }
+}
+
+/// Blocks one released-lane operation so two connection-owned focus
+/// transitions can re-enter the actor at the writer await boundary.
+actor FocusOrderingIndependentEventWriter: MobileHostIndependentEventWriting {
+    nonisolated let maximumSurfaceEventLaneCount = 1
+    private var blockNextRelease = true
+    private var releaseStartedWaiter: CheckedContinuation<Void, Never>?
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+    private var noteWaiters: [String: CheckedContinuation<Void, Never>] = [:]
+    private var recordedNotes: [String] = []
+
+    func probe(_: Data) async -> Bool { true }
+    func send(_: Data) async throws {}
+    func reset() async {}
+    func close() async {}
+
+    func sendSurfaceEvent(
+        _: Data,
+        surfaceID _: String,
+        generation _: UInt64
+    ) async throws {}
+
+    func releaseSurfaceLanes(_ generationsBySurfaceID: [String: UInt64]) async {
+        guard blockNextRelease, !generationsBySurfaceID.isEmpty else { return }
+        blockNextRelease = false
+        releaseStartedWaiter?.resume()
+        releaseStartedWaiter = nil
+        await withCheckedContinuation { releaseWaiter = $0 }
+    }
+
+    func noteInteractiveSurface(_ surfaceID: String) async {
+        recordedNotes.append(surfaceID)
+        noteWaiters.removeValue(forKey: surfaceID)?.resume()
+    }
+
+    func waitForReleaseStart() async {
+        guard releaseWaiter == nil else { return }
+        await withCheckedContinuation { releaseStartedWaiter = $0 }
+    }
+
+    func waitForNote(_ surfaceID: String) async {
+        guard !recordedNotes.contains(surfaceID) else { return }
+        await withCheckedContinuation { noteWaiters[surfaceID] = $0 }
+    }
+
+    func releaseBlockedOperation() { releaseWaiter?.resume(); releaseWaiter = nil }
+    func notes() -> [String] { recordedNotes }
 }

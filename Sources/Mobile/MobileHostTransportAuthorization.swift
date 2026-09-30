@@ -58,8 +58,8 @@ protocol MobileHostIndependentEventWriting: Sendable {
     func reset() async
     func close() async
 
-    /// Surface lanes put each terminal's render-grid frames on its own QUIC
-    /// stream so one terminal's burst cannot head-of-line-block another's.
+    /// Surface lanes put the focused terminal's render-grid frames on its own
+    /// QUIC stream so background output cannot head-of-line-block its echo.
     /// Only a writer that owns a multi-stream connection supports them.
     var maximumSurfaceEventLaneCount: Int { get }
     /// Writes one frame onto the surface's own stream. A throw means that
@@ -69,6 +69,12 @@ protocol MobileHostIndependentEventWriting: Sendable {
     func setSurfaceEventLanesEnabled(_ enabled: Bool) async
     /// Raises the stream priority of the surface the user is interacting with.
     func noteInteractiveSurface(_ surfaceID: String) async
+    /// Resets streams that lost focus and rejects stale generations.
+    func releaseSurfaceLanes(_ generationsBySurfaceID: [String: UInt64]) async
+    /// Routes input-lane focus to the connection that owns lane assignment.
+    func setInteractiveSurfaceHandler(
+        _ handler: (@Sendable (String) async -> Void)?
+    ) async
 }
 
 extension MobileHostIndependentEventWriting {
@@ -81,6 +87,12 @@ extension MobileHostIndependentEventWriting {
     func setSurfaceEventLanesEnabled(_: Bool) async {}
 
     func noteInteractiveSurface(_: String) async {}
+
+    func releaseSurfaceLanes(_: [String: UInt64]) async {}
+
+    func setInteractiveSurfaceHandler(
+        _: (@Sendable (String) async -> Void)?
+    ) async {}
 }
 
 final class MobileHostConnectionRegistry: @unchecked Sendable {

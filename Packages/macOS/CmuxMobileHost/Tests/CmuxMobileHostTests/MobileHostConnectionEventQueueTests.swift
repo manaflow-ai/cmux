@@ -109,6 +109,7 @@ struct MobileHostConnectionEventQueueTests {
         let queue = MobileHostConnectionEventQueue(maximumEventCount: 1_000, maximumByteCount: 1_000_000)
         queue.updateSubscribedTopics(["device.terminal.grid", "terminal.bytes", "terminal.render_grid"])
         queue.enableSurfaceLanes(limit: 2)
+        _ = queue.focusSurfaceLane("s1")
         var expectedShared: [UInt8] = []
         var expectedSurface: [UInt8] = []
         for step in 0..<200 {
@@ -139,6 +140,129 @@ struct MobileHostConnectionEventQueueTests {
         #expect(shared == expectedShared)
         #expect(queue.count == 0)
         #expect(queue.byteCount == 0)
+    }
+
+    @Test("Background output never reassigns the focused surface lane")
+    func backgroundOutputDoesNotChurnSurfaceLanes() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        _ = queue.focusSurfaceLane("focused")
+
+        let focused = queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "focused",
+            isFullRenderGridFrame: true,
+            frame: Data([1])
+        )
+        #expect(focused.drainLane == .surface("focused"))
+        #expect(queue.dequeue(lane: .surface("focused")) != nil)
+        #expect(!queue.finishDrain(lane: .surface("focused")))
+
+        let background = queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "background",
+            isFullRenderGridFrame: true,
+            frame: Data([2])
+        )
+        #expect(background.drainLane == .shared)
+        #expect(queue.dequeue(lane: .shared)?.frame == Data([2]))
+    }
+
+    @Test("Evicting a surface drops queued frames with older key spellings")
+    func evictingSurfaceCanonicalizesQueuedKeys() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        _ = queue.focusSurfaceLane("surface")
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "surface",
+            isFullRenderGridFrame: true,
+            frame: Data([1])
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "SURFACE",
+            isFullRenderGridFrame: true,
+            frame: Data([2])
+        ).admitted)
+
+        let released = queue.focusSurfaceLane("other")
+        #expect(Set(released.keys) == Set(["SURFACE"]))
+        #expect(queue.dequeue(lane: .surface("surface")) == nil)
+        #expect(queue.dequeue(lane: .surface("SURFACE")) == nil)
+    }
+
+    @Test("Surface lane generation and poison use one canonical identity")
+    func surfaceLaneStateCanonicalizesFocusAndRenderKeys() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        _ = queue.focusSurfaceLane("  ABC  ")
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "abc",
+            isFullRenderGridFrame: true,
+            frame: Data([1])
+        ).drainLane == .surface("abc"))
+        _ = queue.dequeue(lane: .surface("abc"))
+
+        let released = queue.focusSurfaceLane("other")
+        #expect(released["abc"] == 1)
+        #expect(queue.surfaceLaneGeneration(surfaceID: " ABC ") == 1)
+
+        // The eviction poison must catch another spelling of the same ID.
+        let staleDelta = queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: " ABC ",
+            isFullRenderGridFrame: false,
+            frame: Data([2])
+        )
+        #expect(!staleDelta.admitted)
+        #expect(staleDelta.renderGridResyncSurfaceIDs.isEmpty)
+
+        // A full frame on the shared route rebases the canonical chain.
+        let full = queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: "abc",
+            isFullRenderGridFrame: true,
+            frame: Data([3])
+        )
+        #expect(full.admitted)
+        #expect(full.drainLane == .shared)
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid",
+            coalesceKey: " ABC ",
+            isFullRenderGridFrame: false,
+            frame: Data([4])
+        ).admitted)
+    }
+
+    @Test("A temporary native lane limit pins the surface to shared output")
+    func laneLimitFallsBackToSharedAndRequestsARebase() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 1)
+        _ = queue.focusSurfaceLane("surface")
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "surface",
+            isFullRenderGridFrame: true, frame: Data([1])
+        ).admitted)
+
+        #expect(queue.pinSurfaceLaneToShared(surfaceID: " SURFACE ", generation: 0) == ["surface"])
+        #expect(queue.dequeue(lane: .surface("surface")) == nil)
+        #expect(queue.surfaceLaneGeneration(surfaceID: "surface") == 1)
+        #expect(!queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "surface",
+            isFullRenderGridFrame: false, frame: Data([2])
+        ).admitted)
+        let full = queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "surface",
+            isFullRenderGridFrame: true, frame: Data([3])
+        )
+        #expect(full.admitted)
+        #expect(full.drainLane == .shared)
     }
 
     @Test("A lane that stays backlogged keeps its order storage bounded")

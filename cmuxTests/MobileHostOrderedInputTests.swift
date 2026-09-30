@@ -104,14 +104,16 @@ struct MobileHostOrderedInputTests {
         // slow request must not block typing on another. Surface ids are
         // UUIDs because the ordering key is the canonical terminal UUID; an
         // id that does not parse falls into the shared no-terminal bucket.
+        let surface1 = "00000000-0000-0000-0000-000000000001"
+        let surface2 = "00000000-0000-0000-0000-000000000002"
         let batch = try Self.framedBatch(
             [
                 ("input-1", "terminal.input"),
                 ("input-2", "terminal.input"),
             ],
             surfaceIDsByRequestID: [
-                "input-1": UUID().uuidString,
-                "input-2": UUID().uuidString,
+                "input-1": surface1,
+                "input-2": surface2,
             ]
         )
 
