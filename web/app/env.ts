@@ -224,6 +224,10 @@ export const env = createEnv({
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // Svix signing secret (`whsec_...`) for the Stack Auth webhook endpoint
+    // `/api/webhooks/stack`. Optional: when unset the route answers 503 and
+    // team removal is enforced only by the reconcile cron.
+    STACK_WEBHOOK_SECRET: z.string().min(1).optional(),
     // Price-id overrides carry the amount in their name, and every retired
     // name fails env validation instead of silently pinning checkout to a
     // grandfathered Price (Stripe amounts are immutable; see plans.ts).
@@ -447,6 +451,7 @@ export const env = createEnv({
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
+    STACK_WEBHOOK_SECRET: trimEnv(process.env.STACK_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
     STRIPE_PRO_MONTHLY_50_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_50_PRICE_ID),
     STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
