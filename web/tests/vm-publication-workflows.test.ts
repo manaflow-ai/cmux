@@ -268,6 +268,44 @@ describe("Cloud VM publication workflows", () => {
     expect(providerCalled).toBeFalse();
   });
 
+  test("never publishes the cmux-tui daemon port", async () => {
+    // Port 1337 is the VM's cmux-tui daemon, which trusts every carrier link
+    // (it is reached only over the private VPC). Publishing it would hand
+    // terminal control of the VM to anyone who can reach the publication.
+    let repositoryCalled = false;
+    let providerCalled = false;
+    const repository = fakeRepository({
+      listOwnedDomains: () => {
+        repositoryCalled = true;
+        return Effect.succeed([]);
+      },
+    });
+    const provider = fakeProvider({
+      createDomainVerification: () => {
+        providerCalled = true;
+        return Effect.succeed(verification);
+      },
+    });
+    for (const accessMode of ["public", "personal"] as const) {
+      const result = await Effect.runPromise(Effect.either(createPublication({
+        principal: { userId: "owner-1", teamIds: [] },
+        providerVmId: "vm-provider-1",
+        port: 1337,
+        accessMode,
+        now: NOW,
+      }).pipe(
+        Effect.provideService(CloudVmPublicationRepository, repository),
+        Effect.provideService(VmPublicationProvider, provider),
+      )));
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") {
+        expect(result.left).toMatchObject({ _tag: "PublicationInputError", field: "port" });
+      }
+    }
+    expect(repositoryCalled).toBeFalse();
+    expect(providerCalled).toBeFalse();
+  });
+
   test("mints generated names under the configured zone and keeps that zone reserved", async () => {
     const reserved: string[] = [];
     const repository = fakeRepository({
