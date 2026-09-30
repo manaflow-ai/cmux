@@ -6,10 +6,16 @@ import Foundation
 public final class CloudProviderRefreshCoordinator {
     public nonisolated init() {}
 
+    private struct PassResult {
+        let value: Bool
+        let lifetime: UInt64
+        let invalidation: UInt64
+    }
+
     private struct Entry {
         let request: UInt64
         let forced: Bool
-        let task: Task<Bool, Never>
+        let task: Task<PassResult, Never>
     }
 
     private var inFlight: Entry?
@@ -34,9 +40,18 @@ public final class CloudProviderRefreshCoordinator {
         var shouldCoalesceTrailingPass = false
         while !Task.isCancelled, epoch == lifetime {
             if let entry = inFlight {
-                let result = await entry.task.value
+                let outcome = await entry.task.value
+                let result = outcome.value
                 if inFlight?.task == entry.task { inFlight = nil }
                 guard !Task.isCancelled, epoch == lifetime else { return false }
+                // The pass can finish just before an invalidation is
+                // delivered. Its waiter must not return or cache that stale
+                // result; let the next pass observe the new metadata.
+                guard outcome.lifetime == lifetime,
+                      outcome.invalidation == invalidation else {
+                    shouldCoalesceTrailingPass = force
+                    continue
+                }
                 if !force || (entry.forced && entry.request >= request) { return result }
                 shouldCoalesceTrailingPass = true
                 continue
@@ -66,7 +81,9 @@ public final class CloudProviderRefreshCoordinator {
                 while let self, !Task.isCancelled, epoch == self.lifetime {
                     let revision = self.invalidation
                     let result = await operation(force)
-                    guard !Task.isCancelled, epoch == self.lifetime else { return false }
+                    guard !Task.isCancelled, epoch == self.lifetime else {
+                        return PassResult(value: false, lifetime: epoch, invalidation: revision)
+                    }
                     // Metadata superseded this pass. Readers stay attached to
                     // the owner until a pass over the current metadata finishes.
                     if revision == self.invalidation {
@@ -78,10 +95,10 @@ public final class CloudProviderRefreshCoordinator {
                                 result: result
                             )
                         }
-                        return result
+                        return PassResult(value: result, lifetime: epoch, invalidation: revision)
                     }
                 }
-                return false
+                return PassResult(value: false, lifetime: epoch, invalidation: self?.invalidation ?? 0)
             }
             // Covers all forced readers already waiting, so a burst shares
             // one trailing pass instead of issuing one snapshot per waiter.

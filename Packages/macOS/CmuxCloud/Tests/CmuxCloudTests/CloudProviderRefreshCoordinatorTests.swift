@@ -126,6 +126,35 @@ struct CloudProviderRefreshCoordinatorTests {
         #expect(calls == 2)
     }
 
+    @Test("Invalidation cannot be undone by a waiter that resumes late")
+    func invalidationDoesNotAllowStaleForcedPublication() async {
+        let coordinator = CloudProviderRefreshCoordinator()
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        var calls = 0
+        let operation: @MainActor (Bool) async -> Bool = { _ in
+            calls += 1
+            if calls == 1 {
+                started.resolve(true)
+                _ = await release.result
+            }
+            return true
+        }
+
+        let first = Task { await coordinator.refresh(force: true, operation: operation) }
+        _ = await started.result
+        let second = Task { await coordinator.refresh(force: true, operation: operation) }
+        release.resolve(true)
+        // Let the pass finish, then invalidate before either waiter is
+        // guaranteed to resume. A waiter must not republish that old result.
+        coordinator.invalidate()
+        #expect(await first.value)
+        #expect(await second.value)
+
+        #expect(await coordinator.refresh(force: true, operation: operation))
+        #expect(calls == 3)
+    }
+
     @Test("A metadata change restarts an invalidated pass before releasing its readers")
     func invalidatedPassFinishesWithTheCurrentGraph() async {
         let coordinator = CloudProviderRefreshCoordinator()
