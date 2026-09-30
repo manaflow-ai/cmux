@@ -117,7 +117,9 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
     if (!prepared) {
       try { prepared = prepare(measurementText(block), MEASURE_FONT, { whiteSpace: "pre-wrap" }); entry.blocks.set(block, prepared); } catch { return fallbackRowHeight(row, width); }
     }
-    contentHeight += layout(prepared, contentWidth, MESSAGE_LINE_HEIGHT).height;
+    const codeBlock = block.startsWith("```");
+    const blockWidth = codeBlock ? Math.max(40, contentWidth - 18) : contentWidth;
+    contentHeight += layout(prepared, blockWidth, MESSAGE_LINE_HEIGHT).height + (codeBlock ? 18 : 0);
   }
   return Math.max(34, 16 + contentHeight + Math.max(0, blocks.length - 1) * 8);
 }
