@@ -125,6 +125,12 @@ public struct RemoteRelayCommandPolicy: Sendable {
             return denial
         }
 
+        if method == "surface.send_key" || method == "surface.input_state" {
+            guard ownedID(params["surface_id"], aliases: surfaceAliases) != nil else {
+                return .deny(reason: "surface method requires an owned surface_id")
+            }
+        }
+
         if let malformedSelector = malformedSelector(in: params, key: nil) {
             return .deny(reason: "selector '\(malformedSelector)' is invalid")
         }

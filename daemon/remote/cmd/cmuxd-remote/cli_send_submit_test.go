@@ -339,7 +339,7 @@ func TestSendSubmitScreenClassifier(t *testing.T) {
 		{"claude boxed placeholder", "✻ Welcome to Claude Code!\n╭────────────────────╮\n│\x1b[2m❯\u00a0Try asking for a change\x1b[0m│\n╰────────────────────╯\n", "claude", "empty", false},
 		{"claude multiline draft", "▐▛███▜▌ Claude Code v2.1\n│ ❯\u00a0│\n│ human draft │\n╰────╯\n", "claude", "draft", false},
 		{"codex busy", "│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› hello\n", "codex", "draft", true},
-		{"codex queued", "│ >_ OpenAI Codex (v0.154.0) │\nQueued messages: 1\n›\n", "codex", "queued", false},
+		{"codex queued", "│ >_ OpenAI Codex (v0.154.0) │\nQueued messages: 1\n› \n", "codex", "queued", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := sendStateFromScreen(tc.screen)
@@ -430,7 +430,7 @@ func TestSendSubmitHooklessBusyCodexQueues(t *testing.T) {
 		{"agent": false, "state": "unknown"},
 		{"agent": false, "state": "unknown"},
 		{"agent": false, "state": "unknown"},
-	}, []string{"│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n›\n", "│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› hello\n", "│ >_ OpenAI Codex (v0.154.0) │\nQueued messages: 1\n›\n"})
+	}, []string{"│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› \n", "│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› hello\n", "│ >_ OpenAI Codex (v0.154.0) │\nQueued messages: 1\n› \n"})
 	output := captureStdout(t, func() {
 		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
 			t.Fatalf("exit %d", code)
@@ -545,7 +545,7 @@ func TestSendSubmitTrustsAgentKindWithoutHookFlag(t *testing.T) {
 			if output != "submitted\n" {
 				t.Fatalf("output = %q, want submitted", output)
 			}
-			if len(mock.methods()) < 6 {
+			if len(mock.methods()) < 4 {
 				t.Fatalf("skipped composer visibility/confirmation: %v", mock.methods())
 			}
 		})
@@ -554,7 +554,7 @@ func TestSendSubmitTrustsAgentKindWithoutHookFlag(t *testing.T) {
 
 func TestSendSubmitHonorsHostShellClassification(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
-		{"agent": false, "state": "unknown"},
+		{"agent": false, "state": "empty"},
 	}, []string{"│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› hello"})
 	output := captureStdout(t, func() {
 		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {

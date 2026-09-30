@@ -253,6 +253,17 @@ struct AgentPromptInputDetectorTests {
         #expect(snapshot.busy)
     }
 
+    @Test("Prompt shapes identify hookless panes without banners")
+    func promptShapesWithoutBanners() {
+        let claude = AgentPromptSubmissionSnapshot(screenText: "❯\u{00A0}")
+        #expect(claude.agentKind == .claude)
+        let codex = AgentPromptSubmissionSnapshot(screenText: "› Ask Codex to do anything")
+        #expect(codex.agentKind == .codex)
+        let bannerOnly = AgentPromptSubmissionSnapshot(screenText: "OpenAI Codex\nClaude Code")
+        #expect(bannerOnly.agentKind == nil)
+        #expect(bannerOnly.state == .unknown)
+    }
+
     @Test("Real Claude and Codex prompt shapes identify hookless panes")
     func realPromptShapesWithoutBanner() {
         let claude = AgentPromptSubmissionSnapshot(screenText: "✻ Welcome to Claude Code!\n\u{276F}\u{00A0}")

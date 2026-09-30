@@ -249,7 +249,7 @@ extension CMUXCLI {
         pasteParams["text"] = text
         pasteParams["submit_key"] = "none"
         _ = try client.sendV2(method: "terminal.paste", params: pasteParams)
-        let agent = (state?["agent"] as? Bool) == true
+        let agent = Self.stateHasKnownAgent(state)
         // Ghostty queues paste bytes before the next key event. Wait for the
         // composer to show the pasted block before submitting; an unchanged
         // empty snapshot can be the pre-paste state returned while the PTY is
@@ -357,7 +357,18 @@ extension CMUXCLI {
             let slashPopupBeforeKey = (state?["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)
             var keyParams = target
             keyParams["key"] = key
-            _ = try client.sendV2(method: "surface.send_key", params: keyParams)
+            do {
+                _ = try client.sendV2(method: "surface.send_key", params: keyParams)
+            } catch {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.send.error.submitUnconfirmed",
+                        defaultValue: "%@: text was pasted but the submit key failed: %@; do not paste it again without checking the target"
+                    ),
+                    command,
+                    String(describing: error)
+                ))
+            }
             Thread.sleep(forTimeInterval: 0.1 * Double(attempt + 1))
 
             // Plain shells have no composer to inspect. The separate key was
@@ -490,7 +501,7 @@ extension CMUXCLI {
     private func sendStateIsConfirmed(_ state: [String: Any]?, screen: String?) -> Bool {
         let observed = state ?? screen.flatMap(Self.submitInputStateFromScreen)
         guard let observed,
-              (observed["agent"] as? Bool) == true,
+              Self.stateHasKnownAgent(observed),
               !((observed["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)) else {
             return false
         }
@@ -533,6 +544,14 @@ extension CMUXCLI {
             command,
             surface
         ))
+    }
+
+    private static func stateHasKnownAgent(_ state: [String: Any]?) -> Bool {
+        guard let state else { return false }
+        if (state["agent"] as? Bool) == true { return true }
+        guard let rawKind = state["agent_kind"] as? String else { return false }
+        let kind = rawKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return kind == "claude" || kind == "codex"
     }
 
     private static func screenLooksLikeCodex(_ screen: String?) -> Bool {

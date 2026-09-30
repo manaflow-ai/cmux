@@ -6343,6 +6343,10 @@ class TerminalController {
         }
     }
 
+    // The three feed reply handlers are internal (not private) because the
+    // mobile data plane dispatches the same bodies from
+    // `TerminalController+MobileFeed.swift`'s verb family; every entrypoint
+    // resolves through the single `FeedCoordinator.deliverReply` path.
     nonisolated func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
         guard let requestId = params["request_id"] as? String else {
             return .err(
@@ -15901,10 +15905,6 @@ class TerminalController {
         if let answer = mobileInputAdmissionAnswer(delivery, workspaceID: resolved.workspace.id, surfaceID: surfaceId) {
             return answer
         }
-        guard mobileTerminalPasteInFlightSurfaceIDs.insert(surfaceId).inserted else {
-            return .err(code: "busy", message: "A prompt is already being submitted to this terminal", data: nil)
-        }
-        defer { mobileTerminalPasteInFlightSurfaceIDs.remove(surfaceId) }
         let deltaLines = (params["delta_lines"] as? NSNumber)?.doubleValue ?? 0
         let col = (params["col"] as? NSNumber)?.intValue ?? 0
         let row = (params["row"] as? NSNumber)?.intValue ?? 0
@@ -16172,6 +16172,10 @@ class TerminalController {
         if let answer = mobileInputAdmissionAnswer(delivery, workspaceID: resolved.workspace.id, surfaceID: surfaceId) {
             return answer
         }
+        guard mobileTerminalPasteInFlightSurfaceIDs.insert(surfaceId).inserted else {
+            return .err(code: "busy", message: "A prompt is already being submitted to this terminal", data: nil)
+        }
+        defer { mobileTerminalPasteInFlightSurfaceIDs.remove(surfaceId) }
 
         // Mirror the macOS TextBox composer's submit-key selection
         // (`TextBoxInput.dispatchEvents`): Claude Code needs `ctrl+enter` to
@@ -16225,16 +16229,30 @@ class TerminalController {
         // tell the user the submit keypress is still needed.
         var submitted = false
         var submitError: String?
+        let pasteSurfaceGeneration = terminalTarget.surface.runtimeSurfaceGeneration
         if let submitKeyName {
             // Keep paste and submit in separate input turns for editors that
             // briefly protect the composer after a paste.
             do { try await Task.sleep(for: .milliseconds(150)) } catch {
                 return .ok(["workspace_id": resolved.workspace.id.uuidString, "surface_id": surfaceId.uuidString, "submitted": false, "submit_error": "cancelled"])
             }
+            guard let refreshed = mobileCanonicalTerminalTarget(params: params),
+                  refreshed.surfaceID == surfaceId,
+                  refreshed.target.surface === terminalTarget.surface,
+                  refreshed.target.surface.runtimeSurfaceGeneration == pasteSurfaceGeneration,
+                  remoteRelayTargetIsCurrent(
+                      routing: routing,
+                      workspace: refreshed.workspace,
+                      surfaceID: refreshed.surfaceID
+                  ) else {
+                return .ok(["workspace_id": resolved.workspace.id.uuidString, "surface_id": surfaceId.uuidString, "submitted": false, "submit_error": "surface_unavailable"])
+            }
+            let submitTarget = refreshed.target
+            let submitRemotePane = refreshed.workspace.remoteTmuxControlPane(surfaceID: surfaceId)
             let keyAccepted: Bool
             let keyFailure: String?
-            if let remotePane {
-                switch remotePane.sendKey(submitKeyName) {
+            if let submitRemotePane {
+                switch submitRemotePane.sendKey(submitKeyName) {
                 case .sent:
                     keyAccepted = true
                     keyFailure = nil
@@ -16246,7 +16264,7 @@ class TerminalController {
                     keyFailure = "unknown_key"
                 }
             } else {
-                let keyResult = terminalTarget.sendNamedKeyResult(submitKeyName)
+                let keyResult = submitTarget.sendNamedKeyResult(submitKeyName)
                 keyAccepted = keyResult.accepted
                 if keyResult.accepted {
                     keyFailure = nil
@@ -16267,6 +16285,12 @@ class TerminalController {
         }
 
         terminalTarget.forceRefresh(reason: "mobileHost.terminalPaste")
+
+        if submitted,
+           let rawEventID = v2String(params, "feed_event_id"),
+           let eventID = UUID(uuidString: rawEventID) {
+            _ = FeedCoordinator.shared.store?.recordTerminalReply(eventID, text: text)
+        }
 
         #if DEBUG
         cmuxDebugLog(

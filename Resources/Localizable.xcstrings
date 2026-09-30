@@ -595595,49 +595595,49 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@: %2$@؛ لم يتم تأكيد الإرسال"
+            "value": "%1$@: %2$@؛ قد يكون النص قد أُرسل بالفعل؛ لا تلصقه مرة أخرى قبل التحقق من الهدف"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: %@; die Übermittlung wurde nicht bestätigt"
+            "value": "%@: %@; der Text wurde möglicherweise bereits gesendet; fügen Sie ihn nicht erneut ein, ohne das Ziel zu prüfen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@: %2$@; no se confirmó el envío"
+            "value": "%1$@: %2$@; es posible que el texto ya se haya enviado; no lo pegues de nuevo sin comprobar el destino"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ : %@ ; l’envoi n’a pas été confirmé"
+            "value": "%@ : %@ ; le texte a peut-être déjà été envoyé ; ne le collez pas à nouveau sans vérifier la cible"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: %@; 送信を確認できませんでした"
+            "value": "%@: %@; テキストはすでに送信されている可能性があります。対象を確認せずに再度貼り付けないでください"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: %@; 제출이 확인되지 않았습니다"
+            "value": "%@: %@; 텍스트가 이미 전송되었을 수 있습니다. 대상을 확인하지 않고 다시 붙여넣지 마세요"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@：%@；未确认提交"
+            "value": "%@：%@；文本可能已提交；请先检查目标，不要再次粘贴"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@：%@；未確認提交"
+            "value": "%@：%@；文字可能已提交；請先檢查目標，不要再次貼上"
           }
         }
       }

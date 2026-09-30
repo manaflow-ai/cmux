@@ -209,7 +209,9 @@ func inspectSendTarget(socketPath string, target map[string]any, refreshAddr fun
 		// hookless human draft still cannot be overwritten.
 		if screen != "" {
 			fallback := sendStateFromScreen(screen)
-			if !sendStateAgent(state) && sendStateAgent(fallback) {
+			_, hostReportedAgent := state["agent"]
+			hostStateUnknown := stateString(state, "state") == "" || stateString(state, "state") == "unknown"
+			if (!hostReportedAgent || hostStateUnknown) && sendStateAgent(fallback) && stateString(state, "agent_kind") == "" {
 				state = fallback
 			} else if sendStateAgent(state) {
 				for _, key := range []string{"agent_kind", "busy", "lifecycle", "slash_popup"} {
@@ -306,7 +308,13 @@ func sendStateBlocksText(state map[string]any) bool {
 	return sendStateDialog(state) || stateString(state, "state") == "draft" || boolValue(state, "blocks_typing")
 }
 
-func sendStateAgent(state map[string]any) bool { return boolValue(state, "agent") }
+func sendStateAgent(state map[string]any) bool {
+	if boolValue(state, "agent") {
+		return true
+	}
+	kind := strings.ToLower(strings.TrimSpace(stateString(state, "agent_kind")))
+	return kind == "claude" || kind == "codex"
+}
 func sendStateDialog(state map[string]any) bool {
 	return sendStateAgent(state) && stateString(state, "state") == "dialog"
 }
@@ -335,55 +343,58 @@ var sendANSISequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]
 
 func sendStateFromScreen(screen string) map[string]any {
 	clean := sendANSISequence.ReplaceAllString(screen, "")
-	lower := strings.ToLower(clean)
 	lines := strings.Split(clean, "\n")
 	state := map[string]any{"state": "unknown", "agent": false, "blocks_typing": false}
-	kind := ""
-	if sendScreenBrand(clean) == "codex" {
-		kind = "codex"
-	} else if sendScreenBrand(clean) == "claude" {
-		kind = "claude"
-	}
 	promptIndex := -1
+	kind := ""
 	body := ""
 	for i := len(lines) - 1; i >= 0; i-- {
-		rawLine := strings.Trim(lines[i], " \t│")
+		rawLine := strings.TrimLeft(lines[i], " \t│")
 		line := trimSendBox(lines[i])
-		if strings.HasPrefix(rawLine, "❯\u00a0") || strings.HasPrefix(rawLine, "›") || (kind == "claude" && strings.HasPrefix(line, "❯")) || (kind == "codex" && strings.HasPrefix(line, "> ")) {
-			promptIndex = i
-			body = promptBody(line)
-			if kind == "" {
-				if strings.HasPrefix(rawLine, "❯\u00a0") {
-					kind = "claude"
-				} else {
-					kind = "codex"
-				}
-			}
-			break
+		switch {
+		case strings.HasPrefix(rawLine, "❯\u00a0"):
+			promptIndex, kind, body = i, "claude", promptBody(line)
+		case strings.HasPrefix(rawLine, "› "):
+			promptIndex, kind, body = i, "codex", promptBody(line)
 		}
-	}
-	if kind == "" {
-		return state
-	}
-	state["agent"], state["agent_kind"] = true, kind
-	busy := strings.Contains(lower, "esc to interrupt") || strings.Contains(lower, "tab to queue") || strings.Contains(lower, "tab to enqueue")
-	state["busy"] = busy
-	if busy {
-		state["lifecycle"] = "running"
-	}
-	for _, hint := range []string{"esc to cancel", "esc to go back", "enter to confirm", "enter to select", "press enter to continue", "do you want to proceed", "allow this tool"} {
-		if strings.Contains(lower, hint) && !sendScreenShowsSlashPopup(clean) {
-			state["state"], state["blocks_typing"] = "dialog", true
-			return state
+		if promptIndex >= 0 {
+			break
 		}
 	}
 	if promptIndex < 0 {
 		return state
 	}
+	state["agent"], state["agent_kind"] = true, kind
+	start := maxSend(0, promptIndex-2)
+	end := minSend(len(lines), promptIndex+3)
+	busy := false
+	for _, line := range lines[start:end] {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if strings.Contains(lower, "esc to interrupt") || strings.Contains(lower, "tab to queue") || strings.Contains(lower, "tab to enqueue") {
+			busy = true
+		}
+	}
+	state["busy"] = busy
+	if busy {
+		state["lifecycle"] = "running"
+	}
+	nonEmpty := 0
+	for i := promptIndex + 1; i < len(lines) && nonEmpty < 6; i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		nonEmpty++
+		lower := strings.ToLower(line)
+		for _, hint := range []string{"esc to cancel", "esc to go back", "enter to confirm", "enter to select", "press enter to continue", "do you want to proceed", "allow this tool"} {
+			if strings.Contains(lower, hint) && !sendScreenShowsSlashPopup(clean) {
+				state["state"], state["blocks_typing"] = "dialog", true
+				return state
+			}
+		}
+	}
 	normalized := strings.ToLower(body)
 	placeholder := kind == "codex" && (normalized == "ask codex to do anything" || normalized == "ask codex anything" || normalized == "ask codex to do something")
-	// Keep normal user text such as "Try fixing the tests" as a draft. Only
-	// an explicitly faint hint row may use Claude's changing placeholder.
 	rawLines := strings.Split(screen, "\n")
 	if promptIndex < len(rawLines) && strings.Contains(rawLines[promptIndex], "\x1b[2m") && (strings.HasPrefix(normalized, "try ") || strings.HasPrefix(normalized, "ask ")) {
 		placeholder = true
@@ -396,8 +407,7 @@ func sendStateFromScreen(screen string) map[string]any {
 		if !strings.HasPrefix(trimmed, "│") {
 			break
 		}
-		continuation := trimSendBox(line)
-		if continuation != "" {
+		if continuation := trimSendBox(line); continuation != "" {
 			body += "\n" + continuation
 		}
 	}
@@ -406,23 +416,24 @@ func sendStateFromScreen(screen string) map[string]any {
 		state["state"], state["blocks_typing"] = "draft", true
 	}
 	state["slash_popup"] = sendScreenShowsSlashPopup(clean)
+	lower := strings.ToLower(clean)
 	if strings.Contains(lower, "queued messages:") || strings.Contains(lower, "message queued") || strings.Contains(lower, "queued message") {
 		state["queued"], state["state"] = true, "queued"
 	}
 	return state
 }
 
-func sendScreenBrand(screen string) string {
-	for _, line := range strings.Split(screen, "\n") {
-		trimmed := strings.ToLower(trimSendBox(line))
-		if strings.HasPrefix(trimmed, "openai codex") || trimmed == "codex" || strings.HasPrefix(trimmed, "codex v") {
-			return "codex"
-		}
-		if strings.HasPrefix(trimmed, "claude code") {
-			return "claude"
-		}
+func maxSend(a, b int) int {
+	if a > b {
+		return a
 	}
-	return ""
+	return b
+}
+func minSend(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func trimSendBox(line string) string {

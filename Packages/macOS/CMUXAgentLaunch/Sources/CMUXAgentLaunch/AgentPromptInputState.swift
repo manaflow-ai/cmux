@@ -162,7 +162,6 @@ private extension AgentPromptSubmissionSnapshot {
         let promptRow = plainRows.lastIndex(where: { promptPrefix(in: $0) != nil })
         let detectedKind = agentKindHint
             ?? promptRow.flatMap { self.agentKind(for: plainRows[$0]) }
-            ?? inferredAgentKind(from: plainRows)
 
         let hintSearchStart = promptRow.map { $0 + 1 } ?? 0
         let bottomRows = Array(plainRows[hintSearchStart...].reversed()

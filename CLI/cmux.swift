@@ -21119,6 +21119,18 @@ struct CMUXCLI {
             print(verbText)
             return true
         }
+        if command == "agent", let verb = commandArgs.first?.lowercased() {
+            switch verb {
+            case "message", "msg":
+                print(Self.agentMessageHelp)
+                return true
+            case "inbox":
+                print(Self.agentInboxHelp)
+                return true
+            default:
+                break
+            }
+        }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
         print("")
