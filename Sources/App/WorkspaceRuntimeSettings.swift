@@ -279,6 +279,19 @@ enum AgentHibernationSettings {
     static let defaultMaxLiveTerminals = 12
     static let defaultConfirmationSeconds: TimeInterval = 60
     static let didChangeNotification = Notification.Name("cmux.agentHibernationSettingsDidChange")
+    static let settledAutoCloseEnabledKey = "terminal.settledSessionAutoClose.enabled"
+    static let settledAutoCloseIdleHoursKey = "terminal.settledSessionAutoClose.idleHours"
+    static let settledAutoCloseDefaultIdleHours = 2.0
+
+    static func settledAutoCloseEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: settledAutoCloseEnabledKey) != nil && defaults.bool(forKey: settledAutoCloseEnabledKey)
+    }
+
+    static func settledAutoCloseIdleHours(defaults: UserDefaults = .standard) -> Double {
+        let value = defaults.double(forKey: settledAutoCloseIdleHoursKey)
+        guard value.isFinite, value > 0 else { return settledAutoCloseDefaultIdleHours }
+        return min(max(value, 1), 168)
+    }
 
     static func values(defaults: UserDefaults = .standard) -> Values {
         Values(

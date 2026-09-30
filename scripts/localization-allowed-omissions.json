@@ -3506,5 +3506,11 @@
       "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
     }
+  },
+  "command.closeSettledSessions.subtitle": {
+    "source": "Sessions",
+    "identityLocales": {
+      "fr": "French uses the same UI noun for sessions; the translated catalog entry is still required."
+    }
   }
 }

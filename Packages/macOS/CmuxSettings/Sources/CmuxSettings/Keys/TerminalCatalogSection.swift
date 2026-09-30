@@ -122,6 +122,20 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.agentHibernation.maxLiveTerminals"
     )
 
+    /// Whether settled agent sessions may be closed automatically.
+    public let settledSessionAutoCloseEnabled = DefaultsKey<Bool>(
+        id: "terminal.settledSessionAutoClose.enabled",
+        defaultValue: false,
+        userDefaultsKey: "terminal.settledSessionAutoClose.enabled"
+    )
+
+    /// Hours a settled session remains idle before auto-close.
+    public let settledSessionAutoCloseIdleHours = DefaultsKey<Double>(
+        id: "terminal.settledSessionAutoClose.idleHours",
+        defaultValue: 2,
+        userDefaultsKey: "terminal.settledSessionAutoClose.idleHours"
+    )
+
     /// Whether off-screen terminals release their GPU renderer memory while
     /// idle (rebuilt instantly on re-show). Non-destructive; on by default.
     public let rendererRealizationEnabled = DefaultsKey<Bool>(

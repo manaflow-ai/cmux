@@ -929,6 +929,7 @@ struct ContentView: View {
     // Non-observed: flush pacing must not invalidate the view.
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
+    @State private var settledSessionCount = 0
     @State private var lastReconciledPortalRenderingStatesByWorkspaceId: [UUID: Bool] = [:]
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
@@ -7631,6 +7632,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.closeSettledSessions",
+                title: constant(String(localized: "command.closeSettledSessions.title", defaultValue: "Close Settled Sessions")),
+                subtitle: constant(String(localized: "command.closeSettledSessions.subtitle", defaultValue: "Sessions")),
+                keywords: ["close", "settled", "sessions", "agent"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.closeWindow",
                 title: constant(String(localized: "command.closeWindow.title", defaultValue: "Close Window")),
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
@@ -8958,6 +8967,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.closeWorkspace") {
             tabManager.closeCurrentWorkspaceWithConfirmation()
+        }
+        registry.register(commandId: "palette.closeSettledSessions") {
+            _ = AppDelegate.shared?.closeSettledSessions()
         }
         registry.register(commandId: "palette.closeWindow") {
             guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
@@ -12084,6 +12096,25 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if isPresented && settledSessionCount > 0 {
+                Button {
+                    _ = AppDelegate.shared?.closeSettledSessions()
+                    refreshSettledSessionCount()
+                } label: {
+                    Label(
+                        String(localized: "sidebar.closeSettledSessions", defaultValue: "Close settled sessions") + " (\(settledSessionCount))",
+                        systemImage: "checkmark.circle"
+                    )
+                    .font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.leading, 8)
+                .padding(.bottom, 30)
+                .accessibilityIdentifier("SidebarCloseSettledSessions")
+            }
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -12100,7 +12131,10 @@ struct VerticalTabsSidebar: View, Equatable {
             .frame(width: 0, height: 0)
         )
         .onAppear {
-            if isPresented { activateSidebarInteractions() }
+            if isPresented {
+                activateSidebarInteractions()
+                refreshSettledSessionCount()
+            }
         }
         .onDisappear {
             deactivateSidebarInteractions()
@@ -12157,6 +12191,10 @@ struct VerticalTabsSidebar: View, Equatable {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    private func refreshSettledSessionCount() {
+        settledSessionCount = AppDelegate.shared?.settledSessionCloseCandidates().count ?? 0
+    }
+
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         // The AppKit NSTableView sidebar is opt-in while it soaks; default stays
         // on the SwiftUI list. The flag key is declared only in FeatureFlags.swift.
@@ -12211,6 +12249,17 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented, renderContext.tabItemSettings.compactsAgentStatus else { return }
             for workspaceId in SidebarAgentProfileLabel.changedWorkspaceIds(notification.userInfo, allWorkspaceIds: renderContext.workspaceIds) {
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AgentChatTranscriptService.sessionsDidChangeNotification)) { notification in
+            guard isPresented else { return }
+            refreshSettledSessionCount()
+            if let raw = notification.userInfo?["workspace_id"] as? String,
+               let workspaceId = UUID(uuidString: raw),
+               renderContext.workspaceIds.contains(workspaceId) {
+                scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+            } else {
+                refreshWorkspaceSnapshots()
             }
         }
         .onAppear {
@@ -16379,6 +16428,12 @@ struct TabItemView: View, Equatable {
                         .safeHelp(String(localized: "sidebar.mutedWorkspace.tooltip", defaultValue: "Notifications muted for this workspace"))
                 }
 
+                if workspaceSnapshot.settledSessionCount > 0 {
+                    CmuxSystemSymbolImage(magnified: "checkmark.circle.fill", pointSize: scaledFontSize(9), weight: .semibold, tint: activeSecondaryColor(0.65))
+                        .safeHelp(String(localized: "sidebar.settledSessions.tooltip", defaultValue: "Settled agent session"))
+                        .accessibilityLabel(String(localized: "sidebar.settledSessions.label", defaultValue: "Settled agent session"))
+                }
+
                 // Chrome-style media-activity glyphs: a noisy or capturing
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;
@@ -16735,7 +16790,7 @@ struct TabItemView: View, Equatable {
         }
         // Done rows read as settled: dim the row content (not the selection
         // background) to ~60%; hit-testing is unaffected by opacity.
-        .opacity(workspaceSnapshot.taskStatus == .done ? 0.6 : 1)
+        .opacity(workspaceSnapshot.taskStatus == .done || workspaceSnapshot.settledSessionCount > 0 ? 0.6 : 1)
         // No implicit .animation(value:) on agent-mutable fields: animating a
         // row-height change interpolates the LazyVStack's measured height over
         // every frame of the 0.2s curve, and with dozens of agent sessions some

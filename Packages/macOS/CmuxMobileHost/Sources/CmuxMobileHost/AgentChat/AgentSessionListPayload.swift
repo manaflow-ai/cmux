@@ -110,7 +110,12 @@ public struct AgentSessionListPayload {
         ]
     }
 
-    private static func turnState(for record: AgentChatSessionRecord) -> String {
+    public static func idleForSeconds(record: AgentChatSessionRecord, now: Date) -> TimeInterval {
+        let idleSince = max(record.lastUserInputAt ?? record.lastActivityAt, record.lastAgentOutputAt ?? record.lastActivityAt)
+        return max(0, now.timeIntervalSince(idleSince))
+    }
+
+    public static func turnState(for record: AgentChatSessionRecord) -> String {
         switch record.state {
         case .working: return "working"
         case .needsInput: return "waiting_on_user"
@@ -118,13 +123,13 @@ public struct AgentSessionListPayload {
         }
     }
 
-    private static func isSettled(record: AgentChatSessionRecord, idleFor: TimeInterval, threshold: TimeInterval) -> Bool {
+    public static func isSettled(record: AgentChatSessionRecord, idleFor: TimeInterval, threshold: TimeInterval) -> Bool {
         guard turnState(for: record) == "turn_finished", idleFor >= threshold else { return false }
         guard record.pullRequestsResolved || record.workingDirectory == nil else { return false }
         return record.linkedPullRequests.allSatisfy { ["MERGED", "CLOSED"].contains($0.state.uppercased()) }
     }
 
-    private static func settledReason(record: AgentChatSessionRecord, idleFor: TimeInterval, threshold: TimeInterval) -> String {
+    public static func settledReason(record: AgentChatSessionRecord, idleFor: TimeInterval, threshold: TimeInterval) -> String {
         guard turnState(for: record) == "turn_finished" else { return "turn_not_finished" }
         guard idleFor >= threshold else { return "idle_below_threshold" }
         guard record.pullRequestsResolved || record.workingDirectory == nil else { return "pr_lookup_pending" }

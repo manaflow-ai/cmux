@@ -12,6 +12,7 @@ import Foundation
 final class AgentChatTranscriptService {
     /// The push topic chat clients subscribe to.
     static let eventTopic = "chat.message"
+    static let sessionsDidChangeNotification = Notification.Name("cmux.agentChatSessionsDidChange")
     nonisolated private static let proseStreamingSnapshotMaxRows = 240
 
     let registry: AgentChatSessionRegistry
@@ -571,6 +572,11 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        NotificationCenter.default.post(
+            name: Self.sessionsDidChangeNotification,
+            object: self,
+            userInfo: ["workspace_id": record.workspaceID as Any]
+        )
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
@@ -620,6 +626,11 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        NotificationCenter.default.post(
+            name: Self.sessionsDidChangeNotification,
+            object: self,
+            userInfo: ["workspace_id": record.workspaceID as Any]
+        )
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)
         latestTranscriptSeqBySessionID[record.sessionID] = nil

@@ -61,6 +61,7 @@ final class AgentHibernationController {
     static let shared = AgentHibernationController()
     static let unableToProtectRetrySeconds: TimeInterval = 120
     private var timer: DispatchSourceTimer?
+    private var settledAutoCloseTimer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
     var evaluationPhase: EvaluationPhase = .idle
     var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
@@ -87,6 +88,7 @@ final class AgentHibernationController {
         AgentHibernationTrackingGate.setEnabled(true)
         guard settingsObserver == nil else {
             updateTimerForCurrentSettings()
+            updateSettledAutoCloseTimer()
             return
         }
         settingsObserver = NotificationCenter.default.addObserver(
@@ -99,11 +101,14 @@ final class AgentHibernationController {
             }
         }
         updateTimerForCurrentSettings()
+        updateSettledAutoCloseTimer()
     }
 
     func stop() {
         timer?.cancel()
         timer = nil
+        settledAutoCloseTimer?.cancel()
+        settledAutoCloseTimer = nil
         memoryPressureEvaluation?.task.cancel()
         memoryPressureEvaluation = nil
         AgentHibernationTrackingGate.setEnabled(false)
@@ -164,6 +169,7 @@ final class AgentHibernationController {
         confirmations = confirmations.filter { $0.value.trigger.isMemoryPressure }
         unableToProtectByPanel.removeAll(keepingCapacity: false)
         updateTimerForCurrentSettings()
+        updateSettledAutoCloseTimer()
     }
 
     private func updateTimerForCurrentSettings() {
