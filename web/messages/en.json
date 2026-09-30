@@ -124,7 +124,12 @@
     "workspaceReuseNeedsName": "Workspace reuse requires a nonempty --name.",
     "workspaceReuseUnavailable": "Workspace state changed or is unavailable. Reconnect and retry.",
     "workspaceReuseAmbiguous": "Several workspaces have that name. Use a workspace ID or choose a unique name.",
-    "workspacePreparationChanged": "Another command created this workspace. Retry vm dev to reuse its current layout."
+    "workspacePreparationChanged": "Another command created this workspace. Retry vm dev to reuse its current layout.",
+    "envRequireUnknownOption": "env require: unknown option %s",
+    "envRequireInvalidKey": "env require: invalid key '%s'",
+    "envRequireUsage": "usage: cmux env require KEY [KEY2 ...] [--json]",
+    "envRequireMissing": "environment is missing: %s (set with cmux env set or cmux vm env set)",
+    "envRequireReady": "OK environment ready: %s required variable%s set"
   },
   "billingRecovery": {
     "message": "If we found an account, check your email for next steps",

@@ -124,7 +124,12 @@
     "workspaceReuseNeedsName": "ワークスペースの再利用には空でない --name が必要です。",
     "workspaceReuseUnavailable": "ワークスペースの状態が変更されたか取得できません。再接続して再試行してください。",
     "workspaceReuseAmbiguous": "同じ名前のワークスペースが複数あります。ID を指定するか別の名前を選択してください。",
-    "workspacePreparationChanged": "別のコマンドがこのワークスペースを作成しました。vm dev を再実行して現在のレイアウトを再利用してください。"
+    "workspacePreparationChanged": "別のコマンドがこのワークスペースを作成しました。vm dev を再実行して現在のレイアウトを再利用してください。",
+    "envRequireUnknownOption": "env require: 不明なオプション %s",
+    "envRequireInvalidKey": "env require: 無効なキー '%s'",
+    "envRequireUsage": "使用法: cmux env require KEY [KEY2 ...] [--json]",
+    "envRequireMissing": "環境に不足している変数: %s（cmux env set または cmux vm env set で設定）",
+    "envRequireReady": "OK 環境準備完了: 必要な変数 %s%s"
   },
   "billingRecovery": {
     "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください",

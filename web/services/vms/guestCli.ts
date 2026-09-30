@@ -1221,14 +1221,14 @@ guest_env_require() {
     case "\$cmux_arg" in
       --json) cmux_env_json=1 ;;
       --help|-h) env_usage; return 0 ;;
-      -*) die "env require: unknown option \$cmux_arg" 2 ;;
+      -*) die_message 2 envRequireUnknownOption "\$cmux_arg" ;;
       *)
-        env_key_ok "\$cmux_arg" || die "env require: invalid key '\$cmux_arg'" 2
+        env_key_ok "\$cmux_arg" || die_message 2 envRequireInvalidKey "\$cmux_arg"
         cmux_env_required="\$cmux_env_required\${cmux_env_required:+ }\$cmux_arg"
         ;;
     esac
   done
-  [ -n "\$cmux_env_required" ] || die "usage: cmux env require KEY [KEY2 ...] [--json]" 2
+  [ -n "\$cmux_env_required" ] || die_message 2 envRequireUsage
   cmux_env_missing=""
   for cmux_key in \$cmux_env_required; do
     if ! env_decoded_lines "\$(env_file)" | sed 's/=.*//' | grep -Fqx "\$cmux_key"; then
@@ -1242,9 +1242,9 @@ guest_env_require() {
     cmux_env_missing_json=\$(printf '%s\n' \$cmux_env_missing | jq -Rsc 'split("\\n") | map(select(length > 0))')
     jq -cn --argjson required "\$cmux_env_required_json" --argjson missing "\$cmux_env_missing_json" --arg path "\$(env_file)" --argjson ready "\$([ -z "\$cmux_env_missing" ] && printf true || printf false)" '{ready: \$ready, required: \$required, missing: \$missing, path: \$path}'
   elif [ -n "\$cmux_env_missing" ]; then
-    printf 'environment is missing: %s (set with cmux env set or cmux vm env set)\n' "\$cmux_env_missing"
+    cmux_message envRequireMissing "\$cmux_env_missing"
   else
-    printf 'OK environment ready: %s required variable%s set\n' "\$(printf '%s\n' \$cmux_env_required | wc -w)" "\$( [ \"\$(printf '%s\n' \$cmux_env_required | wc -w)\" = 1 ] || printf s)"
+    cmux_message envRequireReady "\$(printf '%s\n' \$cmux_env_required | wc -w)" "\$( [ "\$(printf '%s\n' \$cmux_env_required | wc -w)" = 1 ] || printf s)"
   fi
   [ -z "\$cmux_env_missing" ]
 }
