@@ -45,14 +45,25 @@ extension CmuxTaskManagerSnapshot {
                 localized: "taskManager.agentStatus.hibernatedAgent",
                 defaultValue: "Hibernated agent"
             )
+            // Group by the program's stable id rather than by the name shown:
+            // a registered agent can be renamed in project config, and a few
+            // program names are localized, so a name comparison can start a
+            // second group for a program that already has one. The name match
+            // remains for payloads that carry no id.
+            let hibernatedGroupId = "hibernated:\(panel.agentId ?? agentName.lowercased())"
             let groupIndex: Int
-            if let existingIndex = groups.firstIndex(where: { $0.title == agentName }) {
+            if let existingIndex = groups.firstIndex(where: { group in
+                if let agentId = panel.agentId {
+                    return group.id == agentId || group.id == hibernatedGroupId
+                }
+                return group.title == agentName
+            }) {
                 groupIndex = existingIndex
             } else {
                 groups.append(CodingAgentRowGroup(
-                    id: "hibernated:\(agentName.lowercased())",
+                    id: hibernatedGroupId,
                     title: agentName,
-                    assetName: agentAssetName(for: [agentName]),
+                    assetName: agentAssetName(for: [panel.agentId, agentName]),
                     resources: .zero,
                     children: []
                 ))
@@ -190,6 +201,7 @@ private struct CodingAgentPanelState {
     let surfaceId: UUID
     let status: CmuxTaskManagerAgentStatus
     let agentName: String?
+    let agentId: String?
 }
 
 private struct CodingAgentPanelStates {
@@ -212,7 +224,8 @@ private struct CodingAgentPanelStates {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     status: status,
-                    agentName: CmuxTaskManagerSnapshot.nonEmptyString(payload["agent_name"])
+                    agentName: CmuxTaskManagerSnapshot.nonEmptyString(payload["agent_name"]),
+                    agentId: CmuxTaskManagerSnapshot.nonEmptyString(payload["agent_id"])
                 ))
             }
         }

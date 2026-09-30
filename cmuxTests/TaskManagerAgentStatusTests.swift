@@ -118,6 +118,64 @@ struct TaskManagerAgentStatusTests {
         #expect(codexTotal.resources.processCount == 0)
     }
 
+    @Test func aRenamedHibernatedAgentStaysUnderItsProgram() throws {
+        // The panel reports the program id "claude" but a registration name
+        // that differs from the running group's "Claude Code". Grouping by the
+        // displayed name would open a second Claude group with no icon.
+        let snapshot = CmuxTaskManagerSnapshot(payload: payload(agentPanels: [
+            [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": hibernatedSurfaceID.uuidString,
+                "state": "hibernated",
+                "since": "2026-09-28T10:00:00Z",
+                "agent_name": "Claude, work laptop",
+                "agent_id": "claude",
+            ],
+        ]))
+
+        let totals = snapshot.agentRows.filter { $0.kind == .codingAgentAggregate }
+        #expect(totals.count == 1)
+        let total = try #require(totals.first)
+        #expect(total.id == "codingAgentAggregate:claude")
+        #expect(total.title == "Claude Code")
+        #expect(total.agentAssetName == "AgentIcons/Claude")
+
+        let hibernated = try #require(snapshot.agentRows.first { $0.surfaceId == hibernatedSurfaceID })
+        #expect(hibernated.level == 1)
+        #expect(hibernated.agentStatus?.state == .hibernated)
+        #expect(hibernated.agentAssetName == "AgentIcons/Claude")
+    }
+
+    @Test func twoHibernatedPanelsOfOneProgramShareOneGroup() throws {
+        // Neither panel has a live group to join, so the first creates the
+        // group and the second must find it by id instead of adding a third
+        // Codex total.
+        let secondSurfaceID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+        let snapshot = CmuxTaskManagerSnapshot(payload: payload(agentPanels: [
+            [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": hibernatedSurfaceID.uuidString,
+                "state": "hibernated",
+                "agent_name": "Codex",
+                "agent_id": "codex",
+            ],
+            [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": secondSurfaceID.uuidString,
+                "state": "hibernated",
+                "agent_name": "Codex, review",
+                "agent_id": "codex",
+            ],
+        ]))
+
+        let codexTotals = snapshot.agentRows.filter {
+            $0.kind == .codingAgentAggregate && $0.id.contains("codex")
+        }
+        #expect(codexTotals.count == 1)
+        #expect(snapshot.agentRows.contains { $0.surfaceId == hibernatedSurfaceID })
+        #expect(snapshot.agentRows.contains { $0.surfaceId == secondSurfaceID })
+    }
+
     @MainActor
     @Test func workspaceReportsLifecycleOverlaysAndSkipsManualLoaders() throws {
         let workspace = Workspace(title: "Tests")

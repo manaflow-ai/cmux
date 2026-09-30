@@ -15,7 +15,8 @@ extension Workspace {
                     "surface_id": panelId.uuidString,
                     "state": "hibernated",
                     "since": Workspace.taskManagerTimestamp(state.hibernatedAt),
-                    "agent_name": state.agentDisplayName
+                    "agent_name": state.agentDisplayName,
+                    "agent_id": state.agent.kind.rawValue
                 ])
                 continue
             }
