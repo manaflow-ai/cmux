@@ -277,7 +277,7 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
     }
 
     private func snapshot() -> [String: Any] {
-        let rows = model.rows.map { AcpmuxWebRow(row: $0) }.compactMap(Self.jsonObject)
+        let rows = model.rows.compactMap { Self.jsonObject(AcpmuxWebRow(row: $0)) }
         let sessions = model.sessions.compactMap(Self.jsonObject)
         let summary = model.summary.flatMap(Self.jsonObject)
         let catalog: [[String: Any]] = model.catalog.harnesses.map { harness in
