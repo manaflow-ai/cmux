@@ -294,7 +294,8 @@ private extension AgentPromptSubmissionSnapshot {
         }
         return lowered.hasPrefix("working...")
             || lowered.hasPrefix("working…")
-            || lowered.hasPrefix("working on ")
+            || lowered.hasPrefix("working on your request")
+            || lowered.hasPrefix("working on request")
             || lowered.hasPrefix("working (")
     }
 
