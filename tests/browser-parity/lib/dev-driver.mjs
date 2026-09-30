@@ -25,6 +25,7 @@ export const runtimeDir = path.join(repoRoot, "Resources/browser-repl");
 const AGENT_KEY = 'Symbol.for("cmux.browserRepl.agent")';
 const NEEDS_AGENT = "__cmuxNeedsAgent__";
 const ERROR_KEY = "__cmuxError__";
+const JSON_KEY = "__cmuxJson__";
 
 export function loadPlaywright() {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(process.env.HOME, ".cache/cmux-parity-browsers");
@@ -240,7 +241,10 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       if (${needsAgent} && !__agent) return { ${NEEDS_AGENT}: true };
       try {
         const __handles = ${JSON.stringify(handles)}.map((h) => __agent.element(h));
-        return await (${source})(...__handles, ...${JSON.stringify(args)});
+        const __result = await (${source})(...__handles, ...${JSON.stringify(args)});
+        // Agent results cross as JSON text, as in the app's driver: one
+        // string instead of Playwright's per-value serialization.
+        return ${world === "agent"} ? { ${JSON_KEY}: __result === undefined ? "null" : JSON.stringify(__result) } : __result;
       } catch (e) {
         return { ${ERROR_KEY}: { code: (e && e.code) || "evaluation", message: String(e && e.message !== undefined ? e.message : e), name: e && e.name } };
       }
@@ -251,6 +255,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         await frame.evaluate(installSource);
         result = await frame.evaluate(expr);
       }
+      if (result && typeof result[JSON_KEY] === "string") return JSON.parse(result[JSON_KEY]);
       if (result && result[ERROR_KEY]) {
         const e = new DriverError(result[ERROR_KEY].code, result[ERROR_KEY].message);
         e.errorName = result[ERROR_KEY].name;

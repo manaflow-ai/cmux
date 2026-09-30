@@ -445,8 +445,19 @@
   // ---------------------------------------------------------------------------
   // Capture
 
+  const clock = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+
   async function frameNodes(page, frame, rootHandle, options, focusChain) {
+    const called = clock();
     const r = await frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, base: page._refMaxFor(frame) });
+    // Where the time goes, for tests/browser-parity/perf: in-page traversal
+    // and the whole agent call (traversal plus transport).
+    const timing = options._timing;
+    if (timing) {
+      timing.frames++;
+      timing.agentMs += r.ms || 0;
+      timing.callMs += clock() - called;
+    }
     page._noteRefMax(frame, r.max);
     if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
     const prefix = page._prefixFor(frame);
@@ -519,8 +530,11 @@
 
   async function takeSnapshot(page, target, options = {}) {
     const run = async () => {
+      const started = clock();
       options = Object.assign({}, options);
+      const timing = (options._timing = { frames: 0, agentMs: 0, callMs: 0 });
       const { header, body, full } = await capture(page, target, options);
+      timing.captureMs = clock() - started;
       const scope = typeof target === "string" ? target : target instanceof core.Locator ? String(target) : "page";
       const key = [scope, !!options.interactive, !!options.showHidden, !!options.options, !!options.urls, !!options.viewport].join("|");
       const baselines = page._snapshotBaselines || (page._snapshotBaselines = new Map());
@@ -532,7 +546,12 @@
         baselines.set(key + "|full", full);
         if (previousFull && previous) extraChanges = textChanges(diffLines(previousFull, full));
       }
-      return new Snapshot({ header, body, previous, maxChars: options.maxChars, extraChanges });
+      const diffStarted = clock();
+      const snap = new Snapshot({ header, body, previous, maxChars: options.maxChars, extraChanges });
+      timing.diffMs = clock() - diffStarted;
+      timing.totalMs = clock() - started;
+      Object.defineProperty(snap, "_timing", { value: timing });
+      return snap;
     };
     const prev = page._snapshotQueue || Promise.resolve();
     const next = prev.catch(() => {}).then(run);

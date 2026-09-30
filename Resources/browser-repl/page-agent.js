@@ -702,7 +702,9 @@
   }
 
   // opts: { root: handle | null, showHidden, base } -> { nodes, max }
+  const now = () => (global.performance && global.performance.now ? global.performance.now() : Date.now());
   function snapshot(opts) {
+    const started = now();
     opts = opts || {};
     raiseRefBase(opts.base);
     pruneRefs();
@@ -721,7 +723,14 @@
     };
     const out = [];
     visitElement(root, out, ctx, false, false);
-    return { nodes: normalizeChildren(out), max: refCounter, offscreen: ctx.offscreen };
+    const nodes = normalizeChildren(out);
+    // `ms` is the traversal time in this frame, for perf measurements.
+    return { nodes, max: refCounter, offscreen: ctx.offscreen, ms: now() - started };
+  }
+
+  // Table sizes, for leak checks (tests/browser-parity/perf).
+  function stats() {
+    return { refs: refRegistry.size, handles: handles.size };
   }
 
   function refState(ref, base) {
@@ -1042,6 +1051,7 @@
     handleFor,
     element,
     snapshot,
+    stats,
     refState,
     refForHandle,
     elementAt,
