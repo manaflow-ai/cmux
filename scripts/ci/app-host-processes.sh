@@ -279,6 +279,31 @@ cmux_app_host_primary_executable() {
 # Prove that this process incarnation still owns the exact receipt it authored.
 # Return 2 if the PID disappeared during verification and 1 for a live process
 # without the recorded descriptor or for malformed lsof output.
+# lsof exits 1 both for a search that found nothing and for an error, so an
+# empty filtered query proves nothing on its own. Positive evidence that a
+# live PID does not hold the receipt: lsof lists that PID's open files and
+# none of them is the receipt descriptor.
+cmux_app_host_pid_lists_without_receipt() {
+  local pid="$1" receipt_fd="$2" receipt_file="$3" output line fd="" listed=0
+  output="$(cmux_run_app_host_lsof -a -p "$pid" -Ffn 2>/dev/null)" || return 1
+  while IFS= read -r line; do
+    case "$line" in
+      "p$pid") listed=1 ;;
+      p*) return 1 ;;
+      f*) fd="${line#f}" ;;
+      n*)
+        if [ "$fd" = "$receipt_fd" ] && [ "${line#n}" = "$receipt_file" ]; then
+          return 1
+        fi
+        ;;
+    esac
+  done < <(printf '%s\n' "$output")
+  [ "$listed" -eq 1 ]
+}
+
+# Return 0 when PID holds the receipt descriptor, 2 when PID has exited,
+# 3 when lsof lists the live PID's open files without the receipt, and 1
+# when the descriptor could not be inspected or did not match.
 cmux_app_host_receipt_descriptor_is_open() {
   local pid="$1"
   local receipt_fd="$2"
@@ -296,7 +321,12 @@ cmux_app_host_receipt_descriptor_is_open() {
     if [ "$status" -eq 1 ] && ! /bin/kill -0 "$pid" 2>/dev/null; then
       return 2
     fi
-    echo "FAIL: live app-host PID $pid does not hold its process receipt" >&2
+    if [ "$status" -eq 1 ] \
+      && cmux_app_host_pid_lists_without_receipt "$pid" "$receipt_fd" "$receipt_file"; then
+      echo "FAIL: live app-host PID $pid does not hold its process receipt" >&2
+      return 3
+    fi
+    echo "FAIL: lsof could not inspect the process receipt of app-host PID $pid (exit $status)" >&2
     return 1
   fi
 
@@ -361,16 +391,17 @@ cmux_app_host_receipt_descriptor_is_open() {
 # Receipts outlive their app host, and a shared runner can reuse its PID within
 # minutes (one shard saw the PID space wrap twice during a single job). The
 # receipt descriptor is O_CLOEXEC, so no exec keeps it: a PID that runs another
-# executable and does not hold the receipt is a new process, and the receipt
-# is stale. Return 1 when that PID does hold it, which no reuse can explain.
+# executable and confirmably does not hold the receipt is a new process, and
+# the receipt is stale. Return 1 when that PID holds the receipt, which no
+# reuse can explain, or when lsof could not tell.
 cmux_app_host_receipt_pid_was_reused() {
   local status
   if cmux_app_host_receipt_descriptor_is_open "$1" "$2" "$3" 2>/dev/null; then
-    status=0
+    return 1
   else
     status=$?
   fi
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 3 ] || [ "$status" -eq 2 ]
 }
 
 # Return 0 for an exact live identity, 2 for a stale receipt, and 1 for any
