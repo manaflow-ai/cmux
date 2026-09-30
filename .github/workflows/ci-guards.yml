@@ -88,6 +88,12 @@ jobs:
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: python3 scripts/ci/fast_guard_status.py
 
+      - name: Propagate failed independent fast guard
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.state == 'failure' }}
+        run: |
+          echo "CI fast guards already reported failure for this revision; skipping duplicate guard execution."
+          exit 1
+
       - name: Validate macOS runner guards
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
