@@ -118,10 +118,12 @@ struct BrowserActionDispatcher {
                   let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
                 return true
             }
-            return workspace.requestCloseTab(tabId, force: true)
+            // Use the normal close path so pinned tabs stay protected and the
+            // source remains available through closed-item history.
+            return workspace.requestCloseTabRecordingHistory(tabId, force: false)
         case .workspaceDock, .windowDock:
             return appDelegate.dock(resolving: target)?
-                .closePanel(panel.id, force: true) ?? false
+                .closePanel(panel.id, force: false) ?? false
         }
     }
 
