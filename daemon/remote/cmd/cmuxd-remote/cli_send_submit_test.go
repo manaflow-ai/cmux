@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"strings"
@@ -16,6 +18,50 @@ type sendSubmitMock struct {
 	screen   []string
 	keys     []string
 	listener net.Listener
+}
+
+func sendTestFingerprint(text string) string {
+	digest := sha256.Sum256([]byte(strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"))))
+	return hex.EncodeToString(digest[:])
+}
+
+func TestSendSubmitSameLengthHumanEditPreventsRetry(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "draft_length": 5, "composer_fingerprint": sendTestFingerprint("hello"), "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "draft_length": 5, "composer_fingerprint": sendTestFingerprint("hello"), "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "draft_length": 5, "composer_fingerprint": sendTestFingerprint("human"), "agent_kind": "claude"},
+	}, nil)
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
+		t.Fatal("human edit falsely confirmed")
+	}
+	if keys := mock.keysSnapshot(); len(keys) != 1 {
+		t.Fatalf("keys = %v, want no retry over same-length human edit", keys)
+	}
+}
+
+func TestSendSubmitPinsHostSurfaceForPasteAndKey(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": false, "state": "unknown", "surface_id": "resolved-surface"},
+	}, nil)
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "--workspace", "workspace-1", "hello"}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, method := range []string{"terminal.paste", "surface.send_key"} {
+		if target := params(mock.request(method))["surface_id"]; target != "resolved-surface" {
+			t.Fatalf("%s target = %v", method, target)
+		}
+	}
+}
+
+func TestSendSubmitNormalizesLoneCarriageReturn(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{{"agent": false, "state": "unknown"}}, nil)
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "a\rb"}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if text := params(mock.request("terminal.paste"))["text"]; text != "a\nb" {
+		t.Fatalf("paste text = %q", text)
+	}
 }
 
 func startSendSubmitMock(t *testing.T, state []map[string]any, screen []string) (*sendSubmitMock, string) {
@@ -206,17 +252,17 @@ func TestSendSubmitShellUsesReturnWithoutComposerCheck(t *testing.T) {
 			reads++
 		}
 	}
-	if reads != 1 {
-		t.Fatalf("shell composer reads = %d, want only preflight", reads)
+	if reads != 0 {
+		t.Fatalf("shell composer reads = %d, want no screen reads", reads)
 	}
 }
 
 func TestSendSubmitSlashPopupSendsExtraSubmit(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "slash_command_popup": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "slash_command_popup": true, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "slash_command_popup": true, "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 	}, []string{"❯\n", "❯ /goal\n/goal resume\n", "❯ /goal resume\n", "❯ /goal resume\n", "❯\n"})
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "/goal resume"}); code != 0 {
@@ -334,8 +380,8 @@ func TestSendSubmitHooklessDraftRefusal(t *testing.T) {
 func TestSendSubmitOwnSlashPickerCountsAsSubmitted(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "agent_kind": "claude"},
-		{"agent": true, "state": "dialog", "slash_popup": false, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "slash_command_popup": true, "agent_kind": "claude"},
+		{"agent": true, "state": "dialog", "slash_command_popup": true, "agent_kind": "claude"},
 	}, []string{"❯\n", "❯ /model\nSelect a model\nEnter to select\n"})
 	output := captureStdout(t, func() {
 		if code := runCLI([]string{"--socket", socket, "send", "--submit", "/model"}); code != 0 {
@@ -435,8 +481,8 @@ func TestSendSubmitHumanEditPreventsRetry(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "agent_kind": "claude"},
-		{"agent": true, "state": "draft", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "draft_length": 5, "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "draft_length": 11, "agent_kind": "claude"},
 	}, []string{"Claude Code\n❯ ", "Claude Code\n❯ hello", "Claude Code\n❯ hello", "Claude Code\n❯ hello human edit"})
 	output := captureStdout(t, func() {
 		if code := runCLI([]string{"--socket", socket, "--json", "send", "--submit", "hello"}); code == 0 {
@@ -474,7 +520,7 @@ func TestSendSubmitFinalReadConfirmsSlowRenderer(t *testing.T) {
 }
 
 func TestSendSubmitPopupNotConfirmedUntilClosed(t *testing.T) {
-	if sendStateConfirmed(map[string]any{"agent": true, "state": "empty", "slash_popup": true}, "", false, "hello") {
+	if sendStateConfirmed(map[string]any{"agent": true, "state": "empty", "slash_popup": true}, false) {
 		t.Fatal("popup falsely confirmed")
 	}
 }
@@ -496,6 +542,7 @@ func TestSendSubmitRequiresHostAgentFlagForCodexQueue(t *testing.T) {
 func TestSendSubmitUsesHostInputStateWithoutScreenHeuristics(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "draft_length": 5, "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "draft_length": 5, "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "draft_length": 5, "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
@@ -542,8 +589,8 @@ func TestSendSubmitUsesAgentKindOnlyWithHostAgentFlag(t *testing.T) {
 			if output != "submitted\n" {
 				t.Fatalf("output = %q, want submitted", output)
 			}
-			if len(mock.methods()) < 4 {
-				t.Fatalf("skipped composer visibility/confirmation: %v", mock.methods())
+			if len(mock.methods()) != 3 {
+				t.Fatalf("unexpected screen probes: %v", mock.methods())
 			}
 		})
 	}

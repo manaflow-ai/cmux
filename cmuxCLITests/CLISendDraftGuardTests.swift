@@ -199,6 +199,30 @@ struct CLISendDraftGuardTests {
         #expect((key["params"] as? [String: Any])?["key"] as? String == "return")
     }
 
+    @Test func sendSubmitPinsHostSurfaceForPasteAndKey() throws {
+        var shell = Self.empty
+        shell["agent"] = false
+        shell["surface_id"] = Self.targetSurfaceRef
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--workspace", Self.callerWorkspaceID, "hello"],
+            inputState: shell
+        )
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        for request in run.requests where ["terminal.paste", "surface.send_key"].contains(request["method"] as? String ?? "") {
+            #expect((request["params"] as? [String: Any])?["surface_id"] as? String == Self.targetSurfaceRef)
+        }
+    }
+
+    @Test func sendSubmitNormalizesLoneCarriageReturnBeforePaste() throws {
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "a\rb"],
+            inputState: Self.empty
+        )
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        let paste = try #require(run.requests.first { $0["method"] as? String == "terminal.paste" })
+        #expect((paste["params"] as? [String: Any])?["text"] as? String == "a\nb")
+    }
+
     @Test(arguments: ["claude", "codex"])
     func sendSubmitRecognizesAgentKindWithHookAgentFlag(kind: String) throws {
         let empty: [String: Any] = ["state": "empty", "agent": true, "terminal": true,
