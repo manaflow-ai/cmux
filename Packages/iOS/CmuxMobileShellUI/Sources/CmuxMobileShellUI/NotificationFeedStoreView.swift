@@ -16,6 +16,7 @@ struct NotificationFeedStoreView: View {
     let selectedMacDeviceIDs: Set<String>?
     var isActive = true
     var showsNavigationToolbar = true
+    @State private var isFeedVisible = false
 
     var body: some View {
         NotificationFeedView(
@@ -27,18 +28,14 @@ struct NotificationFeedStoreView: View {
             isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
             showsNavigationToolbar: showsNavigationToolbar
         )
-        .onChange(of: isActive, initial: true) { wasActive, active in
-            if active {
-                store.recordAppEvent(.notificationFeedOpened, count: items.count)
-            } else if wasActive {
-                store.cancelPendingNotificationFeedOpen()
-                store.recordAppEvent(.notificationFeedClosed)
-            }
+        .onAppear {
+            updateFeedVisibility(isActive)
+        }
+        .onChange(of: isActive) { _, active in
+            updateFeedVisibility(active)
         }
         .onDisappear {
-            guard isActive else { return }
-            store.cancelPendingNotificationFeedOpen()
-            store.recordAppEvent(.notificationFeedClosed)
+            updateFeedVisibility(false)
         }
     }
 
@@ -78,6 +75,19 @@ struct NotificationFeedStoreView: View {
                 )
             }
         )
+    }
+
+    private func updateFeedVisibility(_ active: Bool) {
+        if active {
+            guard !isFeedVisible else { return }
+            isFeedVisible = true
+            store.recordAppEvent(.notificationFeedOpened, count: items.count)
+        } else {
+            guard isFeedVisible else { return }
+            isFeedVisible = false
+            store.cancelPendingNotificationFeedOpen()
+            store.recordAppEvent(.notificationFeedClosed)
+        }
     }
 }
 #endif
