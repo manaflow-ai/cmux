@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxCloud
+import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Testing
 
