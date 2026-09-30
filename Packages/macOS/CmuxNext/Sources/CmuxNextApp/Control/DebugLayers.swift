@@ -40,7 +40,9 @@ enum DebugLayers {
                 "home_rect_in_window": plane.homeRectInWindow.map(rect) ?? .null,
                 "plane_frame": rect(plane.frame),
                 "rings": .array((root?.overlayRings ?? []).map { ring in
-                    .object(["pane": .string(ring.pane), "frame_in_window": rect(ring.frameInWindow), "shows_ring": .bool(ring.showsRing)])
+                    .object(["pane": .string(ring.pane), "frame_in_window": rect(ring.frameInWindow), "shows_ring": .bool(ring.showsRing),
+                             "ring_in_window": rect(ring.ringInWindow), "content_in_window": rect(ring.contentInWindow),
+                             "ring_in_sync": .bool(ring.ringInWindow == ring.contentInWindow)])
                 }),
                 "drop_highlight_in_window": root?.dropHighlightFrameInWindow.map(rect) ?? .null,
             ])
@@ -71,7 +73,17 @@ enum DebugLayers {
         }
         let above = layer.isOverlayAboveContent
         let inSync = layer.adoptedPlanes.allSatisfy(\.isInSync)
-        return .object([
+        // Every displayed ring strokes its pane's rounded content rect.
+        let ringsInSync = layer.adoptedPlanes.allSatisfy { plane in
+            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInWindow == $0.contentInWindow }
+        }
+        var fields: [String: JSONValue] = [:]
+        #if DEBUG
+        fields["ring_layout_passes"] = .number(Double(layer.ringLayoutPasses))
+        fields["ring_lag_passes"] = .number(Double(layer.ringLagPasses))
+        fields["last_ring_lag"] = layer.lastRingLag.map(JSONValue.string) ?? .null
+        #endif
+        let base: [String: JSONValue] = [
             "id": .string(controller.state.id),
             "window_number": .number(Double(window.windowNumber)),
             "frame": rect(window.frame),
@@ -87,8 +99,10 @@ enum DebugLayers {
             "divider_catchers_in_window": .array(layer.catchers.framesInWindow.sorted { $0.key < $1.key }.map { rect($0.value) }),
             "reorders": .number(Double(layer.reorderCount)),
             "pages_in_sync": .bool(pagesInSync),
-            "consistent": .bool(above && inSync && pagesInSync),
-        ])
+            "rings_in_sync": .bool(ringsInSync),
+            "consistent": .bool(above && inSync && pagesInSync && ringsInSync),
+        ]
+        return .object(fields.merging(base) { _, new in new })
     }
 
     private static func distance(_ a: CGRect, _ b: CGRect) -> CGFloat {

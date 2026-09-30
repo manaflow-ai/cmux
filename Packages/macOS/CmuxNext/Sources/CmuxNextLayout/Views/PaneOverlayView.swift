@@ -67,14 +67,16 @@ final class PaneOverlayView: NSView {
 
     private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
-    override func layout() {
-        super.layout()
-        layoutLayers()
-    }
-
+    /// The layers follow the frame in the same call. The root sets this
+    /// view's frame from the layout pass (or animation frame) that places
+    /// the pane, and the plane may live in another window (the overlay above
+    /// Chromium pages) whose own layout pass runs later or, during a live
+    /// resize, not at all: a deferred `needsLayout` left the ring at its old
+    /// size for at least one frame of every resize.
     override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        needsLayout = true
+        if changed { layoutLayers() }
     }
 
     override func viewDidChangeBackingProperties() {

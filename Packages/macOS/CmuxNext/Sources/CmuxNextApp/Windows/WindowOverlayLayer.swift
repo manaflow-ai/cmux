@@ -120,7 +120,10 @@ final class WindowOverlayLayer {
 
     /// The layout root finished a layout pass: pages re-apply once after a
     /// window geometry change, now that their host views have final frames.
-    func planeDidLayout() {
+    func planeDidLayout(_ plane: OverlayPlane) {
+        #if DEBUG
+        recordRingLag(plane)
+        #endif
         guard pageUpdateAfterLayout else { return }
         pageUpdateAfterLayout = false
         for plane in planes { plane.syncFrame() }
@@ -279,6 +282,24 @@ final class WindowOverlayLayer {
     }
 
     // MARK: Diagnostics
+
+    #if DEBUG
+    /// Layout passes of the root (window resize, sidebar, divider, column
+    /// scroll) that ended with a focus ring off its pane, and the last such
+    /// mismatch (`debug.layers`). The ring must move in the pass that places
+    /// the panes, even while the plane lives in the overlay panel.
+    private(set) var ringLayoutPasses = 0
+    private(set) var ringLagPasses = 0
+    private(set) var lastRingLag: String?
+
+    private func recordRingLag(_ plane: OverlayPlane) {
+        guard let root = plane.home as? LayoutRootView else { return }
+        ringLayoutPasses += 1
+        guard let lag = root.overlayRings.first(where: { $0.showsRing && $0.ringInWindow != $0.contentInWindow }) else { return }
+        ringLagPasses += 1
+        lastRingLag = "\(lag.pane): ring \(lag.ringInWindow), content \(lag.contentInWindow), placement \(placement.rawValue)"
+    }
+    #endif
 
     /// Whether the overlay is above every visible content child window (or
     /// not needed because there is none).

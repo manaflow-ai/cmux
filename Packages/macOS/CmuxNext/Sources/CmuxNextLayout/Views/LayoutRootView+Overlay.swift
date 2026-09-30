@@ -79,12 +79,18 @@ extension LayoutRootView {
         planeHost.interactiveOverlayRectsDidChange(overlayPlane)
     }
 
-    /// Displayed pane rings, for `debug.layers`: pane id, frame in window
-    /// coordinates, and whether the ring shows.
-    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool)] {
+    /// Displayed pane rings, for `debug.layers`: pane id, the pane's frame
+    /// in window coordinates, whether the ring shows, the rect the ring
+    /// strokes and the pane's rounded content rect it must equal (both in
+    /// window coordinates; the plane has the root's coordinates wherever it
+    /// lives, so the ring rect is read from the overlay itself).
+    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect, contentInWindow: CGRect)] {
         guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return [] }
         return screen.displayedHosts.map { host in
-            (host.pane.rawValue, host.convert(host.bounds, to: nil), host.chrome.showsRing && !host.chrome.isHidden)
+            let chrome = host.chrome
+            let ring = chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY)
+            return (host.pane.rawValue, host.convert(host.bounds, to: nil), chrome.showsRing && !chrome.isHidden,
+                    convert(ring, to: nil), host.convert(host.roundedRect, to: nil))
         }
     }
 
