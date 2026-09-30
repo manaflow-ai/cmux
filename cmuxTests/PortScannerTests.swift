@@ -1390,9 +1390,12 @@ struct PortScannerPortRetirementTests {
         // The runner stops and kicks from inside the fifth `lsof` call, after
         // that call reports the port, so the stop is tied to the scan itself
         // rather than to when this task happens to observe it.
-        await runner.stopListening(afterLsofInvocation: 5) {
+        await runner.perform(atLsofInvocation: 5, stopsListening: true) {
             scanner.kick(workspaceId: workspaceId, panelId: panelId)
         }
+        // Burst timers that fire during a slow scan merge, so a loaded host could pay off the first kick
+        // before a fifth `lsof` call. A kick from inside the second call owes the third through fifth scans.
+        await runner.perform(atLsofInvocation: 2) { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
         scanner.kick(workspaceId: workspaceId, panelId: panelId)
 
         let didPublishListeningPort = await Self.waitForPublication(
@@ -1415,7 +1418,8 @@ struct PortScannerPortRetirementTests {
             pollInterval: .milliseconds(10)
         )
 
-        #expect(didRetirePort, "a late-burst kick did not schedule enough complete misses")
+        let lsofCalls = await runner.lsofInvocationCount
+        #expect(didRetirePort, "a late-burst kick did not schedule enough complete misses (\(lsofCalls) lsof calls)")
     }
 
     /// `/bin/ps` accepts a full device path in `-t`, but reports the matching
@@ -1513,8 +1517,8 @@ private actor PortLifecycleCommandRunner: CommandRunning {
     private let port: Int
     private var isListening = true
     private(set) var lastLsofArguments: [String]?
-    private var lsofInvocationCount = 0
-    private var scheduledStop: (invocation: Int, action: @Sendable () -> Void)?
+    private(set) var lsofInvocationCount = 0
+    private var scheduledActions: [Int: (stopsListening: Bool, action: @Sendable () -> Void)] = [:]
 
     private static let filesystemWarning = """
     lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/example
@@ -1541,14 +1545,10 @@ private actor PortLifecycleCommandRunner: CommandRunning {
         isListening = false
     }
 
-    /// Stops listening from inside the `target`th `lsof` call, after that call
-    /// has reported the port, then runs `action` while the call is still in
-    /// flight. Must be armed before that call happens.
-    func stopListening(
-        afterLsofInvocation target: Int,
-        then action: @escaping @Sendable () -> Void
-    ) {
-        scheduledStop = (target, action)
+    /// Runs `action` from inside the `target`th `lsof` call, after that call has decided what it
+    /// reports; with `stopsListening`, later calls report no port. Arm it before that call.
+    func perform(atLsofInvocation target: Int, stopsListening: Bool = false, _ action: @escaping @Sendable () -> Void) {
+        scheduledActions[target] = (stopsListening, action)
     }
 
     func run(
@@ -1576,10 +1576,9 @@ private actor PortLifecycleCommandRunner: CommandRunning {
         // scanner globally incomplete and prevents stale ports from aging out.
         let stderr = arguments.contains("-w") ? "" : Self.filesystemWarning
         let reportsPort = isListening && Self.selection(for: "-p", in: arguments).contains(String(pid))
-        if let stop = scheduledStop, stop.invocation == lsofInvocationCount {
-            scheduledStop = nil
-            isListening = false
-            stop.action()
+        if let scheduled = scheduledActions.removeValue(forKey: lsofInvocationCount) {
+            if scheduled.stopsListening { isListening = false }
+            scheduled.action()
         }
         guard reportsPort else {
             return Self.noSelectedFiles(stderr: stderr)
