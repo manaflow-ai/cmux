@@ -837,6 +837,7 @@
 		92556BB814BE41C3A3891685 /* CloudSurfaceDragFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E54D698BB1584C2BAC3A61DF /* CloudSurfaceDragFixture.swift */; };
 		D318853B007D48AD9532F83F /* CloudSurfaceDropGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9DF6ACE0DBF4ACE823A6CE8 /* CloudSurfaceDropGate.swift */; };
 		09FBC463786149D49E73B297 /* CloudSurfaceDropGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */; };
+		0A9C5DA8D03AFC4C6DC2D469 /* CloudSurfaceDropOptimisticTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4F082EFF9C0A9FAF57C2BF0 /* CloudSurfaceDropOptimisticTests.swift */; };
 		5CB4AC1D92064236B5C2DDF1 /* CloudSurfaceMoveOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */; };
 		6D2669CD5E4944C2B8C0F49C /* CloudSurfaceOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */; };
 		A14327000000000000000004 /* CloudTeamPickerHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14327000000000000000003 /* CloudTeamPickerHeader.swift */; };
@@ -5153,6 +5154,7 @@
 		E54D698BB1584C2BAC3A61DF /* CloudSurfaceDragFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceDragFixture.swift; sourceTree = "<group>"; };
 		D9DF6ACE0DBF4ACE823A6CE8 /* CloudSurfaceDropGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSurfaceDropGate.swift; sourceTree = "<group>"; };
 		3A23E881DEAE40649BC8FFCF /* CloudSurfaceDropGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSurfaceDropGateView.swift; sourceTree = "<group>"; };
+		F4F082EFF9C0A9FAF57C2BF0 /* CloudSurfaceDropOptimisticTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSurfaceDropOptimisticTests.swift"; sourceTree = "<group>"; };
 		DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceMoveOwnershipTests.swift; sourceTree = "<group>"; };
 		D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSurfaceOwnershipTests.swift; sourceTree = "<group>"; };
 		A14327000000000000000003 /* CloudTeamPickerHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTeamPickerHeader.swift; sourceTree = "<group>"; };
@@ -12748,6 +12750,7 @@
 				14ED028255308F9B421D2ABF /* CloudWorkspaceRowOpenProvider.swift */,
 				C038464D085920513576A927 /* CloudWorkspaceRowOpenTests.swift */,
 				34A1987FFA112D2457B20A9C /* LocalTerminalSizingHostLifecycleTests.swift */,
+				F4F082EFF9C0A9FAF57C2BF0 /* CloudSurfaceDropOptimisticTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16706,6 +16709,7 @@
 				4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */,
 				CACC0558F1DE4DBC920ACAC7 /* CloudSurfaceDragFeedbackTests.swift in Sources */,
 				92556BB814BE41C3A3891685 /* CloudSurfaceDragFixture.swift in Sources */,
+				0A9C5DA8D03AFC4C6DC2D469 /* CloudSurfaceDropOptimisticTests.swift in Sources */,
 				5CB4AC1D92064236B5C2DDF1 /* CloudSurfaceMoveOwnershipTests.swift in Sources */,
 				6D2669CD5E4944C2B8C0F49C /* CloudSurfaceOwnershipTests.swift in Sources */,
 				D1958D1287A709CAF4AEC411 /* CloudTeamPickerMenuTests.swift in Sources */,
