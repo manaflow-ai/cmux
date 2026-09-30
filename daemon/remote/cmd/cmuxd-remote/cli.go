@@ -223,9 +223,6 @@ doneFlags:
 	if cmdName == "omx" {
 		return runOMXRelay(socketPath, cmdArgs, refreshAddr)
 	}
-	if cmdName == "omp" {
-		return runOMPRelay(socketPath, cmdArgs, refreshAddr)
-	}
 	if cmdName == "omc" {
 		return runOMCRelay(socketPath, cmdArgs, refreshAddr)
 	}
