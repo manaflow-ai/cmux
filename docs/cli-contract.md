@@ -180,11 +180,13 @@ Environment:
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
 | `record` | Record a cmux window or a region of one to an mp4 or gif (`window.record.*`). `start` returns a recording id and the output path, `stop` closes the clip, `status` reports progress, `note` adds a caption drawn into later frames, `list` shows the current and recent recordings. One recording at a time; a recording stops itself at `--max-seconds`. The clip appears at its path when the recording ends, so an existing file there is replaced only once there is a finished clip to replace it with, and a recording that never closes leaves the path alone. Local socket only: `window.record.*` is not on the `cmux ssh` relay allowlist. |
 | `shot`, `screenshot` | Screenshot a cmux window or a region of one to a png or a jpeg (`window.screenshot`). Prints the pixel size, the byte count and the output path. `--region` takes the same four window-point numbers as `cmux record --region`, `--caption` draws a caption into the image, and `--quality` applies to jpeg only. Only cmux's own windows are captured, so no Screen Recording permission is involved and this works in a Release build and inside CI. The image is encoded beside the output path and moved into place, so an existing file there is replaced only once there is a complete image to replace it with. Local socket only: `window.screenshot` is not on the `cmux ssh` relay allowlist. |
-| `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. Without `--paste`, large multi-line text prints a hint on stderr recommending it. |
-| `send-key` | Send one key to a terminal surface. |
-| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
-| `send-panel` | Send text to a panel/surface. |
-| `send-key-panel` | Send one key to a panel/surface. |
+| `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. Without `--paste`, large multi-line text prints a hint on stderr recommending it. Refuses to type over an agent prompt draft or into an open dialog unless `--force` comes before the text; see [Draft guard](#draft-guard). |
+| `send-key` | Send one key to a terminal surface. Refuses to send into an open agent dialog unless `--force`. |
+| `agent message` | Send a message to the agent in another workspace or surface (`agent.message.send`). Delivered through the recipient's agent hooks, never as keystrokes. `--reply-to <id>` answers a received message; `-` reads the text from stdin. |
+| `agent inbox` | List agent messages newest first (`agent.message.list`); `--mark-read` marks the listed messages read. |
+| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Refuses to paste over an agent prompt draft or into an open dialog unless `--force`. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
+| `send-panel` | Send text to a terminal surface. Same draft guard and `--force` as `send`. |
+| `send-key-panel` | Send one key to a terminal surface. Same dialog guard and `--force` as `send-key`. |
 | `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
 | `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
 | `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
@@ -285,6 +287,33 @@ lifecycle change, that ordinary CMUX projection reflects it. The execution
 transport, machine placement, physical attempt, and recovery truth remain with
 their existing owners rather than being duplicated into a second CMUX ledger.
 
+## Draft Guard
+
+Before writing, `send`, `send-panel` and `paste` (and `send --paste`) ask the
+app for `surface.input_state` and refuse when an agent's prompt holds text
+someone is typing, or when a question or permission dialog is open in an
+agent. `send-key` and `send-key-panel`, and `send` of text that only presses
+Enter, refuse only for an open dialog: `cmux send "text"` followed by
+`cmux send-key enter` leaves the sent text in the prompt, and the key has to
+go through. Surfaces without an agent are never blocked. A refusal writes nothing, prints the reason on stderr
+and exits non-zero. `--force`, before the text or key, skips the check. When
+the app can't answer `surface.input_state` (an older build, or a `cmux ssh`
+relay, which doesn't forward it) the commands write as before.
+
+`surface.input_state` is a v2 worker-lane socket method. It takes
+`surface_id`, or the usual workspace selectors for that workspace's focused
+surface, and returns:
+
+| Field | Meaning |
+| --- | --- |
+| `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the active screen (not the scrolled viewport): Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel" below the input row. |
+| `draft_length` | Characters in the draft, when `state` is `draft`. The text itself is not returned. |
+| `agent` | Whether an agent reports lifecycle state for the surface. |
+| `lifecycle` | The agent's lifecycle: `unknown`, `running`, `idle` or `needsInput`. |
+| `waiting_on_human` | `lifecycle` is `needsInput`. Informational: it can stay set after an interrupt or an API error, so it does not block on its own. |
+| `blocks_typing` | Typing text now could disturb a human: a draft or a dialog, on a surface that runs an agent. |
+| `terminal` | Whether the surface is a terminal. |
+
 ## Surface Selection Contract
 
 `surface.read_selection` is a v2 worker-lane socket method advertised by
@@ -380,6 +409,11 @@ Auth subcommands:
 | `auth login` | Begin sign-in through the app and wait for completion. |
 | `auth logout` | Clear the current session. |
 | `auth team list`, `auth team use <team-id>`, `auth team create <name>` | List teams, select one, or create one. |
+| `auth team members [--team <id>]` | Roster, pending invitations, invite links and seat usage of the active (or named) team. |
+| `auth team invite <email>... [--role admin\|member] [--team <id>]` | Invite by email; the server sends the email. Pro and Max teams hold 3 members. |
+| `auth team link [--expires-days 1\|7\|30] [--max-uses N] [--team <id>]` | Print a reusable member-only invite link (shown once). |
+| `auth team revoke-invite <id> [--link] [--team <id>]` | Revoke a pending email invitation, or an invite link with `--link`. |
+| `auth team remove <user-id> [--team <id>]` | Remove a member, or leave the team with your own user id. |
 
 My Devices connects opted-in Macs on the same account through authenticated Iroh v2 sessions. It runs only while Cloud Machines is enabled. Fresh installations leave both discovery and access to this Mac off. The Cloud sidebar's My Devices menu and **Settings › Remote & Devices › Devices** expose **Discover other Macs** and **Make this Mac discoverable** independently; both write the same preferences. Turning off incoming Mac access disconnects incoming Mac sessions; turning off discovery stops this installation’s outgoing device connections. Existing iPhone pairing remains separately opt-in. Turning Cloud Machines off stops My Devices discovery, connections, and hosting. My Devices requires no Tailscale setup, pairing link, or address entry.
 
@@ -1038,6 +1072,8 @@ the expected text without connecting to a cmux socket.
 - `cmux shot --help` -> `Usage: cmux shot [flags]`
 - `cmux send --help` -> `Usage: cmux send`
 - `cmux send-key --help` -> `Usage: cmux send-key`
+- `cmux agent message --help` -> `Usage: cmux agent message`
+- `cmux agent inbox --help` -> `Usage: cmux agent inbox`
 - `cmux paste --help` -> `Usage: cmux paste`
 - `cmux send-panel --help` -> `Usage: cmux send-panel`
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`

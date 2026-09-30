@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+public import CMUXMobileCore
 public import UIKit
 
 extension TerminalSizingPalette {
@@ -20,6 +21,26 @@ extension TerminalSizingPalette {
         UIColor { traits in
             TerminalSizingPalette(background: background, foreground: foreground, traits: traits).uiColor(role)
         }
+    }
+}
+
+extension TerminalSizingChromePalette {
+    public func uiColor(_ rgb: RGB) -> UIColor {
+        rgb.uiColor
+    }
+
+    /// The chrome palette of a terminal theme: `UIColor.separator` resolved
+    /// in the appearance the terminal chrome uses for that theme, drawn over
+    /// the theme background.
+    public init(theme: TerminalTheme) {
+        let base = TerminalSizingPalette(theme: theme)
+        let dark = Self.usesDarkSeparator(onBackground: base.background)
+        let traits = UITraitCollection(userInterfaceStyle: dark ? .dark : .light)
+        self.init(
+            background: base.background,
+            foreground: base.foreground,
+            line: TerminalSizingPalette.RGB(UIColor.separator.resolvedColor(with: traits), over: base.background)
+        )
     }
 }
 
