@@ -203,6 +203,11 @@ export function SkeletonPill({ className = "h-5 w-12" }: { readonly className?: 
   return <span aria-hidden="true" className={`inline-block animate-pulse bg-code-bg align-middle ${className}`} />;
 }
 
+/** One line of text that has not loaded, inside running text or a dialog. */
+export function SkeletonLine({ className = "w-full" }: { readonly className?: string }) {
+  return <span aria-hidden="true" className={`block h-3 animate-pulse bg-code-bg ${className}`} />;
+}
+
 function SkeletonBlock({ className }: { className: string }) {
   return (
     <div
