@@ -47,6 +47,42 @@ extension MachinesPanelViewModel {
         }
     }
 
+    /// Starts a list read at the owner boundary. Automatic reads present a
+    /// transient failure as reconnecting; routine polls keep a settled outage
+    /// actionable until that poll itself fails or succeeds.
+    func refresh(routinePoll: Bool = false) {
+        guard isCloudEnabled(), let client = client ?? VMClient.shared else { return }
+        guard refreshTask == nil else {
+            refreshRequestedWhileLoading = true
+            if !routinePoll {
+                updateListRefreshPresentation(isRecovering: true)
+                refreshRequestedWhileLoadingIsRecovery = true
+            }
+            return
+        }
+        updateListRefreshPresentation(isLoading: true, isRecovering: !routinePoll)
+        let generation = refreshGeneration
+        let scope = machinePinStore?.scopeIdentifier
+        refreshTask = Task { [weak self] in
+            // Only the last read in flight ends loading; a retired or chained one must not.
+            defer { self?.clearListLoadingIfIdle() }
+            let result: Result<VMListPage, Error>
+            do { result = .success(try await client.listPage()) }
+            catch { result = .failure(error) }
+            guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
+            self.applyRefreshResult(result, generation: generation, scope: scope)
+            self.refreshTask = nil
+            if self.refreshRequestedWhileLoading {
+                let isRecovery = self.refreshRequestedWhileLoadingIsRecovery
+                self.refreshRequestedWhileLoading = false
+                self.refreshRequestedWhileLoadingIsRecovery = false
+                self.refresh(routinePoll: !isRecovery)
+            } else {
+                self.updateListRefreshPresentation(isRecovering: false)
+            }
+        }
+    }
+
     func startPolling() {
         wantsPolling = true
         guard isCloudEnabled() else { pausePolling(); return }
@@ -57,7 +93,7 @@ extension MachinesPanelViewModel {
             while !Task.isCancelled {
                 do { try await pollingClock.sleep(for: Self.pollInterval) } catch { return }
                 guard !Task.isCancelled, let self else { return }
-                self.refresh()
+                self.refresh(routinePoll: true)
             }
         }
     }
@@ -72,5 +108,8 @@ extension MachinesPanelViewModel {
         guard pollTask != nil else { return }
         recoverList()
     }
+
+    /// Reuses wake recovery when a visible panel returns to the foreground.
+    func applicationDidBecomeActive() { guard pollTask != nil else { return }; recoverList() }
 
 }

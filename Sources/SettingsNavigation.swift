@@ -155,7 +155,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .customSidebars:
             return "\(title) custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures:
-            return "\(title) beta experimental unstable feed dock right sidebar"
+            return "\(title) beta experimental unstable feed right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
         case .computerUse:

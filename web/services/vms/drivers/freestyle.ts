@@ -18,6 +18,7 @@ import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
+  ProviderMachineRecreateRequiredError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -50,6 +51,7 @@ import {
   devboxDesktopOpenUrl,
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import {
   CMUX_TUI_PORT,
@@ -112,9 +114,11 @@ import {
 // supervisor in services/vms/images/devbox/cmux-devbox-boot) and bump
 // images/manifest.json. If it needs per-machine identity, derive it in the
 // guest at boot from the platform instance id, or fetch it asynchronously
-// from the guest (cmux-prompt-sync) without gating terminal access. Old
-// images without `cmuxTuiContract: "snapshot-v2"` are refused on purpose;
-// do not reintroduce create- or attach-time healing to support them.
+// from the guest (cmux-prompt-sync) without gating terminal access. Rows
+// without `cmuxTuiContract: "snapshot-v2"` are refused; do not reintroduce
+// create- or attach-time healing to support them. Running machines are
+// brought onto the contract out of band instead (an in-place cmux-tui upgrade
+// plus a guarded backfill): docs/cloud-guest-upgrades.md.
 // Explicit user operations (`exec`, `resize`, file push/pull) are separate
 // and stay. The one sanctioned guest exec around create is the prompt-name
 // push in workflows.ts (schedulePromptIdentityPush): display-only, run after
@@ -156,8 +160,8 @@ export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
 const GUEST_LINUX_USER = "root";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
-const CREATE_TIMEOUT_MS = 15 * 60 * 1000;
-const SNAPSHOT_TIMEOUT_MS = 15 * 60 * 1000;
+const CREATE_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
+const SNAPSHOT_TIMEOUT_MS = VM_PROVIDER_CREATE_TIMEOUT_MS;
 /** Page size and ceiling for `listSnapshots`; a machine rarely has more than a handful. */
 const SNAPSHOT_LIST_PAGE = 100;
 const SNAPSHOT_LIST_MAX = 1_000;
@@ -1361,11 +1365,12 @@ export class FreestyleProvider implements VMProvider {
         try {
           // Attach never runs guest work (NO-WORK INVARIANT at the top of this
           // file) and reads no provider state: a snapshot-v2 row records its
-          // private addresses at create. Cloud has no older rows to support,
-          // so a row without the contract or its addresses is refused.
+          // private addresses at create. A row without the contract or its
+          // addresses is refused; older running machines get the contract by
+          // the upgrade and backfill in docs/cloud-guest-upgrades.md.
           const routeAddresses = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
           if (options?.providerMetadata?.cmuxTuiContract !== "snapshot-v2" || !routeAddresses) {
-            throw new ProviderError(
+            throw new ProviderMachineRecreateRequiredError(
               "freestyle",
               `VM ${vmId} predates the snapshot-v2 machine contract (no recorded contract or private address); recreate the machine`,
             );

@@ -77,7 +77,7 @@ export async function SiteFooter() {
         { label: t("github"), href: "https://github.com/manaflow-ai/cmux" },
         { label: t("twitter"), href: "https://twitter.com/manaflowai" },
         { label: t("discord"), href: "https://discord.gg/xsgFEVrWCZ" },
-        { label: t("contact"), href: "mailto:founders@manaflow.com" },
+        { label: t("contact"), href: "mailto:founders@cmux.com" },
       ] satisfies FooterLink[],
     },
   ];

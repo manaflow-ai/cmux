@@ -13,4 +13,11 @@ Resources/markdown-viewer/diff-viewer-app/** linguist-generated
 # merges per key and defers to the default driver whenever both sides changed
 # the same key. Register it with scripts/install-git-hooks.sh (run by setup.sh);
 # without that config git silently uses the default driver.
-*.xcstrings merge=xcstrings
+*.xcstrings merge=xcstrings-v2
+
+# The Xcode project file collides the same way, and for a sharper reason: no
+# target here is filesystem-synchronized, so adding one source file writes four
+# entries, and two branches adding different files append to all four of the
+# same regions. scripts/merge-pbxproj.py takes the union of entries each side
+# added and defers whenever a hunk is anything else. Same registration.
+cmux.xcodeproj/project.pbxproj merge=pbxproj-v1

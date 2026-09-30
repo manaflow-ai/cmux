@@ -217,6 +217,56 @@ struct UpdateRelaunchAgentResumeTests {
         #expect(restoredLabels == Self.cases.map(\.label))
     }
 
+    /// The update relaunch save (and the quit watchdog fallback after a timed-out
+    /// fresh scan) cannot scan processes, so its binding index is unavailable.
+    /// That is missing evidence, not proof that tmux exited: the pane attached
+    /// to tmux at the last autosave must still reattach after the relaunch.
+    @Test("A tmux pane stays reattachable through the cached update relaunch save")
+    func updateRelaunchKeepsProcessDetectedTmuxBinding() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let tmuxBinding = SurfaceResumeBindingSnapshot(
+            name: "tmux",
+            kind: "tmux",
+            command: "tmux attach-session -t work",
+            cwd: Self.workingDirectory,
+            checkpointId: "work",
+            source: "process-detected",
+            autoResume: true,
+            updatedAt: 1_999_999_999
+        )
+
+        // The last autosave's fresh process scan saw tmux in this pane.
+        _ = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [
+                .init(workspaceId: workspace.id, panelId: panelId): tmuxBinding,
+            ])
+        )
+        #expect(workspace.surfaceResumeBinding(panelId: panelId)?.command == tmuxBinding.command)
+
+        let updateRelaunchIndexes = ProcessDetectedResumeIndexes.cached(
+            restorableAgentIndex: .empty
+        )
+        let saved = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: updateRelaunchIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: updateRelaunchIndexes.surfaceResumeBindingIndex
+        )
+        let persisted = try JSONDecoder().decode(
+            SessionWorkspaceSnapshot.self,
+            from: JSONEncoder().encode(saved)
+        )
+        let restoredBinding = try #require(
+            persisted.panels.first(where: { $0.id == panelId })?.terminal?.resumeBinding,
+            "the tmux reattach binding was dropped from the update relaunch snapshot"
+        )
+        #expect(restoredBinding.command == tmuxBinding.command)
+        #expect(restoredBinding.allowsAutomaticResume)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId)?.command == tmuxBinding.command)
+    }
+
     /// Mirrors the `cmux restore` CLI mapping from a socket restore record to
     /// the planner request.
     private static func restoreRequest(from record: ControlSurfaceRestoreRecord) throws -> AgentRestoreRequest {

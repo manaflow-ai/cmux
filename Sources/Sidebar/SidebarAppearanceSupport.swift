@@ -386,6 +386,42 @@ func sidebarSelectedWorkspaceForegroundNSColor(
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: clampedOpacity)
 }
 
+/// Whether selected rows paint the subtle tint and hairline. Only the
+/// left-rail indicator style uses it, and a configured selection color is an
+/// explicit request for a solid fill.
+func sidebarUsesSubtleSelection(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    subtleSelection: Bool,
+    sidebarSelectionColorHex: String?
+) -> Bool {
+    subtleSelection
+        && activeTabIndicatorStyle == .leftRail
+        && sidebarSelectionColorHex.flatMap { NSColor(hex: $0) } == nil
+}
+
+/// Hairline for a group header whose anchor workspace is selected, so group
+/// headers carry the same edge as selected workspace rows in subtle-selection
+/// mode. The header keeps its neutral wash, so the edge is the neutral
+/// selection edge. Nil when subtle selection is off.
+func sidebarGroupHeaderAnchorActiveEdgeNSColor(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    subtleSelection: Bool,
+    sidebarSelectionColorHex: String?,
+    colorScheme: ColorScheme,
+    increaseContrast: Bool
+) -> NSColor? {
+    guard sidebarUsesSubtleSelection(
+        activeTabIndicatorStyle: activeTabIndicatorStyle,
+        subtleSelection: subtleSelection,
+        sidebarSelectionColorHex: sidebarSelectionColorHex
+    ) else { return nil }
+    return CmuxSelectionFill.resolve(
+        colorScheme: colorScheme,
+        isEmphasized: false,
+        increaseContrast: increaseContrast
+    ).edgeColor
+}
+
 struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     let color: NSColor?
     let opacity: Double
@@ -435,9 +471,11 @@ func sidebarWorkspaceRowBackgroundStyle(
         accent: accent
     )
     let accentBackground = accent.nsColor(for: colorScheme)
-    // A configured selection color is an explicit request for a solid fill.
-    let usesSubtleSelection = subtleSelection
-        && sidebarSelectionColorHex.flatMap { NSColor(hex: $0) } == nil
+    let usesSubtleSelection = sidebarUsesSubtleSelection(
+        activeTabIndicatorStyle: activeTabIndicatorStyle,
+        subtleSelection: subtleSelection,
+        sidebarSelectionColorHex: sidebarSelectionColorHex
+    )
     func calmFill(isSecondary: Bool) -> SidebarWorkspaceRowBackgroundStyle {
         let fill = CmuxSelectionFill.resolve(
             colorScheme: colorScheme,
@@ -519,5 +557,23 @@ extension SidebarAppearanceColorResolver {
     func readableSecondary(for colorScheme: ColorScheme, over backdrop: NSColor?) -> Color {
         guard let backdrop else { return .secondary }
         return Color(nsColor: readableSecondaryColor(.secondaryLabelColor, for: colorScheme, over: backdrop))
+    }
+}
+
+/// Reads window activation for the subtle selection wash, which dims to
+/// neutral when the window is inactive the way Finder's selection does.
+/// Rows wrap only their selection background in this reader, and only while
+/// the subtle selection paints them, so activation changes invalidate that
+/// background instead of every sidebar row.
+struct SidebarSelectionWindowActivationReader<Content: View>: View {
+    @Environment(\.controlActiveState) private var controlActiveState
+    let content: (_ isEmphasized: Bool) -> Content
+
+    init(@ViewBuilder content: @escaping (_ isEmphasized: Bool) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content(controlActiveState != .inactive)
     }
 }

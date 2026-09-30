@@ -86,6 +86,10 @@
     "class": "format",
     "source": "%1$@: %2$@"
   },
+  "notification.remoteRelay.title": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
   "agent.kimi.displayName": {
     "class": "brand",
     "source": "Kimi Code"
@@ -421,6 +425,10 @@
   "cloudTree.node.desktop.detail.screen": {
     "class": "format",
     "source": "%1$@ · %2$@"
+  },
+  "cloudTree.group.cloudMachines.usage": {
+    "class": "format",
+    "source": "%1$d/%2$d"
   },
   "cloudTree.stats.cpu": {
     "class": "format",
@@ -2023,19 +2031,6 @@
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
-  "settings.betaFeatures.dock": {
-    "source": "Dock",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "es": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ja": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "zh-Hant": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ko": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "ar": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "zh-Hans": "Dock is the cmux right-sidebar feature name, not the macOS Dock; this market keeps the English product name, as reviewed in #12958."
-    }
-  },
   "settings.betaFeatures.extensions": {
     "source": "Extensions",
     "identityLocales": {
@@ -3449,6 +3444,15 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "sidebar.agentStatus.glyph.tooltip": {
+    "source": "%1$@: %2$@",
+    "identityLocales": {
+      "ar": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
   },
   "settings.section.textBox": {
     "source": "TextBox",

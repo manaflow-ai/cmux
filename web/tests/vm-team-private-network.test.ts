@@ -140,7 +140,7 @@ function createRepo(): VmRepositoryShape {
   return {
     beginCreate: () => Effect.succeed({ inserted: true, vm }),
     markCreateRunning: (input: { providerVmId: string; providerMetadata?: Record<string, unknown> }) => Effect.succeed({ ...vm, status: "running", providerVmId: input.providerVmId, providerMetadata: input.providerMetadata ?? {} }),
-    markCreateFailed: () => Effect.void,
+    markCreateFailed: () => Effect.succeed(true),
     recordUsageEvents: () => Effect.void,
     recordUsageEvent: () => Effect.void,
     findNetwork: () => Effect.succeed(personalNetwork),

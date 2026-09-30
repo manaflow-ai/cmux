@@ -41,7 +41,13 @@ extension SettingsWindowRoot {
         }
 
         slot(.themes, proxy: proxy) {
-            ThemesSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+            ThemesSection(
+                defaultsStore: defaultsStore,
+                jsonStore: jsonStore,
+                catalog: catalog,
+                errorLog: runtime.errorLog,
+                hostActions: hostActions
+            )
         }
 
         slot(.terminal, proxy: proxy) {

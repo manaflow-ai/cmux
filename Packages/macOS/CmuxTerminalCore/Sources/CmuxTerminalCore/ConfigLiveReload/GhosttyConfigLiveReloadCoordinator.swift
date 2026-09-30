@@ -4,23 +4,30 @@ public import CmuxFoundation
 ///
 /// The coordinator watches every file ``GhosttyConfigLiveReloadSnapshotReading``
 /// reports (top-level configs, `config-file` includes, user theme files). A
-/// change marks a reload pending and arms a trailing debounce; each further
-/// change restarts it, so an editor's write-rename-chmod burst produces one
-/// evaluation. The evaluation reads a fresh snapshot off the main thread and
-/// calls `reload` only when file contents differ from the last applied
-/// snapshot. When the set of reachable files changes (an include or theme was
-/// added), the watchers are re-armed on the new set and the files are read
-/// once more, so a write that landed before the new watchers attached still
-/// reloads.
+/// file event arms a trailing debounce; each further event restarts it, so an
+/// editor's write-rename-chmod burst produces one evaluation. The evaluation
+/// reads a fresh snapshot off the main thread and calls `reload` only when the
+/// file contents differ from the baseline.
 ///
-/// Reloads cmux starts itself (Reload Configuration, `cmux themes set`,
-/// Settings) call ``noteConfigurationDidReload()``, which refreshes the
-/// baseline. cmux writes the file before it reloads, so that write's event is
-/// usually still debouncing when the reload finishes; the refreshed baseline
-/// makes its evaluation a no-op instead of a second, redundant reload (which
-/// would also lose the reload source cmux's theme commands rely on). The
-/// trade-off: a user edit saved after Ghostty read the files but before the
-/// baseline refresh is absorbed until the next save.
+/// The baseline is what Ghostty last loaded, not what was on disk when a
+/// reload finished. Every full reload, whoever started it, calls
+/// ``noteConfigurationFilesWillLoad()`` on the main actor immediately before
+/// Ghostty reads the files, and the coordinator reads the same files in that
+/// turn. Two consequences follow without any timing assumption:
+///
+/// - A file cmux writes and then reloads itself (`cmux themes`, Settings) is in
+///   the baseline once that reload reads it, so the write's own file event
+///   evaluates to no change and the config reloads once.
+/// - A save that lands after a reload read the files differs from the
+///   baseline, so its evaluation reloads again. While a reload is still in
+///   flight, `reload` queues exactly one more after it (the app coalesces
+///   requests that arrive during a reload), so no save is dropped.
+///
+/// ``noteConfigurationDidReload()`` runs after a reload finishes and only
+/// re-arms the watchers when the set of reachable files changed (an include
+/// or theme was added); it never moves the baseline. After re-arming, the
+/// files are read once more, so a write that landed before the new watchers
+/// attached still reloads.
 ///
 /// All state is serialized through one operation queue on the main actor;
 /// file I/O happens in the injected reader and change source.
@@ -45,7 +52,8 @@ public final class GhosttyConfigLiveReloadCoordinator {
     public let outcomes: AsyncStream<GhosttyConfigLiveReloadOutcome>
 
     private enum Operation {
-        case recordBaseline
+        case recordInitialBaseline
+        case rearmAfterReload
         case evaluateChange
     }
 
@@ -64,15 +72,14 @@ public final class GhosttyConfigLiveReloadCoordinator {
     private var forwardingTask: Task<Void, Never>?
     private var operationTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
-    private var hasPendingChange = false
     private var isStarted = false
     private var isStopped = false
 
     /// Creates a stopped coordinator. Call ``start()`` to begin watching.
     ///
     /// - Parameters:
-    ///   - snapshotReader: Reads watch paths and file contents off the main
-    ///     thread.
+    ///   - snapshotReader: Reads watch paths and file contents; called off the
+    ///     main thread except from ``noteConfigurationFilesWillLoad()``.
     ///   - changeSource: Watches paths for changes.
     ///   - debounce: Trailing quiet period before an evaluation. Defaults to
     ///     ``defaultDebounce``.
@@ -113,14 +120,27 @@ public final class GhosttyConfigLiveReloadCoordinator {
                 await self.perform(operation)
             }
         }
-        operationContinuation.yield(.recordBaseline)
+        operationContinuation.yield(.recordInitialBaseline)
     }
 
-    /// Tells the coordinator that the configuration was reloaded by some
-    /// other path, so the files it read become the new baseline.
+    /// Records the files a full configuration load is about to read as the
+    /// baseline. Call it on the main actor immediately before Ghostty reads
+    /// the config files, for every full reload whoever started it.
+    ///
+    /// Reads the config files synchronously, alongside Ghostty's own read of
+    /// the same files in this turn, so the baseline matches what was loaded.
+    public func noteConfigurationFilesWillLoad() {
+        guard isStarted, !isStopped else { return }
+        baseline = snapshotReader.snapshot()
+    }
+
+    /// Tells the coordinator that a configuration reload finished, so the
+    /// watchers follow any include or theme that reload added. Does not move
+    /// the baseline: a save that landed after the reload read the files still
+    /// reloads.
     public func noteConfigurationDidReload() {
         guard isStarted, !isStopped else { return }
-        operationContinuation.yield(.recordBaseline)
+        operationContinuation.yield(.rearmAfterReload)
     }
 
     /// Stops watching and finishes ``outcomes``. Idempotent.
@@ -145,7 +165,6 @@ public final class GhosttyConfigLiveReloadCoordinator {
 
     private func noteFileChange() {
         guard !isStopped else { return }
-        hasPendingChange = true
         debounceTask?.cancel()
         let clock = self.clock
         let debounce = self.debounce
@@ -162,27 +181,49 @@ public final class GhosttyConfigLiveReloadCoordinator {
         }
     }
 
+    /// Reads a snapshot off the main thread.
+    private func readSnapshot() async -> GhosttyConfigLiveReloadSnapshot {
+        let reader = snapshotReader
+        return await Task.detached(priority: .utility) {
+            reader.snapshot()
+        }.value
+    }
+
     private func perform(_ operation: Operation) async {
         guard !isStopped else { return }
         switch operation {
-        case .recordBaseline:
-            let snapshot = await snapshotReader.snapshot()
+        case .recordInitialBaseline:
+            let snapshot = await readSnapshot()
             guard !isStopped else { return }
-            baseline = snapshot
+            // A load that started meanwhile recorded what it read; keep that.
+            if baseline == nil {
+                baseline = snapshot
+            }
+            let reloadedAfterRearm = await arm(for: snapshot)
+            outcomeContinuation.yield(reloadedAfterRearm ? .reloaded : .baselineRecorded)
+        case .rearmAfterReload:
+            let snapshot = await readSnapshot()
+            guard !isStopped else { return }
             let reloadedAfterRearm = await arm(for: snapshot)
             outcomeContinuation.yield(reloadedAfterRearm ? .reloaded : .baselineRecorded)
         case .evaluateChange:
-            hasPendingChange = false
-            let snapshot = await snapshotReader.snapshot()
+            let snapshot = await readSnapshot()
             guard !isStopped else { return }
-            let changed = baseline.map { !$0.hasSameContents(as: snapshot) } ?? true
-            baseline = snapshot
+            let changed = !isLoaded(snapshot)
             if changed {
+                // The load this starts records its own baseline through
+                // noteConfigurationFilesWillLoad(); a request made while a
+                // reload is in flight runs once after it.
                 reload()
             }
             let reloadedAfterRearm = await arm(for: snapshot)
             outcomeContinuation.yield(changed || reloadedAfterRearm ? .reloaded : .unchanged)
         }
+    }
+
+    /// Whether `snapshot` has the contents of the last load.
+    private func isLoaded(_ snapshot: GhosttyConfigLiveReloadSnapshot) -> Bool {
+        baseline?.hasSameContents(as: snapshot) ?? false
     }
 
     /// Points the watchers at `snapshot`'s paths. When that replaces an
@@ -214,10 +255,9 @@ public final class GhosttyConfigLiveReloadCoordinator {
             }
         }
         guard isRearm else { return false }
-        let recheck = await snapshotReader.snapshot()
-        guard !isStopped, !recheck.hasSameContents(as: snapshot) else { return false }
+        let recheck = await readSnapshot()
+        guard !isStopped, !isLoaded(recheck) else { return false }
         // A later event re-arms again if the path set moved once more.
-        baseline = recheck
         reload()
         return true
     }

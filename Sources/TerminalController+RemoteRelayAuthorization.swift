@@ -52,12 +52,12 @@ extension TerminalController {
     #endif
     nonisolated func authorizeRemoteRelayRequestAsync(
         _ request: ControlRequest
-    ) async -> RemoteRelayAuthorizationResult {
+    ) async throws -> RemoteRelayAuthorizationResult {
         let snapshot: RemoteRelayAuthorizationSnapshot?
         if case .string(let ownerRaw)? = request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey],
            let ownerWorkspaceID = UUID(uuidString: ownerRaw),
            request.params[WorkspaceRemoteRelayCommandRewriter.requestAuthenticationCodeKey] != nil {
-            snapshot = await v2MainAsync {
+            snapshot = try await v2MainAsync {
                 self.remoteRelayAuthorizationSnapshot(ownerWorkspaceID: ownerWorkspaceID)
             }
         } else {

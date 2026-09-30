@@ -430,7 +430,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showPasswordInputIndicator"),
                 String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off.")
+                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputIndicator.current }, set: { passwordInputIndicator.set($0) }))
                     .labelsHidden()
@@ -441,7 +441,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showPasswordInputDots"),
                 String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
-                subtitle: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters.")
+                subtitle: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters. Pasted text is not counted.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputDots.current }, set: { passwordInputDots.set($0) }))
                     .labelsHidden()
@@ -464,7 +464,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
-                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under critical memory pressure.")
+                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under memory pressure.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()

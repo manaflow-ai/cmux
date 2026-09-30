@@ -1,4 +1,5 @@
 {
+  "paths": ["Sources/*RightSidebar*", "Sources/*FileExplorer*", "Sources/*Vault*", "Sources/*ContextMenu*", "Sources/*Find*", "Sources/AppDelegate+*Menu*", "Packages/macOS/CmuxCloudMachines/*"],
   "steps": [
     {"socket": "workspace.create", "params": {"title": "Notes", "initial_input": "printf 'one\\ntwo\\nthree\\n' > /tmp/dogfood-notes.md; echo ready\n", "focus": true}, "save": "notes"},
     {"wait": 1},

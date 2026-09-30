@@ -1728,6 +1728,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.mobilePairingWindow",
     "cmux.sidebarFooterIconBalanceDebug",
     "cmux.cloudPaneCreationFailure.card",
+    "cmux.cloudCreateTeam",
     "cmux.sudo.approval",
 ]
 

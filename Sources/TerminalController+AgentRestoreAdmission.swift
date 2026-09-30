@@ -35,7 +35,7 @@ extension TerminalController {
     #endif
     nonisolated func agentRestoreAdmissionResponse(
         _ request: ControlRequest
-    ) async -> String {
+    ) async throws -> String {
         guard let inputs = Self.agentRestoreAdmissionInputs(request.params) else {
             return Self.v2Encoder.error(
                 id: request.id,
@@ -48,7 +48,7 @@ extension TerminalController {
         }
         let admissionStart = ContinuousClock.now
 
-        let record = await v2MainAsync { () -> ControlSurfaceRestoreRecord? in
+        let record = try await v2MainAsync { () -> ControlSurfaceRestoreRecord? in
             guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil else { return nil }
             return self.agentRestoreTargetRecord(inputs)
         }
@@ -98,7 +98,7 @@ extension TerminalController {
             )
         }
         var writerCandidates: [CodexWriterProcessInspector.Candidate] = []
-        if liveOwner == nil, let observed = writer, observed.state == .active {
+        if !inputs.launchLeasePending, liveOwner == nil, let observed = writer, observed.state == .active {
             writerCandidates = CodexWriterProcessInspector().candidates(for: observed)
             writer = AgentRestoreCodexEvidence().inspect(
                 record: record, sessionID: inputs.sessionID, effectiveHome: inputs.codexHome
@@ -106,19 +106,20 @@ extension TerminalController {
             if writer?.deviceAndInodeMatch(observed) != true { writerCandidates = [] }
         }
         let heldWriterCandidates = writer?.state == .active ? writerCandidates : nil
-        let evidenceDecision = inputs.launchLeasePending ? .refreshEvidence : AgentRestoreEvidencePolicy().decision(
+        let evidenceDecision = AgentRestoreEvidencePolicy().decision(
             hasLiveOwner: liveOwner != nil,
             indexComplete: indexComplete,
             writerLock: writer?.state
         )
-        let decision = await v2MainAsync { () -> AgentRestoreAdmissionDecision in
+        let decision = try await v2MainAsync { () -> AgentRestoreAdmissionDecision in
             guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil,
                   self.agentRestoreTargetRecord(inputs) == record else { return .targetChanged }
-            if evidenceDecision != .claimLaunch {
+            if inputs.launchLeasePending || liveOwner != nil {
+                // The CLI prints the terminal live-owner/launch-pending error.
+                // This operation has ended; leaving recovery visible suggests
+                // a queued launch that no longer exists.
                 let changed = self.presentAgentRestoreRecovery(
-                    workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID,
-                    state: liveOwner.map { .liveOwner(kind: inputs.kind, processID: $0.processID) }
-                        ?? heldWriterCandidates.map { .writerLock(candidates: $0) } ?? .checking
+                    workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID, state: nil
                 )
                 if changed, let liveOwner {
                     AgentRestoreSuppressionJournal().record(
@@ -127,21 +128,28 @@ extension TerminalController {
                         processID: liveOwner.processID
                     )
                 }
-                return liveOwner.map(AgentRestoreAdmissionDecision.liveOwner) ?? .recovering
+                return liveOwner.map(AgentRestoreAdmissionDecision.liveOwner) ?? .concurrentLaunch
             }
-            guard let claim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
-                kind: inputs.kind, sessionId: inputs.sessionID
-            ) else { return .concurrentLaunch }
+            if evidenceDecision != .claimLaunch {
+                self.presentAgentRestoreRecovery(
+                    workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID,
+                    state: heldWriterCandidates.map { .writerLock(candidates: $0) } ?? .checking
+                )
+                return .recovering
+            }
             self.presentAgentRestoreRecovery(
                 workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID, state: nil
             )
+            guard let claim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+                kind: inputs.kind, sessionId: inputs.sessionID
+            ) else { return .concurrentLaunch }
             return .admitted(claim)
         }
         // The CLI keeps the original restore operation alive. Each subsequent
         // request is paced by kernel evidence or the bounded RPC deadline.
         if inputs.waitForChange {
             switch decision {
-            case .liveOwner, .recovering, .concurrentLaunch:
+            case .recovering:
                 let kind = RestorableAgentKind(rawValue: inputs.kind)
                 let hookPath = kind?.hookStoreFileURL(homeDirectory: NSHomeDirectory())
                 let lockDirectory = writer.map { URL(fileURLWithPath: $0.lockPath).deletingLastPathComponent().path }
@@ -149,7 +157,7 @@ extension TerminalController {
                     process: liveOwner?.processIdentity,
                     paths: [hookPath?.deletingLastPathComponent().path, lockDirectory, writer?.lockPath].compactMap { $0 }
                 )
-            case .admitted, .targetChanged:
+            case .admitted, .targetChanged, .liveOwner, .concurrentLaunch:
                 break
             }
         }
@@ -167,7 +175,7 @@ extension TerminalController {
     #endif
     nonisolated func agentRestoreAdmissionReleaseResponse(
         _ request: ControlRequest
-    ) async -> String {
+    ) async throws -> String {
         guard case .string(let rawKind)? = request.params["kind"],
               case .string(let rawSessionID)? = request.params["session_id"],
               case .string(let rawClaimID)? = request.params["claim_id"],
@@ -193,7 +201,7 @@ extension TerminalController {
                 )
             )
         }
-        let released = await v2MainAsync {
+        let released = try await v2MainAsync {
             guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil else { return false }
             return AgentResumeLaunchGuard.shared.releaseResumeLaunch(
                 kind: kind,
@@ -311,7 +319,7 @@ extension TerminalController {
                 .ok(.object([
                     "admitted": .bool(false),
                     "live_owner_pid": .int(Int64(owner.processID)),
-                    "recovering": .bool(true),
+                    "recovering": .bool(false),
                 ]))
             )
         case .concurrentLaunch:
@@ -320,7 +328,7 @@ extension TerminalController {
                 .ok(.object([
                     "admitted": .bool(false),
                     "launch_pending": .bool(true),
-                    "recovering": .bool(true),
+                    "recovering": .bool(false),
                 ]))
             )
         case .targetChanged:

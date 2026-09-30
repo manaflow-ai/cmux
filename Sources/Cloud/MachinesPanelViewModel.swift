@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxCloudMachines
 import CmuxSurfaceCatalogModel
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -33,8 +34,8 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
     /// Human-readable label of the Cloud VM action currently running from this
-    /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
-    /// header while set — the in-app substitute for a floating progress HUD.
+    /// panel ("Checkpointing noble-wren…"). Shows in the status row under the
+    /// Cloud toolbar while set — the in-app substitute for a floating progress HUD.
     @Published private(set) var activeOperation: String?
     /// The surface catalog as one value: machines (this Mac first), their
     /// terminals/screens/browsers, and which local panes project them.
@@ -94,7 +95,6 @@ final class MachinesPanelViewModel: ObservableObject {
     /// A recovery read: a transient failure reads as reconnecting until it settles.
     func recoverList() {
         refresh()
-        isRecoveringList = refreshTask != nil
         #if DEBUG
         cmuxDebugLog("cloud.machines.list recover started=\(isRecoveringList) problem=\(String(describing: listProblem))")
         #endif
@@ -107,6 +107,8 @@ final class MachinesPanelViewModel: ObservableObject {
     let pollingClock: any Clock<Duration>
     /// Posts `NSWorkspace.didWakeNotification`; injectable for tests.
     let wakeNotificationCenter: NotificationCenter
+    /// Posts `NSApplication.didBecomeActiveNotification`; injectable for tests.
+    let lifecycleNotificationCenter: NotificationCenter
     private var networkTask: Task<Void, Never>?
     var pollTask: Task<Void, Never>?
     var statsTask: Task<Void, Never>?
@@ -131,12 +133,13 @@ final class MachinesPanelViewModel: ObservableObject {
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
     private var authScopeObservers: [NSObjectProtocol] = []
     private var wakeObserver: NSObjectProtocol?
+    private var lifecycleObserver: NSObjectProtocol?
     private var featureFlagObserver: CloudFeatureAvailabilityObserver?
     var wantsPolling = false
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
     var treeTask: Task<Void, Never>?
-    let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
+    let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refreshPortDiscovery(machine: $0) }
     /// Explicit machine pins and the stable fleet order; nil keeps fleet order.
     let machinePinStore: CloudMachinePinStore?
     private let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot
@@ -149,6 +152,7 @@ final class MachinesPanelViewModel: ObservableObject {
         client: VMClient? = nil,
         pollingClock: any Clock<Duration> = ContinuousClock(),
         wakeNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+        lifecycleNotificationCenter: NotificationCenter = .default,
         isCloudEnabled: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isEnabled },
         catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot },
         localWorkspacesProvider: (@MainActor () -> [CloudTreeLocalWorkspace])? = nil
@@ -157,6 +161,7 @@ final class MachinesPanelViewModel: ObservableObject {
         self.client = networkClient
         self.pollingClock = pollingClock
         self.wakeNotificationCenter = wakeNotificationCenter
+        self.lifecycleNotificationCenter = lifecycleNotificationCenter
         self.isCloudEnabled = isCloudEnabled
         self.resourceStats = resourceStats ?? networkClient?.resourceStats ?? VMClient.shared?.resourceStats
         self.machinePinStore = machinePinStore
@@ -174,17 +179,27 @@ final class MachinesPanelViewModel: ObservableObject {
             let finished = notification.userInfo?[finishedUserInfoKey] as? MachineCreateCoordinator.Finished
             MainActor.assumeIsolated { self?.createsDidChange(finished: finished) }
         }
-        authScopeObservers = [Notification.Name.cmuxCloudVMAccessDidEnd, .cmuxCloudTeamScopeDidChange].map { name in
+        authScopeObservers = [
+            Notification.Name.cmuxCloudVMAccessDidEnd,
+            .cmuxCloudTeamScopeDidChange,
+            .cmuxCloudTeamScopeReady,
+        ].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     if name == .cmuxCloudVMAccessDidEnd { self.resetForAuthTransition() }
-                    else if self.wantsPolling { self.startPolling() }
+                    else if name == .cmuxCloudTeamScopeDidChange { self.beginTeamScopeTransition() }
+                    else { self.finishTeamScopeTransition() }
                 }
             }
         }
         wakeObserver = wakeNotificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.systemDidWake() }
+        }
+        lifecycleObserver = lifecycleNotificationCenter.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applicationDidBecomeActive() }
         }
         featureFlagObserver = CloudFeatureAvailabilityObserver(
             isEnabled: isCloudEnabled,
@@ -272,6 +287,16 @@ final class MachinesPanelViewModel: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
         if let wakeObserver { wakeNotificationCenter.removeObserver(wakeObserver) }
+        if let lifecycleObserver { lifecycleNotificationCenter.removeObserver(lifecycleObserver) }
+    }
+
+    func updateListRefreshPresentation(isLoading loading: Bool? = nil, isRecovering recovering: Bool? = nil) {
+        if let loading { isLoading = loading }
+        if let recovering { isRecoveringList = recovering }
+    }
+
+    func clearListLoadingIfIdle() {
+        if refreshTask == nil { isLoading = false }
     }
     /// Mirrors the coordinator's rows. A completion also re-reads the fleet so
     /// the real machine row replaces the pending one without waiting for the
@@ -346,6 +371,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// create that lands mid-poll must still replace its pending row with the
     /// real machine now, not on the next 45 s sweep.
     var refreshRequestedWhileLoading = false
+    /// A queued automatic refresh promotes the current request to recovery
+    /// presentation and keeps that intent for the follow-up read.
+    var refreshRequestedWhileLoadingIsRecovery = false
     /// Invalidates refresh completions when the Cloud gate closes. A cancelled
     /// URLSession task may still resume on the main actor, so cancellation
     /// alone is not enough to prevent stale rows or follow-up work.
@@ -399,6 +427,21 @@ final class MachinesPanelViewModel: ObservableObject {
         isLoading = false
     }
 
+    /// Clears old-team rows as soon as auth announces a scope transition.
+    private func beginTeamScopeTransition() {
+        resetForAuthTransition()
+        machinePinStore?.refreshScope()
+        awaitingCatalogScope = true
+    }
+
+    /// Re-enables catalog rows only after the shared provider registry has
+    /// finished retiring the old team and resuming the new one.
+    private func finishTeamScopeTransition() {
+        awaitingCatalogScope = false
+        readCatalog()
+        if wantsPolling { startPolling() }
+    }
+
     /// Retire old requests before changing pin scope. Catalog discoveries are
     /// admitted again only after the shared registry refreshes the new account.
     @discardableResult
@@ -449,34 +492,11 @@ final class MachinesPanelViewModel: ObservableObject {
         }
     }
 
-    func refresh() {
-        guard isCloudEnabled(), let client = client ?? VMClient.shared else { return }
-        guard refreshTask == nil else { refreshRequestedWhileLoading = true; return }
-        isLoading = true
-        let generation = refreshGeneration
-        let scope = machinePinStore?.scopeIdentifier
-        refreshTask = Task { [weak self] in
-            // Only the last read in flight ends loading; a retired or chained one must not.
-            defer { if self?.refreshTask == nil { self?.isLoading = false } }
-            let result: Result<VMListPage, Error>
-            do { result = .success(try await client.listPage()) }
-            catch { result = .failure(error) }
-            guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
-            self.applyRefreshResult(result, generation: generation, scope: scope)
-            self.refreshTask = nil
-            if self.refreshRequestedWhileLoading {
-                self.refreshRequestedWhileLoading = false
-                self.refresh()
-            } else {
-                self.isRecoveringList = false
-            }
-        }
-    }
-
     func pausePolling() {
         pollTask?.cancel(); pollTask = nil
         refreshTask?.cancel(); refreshTask = nil
         refreshRequestedWhileLoading = false
+        refreshRequestedWhileLoadingIsRecovery = false
         refreshGeneration &+= 1
         isLoading = false
         isRecoveringList = false
