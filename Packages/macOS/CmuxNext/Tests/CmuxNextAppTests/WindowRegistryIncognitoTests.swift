@@ -47,6 +47,17 @@ struct WindowRegistryIncognitoTests {
         #expect(registry.discarding.isEmpty)
     }
 
+    /// After a crash, the workspaces of incognito windows the ledger lists
+    /// are discarded at launch: never placed in a normal window.
+    @Test func workspacesMarkedDiscardingAtLaunchStayOutOfNormalWindows() {
+        var registry = WindowRegistry()
+        registry.openWindow(id: "n", workspaceIDs: ["w1"])
+        registry.markDiscarding(["p1"])
+        let changes = registry.reconcile(live: ["w1", "p1"], dead: [], fallbackWindow: "unused")
+        #expect(changes.moved.isEmpty)
+        #expect(registry.owner(of: "p1") == nil)
+    }
+
     /// The only incognito window closes for good (never a closed record
     /// that a Dock click would reopen).
     @Test func theOnlyWindowBeingIncognitoStillCloses() {
