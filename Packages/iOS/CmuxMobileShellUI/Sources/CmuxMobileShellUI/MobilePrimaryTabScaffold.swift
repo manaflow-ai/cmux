@@ -167,11 +167,11 @@ struct MobilePrimaryTabScaffold<
                         }
                         .frame(
                             width: geometry.size.width,
-                            height: max(0, geometry.size.height - geometry.safeAreaInsets.bottom),
+                            height: geometry.size.height,
                             alignment: .top
                         )
                         .contentShape(
-                            TopContentHitRegion(bottomInset: 0)
+                            TopContentHitRegion(bottomInset: geometry.safeAreaInsets.bottom)
                         )
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
