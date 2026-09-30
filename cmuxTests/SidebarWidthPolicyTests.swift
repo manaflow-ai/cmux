@@ -527,8 +527,8 @@ struct SidebarWorkspaceSelectionColorTests {
             unifySurfaceBackdrops: true,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
                 materialRawValue: WindowChromeSidebarMaterialOption.sidebar.rawValue,
-                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                stateRawValue: SidebarStateOption.followWindow.rawValue,
+                blendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
+                stateRawValue: WindowChromeSidebarStateOption.followWindow.rawValue,
                 tintHex: SidebarTintDefaults().hex,
                 tintHexLight: nil,
                 tintHexDark: nil,
@@ -538,7 +538,7 @@ struct SidebarWorkspaceSelectionColorTests {
                 colorScheme: .light
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                sidebarBlendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
                 isEnabled: false,
                 tintHex: "#000000",
                 tintOpacity: 0,

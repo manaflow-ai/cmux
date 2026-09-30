@@ -40483,18 +40483,7 @@ export default {
     private static let openCodePluginFileName = "cmux-feed.js"
 
     private func openCodeConfigDirPath() -> String {
-        let environment = ProcessInfo.processInfo.environment
-        let home = environment["HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.homeDirectoryForCurrentUser
-        if let override = environment["OPENCODE_CONFIG_DIR"], !override.isEmpty {
-            return NSString(string: override).expandingTildeInPath
-        }
-        if let xdgConfigHome = environment["XDG_CONFIG_HOME"], !xdgConfigHome.isEmpty {
-            return URL(fileURLWithPath: xdgConfigHome, isDirectory: true)
-                .appendingPathComponent("opencode", isDirectory: true)
-                .path
-        }
-        return home.appendingPathComponent(".config/opencode", isDirectory: true).path
+        OpenCodePaths(environment: ProcessInfo.processInfo.environment).configDirectory.path
     }
 
     private func openCodePluginPath(projectLocal: Bool) -> String {
