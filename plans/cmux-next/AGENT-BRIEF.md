@@ -26,3 +26,12 @@
 - Report the landed commit SHAs in your final reply.
 
 - Launching a tagged build: run the binary directly so the env applies, e.g. `env -i HOME=$HOME USER=$USER TMPDIR=$TMPDIR PATH=/usr/bin:/bin:/usr/sbin:/sbin CMUX_NEXT_NO_ACTIVATE=1 CMUX_NEXT_SOCKET_MODE=automation CMUX_NEXT_TEST_WINDOW_SCREEN=last "<App>/Contents/MacOS/cmux DEV" &`. `env -i ... open -g <App>` does NOT pass the environment (no-activate is lost and the app steals focus); if you must use `open`, use `open -g --env CMUX_NEXT_NO_ACTIVATE=1 --env ...`.
+
+## Cleanup when you finish (added 2026-09-30)
+
+The machine is shared by many agents, and leftovers filled the disk and the PTY table. Before you report:
+- Quit your tagged app by its recorded PID. Then stop the tag's headless daemon and its terminal hosts: `pgrep -f "DerivedData/cmux-<tag>/"` must print nothing. Kill only processes whose path has your own tag.
+- Do not leave a tagged app running while you are not testing. A Chromium page left open keeps its helpers busy.
+- Remove your tag's DerivedData (`~/Library/Developer/Xcode/DerivedData/cmux-<tag>`) and `/tmp/cmux-debug-<tag>.sock`.
+- Remove your worktree when all its commits are on `origin/feat-cmux-next` (`git cherry origin/feat-cmux-next HEAD` shows no `+`). Use `git worktree remove --force` only when `git status` is clean, because worktrees with submodules need it.
+- A CEF fork build folder is about 45 GB. Only the fork owner (see the latest coordinator message) keeps one. Remove any other one you made.
