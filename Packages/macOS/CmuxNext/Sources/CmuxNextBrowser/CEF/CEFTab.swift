@@ -174,18 +174,30 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             if let url = pendingURL ?? state.url { load(url) }
             return
         }
-        guard state.processExit != nil, let url = state.url else {
+        switch reloadPlan {
+        case .reloadEntry:
             runtime.shim?.reload(browserID)
-            return
+        case .load(let url):
+            // The sad tab clears now, not when the new renderer's first
+            // callback arrives.
+            let id = makeNavigationID()
+            navigation = id
+            machine.apply(.started(id, url: url))
+            runtime.shim?.loadURL(browserID, url.absoluteString)
         }
-        // The sad tab clears now, not when the new renderer's first callback
-        // arrives. Loading the shown URL (Chromium turns a load of the
-        // current entry's URL into a reload, so history is kept) also covers
-        // a crash before the load committed.
-        let id = makeNavigationID()
-        navigation = id
-        machine.apply(.started(id, url: url))
-        runtime.shim?.loadURL(browserID, url.absoluteString)
+    }
+
+    /// How Reload recovers the page.
+    enum ReloadPlan: Equatable {
+        /// Chromium reloads its current (last committed) entry.
+        case reloadEntry
+        /// Load this URL (the page died before any load committed).
+        case load(URL)
+    }
+
+    var reloadPlan: ReloadPlan {
+        guard state.processExit != nil, let url = state.url else { return .reloadEntry }
+        return .load(url)
     }
 
     /// Answers "Page unresponsive": wait restarts Chromium's hang timer,
