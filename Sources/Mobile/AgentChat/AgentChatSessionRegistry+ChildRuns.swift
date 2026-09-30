@@ -4,8 +4,9 @@ import Foundation
 
 /// Child-run (subagent) bookkeeping from the parent session's hook events.
 ///
-/// Two shapes exist on the wire. Claude spawns children through the `Task`
-/// tool, so a child's life is bracketed by that tool's
+/// Two shapes exist on the wire. Claude spawns children through its spawn
+/// tool, named `Task` before 2.x and `Agent` after (both are still on the
+/// wire; see `isTaskSpawn`), so a child's life is bracketed by that tool's
 /// `PreToolUse`/`PostToolUse` pair (the payload carries `description` and
 /// `subagent_type`). Codex emits dedicated `SubagentStart`/`SubagentStop`
 /// events. Neither child ever runs hooks of its own, so this bookkeeping is

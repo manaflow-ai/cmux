@@ -122,7 +122,10 @@ const subagentToolNames = new Set([
   "subagent",
   "team_spawn",
   "superpowers_dispatch",
+  // Claude Code renamed its spawn tool "Task" -> "Agent" in 2.x and both are
+  // still on the wire. The /subagent/i fallback below catches neither.
   "Task",
+  "Agent",
 ]);
 
 function isSubagentTool(event: unknown): boolean {
