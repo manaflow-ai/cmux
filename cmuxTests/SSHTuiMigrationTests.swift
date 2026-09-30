@@ -127,8 +127,8 @@ struct SSHTuiMigrationTests {
         let persisted = try JSONEncoder().encode(snapshot)
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
         let openedCarrier = try resolvedControlSettings(SSHTuiConnection(configuration: opened))
-        #expect(openedCarrier["controlmaster"] == "no")
-        #expect(openedCarrier["controlpath"] == "none")
+        #expect(openedCarrier["controlmaster"] == "false")
+        #expect(openedCarrier["controlpath"] == nil)
         #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored)) == openedCarrier)
     }
 
