@@ -2188,14 +2188,30 @@ function safeErrorMessage(op: string, err: unknown, context: { provider?: string
 }
 
 function sendWsErrorDetails(
-  ws: Bun.ServerWebSocket<WsData>,
+  ws: Pick<Bun.ServerWebSocket<WsData>, "send">,
   op: string,
   err: unknown,
-  details: { provider?: string; requestId?: string; sessionId?: string; path?: string } = {},
+  details: { provider?: string; requestId?: string; sessionId?: string; path?: string; cwd?: string } = {},
 ) {
   console.error(`[agent-chat] ${op || "request"} failed`, err);
   const { provider, ...publicDetails } = details;
   ws.send(JSON.stringify({ kind: "error", op, message: safeErrorMessage(op, err, { provider }), ...publicDetails }));
+}
+
+/** Replies on the same command-discovery path used by the WebSocket route. */
+export async function sendCommandCatalogResponse(
+  ws: Pick<Bun.ServerWebSocket<WsData>, "send">,
+  msg: { provider?: unknown; cwd?: unknown; requestId?: unknown },
+) {
+  const provider = String(msg.provider ?? "");
+  const cwd = String(msg.cwd || DEFAULT_CWD);
+  const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
+  try {
+    const groups = await cachedCommands(provider, cwd);
+    ws.send(JSON.stringify({ kind: "commands-list", provider, cwd, requestId, groups }));
+  } catch (err) {
+    sendWsErrorDetails(ws, "list-commands", err, { provider, cwd, requestId });
+  }
 }
 
 function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
@@ -2354,16 +2370,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "list-commands": {
-      const provider = String(msg.provider ?? "");
-      const adapter = adapters.get(provider);
-      if (!adapter) {
-        sendWsError(ws, "list-commands", `unknown provider: ${provider}`);
-        return;
-      }
-      const cwd = String(msg.cwd || DEFAULT_CWD);
-      Promise.resolve(cachedCommands(provider, cwd))
-        .then((groups) => ws.send(JSON.stringify({ kind: "commands-list", provider, groups })))
-        .catch((err) => sendWsError(ws, "list-commands", err));
+      void sendCommandCatalogResponse(ws, msg);
       break;
     }
     case "list-files": {

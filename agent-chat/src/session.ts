@@ -358,6 +358,7 @@ export function useSession(): SessionState {
   const [commands, setCommands] = useState<CommandGroup[]>([]);
   const [providerOptions, setProviderOptions] = useState<Record<string, SessionOption[]>>({});
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
+  const latestCommandRequestsRef = useRef(new Map<string, { requestId: string; cwd: string; pending: boolean }>());
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
   const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
@@ -447,7 +448,10 @@ export function useSession(): SessionState {
   useEffect(() => {
     const disconnect = openSessionConnection({
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
-      onSocket: (ws) => { wsRef.current = ws; },
+      onSocket: (ws) => {
+        wsRef.current = ws;
+        if (!ws) latestCommandRequestsRef.current.clear();
+      },
       onOpen: () => {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
@@ -625,9 +629,13 @@ export function useSession(): SessionState {
               setProviderOptions((current) => ({ ...current, ...msg.options }));
             }
             break;
-          case "commands-list":
+          case "commands-list": {
+            const request = latestCommandRequestsRef.current.get(msg.provider);
+            if (!request?.pending || request.requestId !== msg.requestId || request.cwd !== msg.cwd) break;
+            request.pending = false;
             setProviderCommands((m) => ({ ...m, [msg.provider]: msg.groups ?? [] }));
             break;
+          }
           case "files-list":
             setFilesByCwd((m) => ({ ...m, [msg.cwd]: msg.files ?? [] }));
             break;
@@ -650,6 +658,11 @@ export function useSession(): SessionState {
             }
             break;
           case "error":
+            if (msg.op === "list-commands") {
+              for (const request of latestCommandRequestsRef.current.values()) {
+                if (request.requestId === msg.requestId && request.cwd === msg.cwd) request.pending = false;
+              }
+            }
             if (msg.op === "start") {
               const message = String(msg.message ?? "");
               const pending = pendingStartRef.current;
@@ -789,7 +802,13 @@ export function useSession(): SessionState {
     sendRaw({ op: "list-options", provider, cwd });
   }, [sendRaw]);
   const requestProviderCommands = useCallback((provider: string, cwd: string) => {
-    sendRaw({ op: "list-commands", provider, cwd });
+    const previous = latestCommandRequestsRef.current.get(provider);
+    const request = { requestId: newClientRequestId("commands"), cwd, pending: true };
+    latestCommandRequestsRef.current.set(provider, request);
+    // Commands are discovered per cwd, but the menu is stored per provider.
+    // Never show the old project's commands while a new discovery is pending.
+    if (previous?.cwd !== cwd) setProviderCommands((m) => ({ ...m, [provider]: [] }));
+    if (!sendRaw({ op: "list-commands", provider, cwd, requestId: request.requestId })) request.pending = false;
   }, [sendRaw]);
   const requestFiles = useCallback((cwd: string, query?: string) => {
     sendRaw({ op: "list-files", cwd, query });

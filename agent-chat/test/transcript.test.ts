@@ -373,6 +373,19 @@ describe("terminal delivery", () => {
     expect(sess.events).toEqual([{ kind: "error", message: "Couldn't send to the terminal: not_found", prompt: "hi" }]);
     expect((await focusTranscriptTerminal(sess)).ok).toBe(false);
   });
+
+  test("control socket exceptions become recoverable chat errors", async () => {
+    setTranscriptRpcForTest(async (method) => { throw new Error(`${method} socket closed`); });
+    const sess = fakeSession({ agentSessionId: "claude-1234", surfaceId: "SURF" });
+    await transcriptAdapter.send(sess, "hi");
+    transcriptAdapter.stop(sess);
+    expect((await focusTranscriptTerminal(sess)).error).toBe("surface.focus socket closed");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sess.events).toEqual([
+      { kind: "error", message: "Couldn't send to the terminal: mobile.chat.send socket closed", prompt: "hi" },
+      { kind: "error", message: "Couldn't interrupt the terminal: mobile.chat.interrupt socket closed" },
+    ]);
+  });
 });
 
 describe("transcript sources", () => {
