@@ -20,6 +20,7 @@ struct SwiftTestingAssertions {
         }
 
         let fileID = String(describing: file)
+        // #fileID is "<module>/<file>"; the module name matches the repo directory.
         return sourceRoot.appendingPathComponent(fileID)
     }
 
