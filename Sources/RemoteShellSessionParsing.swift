@@ -183,6 +183,7 @@ enum RemoteShellSessionParsing {
                 let optionName = String(parts[0])
 
                 if optionName == "forward-ssh-agent" {
+                    guard parts.count == 1 else { return nil }
                     forwardAgent = true
                     index += 1
                     continue
