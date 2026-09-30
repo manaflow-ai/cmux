@@ -12,7 +12,7 @@ import Testing
     /// The bundled resource is the header in the source tree.
     @Test func bundledIdentityIsTheSourceHeaderHash() throws {
         let source = try Data(contentsOf: Self.header)
-        #expect(CEFShimABI.expected == CEFShimABI.identity(of: source))
+        #expect(CEFShimABI.bundledIdentity() == CEFShimABI.identity(of: source))
     }
 
     /// Swift's identity equals what build-cef-shim.sh compiles into the shim
@@ -27,7 +27,7 @@ import Testing
         let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         process.waitUntilExit()
         let shasum = try #require(output.split(separator: " ").first.map(String.init))
-        #expect(CEFShimABI.expected == shasum)
+        #expect(CEFShimABI.bundledIdentity() == shasum)
         #expect(shasum.count == 64)
     }
 

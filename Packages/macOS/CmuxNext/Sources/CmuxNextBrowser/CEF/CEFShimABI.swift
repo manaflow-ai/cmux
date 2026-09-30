@@ -12,9 +12,12 @@ nonisolated enum CEFShimABI {
     static let resourceName = "cmux_cef_shim"
 
     /// The bundled header's identity; nil when the resource is missing.
-    static let expected: String? = Bundle.module
-        .url(forResource: resourceName, withExtension: "h")
-        .flatMap { try? identity(of: Data(contentsOf: $0)) }
+    /// Reads the file: call it off the main thread (`CEFRuntime.loadLibrary`).
+    static func bundledIdentity() -> String? {
+        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "h") else { return nil }
+        // concurrency-allow: only CEFRuntime.loadLibrary (library-load thread) and tests call this
+        return (try? Data(contentsOf: url)).map(identity(of:))
+    }
 
     /// 64 lowercase hex digits, as `shasum -a 256` prints them.
     static func identity(of header: Data) -> String {

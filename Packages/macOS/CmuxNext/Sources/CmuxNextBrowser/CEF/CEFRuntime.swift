@@ -175,7 +175,7 @@ final class CEFRuntime {
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
             readyAfterLaunch = ProcessInfo.processInfo.systemUptime - Self.launchUptime
-            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(CEFShimABI.expected ?? "missing"), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
+            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             let reason = "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
@@ -210,7 +210,8 @@ final class CEFRuntime {
         let clock = ContinuousClock()
         let started = clock.now
         let shim: CEFShimLibrary
-        do { shim = try CEFShimLibrary.open(layout.shim) } catch { return .failure(.shim(error)) }
+        let shimABI = CEFShimABI.bundledIdentity()
+        do { shim = try CEFShimLibrary.open(layout.shim, expected: shimABI) } catch { return .failure(.shim(error)) }
         var message = [CChar](repeating: 0, count: 512)
         guard shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
             let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
@@ -219,7 +220,7 @@ final class CEFRuntime {
         primeImageIO()
         // Lists the framework's locale directories here, off the main thread.
         let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
-        return .success(CEFLoadedLibrary(shim: shim, layout: layout, locale: locale, loadDuration: clock.now - started))
+        return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
     }
 
     /// The first Chromium window decodes its first image with

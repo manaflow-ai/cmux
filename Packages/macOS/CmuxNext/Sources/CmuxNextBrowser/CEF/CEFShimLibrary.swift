@@ -93,14 +93,15 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         }
     }
 
-    /// Opens the shim at `url` and resolves every symbol.
-    static func open(_ url: URL) throws(LoadError) -> CEFShimLibrary {
+    /// Opens the shim at `url`, resolves every symbol and checks that its ABI
+    /// identity is `expected` (`CEFShimABI.bundledIdentity()`).
+    static func open(_ url: URL, expected: String?) throws(LoadError) -> CEFShimLibrary {
         guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
             throw .open(String(cString: dlerror()))
         }
         let resolver = Resolver(handle: handle)
         let library = try CEFShimLibrary(resolver)
-        try checkABI(expected: CEFShimABI.expected, found: library.abiIDFn().map { String(cString: $0) })
+        try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
         return library
     }
 
