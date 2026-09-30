@@ -98,6 +98,9 @@ SIGNATURES = (
         "the compiled app-host products did not restore on this runner"),
     sig("app-host-preparation", MACHINE, r"Unexpected app-host preparation outcome",
         "the isolated app-host home was not prepared"),
+    sig("gui-token-unavailable", MACHINE,
+        r"^Could not take this Mac's gui token for the app-host tests \(take-gui exited ",
+        "the runner could not acquire the GUI token for app-host tests"),
     # The CLI and the package framework it links came from different builds:
     # the runner staged products from another job. Compiled together, they match.
     sig("mixed-products", MACHINE, r"dyld\[\d+\]: Symbol not found: ",

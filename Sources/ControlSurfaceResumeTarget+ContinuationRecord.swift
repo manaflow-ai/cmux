@@ -4,12 +4,15 @@ import Foundation
 
 extension TerminalController {
     /// Builds a continuation record from the compatible restored-agent snapshot.
+    ///
+    /// `continuationPrompt` reaches the record only for a session resume.
     func controlSurfaceAgentContinuationRecord(
         agent: SessionRestorableAgentSnapshot,
         source: String,
         restoredWorkingDirectory: String?,
         binding: SurfaceResumeBindingSnapshot?,
-        compatibilityBinding: SurfaceResumeBindingSnapshot?
+        compatibilityBinding: SurfaceResumeBindingSnapshot?,
+        continuationPrompt: String? = nil
     ) -> ControlSurfaceRestoreRecord {
         let launchCommand = binding?.launchCommand ?? agent.launchCommand
         let workingDirectory = restoredWorkingDirectory
@@ -55,15 +58,19 @@ extension TerminalController {
             forkArgumentsWorkingDirectory: forkArguments == nil ? nil : workingDirectory,
             legacyForkCommand: agent.forkCommand(
                 restoringWorkingDirectory: workingDirectory
-            )
+            ),
+            continuationPrompt: mode == .resumeAgent ? continuationPrompt : nil
         )
     }
 
     /// Builds a continuation record after a live binding supersedes a snapshot.
+    ///
+    /// `continuationPrompt` reaches the record only for a session resume.
     func controlSurfaceBindingContinuationRecord(
         binding: SurfaceResumeBindingSnapshot,
         compatibilityBinding: SurfaceResumeBindingSnapshot?,
-        restoredAgentExists: Bool
+        restoredAgentExists: Bool,
+        continuationPrompt: String? = nil
     ) -> ControlSurfaceRestoreRecord {
         let trimmedKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedKind = trimmedKind.flatMap { $0.isEmpty ? nil : $0 } ?? "command"
@@ -114,7 +121,8 @@ extension TerminalController {
             legacyCommand: compatibilityBinding?.inlineStartupInput,
             forkArguments: forkArguments,
             forkArgumentsWorkingDirectory: forkArguments == nil ? nil : workingDirectory,
-            legacyForkCommand: nil
+            legacyForkCommand: nil,
+            continuationPrompt: mode == .resumeAgent ? continuationPrompt : nil
         )
     }
 

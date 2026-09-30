@@ -640,6 +640,48 @@ def test_codex_monitor_survives_transient_owner_absence_while_pending(cli_path: 
             raise AssertionError(f"monitor exited during transient owner absence: {raw_commands!r}")
 
 
+def test_codex_monitor_rechecks_owner_during_grace(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-owner-grace-recheck.sock"
+    transcript_path = root / "codex-session-owner-grace-recheck.jsonl"
+    turn_id = f"codex-monitor-owner-grace-recheck-turn-{os.getpid()}"
+    transcript_path.write_text(
+        json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": turn_id}}) + "\n",
+        encoding="utf-8",
+    )
+    session_id = f"codex-monitor-owner-grace-recheck-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    def complete_transcript() -> None:
+        # Complete after the two-second disappearance grace. A monitor that
+        # never retries ownership during grace exits before this is observed.
+        time.sleep(2.3)
+        with transcript_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"type": "event_msg", "payload": {"type": "turn_complete", "turn_id": turn_id, "last_agent_message": "Done"}}) + "\n")
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        empty_surface_list_count=1,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+    ) as fake:
+        threading.Thread(target=complete_transcript, daemon=True).start()
+        result = subprocess.run(
+            [
+                cli_path, "--socket", str(socket_path), "hooks", "codex", "monitor",
+                "--workspace", FAKE_WORKSPACE_ID, "--surface", FAKE_SURFACE_ID,
+                "--session", session_id, "--turn", turn_id, "--transcript", str(transcript_path),
+            ],
+            capture_output=True, text=True, check=False, env=env, timeout=6,
+        )
+        if result.returncode != 0:
+            raise AssertionError(f"owner grace recheck failed: {result.stdout}\n{result.stderr}")
+        raw_commands = [frame.get("raw", "") for frame in fake.frames]
+        if not any(command.startswith("set_status codex Idle ") for command in raw_commands):
+            raise AssertionError(f"monitor did not survive restored owner during grace: {raw_commands!r}")
+
+
 def test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path: str, root: Path) -> None:
     """A terminal transcript must settle the pane that owns the session now."""
     socket_path = root / "cmux-monitor-moved-replay.sock"
@@ -659,7 +701,6 @@ def test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path: str, r
         encoding="utf-8",
     )
     moved_workspace_id = "44444444-4444-4444-4444-444444444444"
-    moved_surface_id = "55555555-5555-5555-5555-555555555555"
     session_id = f"codex-monitor-moved-replay-session-{os.getpid()}"
     env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
     env["CMUX_SOCKET_PATH"] = str(socket_path)
@@ -673,9 +714,9 @@ def test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path: str, r
         None,
         surfaces_by_workspace={
             FAKE_WORKSPACE_ID: [{"id": FAKE_SURFACE_ID}],
-            moved_workspace_id: [{"id": moved_surface_id}],
+            moved_workspace_id: [{"id": FAKE_SURFACE_ID}],
         },
-        surface_delivery_target=(moved_workspace_id, moved_surface_id),
+        surface_delivery_target=(moved_workspace_id, FAKE_SURFACE_ID),
     ) as fake:
         result = subprocess.run(
             [
@@ -712,7 +753,7 @@ def test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path: str, r
             command
             for command in raw_commands
             if command.startswith("set_status codex ") and f"--tab={moved_workspace_id}" in command
-            and f"--panel={moved_surface_id}" in command
+            and f"--panel={FAKE_SURFACE_ID}" in command
         ]
         if not moved_status:
             raise AssertionError(
@@ -4157,6 +4198,7 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_monitor_survives_transient_owner_absence_while_pending(cli_path, root)
+            test_codex_monitor_rechecks_owner_during_grace(cli_path, root)
             test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)

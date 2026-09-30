@@ -257,6 +257,19 @@ class MainTests(unittest.TestCase):
         self.assertIn("left alone", summary)
         self.assertEqual(actions.calls, [])
 
+    def test_a_stalled_record_finishes_a_partial_switch(self) -> None:
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "ubuntu-24.04"},
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record),
+               "VAR_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
+               "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-26.6", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions(probe_job(0)), writer)
+        self.assertEqual(code, 0)
+        self.assertIn("outcome=stalled", out)
+        self.assertEqual(writer.writes, [("LINUX_RUNNER", "ubuntu-24.04")])
+
     def test_healthy_with_no_record_writes_nothing(self) -> None:
         writer = FakeSwitch()
         code, _, _ = run_main(BLACKSMITH_STEADY, FakeActions(probe_job(0, runner_name="bs-1")), writer)
@@ -326,6 +339,13 @@ class WorkflowTests(unittest.TestCase):
                       or f"            {name}=${{{{ vars.{name} }}}}\n" in self.text)
             self.assertTrue(passed, name)
         self.assertIn("force-cancel", self.text)
+
+    def test_watch_uses_existing_route_app_credentials(self) -> None:
+        self.assertIn("vars.GLAEDA_ROUTE_APP_ID", self.text)
+        self.assertIn("secrets.GLAEDA_ROUTE_APP_KEY", self.text)
+        self.assertNotIn("CI_OVERFLOW_SWITCH_APP_ID", self.text)
+        self.assertNotIn("CI_OVERFLOW_SWITCH_APP_KEY", self.text)
+        self.assertNotIn("environment: ci-overflow-switch", self.text)
 
     def test_never_reads_a_lane_switch(self) -> None:
         code = "\n".join(line for line in self.text.splitlines() if not line.lstrip().startswith("#"))

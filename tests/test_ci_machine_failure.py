@@ -33,6 +33,9 @@ class MachineFailureTests(unittest.TestCase):
             "##[error]Pinned Xcode developer dir does not exist: /Applications/Xcode_26.3.app/Contents/Developer "
             "on runner cmux14-glaeda-1. [cmux-ci machine: xcode-pin-missing] Installed: Xcode.app=26.3",
             "Pinned Xcode developer dir does not exist: /Applications/Xcode_26.3.app/Contents/Developer",
+            "Pinned Xcode developer dir has no usable macOS SDK: /Applications/Xcode_26.3.app/Contents/Developer",
+            "This macOS 26 runner has no Xcode 26.6, the version scripts/ci/xcode-pins.txt pins for its pool. "
+            "Installed: Xcode.app=26.3",
         ):
             with self.subTest(line=line[:40]):
                 self.assertEqual(machine_failure.reason(PREFIX + line), "the Mac does not have the Xcode the job pins")

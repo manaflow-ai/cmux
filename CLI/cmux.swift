@@ -6962,6 +6962,15 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput
             )
 
+        case "recover":
+            try runRecoveryCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
             try runWorkspaceListCommand(
@@ -9780,6 +9789,16 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowOverride
             )
+        case "size", "size-policy", "size-to-me", "size-counts", "participants",
+             "disconnect-participant", "disconnect-others":
+            // Shared terminal sizing (docs/shared-terminal-sizing.md).
+            try runSurfaceSizingCommand(
+                subcommand: subcommand,
+                rest: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowOverride
+            )
         case "ls", "list", "tree", "catalog", "open", "project", "new-terminal", "new":
             // The surface catalog: terminals, screens and browsers on This Mac and every
             // cloud machine, and one open path for all of them (`surface.project`).
@@ -10025,7 +10044,7 @@ struct CMUXCLI {
         }
     }
 
-    private struct SurfaceResumeTarget {
+    struct SurfaceResumeTarget {
         var params: [String: Any]
         var remaining: [String]
     }
@@ -10038,7 +10057,7 @@ struct CMUXCLI {
         return (Array(args[..<delimiterIndex]), Array(args[argvStart...]))
     }
 
-    private func surfaceResumeTarget(
+    func surfaceResumeTarget(
         _ args: [String],
         client: SocketClient,
         windowOverride: String?
@@ -18620,6 +18639,8 @@ struct CMUXCLI {
             return Self.reviewUsage
         case "vault":
             return Self.vaultUsage
+        case "recover":
+            return Self.recoveryUsage
         case "ai-accounts":
             return Self.aiAccountsUsage
         case "coderouter":
@@ -20133,6 +20154,11 @@ struct CMUXCLI {
                    cmux surface resume show [--json] [flags]
                    cmux surface resume get [--json] [flags]
                    cmux surface resume clear [flags]
+                   cmux surface size|participants [--surface <id|ref|index>] [--json]
+                   cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]
+                   cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]
+                   cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]
+                   cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]
 
             ls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers
             on This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,
@@ -26034,7 +26060,7 @@ struct CMUXCLI {
 
     private static let omoPluginName = "oh-my-openagent"
     private static let legacyOmoPluginName = "oh-my-opencode"
-    private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
+    private static let openCodeSessionPluginConfigSpec = "./plugins"
 
     func resolveExecutableInPath(_ name: String, searchPath: String? = nil) -> String? {
         let entries = (searchPath ?? ProcessInfo.processInfo.environment["PATH"])?
@@ -26346,13 +26372,15 @@ struct CMUXCLI {
             config = [:]
         }
 
+        let configuredPlugins = (config["plugins"] as? [Any] ?? []) + (config["plugin"] as? [Any] ?? [])
         var plugins = Self.openCodePluginListNormalizingOMOPlugin(
-            Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
+            Self.openCodePluginListRemovingSessionPlugin(configuredPlugins)
         )
         if !Self.openCodePluginListContains(plugins, spec: Self.omoPluginName, allowVersionSuffix: true) {
             plugins.append(Self.omoPluginName)
         }
-        config["plugin"] = plugins
+        config.removeValue(forKey: "plugin")
+        config["plugins"] = plugins
 
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try output.write(to: shadowJsonURL, options: .atomic)
@@ -28528,8 +28556,11 @@ struct CMUXCLI {
                 // the ~60s-later idle_prompt Notification can consult it, and forwarded
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
-                let hasUnsettledWork = stopFailure == nil && (hasPendingBackgroundWork
-                    || parsedInput.rawObject?["stop_hook_active"] as? Bool == true)
+                // Claude sets stop_hook_active on a re-entry after a Stop hook
+                // blocked once. That flag describes hook recursion, not work
+                // still running; only authoritative background-work signals
+                // should keep the sidebar in Running.
+                let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
                 let completion = stopFailure.map(claudeStopFailureSummary) ?? summarizeClaudeHookStop(
@@ -28548,7 +28579,7 @@ struct CMUXCLI {
                         // Pending background work keeps the pane out of the
                         // hibernatable .idle state so the planner cannot SIGTERM
                         // a live task (mirrors the antigravity fullyIdle flip).
-                        agentLifecycle: stopFailure != nil ? .needsInput : (hasUnsettledWork ? .running : .idle),
+                        agentLifecycle: stopFailure != nil ? .needsInput : (hasUnsettledWork ? .backgroundWorkPending : .idle),
                         hookEventName: reportedHookEventName(from: parsedInput) ?? "Stop",
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
@@ -31496,6 +31527,11 @@ struct CMUXCLI {
                     if ownerGoneSince == nil {
                         ownerGoneSince = now
                     }
+                    // Keep retrying ownership while the bounded grace window
+                    // is active. The normal owner check is intentionally
+                    // sparse, but waiting sixty seconds here would make a
+                    // pane restored during grace look permanently gone.
+                    nextOwnerCheck = now.addingTimeInterval(0.25)
                 case .alive:
                     ownerGoneSince = nil
                 case .unknown:
@@ -33311,7 +33347,9 @@ function firstString(...values) {
 }
 
 function eventProperties(event) {
-  return (event && typeof event === "object" && event.properties) || {};
+  if (!event || typeof event !== "object") return {};
+  // V1 delivered payloads under `properties`; V2 uses `data`.
+  return event.properties || event.data || {};
 }
 
 function normalizeText(value, max = 1000) {
@@ -33529,11 +33567,8 @@ function trackMessage(event) {
   }
 }
 
-const CMUXSessionRestore = async (ctx) => {
-  if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
-  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
-  return {
-    event: async ({ event }) => {
+const createCMUXSessionRestore = async (ctx) => {
+  const handleEvent = async (event) => {
       trackMessage(event);
       const props = eventProperties(event);
       switch (event && event.type) {
@@ -33563,12 +33598,37 @@ const CMUXSessionRestore = async (ctx) => {
         default:
           break;
       }
-    },
   };
+
+  return { event: async ({ event }) => handleEvent(event?.event || event) };
 };
 
-export { CMUXSessionRestore };
-export default CMUXSessionRestore;
+// V1 callers invoke the named factory directly and need the process-global
+// duplicate guard. V2 owns each setup subscription, so cleanup can be followed
+// by a fresh setup without inheriting the V1 guard's state.
+export const CMUXSessionRestore = async (ctx) => {
+  if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
+  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
+  return createCMUXSessionRestore(ctx);
+};
+
+export default {
+  id: "cmux.session",
+  async setup(ctx) {
+    const controller = new AbortController();
+    const hooks = await createCMUXSessionRestore(ctx);
+    void (async () => {
+      try {
+        for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+          await hooks.event({ event });
+        }
+      } catch (_) {
+        // Abort is the normal plugin shutdown path.
+      }
+    })();
+    return () => controller.abort();
+  },
+};
 """#
 
     private func openCodeSessionPluginURL(for def: AgentHookDef) -> URL {
@@ -33604,7 +33664,8 @@ export default CMUXSessionRestore;
             if value == spec { return true }
             if allowVersionSuffix, value.hasPrefix("\(spec)@") { return true }
             if spec == Self.openCodeSessionPluginConfigSpec {
-                return value == "./plugins/\(Self.openCodeSessionPluginFilename)"
+                return value == "./plugins"
+                    || value == "./plugins/\(Self.openCodeSessionPluginFilename)"
                     || value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
                     || value.hasSuffix("/\(Self.openCodeSessionPluginFilename)")
             }
@@ -33731,9 +33792,17 @@ export default CMUXSessionRestore;
         } else {
             config = [:]
         }
-        var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
-        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
-        config["plugin"] = plugins
+        let configuredPlugins = (config["plugins"] as? [Any] ?? []) + (config["plugin"] as? [Any] ?? [])
+        var plugins = Self.openCodePluginListRemovingSessionPlugin(configuredPlugins)
+        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
+            plugins.append(Self.openCodeSessionPluginConfigSpec)
+        }
+        config.removeValue(forKey: "plugin")
+        if shouldInstall || !plugins.isEmpty {
+            config["plugins"] = plugins
+        } else {
+            config.removeValue(forKey: "plugins")
+        }
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
@@ -35668,9 +35737,11 @@ export default CMUXSessionRestore;
             func tryLiveSurfaceBinding() -> (workspaceId: String, surfaceId: String)? {
                 guard hookWsFlag == nil, explicitSurfaceFlag == nil,
                       let liveSurfaceTarget = liveAgentHookSurfaceBinding(
-                          mappedSurfaceId: mapped?.surfaceId,
+                          mappedSurfaceId: mapped?.surfaceId ?? monitorReplay?.surfaceId,
                           directSurfaceId: directSurfaceArg,
-                          claimedWorkspaceId: mapped?.workspaceId ?? directWorkspaceArg,
+                          claimedWorkspaceId: mapped?.workspaceId
+                              ?? monitorReplay?.workspaceId
+                              ?? directWorkspaceArg,
                           client: client
                       ) else {
                     return nil
@@ -36647,6 +36718,7 @@ export default CMUXSessionRestore;
                 case nil:
                     switch latest.agentLifecycle {
                     case .running?: correctedPhase = .running
+                    case .backgroundWorkPending?: correctedPhase = .backgroundWorkPending
                     case .idle?: correctedPhase = .idle
                     case .needsInput?: correctedPhase = .needsInput
                     case .unknown?: correctedPhase = .unknown
@@ -38275,6 +38347,12 @@ export default CMUXSessionRestore;
     /// remaining deadline.
     static let feedAttentionProbeTimeoutCapSeconds: TimeInterval = 1.0
 
+    /// Send stamp that orders a hook's Feed frame against a pending blocking
+    /// request from the same agent (see `FeedCoordinator.supersedesPendingDecisions`).
+    static func feedHookSentAtMs() -> Int64 {
+        Int64((Date().timeIntervalSince1970 * 1000).rounded(.down))
+    }
+
     private func sendFeedTelemetry(
         client: SocketClient,
         source: String,
@@ -38405,6 +38483,10 @@ export default CMUXSessionRestore;
             promptLength: feedPromptLength(from: parsedInput.object, compacted: true)
         )
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        if let agentID = firstString(in: fallbackObject, keys: ["agent_id", "agentId"]) {
+            event["agent_id"] = agentID
+        }
+        event["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
 
         let frame: [String: Any] = [
             "method": "feed.push",
@@ -41007,7 +41089,7 @@ export default CMUXSessionRestore;
         }
 
         if isActionable {
-            try? waitForPriorAgentHookDeliveries(
+            let priorHooksDelivered = (try? waitForPriorAgentHookDeliveries(
                 agent: source,
                 client: activeClient,
                 socketPassword: socketPassword,
@@ -41016,7 +41098,14 @@ export default CMUXSessionRestore;
                     max(0.01, clientDeadline.timeIntervalSinceNow)
                 ),
                 deadline: clientDeadline
-            )
+            )) != nil
+            // Stamped only behind a completed barrier: every hook the agent
+            // published before this request (including this tool's own
+            // PreToolUse) was sent earlier, so a later-stamped hook from the
+            // same agent proves the decision was made elsewhere.
+            if priorHooksDelivered {
+                eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
+            }
             let decisionWaitElapsed = max(
                 0,
                 Date().timeIntervalSince(decisionWaitStartedAt)

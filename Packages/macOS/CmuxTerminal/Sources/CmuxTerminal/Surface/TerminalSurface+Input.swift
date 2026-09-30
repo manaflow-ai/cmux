@@ -184,6 +184,7 @@ extension TerminalSurface {
         _ text: String,
         to liveSurface: ghostty_surface_t
     ) -> Bool {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -600,6 +601,7 @@ extension TerminalSurface {
         keycode: UInt32,
         mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE
     ) {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = keycode
@@ -642,14 +644,18 @@ extension TerminalSurface {
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
+    @MainActor
     func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
     }
 
+    @MainActor
     func writeInputTextData(_ data: Data, to surface: ghostty_surface_t) {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text_input(surface, baseAddress, UInt(rawBuffer.count))

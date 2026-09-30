@@ -92,7 +92,8 @@ extension KeyboardShortcutSettings.Action {
              .simulatorRotateRight,
              .simulatorToggleAppearance,
              .simulatorToggleSoftwareKeyboard,
-             .diffViewerNextFile, .diffViewerPreviousFile:
+             .diffViewerNextFile, .diffViewerPreviousFile,
+             .diffViewerNextHunk, .diffViewerPreviousHunk:
             .focusResolved
 
         case .openSettings, .openTeamPicker, .reloadConfiguration,
@@ -122,6 +123,7 @@ extension KeyboardShortcutSettings.Action {
              .newWorkspaceGroup, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedWorkspace,
+             .sizeTerminalToMyWindow,
              .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize,
              .resetWorkspaceTerminalFontSize,
