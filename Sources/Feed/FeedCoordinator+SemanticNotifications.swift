@@ -76,14 +76,23 @@ extension FeedCoordinator {
         guard let source, let sessionId, let workspaceId, let surfaceId,
               candidates.count == 1, let candidate = candidates.first,
               candidate.agentKind == source,
-              candidate.agentSessionId == sessionId,
+              candidate.agentSessionId == Self.normalizedAgentSessionId(source: source, rawValue: sessionId),
               candidate.surfaceId == surfaceId else { return false }
+        let normalizedSessionId = Self.normalizedAgentSessionId(source: source, rawValue: sessionId)
         return store.clearAgentAttentionNotification(
             forTabId: candidate.tabId,
             surfaceId: surfaceId,
             agentKind: source,
-            sessionId: sessionId
+            sessionId: normalizedSessionId
         )
+    }
+
+    private static func normalizedAgentSessionId(source: String, rawValue: String) -> String {
+        let canonical = FeedWorkstreamIdentifier.canonicalizedRawValue(
+            agentID: source,
+            rawValue: rawValue
+        )
+        return FeedWorkstreamIdentifier(rawValue: canonical)?.sessionID ?? rawValue
     }
 
     /// Feed frames are normalized on the existing journal worker, not the UI actor.
