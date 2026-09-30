@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -114,7 +115,7 @@ struct CloudDisplayMembershipProjectionTests {
         let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspaceID)
         let display = try #require(group.placements.first { $0.resource.kind == .display })
         #expect(display.cloudDisplayMembershipViewID == "panel-a")
-        let view = try #require(catalog.remoteView(for: display, fallbackWorkspaceID: workspaceID))
+        let view = try #require(try catalog.remoteView(for: display, fallbackWorkspaceID: workspaceID))
         #expect(view.isCloudDisplayMembershipView)
         #expect(view.cloudDisplayMembershipViewID == "panel-a")
     }
