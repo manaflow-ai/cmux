@@ -586368,7 +586368,7 @@
     "cli.send.error.submitUnconfirmed": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "%@: %@; nothing was confirmed as submitted"}},
+        "en": {"stringUnit": {"state": "translated", "value": "%@: %@; text may already be submitted; do not paste it again without checking the target"}},
         "ar": {"stringUnit": {"state": "translated", "value": "%1$@: %2$@؛ لم يتم تأكيد الإرسال"}},
         "de": {"stringUnit": {"state": "translated", "value": "%@: %@; die Übermittlung wurde nicht bestätigt"}},
         "es": {"stringUnit": {"state": "translated", "value": "%1$@: %2$@; no se confirmó el envío"}},

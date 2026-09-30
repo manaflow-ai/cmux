@@ -300,7 +300,12 @@ private extension AgentPromptSubmissionSnapshot {
     }
 
     private static func isQueued(_ rows: [String]) -> Bool {
-        rows.contains { row in
+        guard let promptIndex = rows.lastIndex(where: { promptPrefix(in: $0) != nil }) else {
+            return false
+        }
+        let start = max(0, promptIndex - 3)
+        let end = min(rows.count, promptIndex + 4)
+        return rows[start..<end].contains { row in
             let lowered = row.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return lowered == "queued" || lowered.hasPrefix("queued ")
                 || lowered.contains("in queue") || lowered.contains("message queued")

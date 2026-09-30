@@ -429,16 +429,6 @@ func trimSendBox(line string) string {
 	return strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│"))
 }
 
-func sendScreenLooksLikeCodex(screen string) bool {
-	for _, line := range strings.Split(screen, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "›") || strings.HasPrefix(trimmed, "> ") {
-			return true
-		}
-	}
-	return false
-}
-
 func sendScreenShowsSlashPopup(screen string) bool {
 	lines := strings.Split(sendANSISequence.ReplaceAllString(screen, ""), "\n")
 	prompt := ""

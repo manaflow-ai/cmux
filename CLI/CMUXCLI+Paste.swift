@@ -288,14 +288,13 @@ extension CMUXCLI {
                 }
             }
             if !pastedVisible {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.send.error.submitUnconfirmed",
-                        defaultValue: "%@: %@; nothing was confirmed as submitted"
-                    ),
-                    command,
-                    "the pasted message never became visible in the agent composer"
-                ))
+                return try sendSubmitUnconfirmed(
+                    command: command,
+                    target: target,
+                    reason: "the pasted message never became visible in the agent composer",
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
             }
         } else {
             Thread.sleep(forTimeInterval: 0.1)
@@ -645,7 +644,7 @@ extension CMUXCLI {
         return line
     }
 
-    private static func stripANSIForComposer(_ text: String) -> [String] {
+    private static func stripANSIForComposer(_ text: String) -> String {
         var clean = ""
         var iterator = text.makeIterator()
         while let character = iterator.next() {
@@ -658,7 +657,7 @@ extension CMUXCLI {
                 if ("@"..."~").contains(control) { break }
             }
         }
-        return clean.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        return clean
     }
 
     private static func normalizeComposerText(_ text: String) -> String {
