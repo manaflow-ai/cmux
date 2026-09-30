@@ -35,7 +35,8 @@
   const normalize = (s) => String(s || "").replace(/\s+/g, " ").trim();
   // Engines join inline content with or without spaces, and pages pad text
   // with zero-width characters; compare without either.
-  const squash = (s) => String(s || "").replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "");
+  // Case does not count either ("Main content" repeats "main content").
+  const squash = (s) => String(s || "").replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "").toLowerCase();
 
   function hasRef(list) {
     return (list || []).some((c) => typeof c !== "string" && (c.ref || hasRef(c.children)));
@@ -104,7 +105,11 @@
       } else if (n.name && n.children && squash(textOf(n.children)) === squash(n.name)) {
         // A name from content repeats the children. Keep the children when
         // they carry refs or the name is too long to print, else the name.
-        if (hasRef(n.children) || n.name.length > CONTENT_NAME_LIMIT) delete n.name;
+        // A control with its own ref keeps its name, so it can be told apart
+        // (a <summary> disclosure around a link).
+        if (hasRef(n.children)) {
+          if (!n.ref) delete n.name;
+        } else if (n.name.length > CONTENT_NAME_LIMIT) delete n.name;
         else {
           delete n.children;
           // The name is the content now, so it prints whole.
@@ -191,6 +196,7 @@
     if (n.hidden) head += " [hidden]";
     if (n.scrollable) head += " [scrollable]";
     if (n.url && (options.urls || n.showUrl)) head += ` [url=${n.url}]`;
+    else if (n.offsite) head += ` [url=${n.offsite}]`;
     if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;
     if (n.inlineOptions && n.inlineOptions.length) {
       const shown = n.inlineOptions.slice(0, INLINE_OPTIONS).join(", ");
@@ -360,13 +366,44 @@
   const NO_CHANGES = "# no changes since the previous snapshot";
   const FIRST = "# no previous snapshot of this tab; every line is new:";
 
+  // From a full-tree diff, the added or changed lines that carry no ref and
+  // are not containers (text, status, alert), each after the ancestor lines
+  // that locate it. An interactive diff adds these, since an action's result
+  // is often text the interactive tree leaves out.
+  function textChanges(fullDiff) {
+    const out = [];
+    let ancestors = [];
+    for (const line of fullDiff) {
+      const body = line.slice(2);
+      const depth = indentOf(body);
+      ancestors = ancestors.filter((a) => indentOf(a.slice(2)) < depth);
+      if (line.startsWith("  ")) {
+        ancestors.push(line);
+        continue;
+      }
+      if ((line.startsWith("+ ") || line.startsWith("~ ")) && !/\[ref=/.test(body) && !/:$/.test(body)) {
+        out.push(...ancestors, line);
+        ancestors = [];
+      }
+    }
+    return out;
+  }
+
   class Snapshot {
-    constructor({ header, body, previous, maxChars }) {
+    constructor({ header, body, previous, maxChars, extraChanges }) {
       this._header = header;
       this._body = body;
       this._hasPrevious = !!previous;
       this._maxChars = maxChars;
-      const changes = previous ? diffLines(previous, body) : body.map((l) => "+ " + l);
+      let changes = previous ? diffLines(previous, body) : body.map((l) => "+ " + l);
+      if (previous && extraChanges && extraChanges.length) {
+        // Lines the diff already printed (ancestors, or a heading the
+        // interactive tree also holds) are not repeated.
+        const printed = new Set(changes);
+        const extra = extraChanges.filter((l) => !printed.has(l));
+        // Ancestor lines left with no change under them go too.
+        changes = changes.concat(extra.filter((l, i) => !l.startsWith("  ") || extra.slice(i + 1).some((m) => !m.startsWith("  ") && indentOf(m.slice(2)) > indentOf(l.slice(2)))));
+      }
       this._diffBody = !previous ? [FIRST, ...changes] : changes.length ? [DIFF_HEADER, ...changes] : [NO_CHANGES];
     }
     _join(lines) {
@@ -467,23 +504,31 @@
     if (blocking.blocked) return { header, body: ["# the page is blocked until the dialog is answered"], nodes: [] };
     const { frame, handle } = await resolveTarget(page, target);
     const raw = await frameNodes(page, frame, handle, options, true);
-    let nodes = shape(raw, options);
+    const shaped = shape(raw, options);
+    let nodes = shaped;
     if (options.interactive) nodes = interactiveOnly(nodes);
+    const full = options.interactive ? render(shaped, options) : null;
     const body = render(nodes, options);
     if (options.viewport) body.push(`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`);
-    return { header, body, nodes };
+    return { header, body, nodes, full };
   }
 
   async function takeSnapshot(page, target, options = {}) {
     const run = async () => {
       options = Object.assign({}, options);
-      const { header, body } = await capture(page, target, options);
+      const { header, body, full } = await capture(page, target, options);
       const scope = typeof target === "string" ? target : target instanceof core.Locator ? String(target) : "page";
       const key = [scope, !!options.interactive, !!options.showHidden, !!options.options, !!options.urls, !!options.viewport].join("|");
       const baselines = page._snapshotBaselines || (page._snapshotBaselines = new Map());
       const previous = baselines.get(key);
       baselines.set(key, body);
-      return new Snapshot({ header, body, previous, maxChars: options.maxChars });
+      let extraChanges;
+      if (full) {
+        const previousFull = baselines.get(key + "|full");
+        baselines.set(key + "|full", full);
+        if (previousFull && previous) extraChanges = textChanges(diffLines(previousFull, full));
+      }
+      return new Snapshot({ header, body, previous, maxChars: options.maxChars, extraChanges });
     };
     const prev = page._snapshotQueue || Promise.resolve();
     const next = prev.catch(() => {}).then(run);
@@ -520,5 +565,5 @@
     };
   }
 
-  ns.snapshot = { takeSnapshot, annotate, shape, interactiveOnly, render, diffLines, myers, Snapshot, DIFF_SAVING, DIFF_FLOOR };
+  ns.snapshot = { takeSnapshot, annotate, shape, interactiveOnly, render, diffLines, textChanges, myers, Snapshot, DIFF_SAVING, DIFF_FLOOR };
 })(typeof globalThis !== "undefined" ? globalThis : this);

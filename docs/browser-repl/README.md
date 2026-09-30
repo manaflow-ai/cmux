@@ -116,6 +116,12 @@ Rules, and how they improve on the references:
   CSS containing blocks: an absolutely positioned element escapes clippers
   below its positioned ancestor, a fixed one all but those at or above a
   transformed ancestor; the root, `body` and scroll containers do not clip.
+  A link or button whose box has zero width or height is left out unless
+  some content inside it has a box that `clip`/`clip-path` does not hide
+  (Wikipedia's zero-width citation backlinks, whose only content is a
+  screen-reader label, are left out; an icon that overflows a zero-size link
+  is kept). Where a clipped link is left out, the brackets around it close up
+  (`message (#1234)` reads `message`).
   A `visibility:hidden` element is left out, but its
   `visibility:visible` children print. This is Playwright's
   `isElementVisible` (`checkVisibility`, which Playwright skips on WebKit)
@@ -130,9 +136,18 @@ Rules, and how they improve on the references:
   their content prints once, as children. A name that repeats the content it
   would print is printed instead of that content when it holds no refs and
   fits in 200 characters; otherwise the content prints and the name is
-  dropped. A lone text a name already contains (an `aria-label` that extends
-  the visible text) is not repeated. Other printed names are cut at 100
+  dropped; a control with its own ref keeps its name even then (a `<summary>`
+  disclosure around a link prints `button "Guides" [ref=e3]:` with the link
+  inside). A lone text a name already contains (an `aria-label` that extends
+  the visible text) is not repeated. These comparisons ignore case,
+  whitespace and zero-width characters. Other printed names are cut at 100
   characters with `…`; refs still resolve.
+- **Typed values** print as they are, so an agent can check its own input
+  (`textbox "Email": "me@x.com"`); only password fields are masked
+  (`"********"`). This is deliberate: ChatGPT for Chrome redacts any field
+  that looks like a credential, including what the agent typed, and so hides
+  the result of the agent's own action. The cost is that text a page
+  pre-fills in such a field is visible to the agent.
 - **States** print as `[checked]`, `[checked=mixed]`, `[disabled]`,
   `[expanded]`, `[expanded=false]`, `[pressed]`, `[selected]`, `[focused]`,
   `[required]`, `[invalid]`, `[readonly]`, `[level=N]`, `[scrollable]` (why a
@@ -144,9 +159,12 @@ Rules, and how they improve on the references:
   first 10 then `+N more` (a 60-option select stays one line); with
   `{ options: true }` or when expanded each option prints on its own line
   with `[selected]`.
-- **Link URLs**: `[url=…]` prints for a link with no name or named only by
-  an image's alt text, so such links can be told apart; with
-  `{ urls: true }` every link shows it. URLs are relative when same-origin.
+- **Link URLs**: a link to another site (its host differs after `www.` and
+  subdomains of the same two-label base) prints where it goes, host and
+  first path segment: `[url=github.com/ninjahawk]`, `[url=example.org/docs/…]`,
+  at most 48 characters. A link with no name or named only by an image's alt
+  text prints its full `[url=…]`, so such links can be told apart; with
+  `{ urls: true }` every link shows its full URL, relative when same-origin.
   Other links omit them by default because URLs are about a quarter of a
   page's snapshot and an agent acts on the ref.
 - **Text** collapses whitespace to single spaces (Aside doubles spaces around
@@ -173,7 +191,9 @@ Rules, and how they improve on the references:
   and a ref must work as a selector; it names `page.dialog()` instead, and the
   tree is replaced by a note while the dialog blocks the page.
 - **Options**: `interactive` (interactive nodes, their named ancestors, and
-  the page outline: headings and landmarks, which carry no new refs),
+  the page outline: headings and landmarks, which carry no new refs; its
+  diff also carries text that an action added or changed, such as
+  "Submitted me@x.com", with the lines that locate it),
   `viewport` (only elements that intersect the viewport, with their
   ancestors, and a closing note `# N interactive elements outside the
   viewport are not shown`; refs are the same as in a full snapshot),

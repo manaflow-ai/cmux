@@ -190,6 +190,8 @@
   const NOT_READONLY_INPUTS = new Set(["checkbox", "radio", "file", "button", "submit", "reset", "image", "range", "color", "hidden"]);
   const LEAF_TAGS = new Set(["input", "textarea", "select", "img", "svg", "canvas", "progress", "meter", "video", "audio", "iframe", "frame"]);
   const BREAK = { brk: true };
+  // Where a clipped element was left out; text brackets around it close up.
+  const DROPPED = { dropped: true };
 
   // Tables used for page layout (Hacker News, old sites, emails) are not
   // data: their rows and cells flatten into the content, as Chromium's
@@ -369,6 +371,56 @@
     }
   }
 
+  // Whether the element or something inside it has a non-empty box that is
+  // not clipped away (screen-reader-only text uses `clip` or `clip-path`).
+  const clippedAway = (style) => !!style && ((style.clip && style.clip !== "auto") || (style.clipPath && style.clipPath !== "none"));
+  function hasVisibleBox(el) {
+    const r = el.getBoundingClientRect();
+    if (r.width >= 1 && r.height >= 1) return true;
+    // A zero-size box that clips its overflow shows none of its content.
+    const style = styleOf(el);
+    if (style && ((r.width < 1 && CLIPPING.has(style.overflowX)) || (r.height < 1 && CLIPPING.has(style.overflowY)))) return false;
+    const range = document.createRange();
+    const inside = (node) => {
+      for (let n = node.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3) {
+          if (!n.nodeValue.trim()) continue;
+          range.selectNodeContents(n);
+          const b = range.getBoundingClientRect();
+          if (b.width >= 1 && b.height >= 1) return true;
+        } else if (n.nodeType === 1) {
+          const cs = styleOf(n);
+          if (!cs || cs.display === "none" || clippedAway(cs)) continue;
+          const b = n.getBoundingClientRect();
+          if (b.width >= 1 && b.height >= 1) return true;
+          if (inside(n)) return true;
+        }
+      }
+      return false;
+    };
+    return inside(el);
+  }
+
+  // "host/first-segment/…" for a link to another site (hosts that differ
+  // after "www." and ignoring subdomains of the same two-label base), capped.
+  const siteOf = (host) => host.replace(/^www\./, "").split(".").slice(-2).join(".");
+  function offsiteSummary(el) {
+    const href = el.href;
+    if (!href || typeof href !== "string") return null;
+    let url;
+    try {
+      url = new global.URL(href);
+    } catch {
+      return null;
+    }
+    if (!/^https?:$/.test(url.protocol) || !global.location.hostname) return null;
+    if (siteOf(url.hostname) === siteOf(global.location.hostname)) return null;
+    const segments = url.pathname.split("/").filter(Boolean);
+    let out = url.hostname.replace(/^www\./, "") + (segments.length ? "/" + segments[0] : "");
+    if (segments.length > 1 || url.search) out += "/…";
+    return out.length > 48 ? out.slice(0, 47) + "…" : out;
+  }
+
   function displayUrl(el) {
     const href = el.href;
     if (!href || typeof href !== "string" || /^javascript:/i.test(href)) return null;
@@ -512,7 +564,12 @@
       if ((ctx.clips.length || ctx.viewport) && style.display !== "contents") {
         const r = el.getBoundingClientRect();
         if (r.width > 0 && r.height > 0) {
-          for (const c of ctx.clips) if (!overlaps(r, c.rect)) return;
+          for (const c of ctx.clips) {
+            if (!overlaps(r, c.rect)) {
+              out.push(DROPPED);
+              return;
+            }
+          }
           if (ctx.viewport && !overlaps(r, ctx.viewport)) {
             ctx.offscreen += el.querySelectorAll(INTERACTIVE_SELECTOR).length + (el.matches(INTERACTIVE_SELECTOR) ? 1 : 0);
             return;
@@ -564,6 +621,9 @@
       if (block) out.push(BREAK);
       return;
     }
+    // A link or button with an empty box shows nothing unless some content
+    // inside it has a box (Wikipedia's zero-width "Jump up" backlinks).
+    if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el)) return;
     const node = { role };
     if (name) node.name = name;
     if (interactive || scrollable) node.act = 1;
@@ -583,6 +643,8 @@
     if (role === "link") {
       const url = displayUrl(el);
       if (url) node.url = url;
+      const offsite = offsiteSummary(el);
+      if (offsite) node.offsite = offsite;
     }
     const placeholder = el.getAttribute("placeholder");
     if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = normalize(placeholder);
@@ -611,7 +673,22 @@
       if (text) out.push(text);
       buffer = "";
     };
-    for (const item of items) {
+    let closeBracket = null;
+    for (let item of items) {
+      if (item === DROPPED) {
+        // "(#1234)" with the link left out would read "()".
+        const open = /[(\[]\s*$/.exec(buffer);
+        if (open) {
+          buffer = buffer.slice(0, open.index);
+          closeBracket = open[0][0] === "(" ? ")" : "]";
+        }
+        continue;
+      }
+      if (typeof item === "string" && closeBracket) {
+        const trimmed = item.replace(/^\s*/, "");
+        if (trimmed[0] === closeBracket) item = trimmed.slice(1);
+        closeBracket = null;
+      } else if (item !== BREAK) closeBracket = null;
       if (typeof item === "string") buffer += item;
       else if (item === BREAK) buffer += "\n\u0000";
       else {

@@ -72,20 +72,23 @@ Snapshot bytes on the corpus (cmux-dev, Aside CLI 1.26.916.1741):
 
 | Page | cmux | Aside | Chrome AI snapshot |
 | --- | ---: | ---: | ---: |
-| wikipedia | 62,179 | 68,640 | 210,081 |
-| hackernews | 9,038 | 11,878 | 62,999 |
-| github | 60,797 | 61,635 | 227,801 |
-| mdn | 19,959 | 28,433 | 73,141 |
-| mdn-iframe | 43,276 | 56,365 | 146,590 |
-| npr | 2,486 | 4,835 | 5,561 |
-| bbc | 16,487 | 16,139 | 50,935 |
-| books | 9,685 | 14,974 | 35,677 |
-| vercel | 6,402 | 10,398 | 26,338 |
+| wikipedia | 63,363 | 68,640 | 210,081 |
+| hackernews | 10,045 | 11,878 | 62,999 |
+| github | 61,467 | 61,635 | 227,801 |
+| mdn | 20,504 | 28,433 | 73,141 |
+| mdn-iframe | 43,843 | 56,365 | 146,590 |
+| npr | 2,500 | 4,835 | 5,561 |
+| bbc | 16,616 | 16,139 | 50,935 |
+| books | 9,165 | 14,974 | 35,677 |
+| vercel | 6,698 | 10,398 | 26,338 |
 
 cmux keeps visible text Aside leaves out (card descriptions and times,
 heading anchors, README table cells); on BBC, where that text is a large
-share, cmux is 2% larger. The oracle leaves out interactive elements that an
-overflow:hidden ancestor clips out (70 on GitHub), which cmux does not print.
+share, cmux is 3% larger. cmux sizes include `[url=host/…]` on off-site
+links. Recall is judged in the engine that renders cmux: each recorded
+element is found by its path and `fixtures/corpus/gt.js` decides there whether
+a user can see it (70 GitHub links an overflow box clips out are not shown in
+Chrome either); no element is exempt otherwise.
 
 Playwright loads from `PARITY_PLAYWRIGHT_DIR`, the ChatGPT app's bundled copy,
 or `node_modules`; WebKit comes from `~/.cache/cmux-parity-browsers`.
