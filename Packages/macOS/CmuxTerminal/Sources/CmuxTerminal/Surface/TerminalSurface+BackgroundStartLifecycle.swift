@@ -48,12 +48,16 @@ extension TerminalSurface {
             continuation.finish()
             NotificationCenter.default.removeObserver(observer)
         }
-        requestInputDemandSurfaceStartIfNeeded()
-        for await _ in events {
-            guard !Task.isCancelled else { return false }
-            if liveSurfaceForGhosttyAccess(reason: "runtime.ready") != nil { return true }
+        return await withTaskCancellationHandler {
+            requestInputDemandSurfaceStartIfNeeded()
+            for await _ in events {
+                guard !Task.isCancelled else { return false }
+                if liveSurfaceForGhosttyAccess(reason: "runtime.ready") != nil { return true }
+            }
+            return false
+        } onCancel: {
+            continuation.finish()
         }
-        return false
     }
 
     @MainActor
