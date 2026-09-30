@@ -40,6 +40,11 @@ interface CodexState {
   turnActive: boolean;
   activeGeneration?: number;
   turnWaiters: TurnWaiter[];
+  // One in-flight startup cancellation at a time. Without this, every extra
+  // Stop press during the startup window parks its own waiter and the late
+  // turn/started notification fans out into that many interrupts and, on
+  // timeout, that many error events.
+  pendingStop?: Promise<void>;
   commands: CommandEntry[];
 }
 
@@ -53,6 +58,14 @@ interface TurnWaiter {
 // turn/start RPC. A delayed turn/started notification is still actionable
 // while that request is in flight.
 const TURN_START_WAIT_TIMEOUT_MS = 30_000;
+
+// A steer is a fresh user message, so it must not sit silently for the full
+// startup window; it gives up quickly and reports that the turn is still
+// starting. Keeping this separate from the stop deadline is what stops the
+// two callers of waitForTurnId from sharing a timeout and a message.
+const STEER_TURN_ID_WAIT_TIMEOUT_MS = 5_000;
+
+const STOP_DEADLINE_ERROR = "codex turn did not start before the stop deadline";
 
 let shared: AppServer | null = null;
 let sharedStarting: Promise<AppServer> | null = null;
@@ -116,7 +129,7 @@ export const codexAdapter: Adapter = {
         threadId = await starting;
       }
       if (codexSendRoute(st) === "steer") {
-        const turnId = st.currentTurnId ?? await waitForTurnId(st);
+        const turnId = st.currentTurnId ?? await waitForTurnId(st, STEER_TURN_ID_WAIT_TIMEOUT_MS);
         if (!turnId) throw new Error("codex turn is still starting");
         await srv.request("turn/steer", {
           threadId,
@@ -179,11 +192,18 @@ export const codexAdapter: Adapter = {
       return;
     }
 
-    void waitForTurnId(st).then((turnId) => {
+    if (st.pendingStop) return;
+    const pending = waitForTurnId(st, TURN_START_WAIT_TIMEOUT_MS, STOP_DEADLINE_ERROR).then((turnId) => {
       if (turnId) interrupt(turnId);
     }).catch((err) => {
-      sess.emit({ kind: "error", message: `Codex stop failed: ${truncate(String(err), 400)}` });
+      // This path also reports the locally constructed deadline Error, so read
+      // its message instead of stringifying it into "Error: ...".
+      const message = err instanceof Error ? err.message : String(err);
+      sess.emit({ kind: "error", message: `Codex stop failed: ${truncate(message, 400)}` });
+    }).finally(() => {
+      if (st.pendingStop === pending) st.pendingStop = undefined;
     });
+    st.pendingStop = pending;
   },
   dispose(sess) {
     const st = sess.internal.codex as CodexState | undefined;
@@ -569,6 +589,30 @@ function codexInterruptParams(threadId: unknown, turnId: unknown): { threadId: s
   return { threadId, turnId };
 }
 
+// Lets the stop tests drive the production waiter and its resolver on a short
+// deadline, instead of sleeping past the real one or reimplementing the
+// resolver's body (a hand-rolled copy cannot catch a regression inside it).
+export const codexStopWaitTimeoutsForTest = {
+  turnStartMs: TURN_START_WAIT_TIMEOUT_MS,
+  steerMs: STEER_TURN_ID_WAIT_TIMEOUT_MS,
+  stopDeadlineError: STOP_DEADLINE_ERROR,
+};
+
+export function codexWaitForTurnIdForTest(
+  st: Pick<CodexState, "currentTurnId" | "turnWaiters">,
+  timeoutMs: number,
+  timeoutError?: string,
+): Promise<string | null> {
+  return waitForTurnId(st as CodexState, timeoutMs, timeoutError);
+}
+
+export function codexResolveTurnWaitersForTest(
+  st: Pick<CodexState, "turnWaiters">,
+  id: string | null,
+): void {
+  resolveTurnWaiters(st as CodexState, id);
+}
+
 export function codexInterruptParamsForTest(threadId: unknown, turnId: unknown): { threadId: string; turnId: string } | null {
   return codexInterruptParams(threadId, turnId);
 }
@@ -586,7 +630,10 @@ export function codexStopSharedServerForTest(): void {
   srv?.proc.kill();
 }
 
-function waitForTurnId(st: CodexState): Promise<string | null> {
+// Without `timeoutError` the wait resolves null on expiry and the caller
+// decides what that means; with it the wait rejects, which is how Stop turns a
+// turn that never started into a visible failure instead of a silent no-op.
+function waitForTurnId(st: CodexState, timeoutMs: number, timeoutError?: string): Promise<string | null> {
   if (st.currentTurnId) return Promise.resolve(st.currentTurnId);
   return new Promise((resolve, reject) => {
     const waiter: TurnWaiter = {
@@ -594,8 +641,9 @@ function waitForTurnId(st: CodexState): Promise<string | null> {
       reject,
       timer: setTimeout(() => {
         st.turnWaiters = st.turnWaiters.filter((candidate) => candidate !== waiter);
-        reject(new Error("codex turn did not start before the stop deadline"));
-      }, TURN_START_WAIT_TIMEOUT_MS),
+        if (timeoutError) reject(new Error(timeoutError));
+        else resolve(null);
+      }, timeoutMs),
     };
     st.turnWaiters.push(waiter);
   });

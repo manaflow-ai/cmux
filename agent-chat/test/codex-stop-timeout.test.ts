@@ -45,7 +45,7 @@ test("Stop reports one timeout and clears its 30-second turn waiter", async () =
       callback: callback as () => void,
       delay: delay ?? 0,
     });
-    return scheduled.length as ReturnType<typeof setTimeout>;
+    return scheduled.length as unknown as ReturnType<typeof setTimeout>;
   }) as typeof setTimeout;
   globalThis.clearTimeout = (() => {}) as typeof clearTimeout;
 
@@ -59,6 +59,11 @@ test("Stop reports one timeout and clears its 30-second turn waiter", async () =
   });
 
   try {
+    // Three presses, because the startup window shows the user nothing
+    // happening for 30 seconds and Esc is cheap to hit again. They must share
+    // one waiter, one timer and one report.
+    codexAdapter.stop(sess);
+    codexAdapter.stop(sess);
     codexAdapter.stop(sess);
 
     expect(scheduled).toHaveLength(1);
@@ -70,7 +75,9 @@ test("Stop reports one timeout and clears its 30-second turn waiter", async () =
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(errors).toEqual(["Codex stop failed: Error: codex turn did not start before the stop deadline"]);
+    // The adapter builds this Error itself, so it reports the message rather
+    // than stringifying the Error into a doubled "Error: Error: ...".
+    expect(errors).toEqual(["Codex stop failed: codex turn did not start before the stop deadline"]);
     expect(sent).toEqual([]);
     expect(state.turnWaiters).toHaveLength(0);
   } finally {

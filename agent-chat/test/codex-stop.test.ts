@@ -5,8 +5,11 @@
 import {
   codexAdapter,
   codexInterruptParamsForTest,
+  codexResolveTurnWaitersForTest,
   codexSetSharedServerForTest,
   codexStopGenerationMatchesForTest,
+  codexStopWaitTimeoutsForTest,
+  codexWaitForTurnIdForTest,
 } from "../adapters/codex";
 import type { SessionCtx } from "../types";
 
@@ -28,6 +31,7 @@ type CodexTestState = {
   currentTurnId?: string;
   activeGeneration?: number;
   turnWaiters: { resolve: (id: string | null) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }[];
+  pendingStop?: Promise<void>;
 };
 
 function session(threadId: string | undefined, st: Partial<CodexTestState>): { sess: SessionCtx; state: CodexTestState; errors: string[] } {
@@ -57,15 +61,13 @@ function session(threadId: string | undefined, st: Partial<CodexTestState>): { s
 }
 
 // Resolves whatever waitForTurnId() parked, the way a turn/started
-// notification does, then lets stop()'s .then() callback run.
+// notification does, then lets stop()'s .then() callback run. This drives the
+// production resolver so a regression inside it fails these cases.
 async function deliverTurnId(state: CodexTestState, id: string | null) {
   state.currentTurnId = id ?? undefined;
-  for (const waiter of state.turnWaiters.splice(0)) {
-    clearTimeout(waiter.timer);
-    waiter.resolve(id);
-  }
-  await Promise.resolve();
-  await Promise.resolve();
+  codexResolveTurnWaitersForTest(state, id);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 // 1. The turn ID is already known: interrupt goes out with both IDs. This is
@@ -93,10 +95,13 @@ async function deliverTurnId(state: CodexTestState, id: string | null) {
   if (sent.length > 0) {
     throw new Error(`Stop must not interrupt before the turn ID is known: ${JSON.stringify(sent)}`);
   }
-  // Codex's turn/start request remains live for 30 seconds. Stop must survive
-  // the old five-second waiter deadline while the app server is still
-  // starting the turn.
-  await Bun.sleep(5_100);
+  // Codex's turn/start request remains live for 30 seconds, so the waiter must
+  // outlast the old five-second deadline. codex-stop-timeout.test.ts pins that
+  // deadline with fake timers; sleeping past a real one here would pin no
+  // value and cost CI five seconds on every run.
+  if (state.turnWaiters.length !== 1 || state.turnWaiters[0].timer === undefined) {
+    throw new Error(`Stop must park exactly one waiter with a deadline: ${state.turnWaiters.length}`);
+  }
   await deliverTurnId(state, "turn-2");
   if (sent.length !== 1 || JSON.stringify(sent[0].params) !== JSON.stringify({ threadId: "thread-2", turnId: "turn-2" })) {
     throw new Error(`A late turn ID must produce one complete interrupt: ${JSON.stringify(sent)}`);
@@ -112,14 +117,34 @@ async function deliverTurnId(state: CodexTestState, id: string | null) {
   codexAdapter.stop(sess);
   state.turnActive = false;
   state.activeGeneration = undefined;
-  for (const waiter of state.turnWaiters.splice(0)) {
-    clearTimeout(waiter.timer);
-    waiter.resolve(null);
-  }
-  await Promise.resolve();
-  await Promise.resolve();
+  await deliverTurnId(state, null);
   if (sent.length !== 0 || errors.length !== 0) {
     throw new Error(`A completed startup must settle Stop quietly: ${JSON.stringify({ sent, errors })}`);
+  }
+}
+
+// 2c. Extra Stop presses inside the startup window must not fan out. Without
+// the dedupe, three presses park three waiters and one late turn/started
+// notification turns into three identical interrupts.
+{
+  const sent: Sent[] = [];
+  codexSetSharedServerForTest(fakeServer(sent));
+  const { sess, state, errors } = session("thread-2c", { currentTurnId: undefined });
+  codexAdapter.stop(sess);
+  codexAdapter.stop(sess);
+  codexAdapter.stop(sess);
+  if (state.turnWaiters.length !== 1) {
+    throw new Error(`Repeated Stop must share one startup waiter: ${state.turnWaiters.length}`);
+  }
+  await deliverTurnId(state, "turn-2c");
+  if (sent.length !== 1 || JSON.stringify(sent[0].params) !== JSON.stringify({ threadId: "thread-2c", turnId: "turn-2c" })) {
+    throw new Error(`Repeated Stop must send one interrupt, not one per press: ${JSON.stringify(sent)}`);
+  }
+  if (errors.length !== 0) {
+    throw new Error(`A successful stop must report nothing: ${JSON.stringify(errors)}`);
+  }
+  if (state.pendingStop !== undefined) {
+    throw new Error("A settled stop must release the dedupe slot for the next turn");
   }
 }
 
@@ -186,6 +211,37 @@ if (!codexStopGenerationMatchesForTest({ turnActive: true, activeGeneration: 7 }
 if (codexStopGenerationMatchesForTest({ turnActive: false, activeGeneration: 7 }, 7)
     || codexStopGenerationMatchesForTest({ turnActive: true, activeGeneration: 8 }, 7)) {
   throw new Error("A late startup turn ID must not interrupt a completed or later generation");
+}
+
+// The waiter contract both callers depend on. send()'s steer path must get
+// null so it can report "codex turn is still starting"; only stop() asks for a
+// rejection, and it rejects with its own message so nothing renders a doubled
+// "Error: Error: ...".
+{
+  const steerState: CodexTestState = { turnActive: true, turnWaiters: [] };
+  const steer = await codexWaitForTurnIdForTest(steerState, 5);
+  if (steer !== null) {
+    throw new Error(`A steer wait must expire as null rather than reject: ${String(steer)}`);
+  }
+  if (steerState.turnWaiters.length !== 0) {
+    throw new Error("An expired waiter must unpark itself");
+  }
+
+  const stopState: CodexTestState = { turnActive: true, turnWaiters: [] };
+  let message = "";
+  await codexWaitForTurnIdForTest(stopState, 5, codexStopWaitTimeoutsForTest.stopDeadlineError)
+    .then(() => {
+      message = "resolved";
+    })
+    .catch((err: unknown) => {
+      message = err instanceof Error ? err.message : String(err);
+    });
+  if (message !== codexStopWaitTimeoutsForTest.stopDeadlineError) {
+    throw new Error(`A stop wait must reject with its own bare message: ${message}`);
+  }
+  if (codexStopWaitTimeoutsForTest.steerMs >= codexStopWaitTimeoutsForTest.turnStartMs) {
+    throw new Error("A steer must give up sooner than a stop, not share its deadline");
+  }
 }
 
 console.log("codex stop assertions passed");
