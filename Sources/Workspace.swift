@@ -312,14 +312,14 @@ extension Workspace {
             (snapshot.surfaceProjections ?? []).filter { !$0.resource.machine.isLocal }.map(\.panelID)
         )
         let cloudProjectionRecordsByPanelID = Dictionary((snapshot.surfaceProjections ?? []).map { ($0.panelID, $0) }, uniquingKeysWith: { first, _ in first })
-        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { panel in
+        let panelSnapshotsById = Dictionary(snapshot.panels.map { panel in
             var panel = panel
             if cloudVMBinding != nil || cloudProjectedPanelIDs.contains(panel.id) {
                 panel.directoryIsTrustedRemoteReport = false
                 panel.directoryRequiresRemoteTrust = true
             }
             return (panel.id, panel)
-        })
+        }, uniquingKeysWith: { first, _ in first })
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
@@ -1334,7 +1334,12 @@ extension Workspace {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
             .compactMap { panelIdFromSurfaceId($0.id) }
-        let desiredOldPanelIds = snapshot.panelIds.filter { panelSnapshotsById[$0] != nil }
+        var restoredPanelIdsInPane: Set<UUID> = []
+        let desiredOldPanelIds = snapshot.panelIds.filter {
+            panelSnapshotsById[$0] != nil &&
+                oldToNewPanelIds[$0] == nil &&
+                restoredPanelIdsInPane.insert($0).inserted
+        }
         _ = bonsplitController.setFullWidthTabMode(false, inPane: paneId)
 
         var createdPanelIds: [UUID] = []
@@ -4169,6 +4174,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration: config,
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
+            AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
+        }
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
@@ -4858,7 +4866,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     func markTabStripMiddleClickClose(surfaceId: TabID) {
         markExplicitClose(surfaceId: surfaceId)
-        tabStripCloseButtonByTabId[surfaceId] = false
+        // Middle-click is the tab-strip equivalent of the inline x button. Keep
+        // it on that close path so the x-button warning and agent-session safety
+        // prompt are applied consistently.
+        tabStripCloseButtonByTabId[surfaceId] = true
     }
     @discardableResult
     func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool, explicitUserClose: Bool = false) -> Bool {
@@ -15071,12 +15082,16 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             copyIdentifiersToPasteboard(surfaceId: panelId)
         case .close:
+            guard controller.configuration.allowCloseTabs, !tab.isPinned else { return }
             closeTabsFromContextMenu([tab.id])
         case .closeToLeft:
+            guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
         case .closeToRight:
+            guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
         case .closeOthers:
+            guard controller.configuration.allowCloseTabs else { return }
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
         case .move:
             if let destination = bonsplitTabMoveDestinations(for: tab.id).first {
