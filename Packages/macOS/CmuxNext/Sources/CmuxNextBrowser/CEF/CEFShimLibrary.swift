@@ -106,6 +106,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
+    /// Distinct renderer client ids hosting the tab's frames.
+    let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
 
     enum LoadError: Error, Equatable {
         case open(String)
@@ -200,6 +202,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         deleteCookies = try r("cmux_shim_delete_cookies")
         sslStatus = try r("cmux_shim_ssl_status")
         freeOwned = try r("cmux_shim_free_owned")
+        rendererClientIDs = try r("cmux_shim_renderer_client_ids")
     }
 
     /// Returns a string the shim allocated itself (`cmux_shim_ssl_status`)

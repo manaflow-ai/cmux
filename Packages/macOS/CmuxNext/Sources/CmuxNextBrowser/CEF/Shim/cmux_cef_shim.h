@@ -278,6 +278,13 @@ CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const c
 CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 
+// Renderer processes of a tab (resource hover cards). Writes at most
+// `capacity` distinct renderer client ids (Chromium's RenderProcessHost id,
+// the `--renderer-client-id=` switch of that renderer's helper process)
+// that host a frame of browser_id: the main frame and every out-of-process
+// iframe. Returns how many it wrote; 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity);
+
 #ifdef __cplusplus
 }
 #endif
