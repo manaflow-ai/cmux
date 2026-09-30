@@ -1,30 +1,9 @@
 {
  "meta": {
   "backend": "cmux-dev",
-  "recordedAt": "2026-09-30T09:37:27.902Z"
+  "recordedAt": "2026-09-30T10:32:45.860Z"
  },
  "cases": {
-  "smoke.title-click": {
-   "value": {
-    "title": "Diff lab",
-    "status": "clicked",
-    "trusted": [
-     [
-      "mousedown",
-      true
-     ],
-     [
-      "mouseup",
-      true
-     ],
-     [
-      "click",
-      true
-     ]
-    ]
-   },
-   "ms": 656
-  },
   "page.goto.basic": {
    "value": {
     "url": "<primary>/diff/next.html",
@@ -32,7 +11,7 @@
     "status": 200,
     "ok": true
    },
-   "ms": 176
+   "ms": 175
   },
   "page.goto.wait-until": {
    "value": {
@@ -53,17 +32,17 @@
      "name": "Error"
     }
    },
-   "ms": 1935
+   "ms": 1959
   },
   "page.goto.timeout": {
    "value": {
     "slow": {
-     "ms": 602,
+     "ms": 607,
      "error": "page.goto: Timeout 600ms exceeded.",
      "name": "Error"
     }
    },
-   "ms": 794
+   "ms": 834
   },
   "page.goto.errors": {
    "value": {
@@ -76,15 +55,15 @@
      "name": "Error"
     }
    },
-   "ms": 171
+   "ms": 189
   },
   "page.reload": {
    "value": {
     "before": "Count 1",
     "after": "Count 0",
-    "status": null
+    "status": 200
    },
-   "ms": 303
+   "ms": 311
   },
   "page.reload.options": {
    "value": {
@@ -92,7 +71,7 @@
     "b": true,
     "title": "Diff lab"
    },
-   "ms": 225
+   "ms": 237
   },
   "page.back-forward": {
    "value": {
@@ -101,19 +80,15 @@
     "title": "Next page",
     "backStatus": 200
    },
-   "ms": 392
+   "ms": 290
   },
   "page.back-forward.no-entry": {
    "value": {
-    "back": {
-     "type": "[object Object]"
-    },
-    "forward": {
-     "type": "[object Object]"
-    },
+    "back": null,
+    "forward": null,
     "url": "<primary>/diff/lab.html"
    },
-   "ms": 225
+   "ms": 159
   },
   "page.url-title.push-state": {
    "value": {
@@ -126,7 +101,7 @@
      "Diff lab pushed"
     ]
    },
-   "ms": 297
+   "ms": 263
   },
   "page.content": {
    "value": {
@@ -135,7 +110,7 @@
     "frameText": true,
     "typedValue": null
    },
-   "ms": 192
+   "ms": 176
   },
   "page.evaluate.forms": {
    "value": {
@@ -157,20 +132,20 @@
      "name": "Error"
     }
    },
-   "ms": 250
+   "ms": 252
   },
   "page.evaluate.mutation": {
    "value": {
     "set": "ok",
     "status": "set by evaluate"
    },
-   "ms": 241
+   "ms": 235
   },
   "page.evaluate.options": {
    "value": {
     "withArg": 2
    },
-   "ms": 192
+   "ms": 189
   },
   "page.query.dollar": {
    "value": {
@@ -188,7 +163,7 @@
      "name": "Error"
     }
    },
-   "ms": 216
+   "ms": 202
   },
   "page.getters.page-level": {
    "value": {
@@ -205,7 +180,7 @@
     "placeholder": 1,
     "testId": 3
    },
-   "ms": 282
+   "ms": 228
   },
   "page.getters.errors": {
    "value": {
@@ -230,7 +205,7 @@
      "name": "Error"
     }
    },
-   "ms": 232
+   "ms": 194
   },
   "page.frame-locator": {
    "value": {
@@ -240,13 +215,13 @@
     "text": 1,
     "regex": 1
    },
-   "ms": 563
+   "ms": 432
   },
   "page.frame-locator.nested": {
    "value": {
     "text": "deep clicked"
    },
-   "ms": 460
+   "ms": 324
   },
   "page.frames": {
    "value": {
@@ -254,7 +229,7 @@
     "mainUrl": "<primary>/diff/lab.html",
     "child": true
    },
-   "ms": 176
+   "ms": 211
   },
   "page.click-fill": {
    "value": {
@@ -265,7 +240,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 641
+   "ms": 598
   },
   "page.screenshot.forms": {
    "value": {
@@ -279,22 +254,20 @@
      "height": 800
     }
    },
-   "ms": 439
+   "ms": 314
   },
   "page.screenshot.errors": {
    "value": {
     "clip": {
-     "error": "page.screenshot: clip.width: expected float, got string",
+     "error": "page.screenshot: Expected options.clip.width to be a number",
      "name": "Error"
     },
     "type": {
-     "ok": true,
-     "value": {
-      "type": "[object Uint8Array]"
-     }
+     "error": "page.screenshot: options.type: expected one of (png|jpeg)",
+     "name": "Error"
     }
    },
-   "ms": 224
+   "ms": 207
   },
   "page.pdf": {
    "value": {
@@ -302,7 +275,7 @@
     "a4": "%PDF-",
     "bigger": true
    },
-   "ms": 195
+   "ms": 212
   },
   "page.wait-for-selector": {
    "value": {
@@ -311,12 +284,12 @@
     "attached": true,
     "detached": true,
     "timeout": {
-     "ms": 406,
+     "ms": 404,
      "error": "locator.waitFor: Timeout 400ms exceeded.\n  - waiting for locator('#missing') to be visible",
      "name": "TimeoutError"
     }
    },
-   "ms": 1618
+   "ms": 1490
   },
   "page.wait-for-load-state": {
    "value": {
@@ -324,11 +297,11 @@
     "load": true,
     "networkidle": true,
     "bogus": {
-     "error": "page.waitForLoadState: Timeout 30000ms exceeded.",
-     "name": "TimeoutError"
+     "error": "page.waitForLoadState: state: expected one of (load|domcontentloaded|networkidle|commit)",
+     "name": "Error"
     }
    },
-   "ms": 30190
+   "ms": 197
   },
   "page.wait-for-url": {
    "value": {
@@ -338,22 +311,23 @@
     "fn": true,
     "opts": true,
     "never": {
-     "ms": 410,
+     "ms": 404,
      "error": "page.waitForURL: Timeout 400ms exceeded.\n  - waiting for navigation to \"<primary>/never\"",
      "name": "TimeoutError"
     }
    },
-   "ms": 712
+   "ms": 737
   },
   "page.wait-for-timeout": {
    "value": {
     "waited": true,
     "slept": true,
     "bad": {
-     "ok": true
+     "error": "waitForTimeout: timeout: expected a non-negative number, got \"soon\"",
+     "name": "Error"
     }
    },
-   "ms": 760
+   "ms": 776
   },
   "page.wait-for-event.popup-console": {
    "value": {
@@ -363,7 +337,7 @@
      "lab log 42"
     ]
    },
-   "ms": 495
+   "ms": 475
   },
   "page.wait-for-event.errors": {
    "value": {
@@ -377,7 +351,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 664
+   "ms": 684
   },
   "page.on-off": {
    "value": {
@@ -387,7 +361,7 @@
      "error:lab error"
     ]
    },
-   "ms": 721
+   "ms": 746
   },
   "page.viewport": {
    "value": {
@@ -401,38 +375,38 @@
      "height": 500
     }
    },
-   "ms": 166
+   "ms": 169
   },
   "page.bring-to-front": {
    "value": {
     "ok": true,
     "visible": "visible"
    },
-   "ms": 169
+   "ms": 157
   },
   "page.close": {
    "value": {
     "closed": true,
     "listed": false,
     "again": {
-     "error": "Cannot read properties of undefined (reading 'title')",
-     "name": "TypeError"
+     "error": "Target page, context or browser has been closed",
+     "name": "Error"
     }
    },
-   "ms": 181
+   "ms": 151
   },
   "page.video": {
    "value": {
-    "video": null
+    "recording": false
    },
-   "ms": 203
+   "ms": 152
   },
   "page.keyboard-mouse-objects": {
    "value": {
     "canvas": 1,
     "keys": "hi"
    },
-   "ms": 236
+   "ms": 213
   },
   "loc.click.options": {
    "value": {
@@ -745,7 +719,7 @@
      ]
     ]
    },
-   "ms": 856
+   "ms": 815
   },
   "loc.dblclick.options": {
    "value": {
@@ -1418,7 +1392,7 @@
      ]
     ]
    },
-   "ms": 1089
+   "ms": 833
   },
   "loc.click.more-options": {
    "value": {
@@ -1492,7 +1466,7 @@
     "trial": [],
     "noWaitAfter": 3
    },
-   "ms": 859
+   "ms": 779
   },
   "loc.check.options": {
    "value": {
@@ -1515,7 +1489,7 @@
      "name": "Error"
     }
    },
-   "ms": 917
+   "ms": 844
   },
   "loc.timeout-options": {
    "value": {
@@ -1532,7 +1506,7 @@
     "items": 3,
     "itemsWithArg": 4
    },
-   "ms": 783
+   "ms": 342
   },
   "loc.errors.missing": {
    "value": {
@@ -1593,7 +1567,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 4686
+   "ms": 4421
   },
   "loc.errors.evaluate": {
    "value": {
@@ -1615,7 +1589,7 @@
     },
     "emptyAll": 0
    },
-   "ms": 229
+   "ms": 222
   },
   "loc.failure-kinds": {
    "value": {
@@ -1660,7 +1634,7 @@
      "name": "Error"
     }
    },
-   "ms": 3502
+   "ms": 3376
   },
   "loc.composition-errors": {
    "value": {
@@ -1673,8 +1647,8 @@
      "name": "Error"
     },
     "nth": {
-     "ok": true,
-     "value": 0
+     "error": "locator.nth: index: expected an integer, got \"x\"",
+     "name": "Error"
     },
     "filter": {
      "error": "Inner \"has\" locator must belong to the same frame.",
@@ -1705,7 +1679,7 @@
      "value": 0
     }
    },
-   "ms": 267
+   "ms": 193
   },
   "loc.filter-options": {
    "value": {
@@ -1723,7 +1697,7 @@
     "lHasNotText": 2,
     "lHasNotTextRe": 2
    },
-   "ms": 217
+   "ms": 199
   },
   "loc.regexp-getters": {
    "value": {
@@ -1756,7 +1730,7 @@
      1
     ]
    },
-   "ms": 525
+   "ms": 324
   },
   "loc.select-option.forms": {
    "value": {
@@ -1789,22 +1763,22 @@
      "name": "Error"
     }
    },
-   "ms": 386
+   "ms": 263
   },
   "loc.wait-for.states": {
    "value": {
     "done": true,
     "late": true,
     "hiddenVisible": {
-     "error": "locator.waitFor: Timeout 300ms exceeded.\n  - waiting for locator('#hidden') to be visible",
+     "error": "locator.waitFor: Timeout 300ms exceeded.\n  - waiting for locator('#hidden') to be visible\n  - locator resolved to hidden element",
      "name": "TimeoutError"
     },
     "bogus": {
-     "error": "locator.waitFor: Timeout 30000ms exceeded.\n  - waiting for locator('#action') to be bogus",
-     "name": "TimeoutError"
+     "error": "locator.waitFor: state: expected one of (attached|detached|visible|hidden)",
+     "name": "Error"
     }
    },
-   "ms": 31638
+   "ms": 1353
   },
   "loc.fill.forms": {
    "value": {
@@ -1815,15 +1789,14 @@
     "events": [
      "focus:true",
      "input:true",
-     "change:true",
-     "blur:true"
+     "change:true"
     ],
     "inputValueOfDiv": {
      "error": "Node is not an <input>, <textarea> or <select> element",
      "name": "Error"
     }
    },
-   "ms": 217
+   "ms": 258
   },
   "loc.typing": {
    "value": {
@@ -1847,7 +1820,7 @@
      "name": "Error"
     }
    },
-   "ms": 816
+   "ms": 824
   },
   "loc.hover": {
    "value": {
@@ -1865,7 +1838,7 @@
      "blur"
     ]
    },
-   "ms": 172
+   "ms": 192
   },
   "loc.set-input-files": {
    "value": {
@@ -1877,11 +1850,11 @@
      "name": "Error"
     },
     "notFile": {
-     "error": "locator.setInputFiles: Timeout 400ms exceeded.\n  - waiting for locator('#action')",
-     "name": "TimeoutError"
+     "error": "Error: Node is not an HTMLInputElement",
+     "name": "Error"
     }
    },
-   "ms": 608
+   "ms": 466
   },
   "loc.drag-to": {
    "value": {
@@ -1894,13 +1867,13 @@
      "dragend:true"
     ]
    },
-   "ms": 233
+   "ms": 234
   },
   "loc.drag-to.ax": {
    "value": {
     "drop": "dropped payload"
    },
-   "ms": 183
+   "ms": 199
   },
   "loc.tap": {
    "value": {
@@ -1909,7 +1882,7 @@
     },
     "status": "clicked"
    },
-   "ms": 246
+   "ms": 247
   },
   "loc.scroll-into-view": {
    "value": {
@@ -1917,7 +1890,7 @@
     "inView": true,
     "hiddenBox": null
    },
-   "ms": 195
+   "ms": 255
   },
   "loc.screenshot": {
    "value": {
@@ -1928,7 +1901,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 625
+   "ms": 694
   },
   "loc.reads": {
    "value": {
@@ -1951,7 +1924,7 @@
      "Third"
     ]
    },
-   "ms": 178
+   "ms": 182
   },
   "loc.states": {
    "value": {
@@ -1991,7 +1964,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 555
+   "ms": 579
   },
   "loc.collections": {
    "value": {
@@ -2009,7 +1982,7 @@
     "nthOut": 0,
     "none": 0
    },
-   "ms": 173
+   "ms": 179
   },
   "loc.and-or": {
    "value": {
@@ -2018,7 +1991,7 @@
     "or": 2,
     "orText": "Second"
    },
-   "ms": 174
+   "ms": 188
   },
   "loc.scoped-getters": {
    "value": {
@@ -2030,7 +2003,7 @@
     "chained": "Third",
     "outside": 0
    },
-   "ms": 173
+   "ms": 190
   },
   "loc.evaluate": {
    "value": {
@@ -2041,7 +2014,7 @@
     "all": "First|Second|Third",
     "shadow": true
    },
-   "ms": 199
+   "ms": 220
   },
   "loc.dispatch-event": {
    "value": {
@@ -2050,7 +2023,7 @@
      false
     ]
    },
-   "ms": 167
+   "ms": 190
   },
   "loc.download-media": {
    "value": {
@@ -2069,7 +2042,7 @@
     "url": "<primary>/diff/lab.html",
     "title": "Diff lab"
    },
-   "ms": 173
+   "ms": 224
   },
   "tabs.list-get": {
    "value": {
@@ -2092,7 +2065,7 @@
      "name": "Error"
     }
    },
-   "ms": 362
+   "ms": 543
   },
   "tabs.attach": {
    "value": {
@@ -2105,7 +2078,7 @@
      "name": "Error"
     }
    },
-   "ms": 441
+   "ms": 491
   },
   "tabs.open-errors": {
    "value": {
@@ -2115,7 +2088,7 @@
     },
     "session": "string"
    },
-   "ms": 168
+   "ms": 160
   },
   "session.name-docs": {
    "value": {
@@ -2126,13 +2099,13 @@
      "value": " "
     }
    },
-   "ms": 166
+   "ms": 229
   },
   "tabs.keep-deliverable": {
    "value": {
     "kept": true
    },
-   "ms": 175
+   "ms": 201
   },
   "snapshot.full": {
    "value": {
@@ -2143,7 +2116,7 @@
     "typed": true,
     "clicked": "clicked"
    },
-   "ms": 326
+   "ms": 341
   },
   "snapshot.interactive": {
    "value": {
@@ -2151,14 +2124,14 @@
     "listText": false,
     "smaller": true
    },
-   "ms": 273
+   "ms": 276
   },
   "snapshot.show-hidden": {
    "value": {
     "plain": false,
     "all": true
    },
-   "ms": 305
+   "ms": 281
   },
   "snapshot.scoped": {
    "value": {
@@ -2171,7 +2144,7 @@
      "name": "Error"
     }
    },
-   "ms": 250
+   "ms": 278
   },
   "snapshot.diff": {
    "value": {
@@ -2179,7 +2152,7 @@
     "diffShort": true,
     "printed": true
    },
-   "ms": 313
+   "ms": 354
   },
   "snapshot.ax-get-modes": {
    "value": {
@@ -2187,7 +2160,7 @@
     "state": true,
     "both": true
    },
-   "ms": 308
+   "ms": 340
   },
   "snapshot.ax-errors": {
    "value": {
@@ -2200,20 +2173,18 @@
      "value": "title: Diff lab\nurl: <primary>/diff/lab.html\n- heading \"Diff lab\" [level=1]\n- textbox \"Name\" [ref=e1] [placeholder=\"Enter name\"]: \"initial\"\n- textbox \"Decoy\" [ref=e2]: \"leave\"\n- button \"Action\" [ref=e3]\n- checkbox \"Option\" [ref=e4]\n- radio \"Radio A\" [ref=e5]\n- radio \"Radio B\" [ref=e6]\n- combobox \"Choice\" [ref=e7] [options: Alpha, Beta, Gamma]: \"Alpha\"\n- listbox \"Colors\" [ref=e8]\n- button \"Disabled\" [ref=e9] [disabled]\n- textbox \"Readonly\" [ref=e10] [readonly]: \"fixed\"\n- textbox \"Notes\" [ref=e11]: \"line1\"\n- textbox \"Rich editor\" [ref=e12]: \"alpha beta gamma\"\n- button \"Menu\" [ref=e13]\n- generic [ref=e14]: \"Drag me\"\n- generic \"Outer scroller\" [ref=e15] [scrollable]:\n  - generic \"Inner scroller\" [ref=e16] [scrollable]:\n    - button \"Deep button\" [ref=e17]\n  - button \"Scroll end\" [ref=e18]\n- button \"Count 0\" [ref=e19]\n- textbox \"Keys\" [ref=e20]\n- canvas [ref=e21]\n- button \"Make late\" [ref=e22]\n- button \"Remove me\" [ref=e23]\n- link \"Next page\" [ref=e24]\n- button \"Push state\" [ref=e25]\n- button \"Log\" [ref=e26]\n- button \"Throw\" [ref=e27]\n- link \"Popup link\" [ref=e28]\n- textbox \"Shadow field\" [ref=e29]\n- button \"Shadow action\" [ref=e30]\n- iframe \"Inner frame\" [ref=e31]:\n  - textbox \"Frame label\" [ref=f1e1] [placeholder=\"Frame placeholder\"]\n  - button \"Frame action\" [ref=f1e2]\n- button \"Far away\" [ref=e32]"
     },
     "unknownRef": {
-     "ok": true,
-     "value": {
-      "type": "[object Object]"
-     }
+     "error": "ref e99999 does not exist; take a new snapshot",
+     "name": "Error"
     }
    },
-   "ms": 339
+   "ms": 759
   },
   "screenshot.annotated": {
    "value": {
     "image": true,
     "differs": true
    },
-   "ms": 302
+   "ms": 299
   },
   "element-at": {
    "value": {
@@ -2221,7 +2192,7 @@
     "name": "Action",
     "ref": true
    },
-   "ms": 204
+   "ms": 216
   },
   "fetch.cookies": {
    "value": {
@@ -2241,7 +2212,7 @@
     "post": "POST",
     "missing": 404
    },
-   "ms": 227
+   "ms": 225
   },
   "node.fs-path-buffer": {
    "value": {
@@ -2257,7 +2228,7 @@
      "name": "Error"
     }
    },
-   "ms": 7
+   "ms": 2
   },
   "print.display-console": {
    "value": {
@@ -2265,7 +2236,7 @@
     "display": true,
     "autoPrint": true
    },
-   "ms": 505
+   "ms": 525
   },
   "keyboard.members": {
    "value": {
@@ -2323,7 +2294,7 @@
     ],
     "trusted": true
    },
-   "ms": 260
+   "ms": 330
   },
   "keyboard.errors": {
    "value": {
@@ -2332,68 +2303,77 @@
      "name": "Error"
     },
     "empty": {
-     "error": "Unknown key: \"\"",
+     "error": "key: expected a non-empty string, got \"\"",
      "name": "Error"
     },
     "notText": {
-     "error": "text is not iterable",
-     "name": "TypeError"
+     "error": "keyboard.type: text: expected string, got number",
+     "name": "Error"
     }
    },
-   "ms": 148
+   "ms": 162
   },
   "keyboard.shortcuts": {
-   "uncaught": "Unknown key: \"ControlOrMeta\"",
-   "ms": 182
+   "value": {
+    "value": "x",
+    "combos": [
+     "Meta,false,false,true,false",
+     "a,false,false,true,false",
+     "Alt,true,false,false,false",
+     "Shift,true,false,false,true",
+     "K,true,false,false,true",
+     "Control,false,true,false,false",
+     "Shift,false,true,false,true",
+     "ArrowLeft,false,true,false,true"
+    ]
+   },
+   "ms": 219
   },
   "mouse.members": {
    "value": {
     "clicks": 1,
     "right": true,
     "moves": true,
-    "at": [
-     19,
-     19
-    ],
+    "at": true,
     "wheel": true,
     "trusted": true
    },
-   "ms": 3782
+   "ms": 4229
   },
   "cua.options": {
    "value": {
-    "shiftClick": false,
+    "shiftClick": true,
     "errors": {
      "click": {
-      "error": "mouse.move: Protocol error (Input.dispatchMouseEvent): Some arguments of method 'Input.dispatchMouseEvent' can't be processed",
+      "error": "mouse.click: x and y: expected numbers, got undefined, undefined",
       "name": "Error"
      },
      "move": {
-      "error": "mouse.move: Protocol error (Input.dispatchMouseEvent): Some arguments of method 'Input.dispatchMouseEvent' can't be processed",
+      "error": "mouse.move: x and y: expected numbers, got undefined, undefined",
       "name": "Error"
      },
      "wheel": {
-      "error": "mouse.move: Protocol error (Input.dispatchMouseEvent): Some arguments of method 'Input.dispatchMouseEvent' can't be processed",
+      "error": "mouse.wheel: deltaX and deltaY: expected numbers, got undefined, undefined",
       "name": "Error"
      },
      "type": {
-      "error": "text is not iterable",
-      "name": "TypeError"
+      "error": "keyboard.type: text: expected string, got undefined",
+      "name": "Error"
      },
      "press": {
-      "error": "combo is not iterable",
-      "name": "TypeError"
+      "error": "key: expected a non-empty string, got undefined",
+      "name": "Error"
      }
     }
    },
-   "ms": 190
+   "ms": 281
   },
   "cua.download-media": {
    "value": {
     "name": "cd-a.txt",
     "body": "cd body a\n"
    },
-   "ms": 165
+   "ms": 189
   },
   "dom-cua.forms": {
    "value": {
@@ -2406,22 +2386,59 @@
      "name": "Error"
     }
    },
-   "ms": 705
+   "ms": 752
   },
   "ax.click-forms": {
-   "uncaught": "SyntaxError: Unexpected token (13:24)",
-   "ms": 1
+   "value": {
+    "byRef": 1,
+    "byPoint": 2,
+    "dbl": 1,
+    "right": 1,
+    "middle": 2
+   },
+   "ms": 824
   },
   "ax.text-forms": {
-   "uncaught": "Unknown key: \"ControlOrMeta\"",
-   "ms": 188
+   "value": {
+    "set": [
+     "set",
+     3,
+     3
+    ],
+    "typed": [
+     "setT",
+     4,
+     4
+    ],
+    "pressed": [
+     "setTa",
+     5,
+     5
+    ],
+    "pasted": [
+     "setTaP",
+     6,
+     6
+    ],
+    "select": [
+     "setTaP",
+     0,
+     3
+    ],
+    "before": [
+     "setTaP",
+     3,
+     3
+    ]
+   },
+   "ms": 233
   },
   "ax.scroll-forms": {
    "value": {
     "inner": true,
     "page": true
    },
-   "ms": 832
+   "ms": 859
   },
   "ax.secondary-action": {
    "value": {
@@ -2431,11 +2448,23 @@
      "name": "Error"
     }
    },
-   "ms": 225
+   "ms": 258
   },
   "clipboard.members": {
-   "uncaught": "Unknown key: \"ControlOrMeta\"",
-   "ms": 325
+   "value": {
+    "text": "plain text",
+    "mimes": true,
+    "pasted": "plain",
+    "empty": {
+     "error": "clipboard.write: expected at least one clipboard item, got none",
+     "name": "Error"
+    },
+    "notText": {
+     "error": "clipboard.writeText: text: expected string, got number",
+     "name": "Error"
+    }
+   },
+   "ms": 179
   },
   "dev.logs": {
    "value": {
@@ -2454,40 +2483,19 @@
     ],
     "limited": 2,
     "badLimit": {
-     "ok": true,
-     "value": [
-      {
-       "type": "debug",
-       "text": "lv-debug"
-      },
-      {
-       "type": "info",
-       "text": "lv-info"
-      },
-      {
-       "type": "log",
-       "text": "lv-log"
-      },
-      {
-       "type": "warning",
-       "text": "lv-warn"
-      },
-      {
-       "type": "error",
-       "text": "lv-error"
-      }
-     ]
+     "error": "page.consoleMessages: limit must be a positive integer, got 0",
+     "name": "Error"
     },
     "badLevel": {
-     "ok": true,
-     "value": []
+     "error": "page.consoleMessages: invalid level \"unknown\"; expected one of log, debug, info, warning, error",
+     "name": "Error"
     },
     "badFilter": {
-     "ok": true,
-     "value": []
+     "error": "page.consoleMessages: filter must be a string or a RegExp",
+     "name": "Error"
     }
    },
-   "ms": 265
+   "ms": 251
   },
   "dialogs.held": {
    "value": {
@@ -2507,25 +2515,35 @@
     "prompted": "prompt typed",
     "promptDismissed": "prompt null"
    },
-   "ms": 575
+   "ms": 582
   },
   "dialogs.errors": {
-   "uncaught": "case did not finish in 90000 ms",
-   "ms": 90001
+   "value": {
+    "acceptError": {
+     "error": "dialog.accept: promptText: expected string, got number",
+     "name": "Error"
+    },
+    "twice": {
+     "error": "Cannot accept dialog which is already handled!",
+     "name": "Error"
+    },
+    "result": "prompt null"
+   },
+   "ms": 223
   },
   "dialogs.snapshot-blocked": {
    "value": {
     "shows": true,
     "title": "Dialogs Fixture"
    },
-   "ms": 253
+   "ms": 225
   },
   "dialogs.beforeunload": {
    "value": {
     "type": null,
     "stayed": false
    },
-   "ms": 2331
+   "ms": 2305
   },
   "filechooser.event": {
    "value": {
@@ -2534,7 +2552,7 @@
     "heldMultiple": true,
     "shown": true,
     "none": {
-     "ms": 303,
+     "ms": 300,
      "error": "page.waitForEvent: Timeout 300ms exceeded while waiting for event \"filechooser\"",
      "name": "TimeoutError"
     },
@@ -2543,14 +2561,14 @@
      "name": "Error"
     }
    },
-   "ms": 1007
+   "ms": 715
   },
   "navigation.expect": {
    "value": {
     "value": "navigated",
     "title": "Next page",
     "stay": {
-     "ms": 311,
+     "ms": 301,
      "error": "page.waitForURL: Timeout 300ms exceeded.\n  - waiting for navigation to \"**/next.html\"",
      "name": "TimeoutError"
     },
@@ -2560,41 +2578,78 @@
     },
     "after": "Next page"
    },
-   "ms": 1614
+   "ms": 1643
   },
   "content.export": {
    "value": {
     "export": {
-     "error": "page.exportContent is not a function",
-     "name": "TypeError"
+     "ext": ".md",
+     "hasHeading": true
     }
    },
-   "ms": 165
+   "ms": 166
   },
   "content.export-site": {
    "value": {
     "gsuite": {
-     "error": "page.exportContent is not a function",
-     "name": "TypeError"
+     "error": "page.exportContent({ format }): expected a Google Docs, Sheets or Slides tab (https://docs.google.com/...), got <primary>/diff/lab.html",
+     "name": "Error"
     },
     "yt": {
-     "error": "page.exportContent is not a function",
-     "name": "TypeError"
+     "error": "page.exportContent({ transcript: true }): expected a YouTube watch page (https://www.youtube.com/watch?v=...), got <primary>/diff/lab.html",
+     "name": "Error"
     },
     "bad": {
-     "error": "page.exportContent is not a function",
-     "name": "TypeError"
+     "error": "page.exportContent({ format }): expected a Google Docs, Sheets or Slides tab (https://docs.google.com/...), got <primary>/diff/lab.html",
+     "name": "Error"
     }
    },
-   "ms": 154
+   "ms": 153
   },
   "tabs.content": {
-   "uncaught": "case did not finish in 90000 ms",
-   "ms": 90003
+   "value": {
+    "rows": [
+     [
+      "Next page",
+      200,
+      true
+     ],
+     [
+      "Missing",
+      404,
+      true
+     ]
+    ],
+    "current": "<primary>/diff/lab.html",
+    "tabsAfter": true,
+    "bad": {
+     "error": "tabs.content: urls: expected a non-empty array of URLs, got []",
+     "name": "Error"
+    }
+   },
+   "ms": 342
   },
   "browser.history": {
-   "uncaught": "tabs.history is not a function",
-   "ms": 174
+   "value": {
+    "shape": {
+     "array": true,
+     "keys": [
+      "dateVisited",
+      "title",
+      "url"
+     ],
+     "found": true
+    },
+    "invalid": {
+     "error": "tabs.history: limit: expected a positive integer, got 0",
+     "name": "Error"
+    },
+    "badDate": {
+     "error": "tabs.history: from: expected a date, got \"not a date\"",
+     "name": "Error"
+    }
+   },
+   "ms": 161
   },
   "browser.capabilities": {
    "value": {
@@ -2603,7 +2658,7 @@
      "name": "TypeError"
     }
    },
-   "ms": 181
+   "ms": 152
   },
   "edge.auth-basic": {
    "value": {
@@ -2611,10 +2666,10 @@
      401,
      "401 basic"
     ],
-    "noCredsMs": 166,
+    "noCredsMs": 161,
     "withCreds": "Authed as parity"
    },
-   "ms": 188
+   "ms": 186
   },
   "edge.auth-digest": {
    "value": {
@@ -2624,48 +2679,48 @@
     ],
     "withCreds": "Digest authed as parity"
    },
-   "ms": 228
+   "ms": 205
   },
   "edge.permission-geolocation": {
    "value": {
     "result": "error 1",
-    "settledMs": 112,
+    "settledMs": 90,
     "dialog": false
    },
-   "ms": 257
+   "ms": 229
   },
   "edge.permission-notifications": {
    "value": {
     "result": "result denied",
-    "settledMs": 91,
+    "settledMs": 73,
     "dialog": false
    },
-   "ms": 242
+   "ms": 233
   },
   "edge.permission-camera": {
    "value": {
-    "result": "granted",
-    "settledMs": 3219,
+    "result": "pending",
+    "settledMs": 6224,
     "dialog": false
    },
-   "ms": 3382
+   "ms": 6369
   },
   "edge.permission-clipboard-read": {
    "value": {
     "result": "error NotAllowedError",
-    "settledMs": 97,
+    "settledMs": 92,
     "dialog": false
    },
-   "ms": 296
+   "ms": 357
   },
   "edge.tls-self-signed": {
    "value": {
     "nav": {
      "error": "page.goto: The certificate for this server is invalid. You might be connecting to a server that is pretending to be “127.0.0.1” which could put your confidential information at risk."
     },
-    "ms": 166
+    "ms": 201
    },
-   "ms": 170
+   "ms": 207
   },
   "edge.nav-dns": {
    "value": {
@@ -2674,16 +2729,16 @@
     },
     "url": "<primary>/diff/lab.html"
    },
-   "ms": 350
+   "ms": 408
   },
   "edge.nav-refused": {
    "value": {
     "nav": {
      "error": "page.goto: Could not connect to the server."
     },
-    "ms": 7
+    "ms": 6
    },
-   "ms": 160
+   "ms": 147
   },
   "edge.nav-http-errors": {
    "value": {
@@ -2693,7 +2748,7 @@
     "t500": "Broken",
     "ok": false
    },
-   "ms": 116
+   "ms": 242
   },
   "edge.nav-aborted": {
    "value": {
@@ -2703,35 +2758,38 @@
     "url": "<primary>/diff/next.html",
     "title": "Next page"
    },
-   "ms": 336
+   "ms": 367
   },
   "edge.nav-redirect-loop": {
    "value": {
     "loop": {
      "error": "page.goto: too many HTTP redirects"
     },
-    "loopMs": 44,
+    "loopMs": 115,
     "redirected": "<primary>/diff/next.html"
    },
-   "ms": 157
+   "ms": 241
   },
   "edge.download-blob": {
-   "uncaught": "page.waitForEvent: Timeout 8000ms exceeded while waiting for event \"download\"",
-   "ms": 8090
+   "value": {
+    "name": "blob.txt",
+    "body": "blob body\n"
+   },
+   "ms": 167
   },
   "edge.download-data": {
    "value": {
     "name": "data.txt",
     "body": "data body\n"
    },
-   "ms": 260
+   "ms": 189
   },
   "edge.download-cd": {
    "value": {
     "name": "cd-a.txt",
     "body": "cd body a\n"
    },
-   "ms": 206
+   "ms": 183
   },
   "edge.download-post": {
    "value": {
@@ -2739,22 +2797,28 @@
     "body": "name,value\nq,posted\n",
     "url": "<primary>/diff/files.html"
    },
-   "ms": 177
+   "ms": 164
   },
   "edge.download-concurrent": {
    "value": {
     "files": [
+     [
+      "slow-x.txt",
+      "slow body x\n"
+     ],
      [
       "slow-y.txt",
       "slow body y\n"
      ]
     ]
    },
-   "ms": 5269
+   "ms": 1830
   },
   "edge.file-drop": {
-   "uncaught": "Type error",
-   "ms": 122
+   "value": {
+    "result": "dropzone: drop.txt(dropped body)"
+   },
+   "ms": 137
   },
   "edge.input-types": {
    "value": {
@@ -2771,18 +2835,22 @@
     "accept": "parity.png",
     "acceptOther": "parity-upload.txt"
    },
-   "ms": 241
+   "ms": 446
   },
   "edge.contenteditable-bold": {
-   "uncaught": "Unknown key: \"ControlOrMeta\"",
-   "ms": 307
+   "value": {
+    "html": true,
+    "bolded": "alpha beta gamma end",
+    "text": "alpha beta gamma end"
+   },
+   "ms": 326
   },
   "edge.typing-unicode": {
    "value": {
     "input": "héllo wörld 😀 中文 👩‍👩‍👧",
     "rich": "héllo wörld 😀 中文 👩‍👩‍👧"
    },
-   "ms": 379
+   "ms": 270
   },
   "edge.composition": {
    "value": {
@@ -2793,18 +2861,22 @@
     ],
     "trusted": true
    },
-   "ms": 291
+   "ms": 162
   },
   "edge.nested-scroll": {
-   "uncaught": "locator.click: Timeout 30000ms exceeded.\n  - <iframe id=\"frame\" title=\"Inner frame\" srcdoc=\"<label for=inside>Frame label</label><input id=inside placeholder='Frame placeholder' data-testid=frame-input><button onclick=\"this.textContent='frame clicked'\">Frame action</button>\"></iframe> intercepts pointer events",
-   "ms": 30142
+   "value": {
+    "deep": 1,
+    "inner": true,
+    "outer": true
+   },
+   "ms": 270
   },
   "edge.infinite-scroll": {
    "value": {
     "many": true,
     "last": 1
    },
-   "ms": 2341
+   "ms": 2323
   },
   "edge.iframe-sandboxed": {
    "value": {
@@ -2812,24 +2884,29 @@
     "csp": "csp clicked",
     "inertText": true
    },
-   "ms": 466
+   "ms": 288
   },
   "edge.iframe-srcdoc": {
    "value": {
     "text": "frame clicked"
    },
-   "ms": 442
+   "ms": 237
   },
   "edge.iframe-navigation": {
    "value": {
     "heading": "Next page",
     "inSnapshot": true
    },
-   "ms": 325
+   "ms": 200
   },
   "edge.window-open": {
-   "uncaught": "case did not finish in 90000 ms",
-   "ms": 90002
+   "value": {
+    "opener1": "opener present",
+    "didClose": true,
+    "opener2": "opener null",
+    "listedAfter": 0
+   },
+   "ms": 377
   },
   "edge.alert-during-navigation": {
    "value": {
@@ -2840,24 +2917,31 @@
     "nav": "loaded",
     "after": "after alert"
    },
-   "ms": 508
+   "ms": 182
   },
   "edge.spa-route-wait": {
-   "uncaught": "page.waitForURL: Timeout 30000ms exceeded.\n  - waiting for navigation to \"**/spa.html#/users\"",
-   "ms": 30798
+   "value": {
+    "url": "<primary>/diff/spa.html#/users",
+    "title": "SPA users",
+    "items": [
+     "Ada",
+     "Linus"
+    ]
+   },
+   "ms": 934
   },
   "edge.service-worker": {
    "value": {
     "state": "controlled",
     "out": "from service worker"
    },
-   "ms": 241
+   "ms": 212
   },
   "edge.websocket": {
    "value": {
     "out": "echo:hi"
    },
-   "ms": 272
+   "ms": 132
   },
   "edge.cookies-flags": {
    "value": {
@@ -2870,7 +2954,7 @@
      "strict"
     ]
    },
-   "ms": 181
+   "ms": 112
   },
   "edge.cookies-subdomain": {
    "value": {
@@ -2879,44 +2963,44 @@
     ],
     "other": []
    },
-   "ms": 231
+   "ms": 269
   },
   "edge.storage-isolation": {
    "value": {
     "a": "ls=L ss=S",
     "b": "ls=L ss=null"
    },
-   "ms": 377
+   "ms": 230
   },
   "edge.slow-load": {
    "value": {
     "title": "Slow",
-    "ms": 3013,
+    "ms": 3014,
     "ok": true
    },
-   "ms": 3113
+   "ms": 3118
   },
   "edge.never-finishing-load": {
-   "uncaught": "case did not finish in 90000 ms",
-   "ms": 90002
+   "uncaught": "case did not finish in 45000 ms",
+   "ms": 45003
   },
   "edge.main-thread-blocked": {
    "value": {
     "read": "unblocked",
-    "readMs": 6,
+    "readMs": 3,
     "after": "after clicked"
    },
-   "ms": 2826
+   "ms": 2818
   },
   "edge.stale-ref": {
    "value": {
     "stale": {
      "error": "ref e3 is stale: the element was removed; take a new snapshot"
     },
-    "ms": 13,
+    "ms": 12,
     "status": "ready"
    },
-   "ms": 394
+   "ms": 188
   },
   "edge.detached-mid-click": {
    "value": {
@@ -2927,7 +3011,7 @@
     "vanish": "clicked",
     "gone": 0
    },
-   "ms": 3232
+   "ms": 3266
   },
   "edge.overlay-intercepts": {
    "value": {
@@ -2937,7 +3021,7 @@
     "out1": "idle",
     "out2": "under clicked"
    },
-   "ms": 1154
+   "ms": 1155
   },
   "edge.zoom-scale": {
    "value": {
@@ -2945,7 +3029,7 @@
     "zoomed": "zoom clicked",
     "clipPx": true
    },
-   "ms": 343
+   "ms": 419
   },
   "edge.large-page": {
    "value": {
@@ -2953,7 +3037,7 @@
     "picked": "picked 4321",
     "count": 5000
    },
-   "ms": 826
+   "ms": 695
   },
   "edge.sessions-two-tabs": {
    "value": {
@@ -2971,16 +3055,19 @@
      null
     ]
    },
-   "ms": 991
+   "ms": 801
   },
   "edge.sessions-same-tab": {
    "value": {
-    "concurrent": false,
+    "bSaw": "Count 1",
+    "aSaw": "Count 1",
+    "concurrent": true,
+    "after": "Count 2",
     "closedForB": {
-     "error": "browserContext.newPage: Target page, context or browser has been closed"
+     "error": "Target page, context or browser has been closed"
     }
    },
-   "ms": 62611
+   "ms": 504
   }
  }
 }

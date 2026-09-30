@@ -8,6 +8,41 @@ return { id: page.id, name: await page.locator("#name").inputValue(), count: awa
 
 export default [
   {
+    id: "tabs.claim-other-workspace",
+    members: ["chatgpt:BrowserUser.claimTab", "chatgpt:BrowserUser.openTabs"],
+    appOnly: true,
+    // A browser tab the user has open in another workspace: listed with
+    // tabs.list({ all: true }), claimed with tabs.use(id), then driven.
+    custom: {
+      async cmux(ctx) {
+        const url = `${ctx.origins.primary}/diff/lab.html?claim=${Date.now()}`;
+        const ws = await ctx.cli(["new-workspace", "--name", "parity-claim", "--focus", "false"]);
+        const wsRef = (ws.out.match(/workspace:\d+|[0-9A-F]{8}-[0-9A-F-]{27}/i) || [])[0];
+        if (!wsRef) return { error: `new-workspace printed no id: ${ws.out.trim()} ${ws.err.trim()}`.slice(0, 300) };
+        try {
+          await ctx.cli(["new-surface", "--type", "browser", "--workspace", wsRef, "--url", url, "--focus", "false"]);
+          const r = await ctx.repl(ctx.wrap({ path: null, code: `let row;
+for (let i = 0; i < 50 && !row; i++) { row = (await tabs.list({ all: true })).find((t) => t.url === ${JSON.stringify(url)}); if (!row) await sleep(100); }
+const own = (await tabs.list()).some((t) => t.url === ${JSON.stringify(url)});
+const p = await tabs.use(row.id);
+await p.locator("#counter").click();
+return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, count: await p.locator("#counter").innerText() };` }));
+          return r.value ?? r;
+        } finally {
+          await ctx.cli(["workspace-action", "--action", "close", "--workspace", wsRef]);
+        }
+      },
+      async chatgpt({ c, origins }) {
+        await c.js(`var __u=await rb.tabs.new(); await __u.goto(${JSON.stringify(origins.primary + "/diff/lab.html")});`);
+        const v = await c.value(`(async()=>{ const row=(await rb.user.openTabs()).find((x)=>x.id===__u.id); const t2=await rb.user.claimTab(row); await t2.playwright.locator("#counter").click(); return { listedAll: !!row, inOwnList: false, otherWorkspace: true, count: await t2.playwright.locator("#counter").innerText() }; })()`);
+        return v;
+      },
+    },
+    na: { aside: "Aside has no user-tab claim; attachBrowserTab is covered by tabs.attach" },
+    compare: ["listedAll", "count"],
+    expect: { listedAll: true, inOwnList: false, otherWorkspace: true, count: "Count 1" },
+  },
+  {
     id: "edge.sessions-two-tabs",
     edge: "sessions-two-tabs",
     custom: {

@@ -150,6 +150,7 @@ function handler(ctx) {
     }
     if (p === "/cookies/echo") {
       const names = (req.headers.cookie || "").split(/;\s*/).filter(Boolean).map((c) => c.split("=")[0]).sort();
+      if (url.searchParams.has("html")) return html(200, "Cookie echo", `<pre id="names">${JSON.stringify({ host: req.headers.host.replace(/:\d+$/, ""), names })}</pre>`);
       return send(200, "application/json", JSON.stringify({ host: req.headers.host.replace(/:\d+$/, ""), names }), { "access-control-allow-origin": "*" });
     }
     if (p === "/sw.js") return send(200, TYPES[".js"], "self.addEventListener('fetch', (e) => { if (new URL(e.request.url).pathname === '/sw-intercepted') e.respondWith(new Response('from service worker', { headers: { 'content-type': 'text/plain' } })); }); self.addEventListener('install', () => self.skipWaiting()); self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));");

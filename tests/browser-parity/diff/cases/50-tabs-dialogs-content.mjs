@@ -38,6 +38,12 @@ await page.locator("#confirm").click(); out.dismissed = await page.locator("#r")
 await page.locator("#prompt").click(); out.prompt = seen[3] ? [seen[3][0], "default"] : null; out.prompted = await page.locator("#r").innerText();
 out.promptDismissed = "prompt null";
 return out;`,
+    better: {
+      aside: {
+        reason: "every dialog type is held for the agent and answered as asked; Aside's page.on('dialog') never fires and confirms are accepted by default",
+        check: (c, r) => c.alert?.[0] === 'alert' && r.alert === null && c.dismissed === 'confirm false',
+      },
+    },
     expect: { none: null, alert: ["alert", "Alert text"], afterAlert: "after alert", confirm: "confirm", accepted: "confirm true", dismissed: "confirm false", prompt: ["prompt", "default"], prompted: "prompt typed", promptDismissed: "prompt null" },
   },
   {
@@ -190,7 +196,7 @@ return out;`,
         check: (c, r) => c.multiple === false && typeof r.multiple === "object",
       },
     },
-    expect: { multiple: false, result: "multi: parity-upload.txt(Disposable browser parity upload)", heldMultiple: true, shown: true, none: { error: "timeout" }, missing: { error: "no-element" } },
+    expect: { multiple: false, result: "multi: parity-upload.txt(Disposable browser parity upload)", heldMultiple: true, shown: true, none: { error: "timeout" }, missing: { error: "denied" } },
   },
   {
     id: "navigation.expect",
@@ -210,6 +216,12 @@ const wrong = await E(() => $P.expectNavigation(() => $P.locator("#next").click(
 return { value, title, stay, wrong, after: await t.title() };`,
     aside: null,
     na: { aside: "Aside has no expectNavigation; waitForURL is covered by page.wait-for-url" },
+    better: {
+      chatgpt: {
+        reason: "waiting for a navigation that never happens times out; ChatGPT's expectNavigation resolves as if the page had navigated",
+        check: (c, r, h) => h.classifyError(c.stay?.error) === 'timeout' && r.stay?.ok === true && c.value === r.value && c.title === r.title,
+      },
+    },
     expect: { value: "navigated", title: "Next page", stay: { error: "timeout" }, wrong: { error: "timeout" }, after: "Next page" },
   },
   {

@@ -36,7 +36,7 @@ export function writeReport(cases) {
   lines.push("## Evidence", "");
   lines.push(`- Aside: ${meta("aside").version ?? "?"}, recorded ${meta("aside").recordedAt ?? "?"}.`);
   lines.push(`- ChatGPT for Chrome: reference runtime of the installed ChatGPT app, AX and legacy modes, recorded ${meta("chatgpt").recordedAt ?? "?"}.`);
-  lines.push(`- cmux app: ${meta("cmux").cli ? `tagged build CLI \`${path.basename(path.dirname(path.dirname(path.dirname(meta("cmux").cli))))}\`` : "not recorded"}, recorded ${meta("cmux").recordedAt ?? "?"}; ${appRows} of ${rows.length} verdicts use the app's result, the rest the dev driver's (Playwright WebKit, the same runtime).`);
+  lines.push(`- cmux app: tagged build \`${meta("cmux").tag ?? "?"}\`${meta("cmux").sha ? ` at ${String(meta("cmux").sha).slice(0, 10)}` : ""}, recorded ${meta("cmux").recordedAt ?? "?"}; ${appRows} of ${rows.length} verdicts use the app's result${appRows < rows.length ? ", the rest the dev driver's (Playwright WebKit, the same runtime)" : ""}.`);
   lines.push("");
   lines.push("## Totals", "");
   lines.push(`${rows.length} cases. cmux misses its own expectation in ${failing.length}.`, "");

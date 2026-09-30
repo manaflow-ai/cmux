@@ -2,10 +2,46 @@
 
 Checks `cmux browser repl` against its one API
 ([docs/browser-repl](../../docs/browser-repl/README.md)): behavior values
-against real Playwright, and snapshot and printing formats against reviewed
-cmux goldens. [capabilities.json](capabilities.json) maps every Aside and
-ChatGPT for Chrome capability to the scenario key that proves the cmux
-equivalent.
+against real Playwright, snapshot and printing formats against reviewed
+cmux goldens, and parity against Aside and ChatGPT for Chrome with
+differential cases. [capabilities.json](capabilities.json) maps every Aside
+and ChatGPT for Chrome capability to the cmux equivalent and the differential
+cases that exercise it.
+
+## Differential cases
+
+`diff/` runs one task three ways: the cmux API (the dev driver or the app),
+Aside's dialect through `aside repl` (one-shot, loopback fixture pages only),
+and ChatGPT for Chrome's through its reference runtime and the user's
+reference client (`~/fun/cmux-browser-cli/scripts/cua-reference-client.ts`:
+one approved `127.0.0.1` origin, the disposable `parity-upload.txt`, tabs in
+the "🧪 cmux parity" group closed after each case, no other origin, raw CDP or
+history). A case (`diff/cases/*.mjs`) lists the reference members and edge
+case it covers, the code per dialect (`$P` is the dialect's Playwright page,
+`$T(ms)` its timeout option, `$LOG` the fixture's event log), what cmux must
+produce (`expect`), and, where cmux differs from a reference on purpose, the
+reason and the check that proves it (`better`). Outcomes are normalized
+(origins, error text to an error class, times to buckets); a verdict per
+reference is `same`, `cmux-better`, `cmux-worse`, `not-applicable` or
+`out-of-scope`. `unit/diff.test.mjs` recomputes every verdict from
+`diff/results/*.json` and fails on any cmux-worse verdict, any missed
+expectation, a member without a same-or-better case, or an edge case in
+[edge-cases.md](../../docs/browser-repl/edge-cases.md) without a case.
+
+```sh
+node tests/browser-parity/diff/run.mjs run --backend cmux-dev     # record the dev driver
+node tests/browser-parity/diff/run.mjs run --backend aside        # live Aside
+node tests/browser-parity/diff/run.mjs run --backend chatgpt      # live ChatGPT for Chrome
+PARITY_CMUX_CLI=<tagged cmux CLI> CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock \
+  node tests/browser-parity/diff/run.mjs run --backend cmux       # the app
+node tests/browser-parity/diff/run.mjs check --backend cmux-dev   # judge now, write nothing
+node tests/browser-parity/diff/run.mjs verdicts                   # totals and gaps
+node tests/browser-parity/diff/run.mjs sync-capabilities          # capabilities.json cases
+node tests/browser-parity/diff/run.mjs report                     # docs/browser-repl/parity-report.md
+```
+
+`--only TEXT` or `--ids a,b` limit a run; results merge into what is recorded.
+Verdicts use the app's result for a case when there is one.
 
 ## Layout
 

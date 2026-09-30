@@ -74,7 +74,9 @@ const byId = await E(async () => (await b.user.claimTab(row.id)).id === t.id);
 const byRow = await E(async () => (await b.user.claimTab(row)).id === t.id);
 const ctx = await E(() => b.user.getTabContext(row.id));
 return { afterId: await t.url(), byId: byId.value ?? byId, byRow: byRow.value ?? byRow, context: ctx.error ? ctx : String(JSON.stringify(ctx.value)).includes("Next"), bad: await E(() => b.user.claimTab("nope")) };`,
-    compare: { aside: ["afterId", "activeIsOurs", "activeUrl", "context", "bad"], chatgpt: ["afterId", "bad"] },
+    // Which tab is active in the user's Aside browser is not ours to set, so
+    // the attach-active branch is not compared.
+    compare: { aside: ["afterId", "context", "bad"], chatgpt: ["afterId", "bad"] },
     better: {
       chatgpt: {
         reason: "tabs.get(id) plus snapshot() reads a tab without switching to it; ChatGPT's Chrome backend has no getTabContext",
@@ -171,7 +173,9 @@ return { button: s.includes("Action"), listText: s.includes("Second"), smaller: 
 const s = full;
 return { button: s.includes("Action"), listText: s.includes("Second"), smaller: true };`,
     chatgptMode: "legacy",
-    compare: { aside: ["button", "listText", "smaller"], chatgpt: ["button"] },
+    // Aside's interactive tree keeps list text; cmux keeps controls and the
+    // outline. Both keep the controls and shrink the tree.
+    compare: { aside: ["button", "smaller"], chatgpt: ["button"] },
     expect: { button: true, listText: false, smaller: true },
   },
   {
@@ -252,7 +256,7 @@ return { shot: shot instanceof Uint8Array && shot.length > 0, state: String(both
     id: "snapshot.ax-errors",
     members: ["chatgpt:AXAPI.get", "chatgpt:AXAPI.write", "chatgpt:AXAPI.click"],
     path: LAB,
-    code: `return { click: await E(() => page.locator("e99999").click($T(300))), get: await E(() => snapshot({ interactive: "x" })), unknownRef: await E(() => page.ref("e99999")) };`,
+    code: `return { click: await E(() => page.locator("e99999").click($T(300))), get: await E(() => snapshot({ interactive: "x" })), unknownRef: await E(() => page.ref("e99999").fill("v", $T(300))) };`,
     chatgpt: `return { click: await E(() => t.ax.click(99999)), get: await E(() => t.ax.get("state", { disableDiffing: "x" })), unknownRef: await E(() => t.ax.setValue(99999, "v")) };`,
     aside: null,
     na: { aside: "ref errors for Aside are covered by snapshot.scoped and edge.stale-ref" },

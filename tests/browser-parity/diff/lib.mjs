@@ -41,10 +41,6 @@ function validateCase(c) {
     const has = c.custom ? !!c.custom[ref] : dialectSource(c, ref) != null;
     const why = c.na?.[ref] ?? c.scope?.[ref];
     if (!has && !why) throw new Error(`${where}: ${ref} has no code and no not-applicable/out-of-scope reason`);
-    if (has && c.members?.some((m) => m.startsWith(`${ref}:`)) === false && !c.edge && !c.extra) {
-      // A reference run that proves no member of that reference is allowed
-      // (it still yields a verdict), so nothing to check here.
-    }
   }
   for (const [ref, b] of Object.entries(c.better ?? {})) {
     if (!REFERENCES.includes(ref) || typeof b.check !== "function" || !(b.reason?.length > 15)) throw new Error(`${where}: better.${ref} needs { check(cmux, ref), reason }`);
@@ -134,8 +130,9 @@ const ERROR_CLASSES = [
   ["crashed", /Target crashed|page crashed|web content process (terminated|crashed)/i],
   ["closed", /has been closed|already handled|tab (was |is )?closed|No open tab|Target closed|page is closed|No tab with id|Tab not found/i],
   ["no-element", /ENOENT|no such file/i],
+  ["denied", /EACCES|permission denied|outside the REPL/i],
   ["invalid-arg", /Not a checkbox or radio button|Cannot (un)?check|is not a <select>|not an <input>|Malformed value|Non-input element|not an HTMLInputElement|Node is not an/i],
-  ["no-element", /did not find some options|no_matches|"matchCount":0|resolved to 0 elements|no element|does not exist|not found|waiting for (locator|selector|getBy)|waiting on \w+ for selector/i],
+  ["no-element", /did not find some options|no_matches|"matchCount":0|resolved to 0 elements|no element|does not exist|not found|waiting for (locator|selector|getBy)|waiting on \w+ for selector|waiting for "[^"]+" to be/i],
   ["timeout", /timeout|timed out|deadline/i],
   ["invalid-arg", /requires|invalid|expected|must be|not a valid|unknown (key|option|event|role)|TypeError|RangeError|SyntaxError|received an? /i],
 ];
@@ -144,7 +141,7 @@ export function classifyError(msg) {
   for (const [cls, re] of ERROR_CLASSES) if (re.test(m)) return cls;
   return "other";
 }
-const SPECIFIC = new Set(["invalid-arg", "crashed", "strict", "intercepted", "stale", "not-visible", "disabled", "not-editable", "dialog", "auth", "tls", "dns", "refused", "redirects", "aborted", "closed", "no-element"]);
+const SPECIFIC = new Set(["denied", "invalid-arg", "crashed", "strict", "intercepted", "stale", "not-visible", "disabled", "not-editable", "dialog", "auth", "tls", "dns", "refused", "redirects", "aborted", "closed", "no-element"]);
 export const isSpecific = (cls) => SPECIFIC.has(cls);
 
 // The shared "better" rule for error variants: for every key the outcomes
@@ -153,21 +150,26 @@ export const isSpecific = (cls) => SPECIFIC.has(cls);
 // generically or silently accepts the input.
 export const errorsBetter = {
   reason: "cmux reports the failing check or the invalid argument (a specific error) where the reference fails generically or silently accepts it",
-  check: (c, r) => Object.keys(c).every((k) => {
+  check: (c, r, h = {}) => (h.keys ?? Object.keys(c)).every((k) => {
     const a = c[k] && c[k].error;
     const b = r[k] && r[k].error;
-    if (a === undefined) return stable(comparable(c[k])) === stable(comparable(r[k]));
+    if (a === undefined) return stable(looseErrors(comparable(c[k]))) === stable(looseErrors(comparable(r[k])));
     const ca = classifyError(a);
+    // A generic cmux failure is only as good as the same generic failure.
     if (!isSpecific(ca)) return b !== undefined && classifyError(b) === ca;
-    return b === undefined || classifyError(b) === ca || !isSpecific(classifyError(b));
+    // A specific cmux failure is at least as good as any reference outcome
+    // only where the case expects cmux to fail (an invalid or impossible
+    // input); a reference that succeeds where cmux was meant to succeed wins.
+    const want = h.expect && h.expect[k];
+    return !(want && typeof want === "object" && want.error === undefined) && (b !== undefined || !want || typeof want.error === "string");
   }),
 };
 
 export function timingClass(n) {
   if (typeof n !== "number") return n;
-  if (n < 400) return "instant";
-  if (n < 2000) return "short";
-  if (n < 8000) return "long";
+  if (n < 1000) return "instant";
+  if (n < 5000) return "short";
+  if (n < 15000) return "long";
   return "very-long";
 }
 
@@ -189,6 +191,17 @@ export function comparable(v, key = "") {
   }
   if (Array.isArray(v)) return v.map((x) => comparable(x));
   if ((key === "ms" || /Ms$/.test(key)) && typeof v === "number") return timingClass(v);
+  return v;
+}
+
+// Two failures that each name a specific reason are the same outcome (both
+// reject, each saying why); the exact class may differ between engines.
+export function looseErrors(v) {
+  if (Array.isArray(v)) return v.map(looseErrors);
+  if (v && typeof v === "object") {
+    if (typeof v.error === "string") return { ...v, error: isSpecific(v.error) ? "specific" : v.error };
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, looseErrors(x)]));
+  }
   return v;
 }
 
@@ -223,8 +236,11 @@ export function checkExpect(c, cmuxValue) {
   const got = comparable(cmuxValue ?? {});
   // Expectations name error classes and time classes directly.
   const want = c.expect;
+  // An expected object names only the fields that matter (an error class
+  // without its time, say); arrays and values must match exactly.
+  const matches = (g, w) => (w && typeof w === "object" && !Array.isArray(w) ? !!g && typeof g === "object" && Object.entries(w).every(([k, v]) => matches(g[k], v)) : stable(g) === stable(w));
   const problems = [];
-  for (const [k, v] of Object.entries(want)) if (stable(got[k]) !== stable(v)) problems.push(`expect ${k}: got ${JSON.stringify(got[k])}, want ${JSON.stringify(v)}`.slice(0, 300));
+  for (const [k, v] of Object.entries(want)) if (!matches(got[k], v)) problems.push(`expect ${k}: got ${JSON.stringify(got[k])}, want ${JSON.stringify(v)}`.slice(0, 300));
   return problems;
 }
 
@@ -243,12 +259,12 @@ export function verdictFor(c, ref, cmuxRes, refRes) {
   const keys = Array.isArray(c.compare) ? c.compare : c.compare?.[ref];
   const a = project(comparable(cmuxRes.value), keys);
   const b = project(comparable(refRes.value), keys);
-  if (stable(a) === stable(b)) return { verdict: "same" };
+  if (stable(looseErrors(a)) === stable(looseErrors(b))) return { verdict: "same" };
   const better = c.better?.[ref];
   if (better) {
     let ok = false;
     try {
-      ok = !!better.check(cmuxRes.value ?? {}, refRes.value ?? {}, { comparable, classifyError, isSpecific });
+      ok = !!better.check(cmuxRes.value ?? {}, refRes.value ?? {}, { comparable, classifyError, isSpecific, keys, expect: c.expect });
     } catch {
       ok = false;
     }

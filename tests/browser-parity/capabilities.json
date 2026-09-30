@@ -184,7 +184,6 @@
       "title": {
         "cmux": "page.title()",
         "cases": [
-          "smoke.title-click",
           "page.url-title.push-state"
         ]
       },
@@ -794,7 +793,8 @@
     "BrowserUser.claimTab": {
       "cmux": "tabs.list({ all: true }) lists tabs in every workspace and window; tabs.use(id) attaches one",
       "cases": [
-        "tabs.attach"
+        "tabs.attach",
+        "tabs.claim-other-workspace"
       ]
     },
     "BrowserUser.getTabContext": {
@@ -806,7 +806,8 @@
     "BrowserUser.openTabs": {
       "cmux": "tabs.list()",
       "cases": [
-        "tabs.list-get"
+        "tabs.list-get",
+        "tabs.claim-other-workspace"
       ]
     },
     "Tabs.content": {
@@ -962,7 +963,6 @@
     "Tab.title": {
       "cmux": "page.title()",
       "cases": [
-        "smoke.title-click",
         "page.url-title.push-state"
       ]
     },

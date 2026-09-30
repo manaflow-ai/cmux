@@ -8,7 +8,26 @@
 (function (root) {
   "use strict";
   const ns = (root.CmuxBrowserRepl = root.CmuxBrowserRepl || {});
-  const LU = ns.locatorUtils;
+  // Playwright's selector builders, with the text argument checked first:
+  // getByText(42) fails as an invalid argument instead of matching nothing.
+  const LU = (() => {
+    const raw = ns.locatorUtils;
+    const textArg = (title, v) => {
+      if (typeof v !== "string" && Object.prototype.toString.call(v) !== "[object RegExp]") {
+        throw new Error(`${title}: text: expected a string or a RegExp, got ${JSON.stringify(v)}`);
+      }
+    };
+    const wrapped = Object.create(raw);
+    for (const [name, title] of [["getByTextSelector", "getByText"], ["getByLabelSelector", "getByLabel"], ["getByPlaceholderSelector", "getByPlaceholder"], ["getByAltTextSelector", "getByAltText"], ["getByTitleSelector", "getByTitle"]]) {
+      wrapped[name] = (text, options) => (textArg(title, text), raw[name](text, options));
+    }
+    wrapped.getByTestIdSelector = (attr, testId) => (textArg("getByTestId", testId), raw.getByTestIdSelector(attr, testId));
+    wrapped.getByRoleSelector = (role, options) => {
+      if (typeof role !== "string" || !role) throw new Error(`getByRole: role: expected a non-empty string, got ${JSON.stringify(role)}`);
+      return raw.getByRoleSelector(role, options);
+    };
+    return wrapped;
+  })();
   const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
   const DEFAULT_TIMEOUT = 30000;
 

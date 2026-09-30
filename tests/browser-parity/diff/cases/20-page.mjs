@@ -14,6 +14,12 @@ return { url: $P.url(), title: await $P.title(), status: r ? r.status() : null, 
     chatgpt: `const r = await t.goto(U("/diff/next.html"));
 return { url: await t.url(), title: await t.title(), returns: r === undefined ? "void" : typeof r };`,
     compare: { aside: ["url", "title", "status", "ok"], chatgpt: ["url", "title"] },
+    better: {
+      aside: {
+        reason: "goto resolves with the HTTP response (status, ok); Aside's goto returns none",
+        check: (c, r) => c.status === 200 && c.ok === true && r.status == null && c.url === r.url && c.title === r.title,
+      },
+    },
     expect: { url: "<primary>/diff/next.html", title: "Next page", status: 200, ok: true },
   },
   {
@@ -38,7 +44,7 @@ return out;`,
     code: `return { slow: await ms(() => $P.goto(U("/slow?ms=4000"), $T(600))) };`,
     chatgpt: null,
     na: { chatgpt: "Tab.goto has no timeout option" },
-    expect: { slow: { error: "timeout", ms: "short" } },
+    expect: { slow: { error: "timeout", ms: "instant" } },
   },
   {
     id: "page.goto.errors",
@@ -68,6 +74,12 @@ const before = await $P.locator("#counter").innerText();
 await t.reload();
 return { before, after: await $P.locator("#counter").innerText() };`,
     compare: { aside: ["before", "after", "status"], chatgpt: ["before", "after"] },
+    better: {
+      aside: {
+        reason: "reload resolves with the HTTP response; Aside's returns none",
+        check: (c, r) => c.status === 200 && r.status == null && c.before === r.before && c.after === r.after,
+      },
+    },
     expect: { before: "Count 1", after: "Count 0", status: 200 },
   },
   {
@@ -118,8 +130,8 @@ const fwd = await E(() => t.forward());
 return { back: back.error ? back : null, forward: fwd.error ? fwd : null, url: await t.url() };`,
     better: {
       chatgpt: {
-        reason: "with no history entry cmux resolves null (Playwright) and stays on the page; ChatGPT throws",
-        check: (c, r) => c.back === null && c.forward === null && c.url === r.url,
+        reason: "with no history entry cmux resolves null and stays; ChatGPT goes back to the blank page the tab opened on",
+        check: (c, r) => c.back === null && c.url.endsWith('lab.html') && !String(r.url).endsWith('lab.html'),
       },
     },
     expect: { back: null, forward: null, url: "<primary>/diff/lab.html" },
@@ -135,6 +147,12 @@ return { before, after: [$P.url(), await $P.title()] };`,
 await $P.locator("#push").click();
 await $P.waitForTimeout(100);
 return { before, after: [await t.url(), await t.title()] };`,
+    better: {
+      aside: {
+        reason: "page.url() follows history.pushState; Aside's url() still reports the old URL",
+        check: (c, r) => c.after[0].endsWith('?pushed=1') && !String(r.after[0]).endsWith('?pushed=1') && c.after[1] === r.after[1],
+      },
+    },
     expect: { before: ["<primary>/diff/lab.html", "Diff lab"], after: ["<primary>/diff/lab.html?pushed=1", "Diff lab pushed"] },
   },
   {
@@ -150,6 +168,10 @@ return { doctype: /^<!DOCTYPE html>/i.test(html), heading: html.includes("Diff l
       chatgpt: {
         reason: "page.content() returns the page's HTML; ChatGPT's domSnapshot is a filtered text view, so markup is not recoverable",
         check: (c, r) => c.heading && c.doctype && !r.doctype,
+      },
+      aside: {
+        reason: "page.content() is the full serialized document with its doctype, as in Playwright; Aside's omits the doctype",
+        check: (c, r) => c.doctype && !r.doctype && c.heading === r.heading && c.frameText === r.frameText,
       },
     },
     expect: { doctype: true, heading: true },
@@ -217,6 +239,12 @@ return {
   arg: await $P.locator("li").evaluateAll((els, n) => els.length + n, 10),
   invalid: await E(() => $P.locator("!!!").count()),
 };`,
+    better: {
+      aside: {
+        reason: "$() of a missing element is null and an invalid selector fails, as in Playwright; Aside returns an object for both",
+        check: (c, r, h) => c.none === null && r.none !== null && h.classifyError(c.invalid.error) === 'invalid-arg' && c.count === r.count && JSON.stringify(c.texts) === JSON.stringify(r.texts),
+      },
+    },
     expect: { one: "Action", none: null, count: 3, texts: ["First", "Second", "Third"], arg: 13, invalid: { error: "invalid-arg" } },
   },
   {
@@ -238,6 +266,12 @@ return {
   testId: typeof $P.getByTestId === "function" ? await $P.getByTestId("item").count() : "absent",
 };`,
     compare: { aside: ["locator", "role", "roleExact", "roleRegex", "checkbox", "text", "textExact", "textRegex", "label", "labelRegex"], chatgpt: ["locator", "role", "roleExact", "roleRegex", "checkbox", "text", "textExact", "textRegex", "label", "labelRegex", "placeholder", "testId"] },
+    better: {
+      aside: {
+        reason: "getByRole pierces open shadow roots like Playwright (the shadow DOM's Action button counts); Aside's does not",
+        check: (c, r) => c.role === 2 && r.role === 1 && ['locator','roleExact','roleRegex','checkbox','text','textExact','textRegex','label','labelRegex'].every((k) => c[k] === r[k]),
+      },
+    },
     expect: { locator: 3, role: 2, roleExact: 0, roleRegex: 1, checkbox: 1, text: 1, textExact: 0, textRegex: 1, label: 1, labelRegex: 1, placeholder: 1, testId: 3 },
   },
   {
@@ -251,7 +285,10 @@ return {
   text: await E(() => $P.getByText(42).count()),
   frame: await E(() => $P.frameLocator("!!!").locator("input").count()),
 };`,
-    better: { aside: errBetter, chatgpt: errBetter },
+    better: {
+      aside: errBetter,
+      chatgpt: errBetter,
+    },
     expect: { css: { error: "invalid-arg" } },
   },
   {
@@ -298,6 +335,12 @@ return { text: r.value ?? r };`,
 return { count: frames.length, mainUrl: $P.mainFrame().url(), child: frames.some((f) => f !== $P.mainFrame() && f.parentFrame() === $P.mainFrame()) };`,
     chatgpt: null,
     na: { chatgpt: "ChatGPT exposes no frame objects; frames are reached with frameLocator (page.frame-locator)" },
+    better: {
+      aside: {
+        reason: "frames report their parent frame; Aside's child frame has no parent link",
+        check: (c, r) => c.child && !r.child && c.count === r.count && c.mainUrl === r.mainUrl,
+      },
+    },
     expect: { count: 2, mainUrl: "<primary>/diff/lab.html", child: true },
   },
   {
@@ -310,7 +353,10 @@ return { status: await $P.locator("#status").innerText(), name: await $P.locator
     chatgpt: `await $P.locator("#action").click();
 await $P.locator("#name").fill("via page.fill");
 return { status: await $P.locator("#status").innerText(), name: await $P.locator("#name").evaluate((e) => e.value), missing: await E(() => $P.locator("#missing").click($T(300))) };`,
-    better: { chatgpt: errBetter, aside: errBetter },
+    better: {
+      chatgpt: errBetter,
+      aside: errBetter,
+    },
     expect: { status: "clicked", name: "via page.fill", missing: { error: "no-element" } },
   },
   {
@@ -335,7 +381,10 @@ return { image: !!plain.width, fullTaller: full.height > plain.height, clipRatio
     path: LAB,
     code: `return { clip: await E(() => $P.screenshot({ clip: { x: 0, y: 0, width: "x", height: 1 } })), type: await E(() => $P.screenshot({ type: "gif" })) };`,
     chatgpt: `return { clip: await E(() => t.screenshot({ clip: { x: 0, y: 0, width: "x", height: 1 } })), type: await E(() => t.screenshot({ format: "gif" })) };`,
-    better: { aside: errBetter, chatgpt: errBetter },
+    better: {
+      aside: errBetter,
+      chatgpt: errBetter,
+    },
     expect: { clip: { error: "invalid-arg" }, type: { error: "invalid-arg" } },
   },
   {
@@ -385,7 +434,10 @@ return out;`,
 for (const s of ["domcontentloaded", "load", "networkidle"]) out[s] = (await E(() => $P.waitForLoadState({ state: s, timeoutMs: 5000 }))).ok ?? false;
 out.bogus = await E(() => $P.waitForLoadState({ state: "bogus" }));
 return out;`,
-    better: { aside: errBetter, chatgpt: errBetter },
+    better: {
+      aside: errBetter,
+      chatgpt: errBetter,
+    },
     expect: { domcontentloaded: true, load: true, networkidle: true, bogus: { error: "invalid-arg" } },
   },
   {
@@ -482,6 +534,10 @@ return { seen: logs.filter((x) => /^lab/.test(x.message)).map((x) => (x.level ==
       chatgpt: {
         reason: "cmux delivers every console message; ChatGPT's Chrome backend returns an empty tab.dev.logs() for the same page",
         check: (c, r) => c.seen.length === 3 && r.seen.length < 3,
+      },
+      aside: {
+        reason: "page.on('console') delivers console messages; Aside's page emits none",
+        check: (c, r) => c.seen.length === 3 && r.seen.length === 0,
       },
     },
     expect: { seen: ["log:lab log 42", "warning:lab warn", "error:lab error"] },

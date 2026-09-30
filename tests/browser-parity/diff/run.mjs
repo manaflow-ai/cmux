@@ -244,7 +244,10 @@ function log(backend, c, r) {
 function meta(backend) {
   const m = { backend, recordedAt: new Date().toISOString() };
   if (backend === "aside") m.version = "Aside CLI (aside --version at record time)";
-  if (backend === "cmux") m.cli = cmuxCli();
+  if (backend === "cmux") {
+    m.tag = (cmuxCli().match(/cmux DEV ([\w.-]+)\.app/) || [])[1] ?? null;
+    m.sha = process.env.PARITY_CMUX_SHA ?? null;
+  }
   return m;
 }
 

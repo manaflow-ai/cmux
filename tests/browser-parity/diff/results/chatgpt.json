@@ -1,38 +1,16 @@
 {
  "meta": {
   "backend": "chatgpt",
-  "recordedAt": "2026-09-30T09:41:08.564Z"
+  "recordedAt": "2026-09-30T10:32:39.152Z"
  },
  "cases": {
-  "smoke.title-click": {
-   "value": {
-    "title": "Diff lab",
-    "status": "clicked",
-    "trusted": [
-     [
-      "mousedown",
-      true
-     ],
-     [
-      "mouseup",
-      true
-     ],
-     [
-      "click",
-      true
-     ]
-    ]
-   },
-   "ms": 1193,
-   "mode": "ax"
-  },
   "page.goto.basic": {
    "value": {
     "url": "<primary>/diff/next.html",
     "title": "Next page",
     "returns": "void"
    },
-   "ms": 1537,
+   "ms": 575,
    "mode": "ax"
   },
   "page.goto.errors": {
@@ -46,7 +24,7 @@
      "name": "Error"
     }
    },
-   "ms": 506,
+   "ms": 357,
    "mode": "ax"
   },
   "page.reload": {
@@ -54,7 +32,7 @@
     "before": "Count 1",
     "after": "Count 0"
    },
-   "ms": 1023,
+   "ms": 903,
    "mode": "ax"
   },
   "page.back-forward": {
@@ -63,7 +41,7 @@
     "afterForward": "<primary>/diff/next.html",
     "title": "Next page"
    },
-   "ms": 879,
+   "ms": 1230,
    "mode": "ax"
   },
   "page.back-forward.no-entry": {
@@ -72,7 +50,7 @@
     "forward": null,
     "url": "<primary>/diff/lab.html"
    },
-   "ms": 659,
+   "ms": 925,
    "mode": "ax"
   },
   "page.url-title.push-state": {
@@ -86,7 +64,7 @@
      "Diff lab pushed"
     ]
    },
-   "ms": 643,
+   "ms": 1091,
    "mode": "ax"
   },
   "page.content": {
@@ -96,7 +74,7 @@
     "frameText": true,
     "typedValue": null
    },
-   "ms": 688,
+   "ms": 597,
    "mode": "ax"
   },
   "page.evaluate.forms": {
@@ -119,7 +97,7 @@
      "name": "Error"
     }
    },
-   "ms": 840,
+   "ms": 1707,
    "mode": "ax"
   },
   "page.evaluate.mutation": {
@@ -130,14 +108,14 @@
     },
     "status": "ready"
    },
-   "ms": 502,
+   "ms": 1173,
    "mode": "ax"
   },
   "page.evaluate.options": {
    "value": {
     "withArg": 2
    },
-   "ms": 636,
+   "ms": 756,
    "mode": "ax"
   },
   "page.query.dollar": {
@@ -156,7 +134,7 @@
      "name": "Error"
     }
    },
-   "ms": 3753,
+   "ms": 3914,
    "mode": "ax"
   },
   "page.getters.page-level": {
@@ -174,7 +152,7 @@
     "placeholder": 1,
     "testId": 3
    },
-   "ms": 1524,
+   "ms": 1019,
    "mode": "ax"
   },
   "page.getters.errors": {
@@ -184,7 +162,7 @@
      "name": "Error"
     },
     "role": {
-     "error": "Timed out after 3000ms waiting for selector internal:role=notarole!: Timed out after 2ms waiting for CDP command Runtime.evaluate.",
+     "error": "Timed out after 3000ms waiting for selector internal:role=notarole!: Browser Use encountered an error interacting with this webpage: M: Error while parsing selector `notarole!` - unexpected symbol \"!\" at position 8\n    at o (<anonymous>:8:9187)\n    at ve (<anonymous>:8:11301)\n    at Object.queryAll (<anonymous>:12:14357)\n    at to._queryEngineAll (<anonymous>:13:9947)\n    at to.querySelectorAll (<anonymous>:13:9797)\n    at <anonymous>:224:30\n    at <anonymous>:228:11\n    at <anonymous>:229:11",
      "name": "Error"
     },
     "label": {
@@ -196,11 +174,11 @@
      "name": "Error"
     },
     "frame": {
-     "error": "Timed out after 3000ms waiting for selector !!! >> internal:control=enter-frame >> input: Browser Use encountered an error interacting with this webpage: M: Unexpected token \"!\" while parsing css selector \"!!!\". Did you mean to CSS.escape it?\n    at o (<anonymous>:8:4051)\n    at K (<anonymous>:8:5856)\n    at ge (<anonymous>:8:5001)\n    at L (<anonymous>:8:4846)\n    at y (<anonymous>:8:4754)\n    at ni (<anonymous>:8:6028)\n    at yt (<anonymous>:8:6750)\n    at to.parseSelector (<anonymous>:13:7107)\n    at <anonymous>:221:50\n    at <anonymous>:285:11",
+     "error": "Playwright selector deadline exceeded",
      "name": "Error"
     }
    },
-   "ms": 10006,
+   "ms": 10564,
    "mode": "ax"
   },
   "page.frame-locator": {
@@ -211,14 +189,14 @@
     "text": 1,
     "regex": 1
    },
-   "ms": 1443,
+   "ms": 1034,
    "mode": "ax"
   },
   "page.frame-locator.nested": {
    "value": {
     "text": "deep clicked"
    },
-   "ms": 1203,
+   "ms": 900,
    "mode": "ax"
   },
   "page.click-fill": {
@@ -230,7 +208,7 @@
      "name": "Error"
     }
    },
-   "ms": 1608,
+   "ms": 1489,
    "mode": "ax"
   },
   "page.screenshot.forms": {
@@ -245,7 +223,7 @@
      "height": 1071
     }
    },
-   "ms": 868,
+   "ms": 822,
    "mode": "ax"
   },
   "page.screenshot.errors": {
@@ -261,7 +239,7 @@
      }
     }
    },
-   "ms": 761,
+   "ms": 1668,
    "mode": "ax"
   },
   "page.wait-for-selector": {
@@ -271,12 +249,12 @@
     "attached": true,
     "detached": true,
     "timeout": {
-     "ms": 469,
+     "ms": 447,
      "error": "Error: Playwright selector deadline exceeded\nlocator.waitFor(visible) timed out for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"waitFor\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
      "name": "Error"
     }
    },
-   "ms": 1775,
+   "ms": 2547,
    "mode": "ax"
   },
   "page.wait-for-load-state": {
@@ -288,7 +266,7 @@
      "ok": true
     }
    },
-   "ms": 850,
+   "ms": 1094,
    "mode": "ax"
   },
   "page.wait-for-url": {
@@ -299,12 +277,12 @@
     "fn": false,
     "opts": true,
     "never": {
-     "ms": 417,
-     "error": "Timed out waiting for URL <primary>/never in tab 370922784.",
+     "ms": 420,
+     "error": "Timed out waiting for URL <primary>/never in tab 370923350.",
      "name": "Error"
     }
    },
-   "ms": 1364,
+   "ms": 1711,
    "mode": "ax"
   },
   "page.wait-for-timeout": {
@@ -316,7 +294,7 @@
      "name": "Error"
     }
    },
-   "ms": 1229,
+   "ms": 1686,
    "mode": "ax"
   },
   "page.wait-for-event.errors": {
@@ -326,12 +304,12 @@
      "name": "Error"
     },
     "none": {
-     "ms": 314,
+     "ms": 327,
      "error": "Timed out after 300ms waiting for file chooser.",
      "name": "Error"
     }
    },
-   "ms": 766,
+   "ms": 887,
    "mode": "ax"
   },
   "page.on-off": {
@@ -342,7 +320,7 @@
      "error:lab error"
     ]
    },
-   "ms": 877,
+   "ms": 1239,
    "mode": "ax"
   },
   "page.viewport": {
@@ -353,7 +331,7 @@
      "name": "Error"
     }
    },
-   "ms": 345,
+   "ms": 685,
    "mode": "ax"
   },
   "page.bring-to-front": {
@@ -361,7 +339,7 @@
     "ok": false,
     "visible": "visible"
    },
-   "ms": 453,
+   "ms": 2316,
    "mode": "ax"
   },
   "page.close": {
@@ -369,19 +347,16 @@
     "closed": true,
     "listed": false,
     "again": {
-     "error": "Tab not found: 370922808. Existing tabs: none",
+     "error": "Tab not found: 370923374. Existing tabs: none",
      "name": "Error"
     }
    },
-   "ms": 333,
+   "ms": 607,
    "mode": "ax"
   },
   "page.keyboard-mouse-objects": {
-   "value": {
-    "canvas": 1,
-    "keys": "hi"
-   },
-   "ms": 1654,
+   "uncaught": "Timed out after 3000ms evaluating selector #canvas: CDP operation exceeded its deadline before command dispatch",
+   "ms": 76214,
    "mode": "legacy"
   },
   "tabs.open-current": {
@@ -390,7 +365,7 @@
     "url": "<primary>/diff/lab.html",
     "title": "Diff lab"
    },
-   "ms": 616,
+   "ms": 3255,
    "mode": "ax"
   },
   "tabs.list-get": {
@@ -412,7 +387,7 @@
      "name": "Error"
     }
    },
-   "ms": 1048,
+   "ms": 1223,
    "mode": "ax"
   },
   "tabs.attach": {
@@ -429,7 +404,7 @@
      "name": "Error"
     }
    },
-   "ms": 1002,
+   "ms": 755,
    "mode": "ax"
   },
   "tabs.open-errors": {
@@ -445,7 +420,7 @@
      "name": "Error"
     }
    },
-   "ms": 386,
+   "ms": 901,
    "mode": "ax"
   },
   "session.name-docs": {
@@ -462,7 +437,7 @@
      "name": "Error"
     }
    },
-   "ms": 768,
+   "ms": 1117,
    "mode": "ax"
   },
   "tabs.keep-deliverable": {
@@ -474,7 +449,7 @@
      "listed": true
     }
    },
-   "ms": 685,
+   "ms": 1058,
    "mode": "ax"
   },
   "snapshot.full": {
@@ -486,7 +461,7 @@
     "typed": true,
     "clicked": "clicked"
    },
-   "ms": 1082,
+   "ms": 1288,
    "mode": "ax"
   },
   "snapshot.diff": {
@@ -495,7 +470,7 @@
     "diffShort": true,
     "printed": true
    },
-   "ms": 1212,
+   "ms": 2600,
    "mode": "ax"
   },
   "snapshot.ax-get-modes": {
@@ -504,7 +479,7 @@
     "state": true,
     "both": true
    },
-   "ms": 891,
+   "ms": 1567,
    "mode": "ax"
   },
   "snapshot.ax-errors": {
@@ -524,7 +499,7 @@
      "name": "Error"
     }
    },
-   "ms": 684,
+   "ms": 867,
    "mode": "ax"
   },
   "screenshot.annotated": {
@@ -532,7 +507,7 @@
     "image": false,
     "differs": false
    },
-   "ms": 523,
+   "ms": 475,
    "mode": "ax"
   },
   "element-at": {
@@ -542,7 +517,7 @@
      "name": "Error"
     }
    },
-   "ms": 625,
+   "ms": 590,
    "mode": "ax"
   },
   "loc.click.options": {
@@ -847,7 +822,7 @@
      ]
     ]
    },
-   "ms": 3536,
+   "ms": 5198,
    "mode": "ax"
   },
   "loc.dblclick.options": {
@@ -1494,7 +1469,7 @@
      ]
     ]
    },
-   "ms": 3811,
+   "ms": 3578,
    "mode": "ax"
   },
   "loc.check.options": {
@@ -1518,7 +1493,7 @@
      "name": "Error"
     }
    },
-   "ms": 4200,
+   "ms": 3587,
    "mode": "ax"
   },
   "loc.timeout-options": {
@@ -1536,7 +1511,7 @@
     "items": 3,
     "itemsWithArg": 4
    },
-   "ms": 1695,
+   "ms": 673,
    "mode": "ax"
   },
   "loc.errors.missing": {
@@ -1590,7 +1565,7 @@
      "name": "Error"
     },
     "selectOption": {
-     "error": "Error: Playwright selector deadline exceeded\nlocator.selectOption failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"selectOption\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "error": "Error: Timed out after 300ms waiting for selector #missing: Timed out after 1ms waiting for CDP command Runtime.evaluate.\nlocator.selectOption failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"selectOption\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
      "name": "Error"
     },
     "waitFor": {
@@ -1598,7 +1573,7 @@
      "name": "Error"
     }
    },
-   "ms": 5514,
+   "ms": 5606,
    "mode": "ax"
   },
   "loc.errors.evaluate": {
@@ -1621,7 +1596,7 @@
     },
     "emptyAll": 0
    },
-   "ms": 3796,
+   "ms": 3918,
    "mode": "ax"
   },
   "loc.failure-kinds": {
@@ -1659,7 +1634,7 @@
      "name": "Error"
     },
     "frame": {
-     "error": "Error: Timed out after 400ms waiting for selector #frame >> internal:control=enter-frame >> #nope: Browser Use encountered an error interacting with this webpage: Error: No element matched selector\n    at <anonymous>:227:31\n    at <anonymous>:229:11\n    at <anonymous>:230:11\nwaiting on click for selector #frame >> internal:control=enter-frame >> #nope\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"click\",\"locator\":\"#frame >> internal:control=enter-frame >> #nope\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "error": "Error: Timed out after 400ms waiting for selector #frame >> internal:control=enter-frame >> #nope: Playwright selector deadline exceeded\nwaiting on click for selector #frame >> internal:control=enter-frame >> #nope\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"click\",\"locator\":\"#frame >> internal:control=enter-frame >> #nope\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
      "name": "Error"
     },
     "many": {
@@ -1667,7 +1642,7 @@
      "name": "Error"
     }
    },
-   "ms": 4726,
+   "ms": 5084,
    "mode": "ax"
   },
   "loc.composition-errors": {
@@ -1689,7 +1664,7 @@
      "name": "Error"
     },
     "locator": {
-     "error": "Playwright selector deadline exceeded",
+     "error": "Timed out after 3000ms waiting for selector body >> !!!: Browser Use encountered an error interacting with this webpage: M: Unexpected token \"!\" while parsing css selector \"!!!\". Did you mean to CSS.escape it?\n    at o (<anonymous>:8:4051)\n    at K (<anonymous>:8:5856)\n    at ge (<anonymous>:8:5001)\n    at L (<anonymous>:8:4846)\n    at y (<anonymous>:8:4754)\n    at ni (<anonymous>:8:6028)\n    at yt (<anonymous>:8:6750)\n    at to.parseSelector (<anonymous>:13:7107)\n    at <anonymous>:221:42\n    at <anonymous>:228:11",
      "name": "Error"
     },
     "getByLabel": {
@@ -1713,7 +1688,7 @@
      "name": "Error"
     }
    },
-   "ms": 6693,
+   "ms": 7139,
    "mode": "ax"
   },
   "loc.filter-options": {
@@ -1732,7 +1707,7 @@
     "lHasNotText": 2,
     "lHasNotTextRe": 2
    },
-   "ms": 742,
+   "ms": 1598,
    "mode": "ax"
   },
   "loc.regexp-getters": {
@@ -1766,7 +1741,7 @@
      1
     ]
    },
-   "ms": 1244,
+   "ms": 3526,
    "mode": "ax"
   },
   "loc.select-option.forms": {
@@ -1800,7 +1775,7 @@
      "name": "Error"
     }
    },
-   "ms": 5461,
+   "ms": 4906,
    "mode": "ax"
   },
   "loc.wait-for.states": {
@@ -1820,7 +1795,7 @@
      "name": "Error"
     }
    },
-   "ms": 1476,
+   "ms": 2132,
    "mode": "ax"
   },
   "loc.fill.forms": {
@@ -1835,7 +1810,7 @@
      "blur:true"
     ]
    },
-   "ms": 1654,
+   "ms": 1437,
    "mode": "ax"
   },
   "loc.typing": {
@@ -1859,14 +1834,14 @@
      "name": "Error"
     }
    },
-   "ms": 1312,
+   "ms": 1577,
    "mode": "ax"
   },
   "loc.focus-blur": {
    "value": {
     "focused": "name"
    },
-   "ms": 924,
+   "ms": 937,
    "mode": "ax"
   },
   "loc.set-input-files": {
@@ -1876,21 +1851,21 @@
     "single": false,
     "multiple": true
    },
-   "ms": 2061,
+   "ms": 1827,
    "mode": "ax"
   },
   "loc.drag-to.ax": {
    "value": {
     "drop": "dropped payload"
    },
-   "ms": 1394,
+   "ms": 1033,
    "mode": "ax"
   },
   "loc.scroll-into-view": {
    "value": {
     "moved": true
    },
-   "ms": 3317,
+   "ms": 921,
    "mode": "ax"
   },
   "loc.screenshot": {
@@ -1900,7 +1875,7 @@
      "name": "Error"
     }
    },
-   "ms": 709,
+   "ms": 443,
    "mode": "ax"
   },
   "loc.reads": {
@@ -1924,7 +1899,7 @@
      "Third"
     ]
    },
-   "ms": 1080,
+   "ms": 835,
    "mode": "ax"
   },
   "loc.states": {
@@ -1961,7 +1936,7 @@
      "value": false
     }
    },
-   "ms": 2284,
+   "ms": 1379,
    "mode": "ax"
   },
   "loc.collections": {
@@ -1980,7 +1955,7 @@
     "nthOut": 0,
     "none": 0
    },
-   "ms": 968,
+   "ms": 2309,
    "mode": "ax"
   },
   "loc.and-or": {
@@ -1990,7 +1965,7 @@
     "or": 2,
     "orText": "Second"
    },
-   "ms": 755,
+   "ms": 3081,
    "mode": "ax"
   },
   "loc.scoped-getters": {
@@ -2003,7 +1978,7 @@
     "chained": "Third",
     "outside": 0
    },
-   "ms": 1073,
+   "ms": 1679,
    "mode": "ax"
   },
   "loc.evaluate": {
@@ -2015,12 +1990,23 @@
     "all": "First|Second|Third",
     "shadow": true
    },
-   "ms": 1960,
+   "ms": 1229,
    "mode": "ax"
   },
   "loc.download-media": {
-   "uncaught": "Timed out after 8000ms waiting for download.",
-   "ms": 8885,
+   "value": {
+    "name": null,
+    "body": null,
+    "viaMedia": {
+     "error": "Error: Timed out after 4982ms waiting for download.\nlocator.downloadMedia failed for selector #dl-cd\nLocator diagnostics: {\"kind\":\"action_failed\",\"action\":\"downloadMedia\",\"locator\":\"#dl-cd\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":null,\"tag\":\"a\",\"text\":\"Download attachment\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+     "name": "Error"
+    },
+    "missing": {
+     "error": "Error: Playwright selector deadline exceeded\nlocator.downloadMedia failed for selector #missing\nLocator diagnostics: {\"kind\":\"no_matches\",\"action\":\"downloadMedia\",\"locator\":\"#missing\",\"matchCount\":0,\"matches\":[],\"visibleCount\":0,\"truncated\":false}",
+     "name": "Error"
+    }
+   },
+   "ms": 18944,
    "mode": "ax"
   },
   "keyboard.errors": {
@@ -2038,7 +2024,7 @@
      "name": "Error"
     }
    },
-   "ms": 1121,
+   "ms": 616,
    "mode": "ax"
   },
   "keyboard.shortcuts": {
@@ -2055,12 +2041,18 @@
      "ArrowLeft,false,true,false,true"
     ]
    },
-   "ms": 1853,
+   "ms": 2169,
    "mode": "ax"
   },
   "ax.click-forms": {
-   "uncaught": "[12:18-12:23]: Await is only valid in async functions",
-   "ms": 652,
+   "value": {
+    "byRef": 1,
+    "byPoint": 2,
+    "dbl": 1,
+    "right": 1,
+    "middle": 2
+   },
+   "ms": 1170,
    "mode": "ax"
   },
   "ax.text-forms": {
@@ -2096,7 +2088,7 @@
      3
     ]
    },
-   "ms": 2147,
+   "ms": 1496,
    "mode": "ax"
   },
   "ax.scroll-forms": {
@@ -2104,7 +2096,7 @@
     "inner": true,
     "page": true
    },
-   "ms": 2483,
+   "ms": 1516,
    "mode": "ax"
   },
   "ax.secondary-action": {
@@ -2119,7 +2111,7 @@
      "name": "Error"
     }
    },
-   "ms": 1702,
+   "ms": 575,
    "mode": "ax"
   },
   "clipboard.members": {
@@ -2136,7 +2128,7 @@
      "name": "Error"
     }
    },
-   "ms": 1883,
+   "ms": 687,
    "mode": "ax"
   },
   "dev.logs": {
@@ -2158,7 +2150,7 @@
      "name": "Error"
     }
    },
-   "ms": 829,
+   "ms": 728,
    "mode": "ax"
   },
   "dialogs.held": {
@@ -2179,7 +2171,7 @@
     "prompted": "prompt typed",
     "promptDismissed": "prompt null"
    },
-   "ms": 2384,
+   "ms": 1764,
    "mode": "ax"
   },
   "dialogs.errors": {
@@ -2194,7 +2186,7 @@
     },
     "result": "prompt null"
    },
-   "ms": 991,
+   "ms": 928,
    "mode": "ax"
   },
   "dialogs.snapshot-blocked": {
@@ -2202,7 +2194,7 @@
     "shows": true,
     "title": "Dialogs Fixture"
    },
-   "ms": 2327,
+   "ms": 805,
    "mode": "ax"
   },
   "dialogs.beforeunload": {
@@ -2210,7 +2202,7 @@
     "type": null,
     "stayed": false
    },
-   "ms": 5564,
+   "ms": 4257,
    "mode": "ax"
   },
   "filechooser.event": {
@@ -2220,16 +2212,16 @@
     "heldMultiple": true,
     "shown": false,
     "none": {
-     "ms": 341,
+     "ms": 308,
      "error": "Timed out after 300ms waiting for file chooser.",
      "name": "Error"
     },
     "missing": {
-     "error": "Error: Unknown file chooser id \"50bdc067-a883-4bf7-ac3f-5968466d4dcd\"\nfileChooser.setFiles failed",
+     "error": "Error: Unknown file chooser id \"aded3cc2-8279-4110-badb-83afa4fb000c\"\nfileChooser.setFiles failed",
      "name": "Error"
     }
    },
-   "ms": 2135,
+   "ms": 1800,
    "mode": "ax"
   },
   "navigation.expect": {
@@ -2237,17 +2229,17 @@
     "value": "navigated",
     "title": "Next page",
     "stay": {
-     "ms": 17,
+     "ms": 20,
      "ok": true,
      "value": "stay"
     },
     "wrong": {
-     "error": "Timed out waiting for URL http://127.0.0.1:1/never in tab 370923024.",
+     "error": "Timed out waiting for URL http://127.0.0.1:1/never in tab 370923534.",
      "name": "Error"
     },
     "after": "Next page"
    },
-   "ms": 1807,
+   "ms": 2520,
    "mode": "ax"
   },
   "content.export": {
@@ -2257,7 +2249,7 @@
      "name": "TypeError"
     }
    },
-   "ms": 610,
+   "ms": 943,
    "mode": "ax"
   },
   "content.export-site": {
@@ -2275,7 +2267,7 @@
      "name": "Error"
     }
    },
-   "ms": 1572,
+   "ms": 831,
    "mode": "ax"
   },
   "tabs.content": {
@@ -2291,7 +2283,7 @@
      "name": "TypeError"
     }
    },
-   "ms": 1150,
+   "ms": 894,
    "mode": "ax"
   },
   "browser.history": {
@@ -2305,7 +2297,7 @@
      "name": "Error"
     }
    },
-   "ms": 710,
+   "ms": 882,
    "mode": "ax"
   },
   "browser.capabilities": {
@@ -2324,68 +2316,68 @@
      ]
     }
    },
-   "ms": 1217,
+   "ms": 621,
    "mode": "ax"
   },
   "edge.auth-basic": {
    "value": {
     "noCreds": {
-     "ms": 275,
-     "error": "Browser Use cannot open <primary>/auth/basic in tab 370923048. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
+     "ms": 251,
+     "error": "Browser Use cannot open <primary>/auth/basic in tab 370923558. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
      "name": "Error"
     },
-    "noCredsMs": 275,
+    "noCredsMs": 251,
     "withCreds": "Authed as parity"
    },
-   "ms": 1026,
+   "ms": 714,
    "mode": "ax"
   },
   "edge.auth-digest": {
    "value": {
     "noCreds": {
-     "ms": 156,
-     "error": "Browser Use cannot open <primary>/auth/digest in tab 370923052. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
+     "ms": 349,
+     "error": "Browser Use cannot open <primary>/auth/digest in tab 370923562. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
      "name": "Error"
     },
     "withCreds": "Digest authed as parity"
    },
-   "ms": 695,
+   "ms": 1082,
    "mode": "ax"
   },
   "edge.permission-geolocation": {
    "value": {
     "result": "error 3",
-    "settledMs": 3216,
+    "settledMs": 3061,
     "dialog": false
    },
-   "ms": 5671,
+   "ms": 4121,
    "mode": "ax"
   },
   "edge.permission-notifications": {
    "value": {
     "result": "pending",
-    "settledMs": 9965,
+    "settledMs": 9554,
     "dialog": false
    },
-   "ms": 11280,
+   "ms": 10246,
    "mode": "ax"
   },
   "edge.permission-camera": {
    "value": {
     "result": "pending",
-    "settledMs": 8845,
+    "settledMs": 8606,
     "dialog": false
    },
-   "ms": 9444,
+   "ms": 9658,
    "mode": "ax"
   },
   "edge.permission-clipboard-read": {
    "value": {
     "result": "pending",
-    "settledMs": 8054,
+    "settledMs": 8378,
     "dialog": false
    },
-   "ms": 8880,
+   "ms": 9196,
    "mode": "ax"
   },
   "edge.tls-self-signed": {
@@ -2409,7 +2401,7 @@
     "t404": "Missing",
     "t500": "Broken"
    },
-   "ms": 1503,
+   "ms": 1250,
    "mode": "ax"
   },
   "edge.nav-aborted": {
@@ -2418,18 +2410,18 @@
     "url": "<primary>/diff/next.html",
     "title": "Next page"
    },
-   "ms": 3920,
+   "ms": 4805,
    "mode": "ax"
   },
   "edge.nav-redirect-loop": {
    "value": {
     "loop": {
-     "error": "Browser Use cannot open <primary>/redirect-loop in tab 370923080. Browser reported: net::ERR_TOO_MANY_REDIRECTS"
+     "error": "Browser Use cannot open <primary>/redirect-loop in tab 370923590. Browser reported: net::ERR_TOO_MANY_REDIRECTS"
     },
-    "loopMs": 416,
+    "loopMs": 1504,
     "redirected": "<primary>/diff/next.html"
    },
-   "ms": 1693,
+   "ms": 4993,
    "mode": "ax"
   },
   "edge.download-blob": {
@@ -2440,7 +2432,7 @@
     },
     "body": null
    },
-   "ms": 9392,
+   "ms": 9125,
    "mode": "ax"
   },
   "edge.download-data": {
@@ -2451,7 +2443,7 @@
     },
     "body": null
    },
-   "ms": 9388,
+   "ms": 10680,
    "mode": "ax"
   },
   "edge.download-cd": {
@@ -2462,7 +2454,7 @@
     },
     "body": null
    },
-   "ms": 8764,
+   "ms": 9422,
    "mode": "ax"
   },
   "edge.download-post": {
@@ -2474,7 +2466,7 @@
     "body": null,
     "url": "<primary>/diff/files.html"
    },
-   "ms": 8856,
+   "ms": 8779,
    "mode": "ax"
   },
   "edge.download-concurrent": {
@@ -2484,7 +2476,7 @@
      "name": "Error"
     }
    },
-   "ms": 8960,
+   "ms": 8620,
    "mode": "ax"
   },
   "edge.file-drop": {
@@ -2493,7 +2485,7 @@
      "error": "ChatGPT for Chrome cannot drop files: evaluate is read-only and drag carries no files"
     }
    },
-   "ms": 911,
+   "ms": 558,
    "mode": "ax"
   },
   "edge.input-types": {
@@ -2509,7 +2501,7 @@
      "name": "Error"
     }
    },
-   "ms": 5072,
+   "ms": 4085,
    "mode": "ax"
   },
   "edge.contenteditable-bold": {
@@ -2518,7 +2510,7 @@
     "bolded": "alpha beta gamma end",
     "text": "alpha beta gamma end"
    },
-   "ms": 1493,
+   "ms": 2087,
    "mode": "ax"
   },
   "edge.typing-unicode": {
@@ -2526,7 +2518,7 @@
     "input": "héllo wörld 😀 中文 👩‍👩‍👧",
     "rich": "héllo wörld 😀 中文 👩‍👩‍👧"
    },
-   "ms": 4561,
+   "ms": 5319,
    "mode": "ax"
   },
   "edge.nested-scroll": {
@@ -2535,7 +2527,7 @@
     "inner": true,
     "outer": true
    },
-   "ms": 1870,
+   "ms": 1648,
    "mode": "ax"
   },
   "edge.infinite-scroll": {
@@ -2543,7 +2535,7 @@
     "many": true,
     "last": 1
    },
-   "ms": 3340,
+   "ms": 4852,
    "mode": "ax"
   },
   "edge.iframe-sandboxed": {
@@ -2552,14 +2544,14 @@
     "csp": "csp clicked",
     "inertText": true
    },
-   "ms": 1558,
+   "ms": 4073,
    "mode": "ax"
   },
   "edge.iframe-srcdoc": {
    "value": {
     "text": "frame clicked"
    },
-   "ms": 1009,
+   "ms": 1306,
    "mode": "ax"
   },
   "edge.iframe-navigation": {
@@ -2567,7 +2559,7 @@
     "heading": "Next page",
     "inSnapshot": true
    },
-   "ms": 3965,
+   "ms": 3813,
    "mode": "ax"
   },
   "edge.window-open": {
@@ -2577,7 +2569,7 @@
     "opener2": null,
     "listedAfter": 0
    },
-   "ms": 2733,
+   "ms": 2758,
    "mode": "ax"
   },
   "edge.alert-during-navigation": {
@@ -2589,7 +2581,7 @@
     "nav": "loaded",
     "after": "after alert"
    },
-   "ms": 4047,
+   "ms": 4361,
    "mode": "ax"
   },
   "edge.spa-route-wait": {
@@ -2601,7 +2593,7 @@
      "Linus"
     ]
    },
-   "ms": 1432,
+   "ms": 2623,
    "mode": "ax"
   },
   "edge.service-worker": {
@@ -2609,19 +2601,30 @@
     "state": "controlled",
     "out": "from service worker"
    },
-   "ms": 897,
+   "ms": 1459,
    "mode": "ax"
   },
   "edge.websocket": {
    "value": {
     "out": "echo:hi"
    },
-   "ms": 863,
+   "ms": 1357,
    "mode": "ax"
   },
   "edge.cookies-flags": {
-   "uncaught": "Browser Use cannot open <primary>/cookies/echo in tab 370923166. Browser reported: net::ERR_BLOCKED_BY_CLIENT",
-   "ms": 733,
+   "value": {
+    "docCookie": "js_cookie,lax,none_secure,plain,secure_flag,strict",
+    "sent": [
+     "http_only",
+     "js_cookie",
+     "lax",
+     "none_secure",
+     "plain",
+     "secure_flag",
+     "strict"
+    ]
+   },
+   "ms": 1069,
    "mode": "ax"
   },
   "edge.cookies-subdomain": {
@@ -2634,16 +2637,16 @@
     "a": "ls=L ss=S",
     "b": "ls=L ss=null"
    },
-   "ms": 1304,
+   "ms": 1967,
    "mode": "ax"
   },
   "edge.slow-load": {
    "value": {
     "title": "Slow",
-    "ms": 3121,
+    "ms": 3321,
     "ok": true
    },
-   "ms": 3679,
+   "ms": 5067,
    "mode": "ax"
   },
   "edge.never-finishing-load": {
@@ -2651,25 +2654,27 @@
     "dcl": "ok",
     "text": "pressed"
    },
-   "ms": 10589,
+   "ms": 10793,
    "mode": "ax"
   },
   "edge.main-thread-blocked": {
    "value": {
     "read": "unblocked",
-    "readMs": 166,
+    "readMs": 592,
     "after": "after clicked"
    },
-   "ms": 3789,
+   "ms": 7999,
    "mode": "ax"
   },
   "edge.stale-ref": {
    "value": {
-    "stale": "clicked",
-    "ms": 62,
-    "status": "clicked"
+    "stale": {
+     "error": "Accessibility element 6 belongs to a previous page"
+    },
+    "ms": 4,
+    "status": "ready"
    },
-   "ms": 887,
+   "ms": 2721,
    "mode": "ax"
   },
   "edge.detached-mid-click": {
@@ -2679,7 +2684,7 @@
     "vanish": "clicked",
     "gone": 0
    },
-   "ms": 1085,
+   "ms": 2847,
    "mode": "ax"
   },
   "edge.overlay-intercepts": {
@@ -2688,7 +2693,7 @@
     "out1": "cover clicked",
     "out2": "under clicked"
    },
-   "ms": 1490,
+   "ms": 2833,
    "mode": "ax"
   },
   "edge.zoom-scale": {
@@ -2697,7 +2702,7 @@
     "zoomed": "zoom clicked",
     "clipPx": true
    },
-   "ms": 1265,
+   "ms": 1800,
    "mode": "ax"
   },
   "edge.large-page": {
@@ -2706,7 +2711,7 @@
     "picked": "picked 4321",
     "count": 5001
    },
-   "ms": 5645,
+   "ms": 39998,
    "mode": "ax"
   },
   "snapshot.interactive": {
@@ -2715,29 +2720,17 @@
     "listText": false,
     "smaller": true
    },
-   "ms": 573,
+   "ms": 37121,
    "mode": "legacy"
   },
   "loc.hover": {
-   "value": {
-    "status": "menu picked",
-    "enter": true
-   },
-   "ms": 1974,
+   "uncaught": "Error: CDP operation exceeded its deadline before command dispatch waiting on click for selector #menu-item Locator diagnostics: {\"kind\":\"action_failed\",\"action\":\"click\",\"locator\":\"#menu-item\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":\"menuitem\",\"tag\":\"button\",\"text\":\"Menu item\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
+   "ms": 11265,
    "mode": "legacy"
   },
   "loc.drag-to": {
-   "value": {
-    "drop": "dropped payload",
-    "events": [
-     "dragstart:true",
-     "dragenter:true",
-     "dragover:true",
-     "drop:true",
-     "dragend:true"
-    ]
-   },
-   "ms": 1401,
+   "uncaught": "Timed out after 3000ms evaluating selector #drop: playwright.evaluate exceeded its deadline",
+   "ms": 10624,
    "mode": "legacy"
   },
   "keyboard.members": {
@@ -2782,22 +2775,12 @@
     ],
     "trusted": false
    },
-   "ms": 1210,
+   "ms": 41474,
    "mode": "legacy"
   },
   "mouse.members": {
-   "value": {
-    "clicks": 3,
-    "right": true,
-    "moves": true,
-    "at": [
-     20,
-     20
-    ],
-    "wheel": true,
-    "trusted": true
-   },
-   "ms": 2333,
+   "uncaught": "CDP operation exceeded its deadline before command dispatch",
+   "ms": 26706,
    "mode": "legacy"
   },
   "cua.options": {
@@ -2826,7 +2809,7 @@
      }
     }
    },
-   "ms": 949,
+   "ms": 2125,
    "mode": "legacy"
   },
   "cua.download-media": {
@@ -2837,7 +2820,7 @@
     },
     "body": null
    },
-   "ms": 1157,
+   "ms": 1286,
    "mode": "legacy"
   },
   "dom-cua.forms": {
@@ -2862,7 +2845,7 @@
      }
     ]
    },
-   "ms": 2664,
+   "ms": 2731,
    "mode": "legacy"
   },
   "edge.composition": {
@@ -2874,8 +2857,18 @@
     ],
     "trusted": true
    },
-   "ms": 837,
+   "ms": 1794,
    "mode": "legacy"
+  },
+  "tabs.claim-other-workspace": {
+   "value": {
+    "listedAll": true,
+    "inOwnList": false,
+    "otherWorkspace": true,
+    "count": "Count 1"
+   },
+   "ms": 1242,
+   "mode": "ax"
   }
  }
 }

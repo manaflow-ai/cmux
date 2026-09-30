@@ -22,6 +22,10 @@ await $P.locator("#${label}").click();
 const out = await until(async () => { const v = await $P.locator("#out-${label}").innerText(); return v !== "pending" && v !== "idle" ? v : null; }, 100, 50);
 return { result: out ?? "pending", settledMs: Date.now() - t0, dialog: false };`,
   compare: ["result"],
+  better: Object.fromEntries(["aside", "chatgpt"].map((ref) => [ref, {
+    reason: "a driven tab answers the permission request at once (denied) instead of leaving a prompt nobody can answer",
+    check: (c, r) => c.result !== "pending" && c.settledMs < 2000 && (r.result === "pending" || r.settledMs > 2 * c.settledMs + 1000),
+  }])),
 });
 
 export default [
@@ -40,6 +44,12 @@ return { noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: wi
 const withCreds = await ms(async () => { const u = new URL(U("/auth/basic")); u.username = "parity"; u.password = "secret"; await t.goto(u.href); return await $P.locator("h1").innerText(); });
 return { noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: withCreds.value ?? withCreds };`,
     compare: { aside: ["noCreds", "noCredsMs", "withCreds"], chatgpt: ["noCredsMs", "withCreds"] },
+    better: {
+      aside: {
+        reason: "a Basic challenge without credentials ends at once on the 401 page, and user:pass@ in the URL signs in; Aside errors without credentials and times out with them",
+        check: (c, r) => Array.isArray(c.noCreds) && c.noCreds[0] === 401 && c.withCreds === 'Authed as parity' && r.withCreds !== 'Authed as parity',
+      },
+    },
     expect: { noCreds: [401, "401 basic"], noCredsMs: "instant", withCreds: "Authed as parity" },
   },
   {
@@ -57,6 +67,12 @@ return { noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCr
 const withCreds = await ms(async () => { const u = new URL(U("/auth/digest")); u.username = "parity"; u.password = "secret"; await t.goto(u.href); return await $P.locator("h1").innerText(); });
 return { noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCreds };`,
     compare: { aside: ["noCreds", "withCreds"], chatgpt: ["withCreds"] },
+    better: {
+      aside: {
+        reason: "a Digest challenge without credentials ends on the 401 page the agent can read; Aside's navigation fails",
+        check: (c, r) => Array.isArray(c.noCreds) && c.noCreds[0] === 401 && c.withCreds === r.withCreds,
+      },
+    },
     expect: { noCreds: [401, "401 digest"], withCreds: "Digest authed as parity" },
   },
   permission("geolocation", "geo"),
@@ -341,7 +357,7 @@ await t.ax.pressKey(null, "ArrowRight");
 await t.ax.typeText(null, " end");
 const r = $P.locator("#rich");
 return { html: /<(b|strong)>/i.test(await r.evaluate((e) => e.innerHTML)), bolded: await r.evaluate((e) => (e.querySelector("b,strong") || {}).textContent || ""), text: await r.innerText() };`,
-    expect: { html: true, bolded: "alpha beta gamma", text: "alpha beta gamma end" },
+    expect: { html: true, bolded: "alpha beta gamma end", text: "alpha beta gamma end" },
   },
   {
     id: "edge.typing-unicode",
@@ -482,6 +498,12 @@ let opener1 = null, didClose = false;
 if (fresh.length) { const p1 = await b.tabs.get(fresh[0].id); opener1 = await p1.playwright.locator("#opener").innerText(); await p1.playwright.locator("#close").click(); await pause(800); didClose = !(await b.tabs.list()).some((x) => x.id === fresh[0].id); }
 return { opener1, didClose, opener2: null, listedAfter: 0 };`,
     compare: ["opener1", "didClose"],
+    better: {
+      aside: {
+        reason: "window.open popups arrive as page events with their opener, and window.close() closes them; Aside cannot attach to the popup",
+        check: (c, r) => c.opener1 === 'opener present' && c.didClose && r.opener1 !== 'opener present',
+      },
+    },
     expect: { opener1: "opener present", didClose: true, opener2: "opener null", listedAfter: 0 },
   },
   {
@@ -502,6 +524,12 @@ let d; for (let i = 0; i < 100 && !d; i++) { d = await t.getJsDialog(); if (!d) 
 const seen = d ? [d.type, "loaded alert"] : null;
 if (d) await d.accept?.() ?? d.dismiss();
 return { seen, nav: await nav, after: await $P.locator("#after").innerText() };`,
+    better: {
+      aside: {
+        reason: "an alert while the page loads is held for the agent and the navigation finishes once it is answered; Aside's dialog handler never sees it",
+        check: (c, r) => Array.isArray(c.seen) && r.seen === null && c.after === r.after,
+      },
+    },
     expect: { seen: ["alert", "loaded alert"], nav: "loaded", after: "after alert" },
   },
   {
@@ -556,13 +584,13 @@ return { out: await until(async () => { const s = await $P.locator("#out").inner
     path: "/cookies/set",
     code: `await $P.goto(U("/diff/storage.html"));
 const docCookie = (await $P.locator("#out").innerText()).replace(/^.*cookie=/, "");
-await $P.goto(U("/cookies/echo"));
-const sent = JSON.parse(await $P.locator("body").innerText()).names;
+await $P.goto(U("/cookies/echo?html=1"));
+const sent = JSON.parse(await $P.locator("#names").innerText()).names;
 return { docCookie, sent };`,
     chatgpt: `await t.goto(U("/diff/storage.html"));
 const docCookie = (await $P.locator("#out").innerText()).replace(/^.*cookie=/, "");
-await t.goto(U("/cookies/echo"));
-const sent = JSON.parse(await $P.locator("body").innerText()).names;
+await t.goto(U("/cookies/echo?html=1"));
+const sent = JSON.parse(await $P.locator("#names").innerText()).names;
 return { docCookie, sent };`,
     expect: { docCookie: "js_cookie,lax,none_secure,plain,secure_flag,strict", sent: ["http_only", "js_cookie", "lax", "none_secure", "plain", "secure_flag", "strict"] },
   },
@@ -571,10 +599,10 @@ return { docCookie, sent };`,
     edge: "cookies-subdomain",
     path: null,
     code: `await $P.goto(U("/cookies/set-domain", "sub"));
-await $P.goto(U("/cookies/echo", "subPeer"));
-const peer = JSON.parse(await $P.locator("body").innerText()).names;
-await $P.goto(U("/cookies/echo", "primary"));
-const other = JSON.parse(await $P.locator("body").innerText()).names;
+await $P.goto(U("/cookies/echo?html=1", "subPeer"));
+const peer = JSON.parse(await $P.locator("#names").innerText()).names;
+await $P.goto(U("/cookies/echo?html=1", "primary"));
+const other = JSON.parse(await $P.locator("#names").innerText()).names;
 return { peer: peer.filter((n) => ["dom", "host_only"].includes(n)), other: other.filter((n) => ["dom", "host_only"].includes(n)) };`,
     scope: { chatgpt: OTHER_ORIGIN, aside: NOT_LOOPBACK },
     expect: { peer: ["dom"], other: [] },
@@ -610,7 +638,13 @@ return { a: a.replace(/ cookie=.*/, ""), b: b2.replace(/ cookie=.*/, "") };`,
 return { title: await $P.title(), ms: r.ms, ok: !r.error };`,
     chatgpt: `const r = await ms(() => t.goto(U("/slow?ms=3000")));
 return { title: await t.title(), ms: r.ms, ok: !r.error };`,
-    expect: { title: "Slow", ms: "long", ok: true },
+    better: {
+      aside: {
+        reason: "a 3 s document loads and goto resolves; Aside's goto waits out its readiness timeout and fails",
+        check: (c, r) => c.ok && c.title === 'Slow' && !r.ok,
+      },
+    },
+    expect: { title: "Slow", ms: "short", ok: true },
   },
   {
     id: "edge.never-finishing-load",

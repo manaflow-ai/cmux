@@ -1,31 +1,10 @@
 {
  "meta": {
   "backend": "aside",
-  "recordedAt": "2026-09-30T09:39:53.617Z",
+  "recordedAt": "2026-09-30T10:32:06.961Z",
   "version": "1.26.916.1741"
  },
  "cases": {
-  "smoke.title-click": {
-   "value": {
-    "title": "Diff lab",
-    "status": "clicked",
-    "trusted": [
-     [
-      "mousedown",
-      true
-     ],
-     [
-      "mouseup",
-      true
-     ],
-     [
-      "click",
-      true
-     ]
-    ]
-   },
-   "ms": 1471
-  },
   "page.goto.basic": {
    "value": {
     "url": "<primary>/diff/next.html",
@@ -33,7 +12,7 @@
     "status": null,
     "ok": null
    },
-   "ms": 902
+   "ms": 801
   },
   "page.goto.wait-until": {
    "value": {
@@ -53,17 +32,17 @@
      "ok": true
     }
    },
-   "ms": 2481
+   "ms": 2490
   },
   "page.goto.timeout": {
    "value": {
     "slow": {
-     "ms": 30083,
+     "ms": 30094,
      "error": "Timed out waiting for interactive page after 30000ms",
      "name": "NavigationReadinessTimeoutError"
     }
    },
-   "ms": 31074
+   "ms": 30764
   },
   "page.goto.errors": {
    "value": {
@@ -76,7 +55,7 @@
      "name": "Error"
     }
    },
-   "ms": 790
+   "ms": 786
   },
   "page.reload": {
    "value": {
@@ -84,7 +63,7 @@
     "after": "Count 0",
     "status": null
    },
-   "ms": 1124
+   "ms": 1270
   },
   "page.reload.options": {
    "value": {
@@ -92,7 +71,7 @@
     "b": true,
     "title": "Diff lab"
    },
-   "ms": 2182
+   "ms": 613
   },
   "page.back-forward": {
    "value": {
@@ -101,7 +80,7 @@
     "title": "Next page",
     "backStatus": null
    },
-   "ms": 2092
+   "ms": 1048
   },
   "page.back-forward.no-entry": {
    "value": {
@@ -109,7 +88,7 @@
     "forward": null,
     "url": "<primary>/diff/lab.html"
    },
-   "ms": 993
+   "ms": 716
   },
   "page.url-title.push-state": {
    "value": {
@@ -122,7 +101,7 @@
      "Diff lab pushed"
     ]
    },
-   "ms": 1887
+   "ms": 1522
   },
   "page.content": {
    "value": {
@@ -131,7 +110,7 @@
     "frameText": true,
     "typedValue": null
    },
-   "ms": 792
+   "ms": 679
   },
   "page.evaluate.forms": {
    "value": {
@@ -153,14 +132,14 @@
      "name": "Error"
     }
    },
-   "ms": 1014
+   "ms": 868
   },
   "page.evaluate.mutation": {
    "value": {
     "set": "ok",
     "status": "set by evaluate"
    },
-   "ms": 949
+   "ms": 651
   },
   "page.query.dollar": {
    "value": {
@@ -178,7 +157,7 @@
      "value": {}
     }
    },
-   "ms": 629
+   "ms": 688
   },
   "page.getters.page-level": {
    "value": {
@@ -195,7 +174,7 @@
     "placeholder": "absent",
     "testId": "absent"
    },
-   "ms": 757
+   "ms": 689
   },
   "page.getters.errors": {
    "value": {
@@ -220,13 +199,13 @@
      "name": "Error"
     }
    },
-   "ms": 631
+   "ms": 652
   },
   "page.frame-locator": {
    "value": {
     "value": "in frame"
    },
-   "ms": 1141
+   "ms": 1354
   },
   "page.frame-locator.nested": {
    "value": {
@@ -235,7 +214,7 @@
      "name": "Error"
     }
    },
-   "ms": 5865
+   "ms": 5889
   },
   "page.frames": {
    "value": {
@@ -243,7 +222,7 @@
     "mainUrl": "<primary>/diff/lab.html",
     "child": false
    },
-   "ms": 665
+   "ms": 675
   },
   "page.click-fill": {
    "value": {
@@ -254,7 +233,7 @@
      "name": "Error"
     }
    },
-   "ms": 1141
+   "ms": 1039
   },
   "page.screenshot.forms": {
    "value": {
@@ -268,7 +247,7 @@
      "height": 1800
     }
    },
-   "ms": 935
+   "ms": 807
   },
   "page.screenshot.errors": {
    "value": {
@@ -281,7 +260,7 @@
      "name": "Error"
     }
    },
-   "ms": 612
+   "ms": 571
   },
   "page.pdf": {
    "value": {
@@ -289,7 +268,7 @@
     "a4": "%PDF-",
     "bigger": true
    },
-   "ms": 951
+   "ms": 786
   },
   "page.wait-for-selector": {
    "value": {
@@ -298,12 +277,12 @@
     "attached": true,
     "detached": true,
     "timeout": {
-     "ms": 810,
+     "ms": 787,
      "error": "waitForSelector: timed out after 400ms waiting for \"#missing\" to be visible",
      "name": "Error"
     }
    },
-   "ms": 2035
+   "ms": 1975
   },
   "page.wait-for-load-state": {
    "value": {
@@ -314,7 +293,7 @@
      "ok": true
     }
    },
-   "ms": 1188
+   "ms": 993
   },
   "page.wait-for-url": {
    "value": {
@@ -324,18 +303,18 @@
     "fn": false,
     "opts": true,
     "never": {
-     "ms": 404,
+     "ms": 403,
      "error": "Timed out waiting for URL match: <primary>/never",
      "name": "Error"
     }
    },
-   "ms": 31318
+   "ms": 31330
   },
   "page.wait-for-timeout": {
    "value": {
     "slept": true
    },
-   "ms": 962
+   "ms": 1007
   },
   "page.wait-for-event.popup-console": {
    "value": {
@@ -348,7 +327,7 @@
      "name": "Error"
     }
    },
-   "ms": 10607
+   "ms": 10611
   },
   "page.wait-for-event.errors": {
    "value": {
@@ -362,26 +341,26 @@
      "name": "Error"
     }
    },
-   "ms": 1200
+   "ms": 1076
   },
   "page.on-off": {
    "value": {
     "seen": []
    },
-   "ms": 1736
+   "ms": 1646
   },
   "page.viewport": {
    "value": {
     "shape": true
    },
-   "ms": 848
+   "ms": 590
   },
   "page.bring-to-front": {
    "value": {
     "ok": true,
     "visible": "visible"
    },
-   "ms": 750
+   "ms": 759
   },
   "page.close": {
    "value": {
@@ -392,20 +371,20 @@
      "value": ""
     }
    },
-   "ms": 617
+   "ms": 695
   },
   "page.video": {
    "value": {
     "recording": false
    },
-   "ms": 1371
+   "ms": 762
   },
   "page.keyboard-mouse-objects": {
    "value": {
     "canvas": 1,
     "keys": "hi"
    },
-   "ms": 612
+   "ms": 834
   },
   "tabs.open-current": {
    "value": {
@@ -413,7 +392,7 @@
     "url": "<primary>/diff/lab.html",
     "title": "Diff lab"
    },
-   "ms": 661
+   "ms": 599
   },
   "tabs.list-get": {
    "value": {
@@ -439,7 +418,7 @@
      "ok": true
     }
    },
-   "ms": 1085
+   "ms": 1004
   },
   "tabs.attach": {
    "value": {
@@ -452,7 +431,7 @@
      "name": "Error"
     }
    },
-   "ms": 1262
+   "ms": 1104
   },
   "tabs.open-errors": {
    "value": {
@@ -464,7 +443,7 @@
     },
     "session": "string"
    },
-   "ms": 944
+   "ms": 645
   },
   "snapshot.full": {
    "value": {
@@ -475,7 +454,7 @@
     "typed": true,
     "clicked": "clicked"
    },
-   "ms": 1419
+   "ms": 1871
   },
   "snapshot.interactive": {
    "value": {
@@ -483,14 +462,14 @@
     "listText": true,
     "smaller": true
    },
-   "ms": 916
+   "ms": 640
   },
   "snapshot.show-hidden": {
    "value": {
     "plain": false,
     "all": true
    },
-   "ms": 838
+   "ms": 597
   },
   "snapshot.scoped": {
    "value": {
@@ -503,7 +482,7 @@
      "name": "Error"
     }
    },
-   "ms": 853
+   "ms": 825
   },
   "snapshot.diff": {
    "value": {
@@ -511,14 +490,14 @@
     "diffShort": true,
     "printed": true
    },
-   "ms": 1288
+   "ms": 1137
   },
   "screenshot.annotated": {
    "value": {
     "image": true,
     "differs": true
    },
-   "ms": 1723
+   "ms": 932
   },
   "fetch.cookies": {
    "value": {
@@ -540,7 +519,7 @@
     "post": "POST",
     "missing": 404
    },
-   "ms": 5647
+   "ms": 5526
   },
   "node.fs-path-buffer": {
    "value": {
@@ -552,11 +531,11 @@
     "b64": "aGk=",
     "fromB64": "hi",
     "missing": {
-     "error": "ENOENT: no such file or directory, open '/Users/lawrence/.aside/u/0/sessions/2026-09-30_ADLb03Mzoq5zkvXh/nope-brepl.txt'",
+     "error": "ENOENT: no such file or directory, open '/Users/lawrence/.aside/u/0/sessions/2026-09-30_OG1H8s8IJIi1NUWx/nope-brepl.txt'",
      "name": "Error"
     }
    },
-   "ms": 1159
+   "ms": 242
   },
   "print.display-console": {
    "value": {
@@ -564,7 +543,7 @@
     "display": false,
     "autoPrint": false
    },
-   "ms": 312
+   "ms": 228
   },
   "loc.click.options": {
    "value": {
@@ -859,7 +838,7 @@
      ]
     ]
    },
-   "ms": 4724
+   "ms": 5207
   },
   "loc.dblclick.options": {
    "value": {
@@ -1505,7 +1484,7 @@
      ]
     ]
    },
-   "ms": 11133
+   "ms": 5232
   },
   "loc.click.more-options": {
    "value": {
@@ -1571,7 +1550,7 @@
     ],
     "noWaitAfter": 3
    },
-   "ms": 3324
+   "ms": 2857
   },
   "loc.check.options": {
    "value": {
@@ -1594,7 +1573,7 @@
      "name": "Error"
     }
    },
-   "ms": 3074
+   "ms": 3197
   },
   "loc.timeout-options": {
    "value": {
@@ -1611,7 +1590,7 @@
     "items": 3,
     "itemsWithArg": 4
    },
-   "ms": 2055
+   "ms": 722
   },
   "loc.errors.missing": {
    "value": {
@@ -1672,7 +1651,7 @@
      "name": "Error"
     }
    },
-   "ms": 1397
+   "ms": 1442
   },
   "loc.errors.evaluate": {
    "value": {
@@ -1694,7 +1673,7 @@
     },
     "emptyAll": 0
    },
-   "ms": 645
+   "ms": 624
   },
   "loc.failure-kinds": {
    "value": {
@@ -1739,7 +1718,7 @@
      "name": "Error"
     }
    },
-   "ms": 5876
+   "ms": 5604
   },
   "loc.composition-errors": {
    "value": {
@@ -1784,7 +1763,7 @@
      "name": "TypeError"
     }
    },
-   "ms": 748
+   "ms": 576
   },
   "loc.filter-options": {
    "value": {
@@ -1802,7 +1781,7 @@
     "lHasNotText": 3,
     "lHasNotTextRe": 3
    },
-   "ms": 581
+   "ms": 569
   },
   "loc.select-option.forms": {
    "value": {
@@ -1837,7 +1816,7 @@
      "name": "Error"
     }
    },
-   "ms": 2744
+   "ms": 2710
   },
   "loc.wait-for.states": {
    "value": {
@@ -1852,7 +1831,7 @@
      "name": "Error"
     }
    },
-   "ms": 1732
+   "ms": 1528
   },
   "loc.fill.forms": {
    "value": {
@@ -1863,15 +1842,14 @@
     "events": [
      "focus:true",
      "input:true",
-     "change:true",
-     "blur:true"
+     "change:true"
     ],
     "inputValueOfDiv": {
      "ok": true,
      "value": ""
     }
    },
-   "ms": 1207
+   "ms": 687
   },
   "loc.typing": {
    "value": {
@@ -1895,14 +1873,14 @@
      "name": "Error"
     }
    },
-   "ms": 1163
+   "ms": 993
   },
   "loc.hover": {
    "value": {
     "status": "menu picked",
     "enter": true
    },
-   "ms": 1805
+   "ms": 1843
   },
   "loc.focus-blur": {
    "value": {
@@ -1913,11 +1891,25 @@
      "blur"
     ]
    },
-   "ms": 766
+   "ms": 1796
   },
   "loc.set-input-files": {
-   "uncaught": "SyntaxError: Failed to execute 'querySelector' on 'Document': '#result:has-text('parity-upload.txt')' is not a valid selector.\n    at <anonymous>:1:70\n    at <anonymous>:1:319",
-   "ms": 1719
+   "value": {
+    "one": "file: parity-upload.txt(Disposable browser parity upload)",
+    "many": {
+     "error": "The \"paths[1]\" argument must be of type string. Received an instance of Object",
+     "name": "TypeError"
+    },
+    "cleared": 1,
+    "missing": {
+     "error": "Path \"/nonexistent/parity.txt\" escapes the session directory",
+     "name": "Error"
+    },
+    "notFile": {
+     "ok": true
+    }
+   },
+   "ms": 1950
   },
   "loc.drag-to": {
    "value": {
@@ -1935,7 +1927,7 @@
      "dragend:false"
     ]
    },
-   "ms": 875
+   "ms": 1538
   },
   "loc.tap": {
    "value": {
@@ -1944,7 +1936,7 @@
     },
     "status": "clicked"
    },
-   "ms": 994
+   "ms": 1358
   },
   "loc.scroll-into-view": {
    "value": {
@@ -1952,7 +1944,7 @@
     "inView": true,
     "hiddenBox": null
    },
-   "ms": 618
+   "ms": 715
   },
   "loc.screenshot": {
    "value": {
@@ -1963,7 +1955,7 @@
      "name": "Error"
     }
    },
-   "ms": 620
+   "ms": 793
   },
   "loc.reads": {
    "value": {
@@ -1986,7 +1978,7 @@
      "Third"
     ]
    },
-   "ms": 1483
+   "ms": 1258
   },
   "loc.states": {
    "value": {
@@ -2032,7 +2024,7 @@
      "name": "Error"
     }
    },
-   "ms": 1743
+   "ms": 1090
   },
   "loc.collections": {
    "value": {
@@ -2050,14 +2042,14 @@
     "nthOut": 0,
     "none": 0
    },
-   "ms": 576
+   "ms": 647
   },
   "loc.scoped-getters": {
    "value": {
     "chained": "Third",
     "outside": 0
    },
-   "ms": 1051
+   "ms": 722
   },
   "loc.evaluate": {
    "value": {
@@ -2068,7 +2060,7 @@
     "all": "First|Second|Third",
     "shadow": true
    },
-   "ms": 662
+   "ms": 637
   },
   "loc.dispatch-event": {
    "value": {
@@ -2077,14 +2069,14 @@
      false
     ]
    },
-   "ms": 616
+   "ms": 943
   },
   "loc.download-media": {
    "value": {
     "name": "cd-a.txt",
     "body": "cd body a\n"
    },
-   "ms": 911
+   "ms": 1373
   },
   "keyboard.members": {
    "value": {
@@ -2142,7 +2134,7 @@
     ],
     "trusted": true
    },
-   "ms": 1197
+   "ms": 1762
   },
   "keyboard.errors": {
    "value": {
@@ -2159,7 +2151,7 @@
      "name": "TypeError"
     }
    },
-   "ms": 658
+   "ms": 908
   },
   "keyboard.shortcuts": {
    "value": {
@@ -2175,21 +2167,18 @@
      "ArrowLeft,false,true,false,true"
     ]
    },
-   "ms": 837
+   "ms": 1532
   },
   "mouse.members": {
    "value": {
     "clicks": 4,
     "right": true,
     "moves": true,
-    "at": [
-     19,
-     18
-    ],
+    "at": true,
     "wheel": true,
     "trusted": true
    },
-   "ms": 1053
+   "ms": 1221
   },
   "dialogs.held": {
    "value": {
@@ -2203,28 +2192,28 @@
     "prompted": "prompt",
     "promptDismissed": "prompt null"
    },
-   "ms": 2611
+   "ms": 2704
   },
   "dialogs.snapshot-blocked": {
    "value": {
     "shows": false,
     "title": "Dialogs Fixture"
    },
-   "ms": 1120
+   "ms": 1354
   },
   "dialogs.beforeunload": {
    "value": {
     "type": null,
     "stayed": false
    },
-   "ms": 1120
+   "ms": 1510
   },
   "filechooser.event": {
    "value": {
     "multiple": false,
     "result": "none"
    },
-   "ms": 1584
+   "ms": 1193
   },
   "edge.auth-basic": {
    "value": {
@@ -2235,12 +2224,12 @@
     },
     "noCredsMs": 7,
     "withCreds": {
-     "ms": 30030,
+     "ms": 30101,
      "error": "Timed out waiting for interactive page after 30000ms",
      "name": "NavigationReadinessTimeoutError"
     }
    },
-   "ms": 30717
+   "ms": 30950
   },
   "edge.auth-digest": {
    "value": {
@@ -2251,48 +2240,48 @@
     },
     "withCreds": "Digest authed as parity"
    },
-   "ms": 2984
+   "ms": 2072
   },
   "edge.permission-geolocation": {
    "value": {
     "result": "error 3",
-    "settledMs": 3166,
+    "settledMs": 3381,
     "dialog": false
    },
-   "ms": 4085
+   "ms": 4162
   },
   "edge.permission-notifications": {
    "value": {
     "result": "pending",
-    "settledMs": 5888,
+    "settledMs": 8461,
     "dialog": false
    },
-   "ms": 6551
+   "ms": 9599
   },
   "edge.permission-camera": {
    "value": {
     "result": "pending",
-    "settledMs": 5878,
+    "settledMs": 7770,
     "dialog": false
    },
-   "ms": 6563
+   "ms": 8632
   },
   "edge.permission-clipboard-read": {
    "value": {
     "result": "pending",
-    "settledMs": 6479,
+    "settledMs": 6975,
     "dialog": false
    },
-   "ms": 7129
+   "ms": 7734
   },
   "edge.tls-self-signed": {
    "value": {
     "nav": {
      "error": "net::ERR_CERT_AUTHORITY_INVALID"
     },
-    "ms": 61
+    "ms": 40
    },
-   "ms": 674
+   "ms": 783
   },
   "edge.nav-dns": {
    "value": {
@@ -2308,9 +2297,9 @@
     "nav": {
      "error": "net::ERR_CONNECTION_REFUSED"
     },
-    "ms": 9
+    "ms": 6
    },
-   "ms": 617
+   "ms": 695
   },
   "edge.nav-http-errors": {
    "value": {
@@ -2326,7 +2315,7 @@
     "t500": "Broken",
     "ok": null
    },
-   "ms": 61303
+   "ms": 60716
   },
   "edge.nav-aborted": {
    "value": {
@@ -2336,49 +2325,46 @@
     "url": "<primary>/diff/next.html",
     "title": "Next page"
    },
-   "ms": 1044
+   "ms": 1078
   },
   "edge.nav-redirect-loop": {
    "value": {
     "loop": {
      "error": "net::ERR_TOO_MANY_REDIRECTS"
     },
-    "loopMs": 147,
+    "loopMs": 35,
     "redirected": "<primary>/diff/next.html"
    },
-   "ms": 1034
+   "ms": 935
   },
   "edge.download-blob": {
    "value": {
-    "name": {
-     "error": "Timed out waiting for page event \"download\"",
-     "name": "Error"
-    },
-    "body": null
+    "name": "blob.txt",
+    "body": "blob body\n"
    },
-   "ms": 8620
+   "ms": 976
   },
   "edge.download-data": {
    "value": {
     "name": "data.txt",
     "body": "data body\n"
    },
-   "ms": 870
+   "ms": 1307
   },
   "edge.download-cd": {
    "value": {
-    "name": "data.txt",
-    "body": "data body\n"
+    "name": "cd-a.txt",
+    "body": "cd body a\n"
    },
-   "ms": 815
+   "ms": 1142
   },
   "edge.download-post": {
    "value": {
-    "name": "cd-a (1).txt",
-    "body": "cd body a\n",
+    "name": "posted.csv",
+    "body": "name,value\nq,posted\n",
     "url": "<primary>/diff/files.html"
    },
-   "ms": 958
+   "ms": 1345
   },
   "edge.download-concurrent": {
    "value": {
@@ -2393,7 +2379,7 @@
      ]
     ]
    },
-   "ms": 1773
+   "ms": 3145
   },
   "edge.file-drop": {
    "value": {
@@ -2402,7 +2388,7 @@
      "name": "TypeError"
     }
    },
-   "ms": 658
+   "ms": 723
   },
   "edge.input-types": {
    "value": {
@@ -2417,7 +2403,7 @@
      "name": "Error"
     }
    },
-   "ms": 703
+   "ms": 676
   },
   "edge.contenteditable-bold": {
    "value": {
@@ -2425,14 +2411,14 @@
     "bolded": "alpha beta gamma end",
     "text": "alpha beta gamma end"
    },
-   "ms": 1199
+   "ms": 1084
   },
   "edge.typing-unicode": {
    "value": {
     "input": "héllo wörld 😀 中文 👩‍👩‍👧",
     "rich": "héllo wörld 😀 中文 👩‍👩‍👧"
    },
-   "ms": 1273
+   "ms": 1848
   },
   "edge.composition": {
    "value": {
@@ -2443,7 +2429,7 @@
     ],
     "trusted": true
    },
-   "ms": 631
+   "ms": 811
   },
   "edge.nested-scroll": {
    "value": {
@@ -2451,14 +2437,14 @@
     "inner": true,
     "outer": true
    },
-   "ms": 1448
+   "ms": 1954
   },
   "edge.infinite-scroll": {
    "value": {
     "many": true,
     "last": 1
    },
-   "ms": 4185
+   "ms": 4537
   },
   "edge.iframe-sandboxed": {
    "value": {
@@ -2466,32 +2452,32 @@
     "csp": "csp clicked",
     "inertText": true
    },
-   "ms": 6462
+   "ms": 7777
   },
   "edge.iframe-srcdoc": {
    "value": {
     "text": "frame clicked"
    },
-   "ms": 996
+   "ms": 1734
   },
   "edge.iframe-navigation": {
    "value": {
     "heading": "Next page",
     "inSnapshot": true
    },
-   "ms": 6552
+   "ms": 7006
   },
   "edge.window-open": {
    "value": {
     "opener1": {
-     "error": "Session with given id not found.",
+     "error": "CDP command timeout: Runtime.evaluate",
      "name": "Error"
     },
     "didClose": false,
     "opener2": null,
     "listedAfter": 0
    },
-   "ms": 2847
+   "ms": 33128
   },
   "edge.alert-during-navigation": {
    "value": {
@@ -2499,24 +2485,31 @@
     "nav": "loaded",
     "after": "after alert"
    },
-   "ms": 2022
+   "ms": 4007
   },
   "edge.spa-route-wait": {
-   "uncaught": "not a function",
-   "ms": 6975
+   "value": {
+    "url": "<primary>/diff/spa.html",
+    "title": "SPA users",
+    "items": [
+     "Ada",
+     "Linus"
+    ]
+   },
+   "ms": 9572
   },
   "edge.service-worker": {
    "value": {
     "state": "controlled",
     "out": "from service worker"
    },
-   "ms": 1144
+   "ms": 5026
   },
   "edge.websocket": {
    "value": {
     "out": "echo:hi"
    },
-   "ms": 1186
+   "ms": 4043
   },
   "edge.cookies-flags": {
    "value": {
@@ -2531,7 +2524,7 @@
      "strict"
     ]
    },
-   "ms": 6861
+   "ms": 6948
   },
   "edge.cookies-subdomain": {
    "uncaught": "cannot read property 'goto' of null",
@@ -2542,44 +2535,42 @@
     "a": "ls=L ss=S",
     "b": "ls=L ss=null"
    },
-   "ms": 1590
+   "ms": 3767
   },
   "edge.slow-load": {
    "value": {
     "title": "Slow",
-    "ms": 30038,
+    "ms": 30059,
     "ok": false
    },
-   "ms": 31079
+   "ms": 31784
   },
   "edge.never-finishing-load": {
    "value": {
-    "dcl": {
-     "error": "Timed out waiting for \"domcontentloaded\" after goto"
-    },
-    "text": "pressed",
+    "dcl": "ok",
+    "text": "Press",
     "load": "ok",
-    "loadMs": 3642
+    "loadMs": 3649
    },
-   "ms": 37119
+   "ms": 5434
   },
   "edge.main-thread-blocked": {
    "value": {
     "read": "unblocked",
-    "readMs": 3,
+    "readMs": 120,
     "after": "after clicked"
    },
-   "ms": 5212
+   "ms": 15031
   },
   "edge.stale-ref": {
    "value": {
     "stale": {
      "error": "Ref \"e3\" is stale — the element was removed or the page changed. Take a new snapshot and retry."
     },
-    "ms": 24,
+    "ms": 814,
     "status": "ready"
    },
-   "ms": 853
+   "ms": 8199
   },
   "edge.detached-mid-click": {
    "value": {
@@ -2590,7 +2581,7 @@
     "vanish": "clicked",
     "gone": 0
    },
-   "ms": 6760
+   "ms": 9806
   },
   "edge.overlay-intercepts": {
    "value": {
@@ -2598,7 +2589,7 @@
     "out1": "under clicked",
     "out2": "under clicked"
    },
-   "ms": 2694
+   "ms": 8970
   },
   "edge.zoom-scale": {
    "value": {
@@ -2606,7 +2597,7 @@
     "zoomed": "zoom clicked",
     "clipPx": true
    },
-   "ms": 1600
+   "ms": 4180
   },
   "edge.large-page": {
    "value": {
@@ -2614,7 +2605,7 @@
     "picked": "picked 4321",
     "count": 5000
    },
-   "ms": 3187
+   "ms": 4756
   },
   "edge.sessions-two-tabs": {
    "value": {
@@ -2628,7 +2619,7 @@
     ],
     "distinct": true
    },
-   "ms": 2288
+   "ms": 8686
   }
  }
 }

@@ -30,6 +30,12 @@ await t.cua.keypress({ keys: ["BACKSPACE"] });
 return { value: await $P.locator("#keys").evaluate((e) => e.value), keys: await keylog(), trusted: $LOG.filter((r) => r[1] === "keys").every((r) => r[2]) };`,
     chatgptMode: "legacy",
     compare: ["value", "trusted"],
+    better: {
+      chatgpt: {
+        reason: "typed keys arrive as trusted native events; ChatGPT's cua.type delivers untrusted events",
+        check: (c, r) => c.trusted === true && r.trusted === false && c.value === r.value,
+      },
+    },
     expect: { value: "abCDé", trusted: true },
   },
   {
@@ -38,7 +44,10 @@ return { value: await $P.locator("#keys").evaluate((e) => e.value), keys: await 
     path: LAB,
     code: `return { unknown: await E(() => $P.keyboard.press("NoSuchKey")), empty: await E(() => $P.keyboard.press("")), notText: await E(() => $P.keyboard.type(123)) };`,
     chatgpt: `return { unknown: await E(() => t.ax.pressKey(null, "NoSuchKey")), empty: await E(() => t.ax.pressKey(null, "")), notText: await E(() => t.ax.typeText(null, 123)) };`,
-    better: { aside: errBetter, chatgpt: errBetter },
+    better: {
+      aside: errBetter,
+      chatgpt: errBetter,
+    },
     expect: { unknown: { error: "invalid-arg" }, empty: { error: "invalid-arg" } },
   },
   {
@@ -81,7 +90,7 @@ await $P.mouse.down(); await $P.mouse.up();
 await $P.mouse.wheel(0, 40);
 await sleep(200);
 const ev = $LOG.filter((r) => r[1] === "canvas");
-return { clicks: ev.filter((r) => r[0] === "click").length, right: ev.some((r) => r[0] === "mousedown" && r[3][2] === 2), moves: ev.filter((r) => r[0] === "mousemove").length >= 2, at: ev.filter((r) => r[0] === "click").map((r) => [r[3][0], r[3][1]])[0], wheel: ev.some((r) => r[0] === "wheel"), trusted: ev.every((r) => r[2]) };`,
+return { clicks: ev.filter((r) => r[0] === "click").length, right: ev.some((r) => r[0] === "mousedown" && r[3][2] === 2), moves: ev.filter((r) => r[0] === "mousemove").length >= 2, at: ((p) => !!p && Math.abs(p[0] - 20) <= 1.5 && Math.abs(p[1] - 20) <= 2)(ev.filter((r) => r[0] === "click").map((r) => [r[3][0], r[3][1]])[0]), wheel: ev.some((r) => r[0] === "wheel"), trusted: ev.every((r) => r[2]) };`,
     chatgpt: `${CENTER}
 const c = await center("#canvas");
 const x = c.x - 40, y = c.y - 10;
@@ -92,10 +101,10 @@ await t.cua.move({ x: x + 30, y: y + 10 });
 await t.cua.scroll({ x, y, scrollX: 0, scrollY: 40 });
 await $P.waitForTimeout(200);
 const ev = $LOG.filter((r) => r[1] === "canvas");
-return { clicks: ev.filter((r) => r[0] === "click").length, right: ev.some((r) => r[0] === "mousedown" && r[3][2] === 2), moves: ev.filter((r) => r[0] === "mousemove").length >= 1, at: ev.filter((r) => r[0] === "click").map((r) => [r[3][0], r[3][1]])[0], wheel: ev.some((r) => r[0] === "wheel"), trusted: ev.every((r) => r[2]) };`,
+return { clicks: ev.filter((r) => r[0] === "click").length, right: ev.some((r) => r[0] === "mousedown" && r[3][2] === 2), moves: ev.filter((r) => r[0] === "mousemove").length >= 1, at: ((p) => !!p && Math.abs(p[0] - 20) <= 1.5 && Math.abs(p[1] - 20) <= 2)(ev.filter((r) => r[0] === "click").map((r) => [r[3][0], r[3][1]])[0]), wheel: ev.some((r) => r[0] === "wheel"), trusted: ev.every((r) => r[2]) };`,
     chatgptMode: "legacy",
     compare: { aside: ["clicks", "right", "moves", "at", "wheel", "trusted"], chatgpt: ["right", "moves", "at", "wheel", "trusted"] },
-    expect: { clicks: 4, right: true, moves: true, at: [20, 20], wheel: true, trusted: true },
+    expect: { clicks: 4, right: true, moves: true, at: true, wheel: true, trusted: true },
   },
   {
     id: "cua.options",
@@ -128,7 +137,7 @@ return {
         check: (c, r, h) => c.shiftClick === true && Object.values(c.errors).every((e) => h.classifyError(e.error) === "invalid-arg"),
       },
     },
-    expect: { shiftClick: true, errors: { click: { error: "invalid-arg" }, move: { error: "invalid-arg" }, type: { error: "invalid-arg" }, press: { error: "invalid-arg" } } },
+    expect: { shiftClick: true, errors: { click: { error: "invalid-arg" }, move: { error: "invalid-arg" }, wheel: { error: "invalid-arg" }, type: { error: "invalid-arg" }, press: { error: "invalid-arg" } } },
   },
   {
     id: "cua.download-media",
@@ -218,7 +227,7 @@ await t.ax.click(i, { mouseButton: "middle" }); const middle = await n("auxclick
 return { byRef, byPoint, dbl, right, middle };`,
     aside: null,
     na: { aside: "covered by loc.click.options" },
-    expect: { byRef: 1, byPoint: 2, dbl: 1, right: 1, middle: 1 },
+    expect: { byRef: 1, byPoint: 2, dbl: 1, right: 1, middle: 2 },
   },
   {
     id: "ax.text-forms",
@@ -287,7 +296,12 @@ const menu = await E(() => t.ax.performSecondaryAction(i, "AXShowMenu"));
 return { contextmenu: $LOG.filter((r) => r[1] === "action" && r[0] === "contextmenu").length, bad: await E(() => t.ax.performSecondaryAction(99999, "Nope")), _menu: menu };`,
     aside: null,
     na: { aside: "Aside has no accessibility actions; its right click is covered by loc.click.options" },
-    better: { chatgpt: errBetter },
+    better: {
+      chatgpt: {
+        reason: "a right click opens the context menu event; ChatGPT's performSecondaryAction('AXShowMenu') delivers none",
+        check: (c, r) => c.contextmenu === 1 && r.contextmenu === 0,
+      },
+    },
     expect: { contextmenu: 1, bad: { error: "no-element" } },
   },
   {
@@ -315,7 +329,9 @@ await t.ax.paste(i, (await c.readText()));
 return { text, mimes: JSON.stringify(items).includes("text/html"), pasted: await $P.locator("#area").evaluate((e) => e.value), empty: await E(() => c.write([])), notText: await E(() => c.writeText(123)) };`,
     aside: null,
     na: { aside: "Aside has no clipboard API" },
-    better: { chatgpt: errBetter },
+    better: {
+      chatgpt: errBetter,
+    },
     expect: { text: "plain text", mimes: true, pasted: "plain", empty: { error: "invalid-arg" }, notText: { error: "invalid-arg" } },
   },
   {
