@@ -3293,7 +3293,9 @@ that `attach-surface` identity needs. A frontend that knows only the host id
 (a remote-terminal reference on another session) keeps the terminal by host
 id and attaches with the returned public id and `identify.generation`; a
 kept terminal with no tab placement attaches this way and takes geometry
-like a placed one (`set-client-sizing`, `resize-attached-view`).
+like a placed one (`set-client-sizing`, `resize-attached-view`,
+`release-attached-view-size`): its attached views are not treated as views of
+a closed tab.
 
 ### focus-pane
 
