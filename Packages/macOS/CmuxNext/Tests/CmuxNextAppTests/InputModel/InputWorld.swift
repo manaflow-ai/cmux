@@ -205,7 +205,7 @@ final class InputWorld {
 
     /// Moves AppKit key status, with the notifications AppKit sends:
     /// resign on the old window first, then become on the new one.
-    func setKey(_ new: KeyHolder, byClick: Bool = false) {
+    func setKey(_ new: KeyHolder, byClick: Bool = false, placed: Bool = true) {
         let old = key
         guard old != new else { return }
         // Only the active app has a key window: a click into an inactive
@@ -237,17 +237,24 @@ final class InputWorld {
             windows[index].focus.send(.windowKey(true))
         case .childPage(let index, let pane):
             // `FocusEffectApplier.childWindowDidBecomeKey`: the page window of
-            // `pane` has the keys; the parent keeps no responder, becomes the
-            // active window and publishes its context.
-            // A click chooses the page; any other key change re-applies the model.
+            // `pane` has the keys and the parent becomes the active window
+            // and publishes its context. A click into a placed page chooses
+            // it (the parent keeps no responder); any other key change is
+            // not a choice and re-applies the model, which takes the keys
+            // back unless the target is that page.
             let window = windows[index]
             guard let page = window.presented[pane], tab(page)?.isChromium == true else { break }
             lastActive = index
             context = window.focus.state.context
+            guard byClick, placed else {
+                window.focus.responderDidChange(.windowOrNone, source: .programmatic)
+                context = window.focus.state.context
+                break
+            }
             window.childPage = page
-            window.focus.responderDidChange(byClick ? .content(pane: pane) : .windowOrNone, source: byClick ? .mouse : .programmatic)
+            window.focus.responderDidChange(.content(pane: pane), source: .mouse)
             if window.responder != .windowOrNone {
-                window.setResponder(.windowOrNone, reported: true, source: byClick ? .mouse : .programmatic)
+                window.setResponder(.windowOrNone, reported: true, source: .mouse)
             }
             context = window.focus.state.context
         case .groupEditor(let index):

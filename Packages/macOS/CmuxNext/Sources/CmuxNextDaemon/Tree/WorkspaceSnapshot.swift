@@ -20,6 +20,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     public var title: String?
     /// Tabs with an unread marker (`notification-ack-v1`); nil on older daemons.
     public var unreadCount: Int?
+    /// Contiguous screen group runs in screen order (`screen-groups-v1`).
+    public var screenGroups: [ScreenGroupSnapshot] = []
 
     /// What a sidebar shows.
     public var displayName: String {
@@ -60,6 +62,7 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         case resourceID = "resource_id"
         case shortID = "short_id"
         case unreadCount = "unread_count"
+        case screenGroups = "screen_groups"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -76,5 +79,6 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         title = try c.decodeIfPresent(String.self, forKey: .title)
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount)
+        screenGroups = try c.decodeIfPresent([ScreenGroupSnapshot].self, forKey: .screenGroups) ?? []
     }
 }

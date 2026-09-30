@@ -18,7 +18,7 @@ struct LocalBrowserTab: Hashable, Sendable {
 /// Everything one window owns (architecture.md 1, user requirement
 /// 2026-09-29 "each window needs its own state"): the workspace it shows,
 /// tab selection per pane, focused pane per workspace, sidebar width and
-/// collapse, and screen switcher visibility. No other window reads or
+/// collapse, and the shown screen. No other window reads or
 /// writes it; which workspaces the window lists is `WindowRegistry`'s.
 /// Outlives its `WindowController` while the window is registered (the last
 /// window closed but restorable), and persists in the daemon's `personal`
@@ -34,7 +34,12 @@ final class WindowState {
     private(set) var id: String
     /// `WorkspaceModel.id` of the workspace shown; nil shows the empty
     /// state (the only window, with no workspaces).
-    var workspaceID: String?
+    var workspaceID: String? {
+        didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue) } }
+    }
+    /// Workspaces this window showed, most recent first (Switch to Last Used
+    /// Workspace, Sort by Last Used). In memory only, at most 64.
+    private(set) var workspaceRecency: [String] = []
     /// Machine that holds `workspaceID` (`local` or a Cloud machine id).
     var machineID: String = MachineRegistry.localID
     var selection = TabSelectionMemory()
@@ -48,8 +53,6 @@ final class WindowState {
     var sidebarWidth: Double?
     /// The sidebar is fully hidden (Toggle Sidebar). Per window, persisted.
     var sidebarHidden = false
-    /// The screen switcher is shown (kept across workspace switches).
-    var showsScreenSwitcher = false
     /// Profile this window shows (plans/cmux-next/data-model.md 4). Its
     /// sidebar lists only the window's workspaces of this profile.
     var profileID: ProfileID = .defaultProfile
@@ -58,6 +61,9 @@ final class WindowState {
     /// Profiles this window showed, most recent first (the fallback when the
     /// current profile loses its last workspace here).
     var profileRecency: [ProfileID] = []
+    /// Durable id of the screen shown in this window's workspace, so a
+    /// relaunch returns to it. Persisted.
+    var activeScreenID: String?
 
     init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {
         self.id = id
@@ -82,7 +88,7 @@ extension WindowState {
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth
         sidebarHidden = record.sidebarHidden
-        showsScreenSwitcher = record.showsScreenSwitcher
+        activeScreenID = record.screenID?.rawValue
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })
@@ -96,5 +102,23 @@ extension WindowState {
         profileID = profile
         profileRecency.removeAll { $0 == profile }
         profileRecency.insert(profile, at: 0)
+    }
+}
+
+extension WindowState {
+    /// The workspace shown before the current one, if any.
+    var lastUsedWorkspace: String? { workspaceRecency.first { $0 != workspaceID } }
+
+    /// Forgets workspaces this window no longer lists.
+    func pruneRecency(keeping members: Set<String>) {
+        workspaceRecency.removeAll { !members.contains($0) }
+    }
+
+    fileprivate func noteShown(_ id: String?, after previous: String?) {
+        guard let id else { return }
+        workspaceRecency.removeAll { $0 == id }
+        workspaceRecency.insert(id, at: 0)
+        if let previous, !workspaceRecency.contains(previous) { workspaceRecency.insert(previous, at: 1) }
+        if workspaceRecency.count > 64 { workspaceRecency.removeLast(workspaceRecency.count - 64) }
     }
 }

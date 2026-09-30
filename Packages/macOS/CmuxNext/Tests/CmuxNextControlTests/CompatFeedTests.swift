@@ -66,3 +66,26 @@ final class RecordedStrings: Sendable {
     func append(_ value: String) { values.withLock { $0.append(value) } }
     var all: [String] { values.withLock { $0 } }
 }
+
+/// Agent journal events that carry a notification post one (agent source).
+@Suite struct CompatJournalNotificationTests {
+    private func event(_ kind: String, pending: Bool = false, title: String = "Claude", body: String = "Done") -> [String: JSON] {
+        ["kind": .string(kind), "pending_work": .bool(pending),
+         "attention": ["notification": ["title": .string(title), "subtitle": "", "body": .string(body), "category": "turn-complete"]]]
+    }
+
+    @Test func notificationBearingEventsPost() throws {
+        let done = try #require(CompatFeed.journalNotification(event("agent.turn.completed"), kind: "agent.turn.completed"))
+        #expect(done.title == "Claude" && done.body == "Done" && done.level == .info)
+        let ask = try #require(CompatFeed.journalNotification(event("agent.approval.requested"), kind: "agent.approval.requested"))
+        #expect(ask.level == .warning)
+        let failed = try #require(CompatFeed.journalNotification(event("agent.error.reported"), kind: "agent.error.reported"))
+        #expect(failed.level == .error)
+    }
+
+    @Test func pendingWorkAndBareEventsDoNotPost() {
+        #expect(CompatFeed.journalNotification(event("agent.turn.completed", pending: true), kind: "agent.turn.completed") == nil)
+        #expect(CompatFeed.journalNotification(["kind": "agent.turn.started"], kind: "agent.turn.started") == nil)
+        #expect(CompatFeed.journalNotification(event("agent.idle.observed", title: "", body: ""), kind: "agent.idle.observed") == nil)
+    }
+}

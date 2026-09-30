@@ -28,6 +28,7 @@ int cmux_shim_create_window(int request, void* parent_view, int width, int heigh
   info.SetAsChild((__bridge CefWindowHandle)(__bridge NSView*)parent_view, CefRect(0, 0, width, height));
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   CefBrowserSettings settings;
+  settings.background_color = BackgroundColor();
   CefRefPtr<CefRequestContext> context = RequestContextFor(profile_cache_path ? profile_cache_path : "");
   return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, nullptr, context) ? 1 : 0;
 }
@@ -232,6 +233,18 @@ void cmux_shim_context_menu_done(int token, int command_id, int event_flags) {
       callback->Continue(command_id, static_cast<cef_event_flags_t>(event_flags));
     }
   }
+}
+
+char* cmux_shim_tab_navigation_state(int browser_id) {
+  return fork_api().tab_navigation_state ? fork_api().tab_navigation_state(browser_id) : nullptr;
+}
+
+int cmux_shim_tab_restore_navigation(int browser_id, const char* state) {
+  return fork_api().tab_restore_navigation && state ? fork_api().tab_restore_navigation(browser_id, state) : 0;
+}
+
+int cmux_shim_navigation_restore_supported(void) {
+  return fork_api().tab_navigation_state && fork_api().tab_restore_navigation ? 1 : 0;
 }
 
 void cmux_shim_free(char* s) {

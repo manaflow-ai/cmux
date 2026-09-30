@@ -35,6 +35,14 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
     /// Empty unless horizontal viewport columns are active.
     public var columns: [ColumnSnapshot]
     public var panes: [PaneSnapshot]
+    /// Optional palette token (`screen-metadata-v1`); frontends offer the nine group colors.
+    public var color: String?
+    /// SF Symbol name or one emoji grapheme.
+    public var icon: String?
+    /// Pinned screens sort first.
+    public var pinned: Bool
+    /// The screen group this screen belongs to (`screen-groups-v1`).
+    public var group: ScreenGroupID?
 
     public init(
         id: ScreenID,
@@ -48,7 +56,11 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         viewportBaseWidth: Double? = nil,
         viewportSplits: [ViewportSplit] = [],
         columns: [ColumnSnapshot] = [],
-        panes: [PaneSnapshot] = []
+        panes: [PaneSnapshot] = [],
+        color: String? = nil,
+        icon: String? = nil,
+        pinned: Bool = false,
+        group: ScreenGroupID? = nil
     ) {
         self.id = id
         self.resourceID = resourceID
@@ -62,10 +74,14 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         self.viewportSplits = viewportSplits
         self.columns = columns
         self.panes = panes
+        self.color = color
+        self.icon = icon
+        self.pinned = pinned
+        self.group = group
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, active, layout, columns, panes
+        case id, name, active, layout, columns, panes, color, icon, pinned, group
         case resourceID = "resource_id"
         case shortID = "short_id"
         case activePane = "active_pane"
@@ -88,5 +104,9 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         viewportSplits = try c.decodeIfPresent([ViewportSplit].self, forKey: .viewportSplits) ?? []
         columns = try c.decodeIfPresent([ColumnSnapshot].self, forKey: .columns) ?? []
         panes = try c.decodeIfPresent([PaneSnapshot].self, forKey: .panes) ?? []
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        group = try c.decodeIfPresent(ScreenGroupID.self, forKey: .group)
     }
 }

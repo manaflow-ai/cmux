@@ -6,7 +6,7 @@ import Foundation
 /// takes the whole display. cmux disables it (`isElementFullscreenEnabled =
 /// false`) and installs this shim instead: `requestFullscreen` pins the
 /// element over the page's viewport with CSS, the Fullscreen API getters and
-/// events behave as usual, Escape exits, and the page reports state changes
+/// events behave as usual (entering needs user activation), Escape exits, and the page reports state changes
 /// through the `cmuxPaneFullscreen` message handler so the chrome can hide.
 nonisolated enum PaneFullscreenScript {
     static let messageHandlerName = "cmuxPaneFullscreen"
@@ -56,6 +56,10 @@ nonisolated enum PaneFullscreenScript {
       function enter() {
         const element = this;
         if (current === element) return Promise.resolve();
+        // Like the real Fullscreen API: only in answer to the user.
+        if (navigator.userActivation && !navigator.userActivation.isActive) {
+          return Promise.reject(new TypeError('Fullscreen request denied: no user activation'));
+        }
         if (current) leave(true);
         ensureStyle();
         current = element;

@@ -43,6 +43,7 @@ sources = os.path.join(root, "Sources")
 MAIN_ACTOR_MODULES = {
     "CmuxNextApp", "CmuxNextBridge", "CmuxNextDesign", "CmuxNextActions", "CmuxNextTerminal",
     "CmuxNextTabs", "CmuxNextSidebar", "CmuxNextPalette", "CmuxNextLayout", "CmuxNextBrowser", "CmuxNextUpdater",
+    "CmuxNextOnboarding",
 }
 
 EVERYWHERE = [

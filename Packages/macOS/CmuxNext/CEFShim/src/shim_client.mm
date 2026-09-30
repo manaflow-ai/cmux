@@ -89,6 +89,21 @@ class Client : public CefClient,
     return true;
   }
 
+  // MARK: Remote localhost
+
+  // A main-frame navigation that would leave its store (a loopback origin of
+  // a remote machine, or the reverse) is cancelled; the host re-creates the
+  // tab in the other store with the same URL.
+  bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
+                      bool, bool is_redirect) override {
+    if (!frame->IsMain()) return false;
+    int id = browser->GetIdentifier();
+    std::string url = request->GetURL().ToString();
+    if (!NavigationViolatesGuard(id, url)) return false;
+    Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
+    return true;
+  }
+
   // MARK: Renderer process failures
 
   // The host shows its own "sad tab" in the pane and reloads from it; Chrome
@@ -214,7 +229,7 @@ class Client : public CefClient,
 
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int, const CefString& target_url,
                      const CefString&, WindowOpenDisposition disposition, bool, const CefPopupFeatures& features,
-                     CefWindowInfo& window_info, CefRefPtr<CefClient>&, CefBrowserSettings&,
+                     CefWindowInfo& window_info, CefRefPtr<CefClient>&, CefBrowserSettings& settings,
                      CefRefPtr<CefDictionaryValue>&, bool*) override {
     // Every popup (target=_blank, window.open with or without features) is
     // a tab: no parent view or bounds of its own, so Chromium never gives it
@@ -223,6 +238,8 @@ class Client : public CefClient,
     // Chromium window and the host moves the tab into a pane. window.opener
     // stays either way. AFTER_CREATED carries the disposition and features.
     window_info = CefWindowInfo();
+    // A popup page starts on the theme color like any new tab.
+    settings.background_color = BackgroundColor();
     RememberPopup(browser->GetIdentifier(), disposition, features);
     Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, 0, target_url.ToString());
     return false;
@@ -248,6 +265,7 @@ class Client : public CefClient,
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
+    ForgetNavigationGuard(id);
     registrations_.erase(id);
     browsers().erase(id);
     ForgetDevTools(id);

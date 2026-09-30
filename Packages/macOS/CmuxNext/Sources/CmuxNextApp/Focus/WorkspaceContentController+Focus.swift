@@ -7,6 +7,7 @@ import CmuxNextLayout
 extension WorkspaceContentController {
     /// Tells the coordinator the current panes, tabs and selections.
     func sendTopology() {
+        guard !isParked else { return }
         focus.send(.topology(focusTopology()))
     }
 
@@ -45,9 +46,11 @@ extension WorkspaceContentController {
     func beginFocusIntent() -> UInt64 { focus.beginIntent() }
 
     /// Focuses `surface` once the daemon reports it, unless the user acted
-    /// after `generation` (nil: app-driven, no intent).
-    func expectFocus(on surface: SurfaceID, target: FocusState.Target = .content, generation: UInt64? = nil) {
-        focus.expect(.surface(String(surface.rawValue)), target: target, generation: generation)
+    /// after `generation` (nil: app-driven, no intent). `awayFrom`: only
+    /// once it left that pane (a tab created there and moved away).
+    func expectFocus(on surface: SurfaceID, target: FocusState.Target = .content, awayFrom paneKey: String? = nil,
+                     generation: UInt64? = nil) {
+        focus.expect(.surface(String(surface.rawValue)), target: target, awayFrom: paneKey, generation: generation)
         applyCurrent()
     }
 }

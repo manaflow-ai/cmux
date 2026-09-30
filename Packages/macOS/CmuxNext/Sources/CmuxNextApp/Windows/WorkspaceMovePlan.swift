@@ -67,6 +67,30 @@ enum WorkspaceMovePlan {
         return commands
     }
 
+    /// A slot the sidebar resolved with `moving`'s rows still shown (a tab
+    /// dragged onto a gap, `SidebarTabDrop.newWorkspace`) as the slot
+    /// `commands` takes, counted after those rows are removed.
+    static func excluding(_ moving: Set<String>, from position: DropPosition, in window: [SidebarRowSection]) -> DropPosition {
+        guard let section = window.first(where: { $0.id == position.section }) else { return position }
+        let before: [String?]
+        if let group = position.group {
+            let members = section.nodes.lazy.compactMap { node -> SidebarGroup? in
+                if case let .group(value) = node, value.id == group { return value }
+                return nil
+            }.first?.workspaces ?? []
+            before = members.prefix(max(position.index, 0)).map(\.id.rawValue)
+        } else {
+            // Top-level slots count group headers too; only loose rows can move.
+            before = section.nodes.prefix(max(position.index, 0)).map { node in
+                if case let .workspace(workspace) = node { return workspace.id.rawValue }
+                return nil
+            }
+        }
+        var adjusted = position
+        adjusted.index -= before.count { $0.map(moving.contains) ?? false }
+        return adjusted
+    }
+
     /// The window's neighbor of the slot: its row after the slot, else its
     /// last row in the destination, else the destination's end.
     private static func anchor(for position: DropPosition, moving: Set<String>, in section: SidebarRowSection) -> Anchor? {

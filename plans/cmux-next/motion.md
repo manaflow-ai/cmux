@@ -64,21 +64,21 @@ nxmot (MacBook Pro, 120 Hz).
 | Token | Response / damping | Visible end | Rest | Used by |
 | --- | --- | --- | --- | --- |
 | `move` | 0.20 / 0.90 | 192 ms | 250 ms | tab reflow and reorder, sidebar row moves, pane and divider frames (ratio, equalize, zoom), sidebar drag gap |
-| `appear` | 0.18 / 0.90 | 175 ms | 225 ms | tab grow-in, tab group expand, sidebar row insert, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
+| `appear` | 0.18 / 0.90 | 175 ms | 225 ms | palette scale-in (from `Motion.panelOpenScale` 0.97 about the panel center), tab grow-in, tab group expand, sidebar row insert, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
 | `disappear` | 0.15 / 0.90 | 142 ms | 200 ms | tab close (width to 0), group collapse, sidebar row removal, sidebar hide (timed equivalent), browser toolbar hide |
 | `settle` | 0.22 / 0.85 | 175 ms | 342 ms | release after drag: tab drop, drag ghost landing, sidebar row drop (carries pointer velocity; 0.8 pt overshoot on 200 pt) |
 | `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, niri column reveal, wheel notch, trackpad fling snap |
 | `screen` | 0.22 / 0.90 | 208 ms | 267 ms | screen switch slide |
 | `track` | 0.12 / 0.90 | 117 ms | 167 ms | drop-zone highlight, drag ghost jumps between targets |
 | `selection` | 0.15 / 0.90 | 142 ms | 200 ms | sidebar selection pill |
-| `panel` | 0.18 / 0.85 | 142 ms | 283 ms | palette scale-in, hover card slide |
+| `panel` | 0.18 / 0.85 | 142 ms | 283 ms | hover card slide |
 
 | Fade token | Duration | Used by |
 | --- | --- | --- |
-| `hover` | 0.08 s | tab, chip, button and omnibar hover fills; sidebar hover buttons; divider and resize-handle hover; refused-drop dim |
+| `hover` | 0.08 s | tab, chip, button and omnibar hover fills; tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim |
 | `focus` | 0.10 s | pane focus ring and inactive dim |
 | `fadeIn` | 0.12 s | palette, find bar, notices, hover card, group editor, sidebar pill appear |
-| `fadeOut` | 0.08 s | palette close, find bar, notices, hover card, sidebar pill hide |
+| `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
 | `lift` | 0.12 s | sidebar drag lift shadow |
 
@@ -149,7 +149,7 @@ rest).
 | Sidebar drag lift / drop | shadow group 0.22 s ease-out; drop spring(0.28, bounce 0.18); refused dim spring 0.26 | `lift`, `settle`, `hover` | 220 / 308 / 258 ms | 120 / 175 / 80 ms | - |
 | Sidebar hover buttons, resize line | 0.14 s ease-out | `hover` | 140 ms | 80 ms | - |
 | Sidebar agent spinner / pulse | 0.9 s loops | `spinner`, `pulse` | loop | loop | - |
-| Palette open | opacity 0.18 s linear; scale CASpring k 420 c 30 (0.307/0.73, 3% overshoot) | `fadeIn` + `panel` from presentation | 180 ms; 350 / 433 ms | 120 ms; 142 / 283 ms | fade 132-179 ms, scale 231-277 ms |
+| Palette open | opacity 0.18 s linear; scale CASpring k 420 c 30 (0.307/0.73, 3% overshoot) | `fadeIn` + `appear` from presentation, about the panel center (was `panel`, pivoting on the left edge until 2026-09-30) | 180 ms; 350 / 433 ms | 120 ms; 142 / 283 ms | fade 132-179 ms, scale 231-277 ms |
 | Palette close | opacity + shrink 0.14 s ease-in | `fadeOut` | 140 ms | 80 ms | 83-92 ms |
 | Palette reopen during close | removed animations, restarted from 0 (jump) | continues from presentation | jump | no jump | - |
 | Palette actions menu | fade 0.14 s | `fadeIn` / `fadeOut` | 140 ms | 120 / 80 ms | - |
@@ -223,6 +223,19 @@ shows no display link or animation callback; the only work is
 `CEFMessagePump` (CEF was started by the palette's Chromium warm-up; the
 30 Hz pump is the known follow-up in REWRITE.md). Every span above closed,
 so every animation display link paused.
+
+## Scale pivot (2026-09-30)
+
+AppKit gives a view's backing layer an anchor point of (0, 0), and Core
+Animation applies `transform` and `sublayerTransform` about the anchor
+point. The palette's scale math assumed a centered anchor, so it pivoted
+on the bottom-left corner and grew in from the left (about 10 pt of
+sideways travel at 0.97). `Motion.scale(_:about:in:)` builds a scale about
+an explicit pivot for any anchor point; every panel scale goes through it.
+The palette now opens like Linear's command menu: `fadeIn` plus an `appear`
+spring from 0.97 about its center (visible end 175 ms), and closes with
+`fadeOut` (80 ms) plus a shrink to 0.98. Result changes stay instant. The
+palette keeps a fixed height, so there is no list-height animation yet.
 
 ## Not verified
 

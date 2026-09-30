@@ -75,6 +75,11 @@ nonisolated enum RefusalStrings {
     static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
     static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
     static func markUnreadUnsupported(_ capability: String) -> String { format("handlers.refusal.markUnreadUnsupported", "needs daemon capability %@ (only marking read is supported)", capability) }
+    static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }
+    static var hibernateUnsupported: String {
+        text("handlers.refusal.hibernateUnsupported", "This page cannot keep its history when it hibernates.")
+    }
+    static var wakeNotHibernated: String { text("handlers.refusal.wakeNotHibernated", "This tab is not hibernated.") }
     static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }
     static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
     static var audioMuteUnported: String { text("handlers.refusal.audioMuteUnported", "needs audio mute support in the cmux-next browser") }

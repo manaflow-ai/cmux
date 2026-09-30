@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextWakeups
@@ -39,6 +40,9 @@ final class WindowManager {
     var pendingClaims: [String: String] = [:]
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
+    /// Sidebar slots for new workspaces, applied once the daemon reports
+    /// them (`applyPendingPlacements`).
+    var pendingPlacements: [String: PendingPlacement] = [:]
     /// Windows none of whose workspaces a machine reports yet (just created,
     /// or saved with workspaces that are gone or on a Cloud machine still
     /// connecting): kept off screen until their content is installed, so no
@@ -64,6 +68,8 @@ final class WindowManager {
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
     var onFirstWindow: ((WindowController) -> Void)?
+    /// A window installed workspace content (links opened at launch wait for it).
+    var onContentDidAppear: ((WindowController) -> Void)?
 
     init(services: AppServices) {
         self.services = services
@@ -143,6 +149,7 @@ final class WindowManager {
     private func restore() async {
         guard !restored else { return }
         restored = true
+        DebugTimings.markLaunch("daemon_snapshot_loaded")
         var document = WindowStateDocument()
         if let windowState = services.daemon.windowState {
             document = (try? await windowState.load()) ?? WindowStateDocument()
@@ -235,6 +242,7 @@ final class WindowManager {
     /// The window installed its first workspace content: a window kept off
     /// screen for it is ordered in now.
     func contentDidAppear(_ controller: WindowController) {
+        defer { onContentDidAppear?(controller) }
         guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
         present(controller)
         if front { bringToFront(controller) }
@@ -242,18 +250,9 @@ final class WindowManager {
 
     /// Orders a new window in without taking focus under no-activate.
     private func present(_ controller: WindowController) {
-        if !ordersWindowsIn {
-            // Tests: never on the user's display.
-        } else if services.environment.testWindow != nil, services.environment.noActivate {
-            // Agent screenshot launch: in front on its own screen, still not
-            // key and the app not activated.
-            controller.window?.orderFrontRegardless()
-        } else if services.environment.noActivate {
-            // Behind every other window, not key, app not activated.
-            controller.window?.orderBack(nil)
-        } else {
-            controller.showWindow(nil)
-        }
+        // Tests: never on the user's display. Otherwise one rule: under
+        // no-activate behind the others (in front on a test screen), never key.
+        if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, .present) }
         onPresent?(controller)
     }
 
@@ -265,12 +264,7 @@ final class WindowManager {
             return
         }
         guard ordersWindowsIn, let window = controller.window else { return }
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        if services.environment.noActivate {
-            window.orderFrontRegardless()
-        } else {
-            window.makeKeyAndOrderFront(nil)
-        }
+        WindowActivation.show(window, .raise)
     }
 
     func windowWillClose(_ controller: WindowController) {

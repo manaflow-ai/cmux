@@ -112,11 +112,16 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
         case .urlChanged(let url):
             guard let url else { return }
+            let previous = state.url
             state.url = url
             if state.phase != .provisional {
                 committedURL = url
             }
-            if !state.isLoading {
+            // A same-document change (pushState, a fragment) cannot change
+            // the origin and keeps the engine's refinement (mixed content, a
+            // certificate error, a dangerous site); only a new origin resets
+            // the indicator to the scheme level.
+            if !state.isLoading, !Self.sameOrigin(previous, url) {
                 state.security = Self.security(for: url)
             }
 
@@ -164,6 +169,12 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         }
         state.progress = 0
         state.activeNavigation = nil
+    }
+
+    static func sameOrigin(_ a: URL?, _ b: URL?) -> Bool {
+        guard let a, let b else { return false }
+        return a.scheme?.lowercased() == b.scheme?.lowercased() && a.host()?.lowercased() == b.host()?.lowercased()
+            && a.port == b.port
     }
 
     /// Scheme-level security. Engines refine it with `.securityChanged` when

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextPalette
@@ -22,6 +23,8 @@ final class AppServices {
     /// (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
     private(set) var cloud: CloudService!
+    /// SSH machines (Connect to Machine…).
+    private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
@@ -30,6 +33,8 @@ final class AppServices {
     private(set) var updateSheet: UpdateSheetController!
     /// cmux.json controller; set by `AppDelegate` once it starts.
     var settings: SettingsController?
+    /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
+    var paletteShortcutEditor: PaletteShortcutEditor?
     private(set) var cache: TabContentCache!
     private(set) var windows: WindowManager!
     private(set) var dragSession: TabDragSession!
@@ -50,12 +55,23 @@ final class AppServices {
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
+    /// Recently closed screens (Reopen Closed Screen).
+    let closedScreens = ClosedScreenHistory()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     let terminalDelegate = TerminalHostDelegate()
+    /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
+    let notifications = NotificationCenterService()
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) var keyRouter: KeyRouter!
     private(set) var chromiumWarmup: ChromiumWarmup!
+    /// First-run onboarding, browser import and default-app claims.
+    private(set) lazy var onboarding = OnboardingService(services: self)
+    /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
+    private(set) lazy var externalOpen = ExternalOpenController(services: self)
+    let terminalTheme = TerminalThemeSetting()
+    /// Browser tabs of remote machines reach that machine's localhost.
+    private(set) var remoteLocalhost: RemoteLocalhostService!
     var chromiumLikelyObservations: [Task<Void, Never>] = []
 
     init(environment: AppEnvironment) {
@@ -63,7 +79,18 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
+        ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
         cache = TabContentCache(daemon: daemon)
+        remoteLocalhost = RemoteLocalhostService(machines: machines)
+        cache.configureBrowser = { [weak self] tab, url, base in
+            await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
+        }
+        cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
+        cache.machineBadge = { [weak self] key, url in
+            guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
+            let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
+            return remoteLocalhost.badge(for: tab, url: url, engine: engine)
+        }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }
@@ -101,6 +128,7 @@ final class AppServices {
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
         updater.presentUpdateUI = { [weak self] in updateSheet.present(in: self?.windows.active?.window) }
+        BrowserLifecycleTrace.sink = { tab, event in InputJournal.shared.append(window: nil, .content(tab: tab, event: event)) }
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
@@ -109,6 +137,9 @@ final class AppServices {
         observePaletteForFocus()
         startInputVerification()
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
+        notifications.start(services: self)
+        keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
+        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in self?.notifications.noteMouseDown(in: window) }
     }
 
     // MARK: Lookup

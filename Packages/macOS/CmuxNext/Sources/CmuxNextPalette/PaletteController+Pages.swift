@@ -36,7 +36,11 @@ extension PaletteController {
             title: PaletteStrings.shortcutsTitle,
             placeholder: PaletteStrings.shortcutsPlaceholder,
             symbol: "keyboard",
-            providers: [KeyboardShortcutsPaletteProvider(registry: registry)]
+            providers: [{
+                let provider = KeyboardShortcutsPaletteProvider(registry: registry)
+                if shortcutRecorder.editor != nil { provider.editShortcut = { [weak self] in self?.shortcutRecorder.begin($0) } }
+                return provider
+            }()]
         )
     }
 
@@ -91,6 +95,7 @@ extension PaletteController {
     /// inline rename entries backed by the sources.
     func makeRegistryProvider() -> RegistryPaletteProvider {
         let provider = RegistryPaletteProvider(registry: registry)
+        if shortcutRecorder.editor != nil { provider.editShortcut = { [weak self] in self?.shortcutRecorder.begin($0) } }
         provider.targets = sources.targets
         provider.capturedTargets = capturedTargets
         provider.effectOverrides["palette.searchShortcuts"] = { [weak self] in

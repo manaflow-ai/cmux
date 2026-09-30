@@ -35,6 +35,9 @@ public final class PaletteController {
 
     /// What the user acted on when the palette opened (`PaletteSources.context`).
     public private(set) var capturedTargets: [ActionTargetRef] = []
+    /// Cmd-K on an action: records a new shortcut for it. Set its `editor`
+    /// (the App's cmux.json writer) to enable it.
+    public private(set) lazy var shortcutRecorder = PaletteShortcutRecorder(registry: registry, model: model)
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
     private var presentationGeneration = 0
@@ -52,6 +55,7 @@ public final class PaletteController {
         // and the palette comes back on the same page.
         model.performer = { [registry] handler in registry.reportingRefusal(handler) }
         model.onRefusal = { [weak self] _ in self?.presentAgain() }
+        model.onEditShortcut = { [weak self] id in self?.shortcutRecorder.begin(id) ?? false }
     }
 
     // MARK: Registry wiring
@@ -236,6 +240,7 @@ public final class PaletteController {
         registry.context.remove(.paletteOpen)
         onVisibilityChange?(false)
         model.closeActionsMenu()
+        model.shortcutRecorder = nil
         model.hover(nil)
         presentationGeneration += 1
         let generation = presentationGeneration
@@ -266,8 +271,10 @@ public final class PaletteController {
             frame.size = size
             panel.setFrame(frame, display: true)
         }
+        content.onRecorderOption = { [weak self] option in self?.shortcutRecorder.choose(option) }
         panel.contentView = content
         panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
         // Shown without the keys (app inactive): the keys going to another
         // window closes it like a click outside.
         panel.onKeyElsewhere = { [weak self] in self?.hide(restoringKey: false) }
@@ -300,6 +307,9 @@ public final class PaletteController {
     /// Maps a key-down in the panel to a palette command. Returns true when
     /// the event was consumed (so the text field never sees it).
     func handleKeyDown(_ event: NSEvent) -> Bool {
+        if model.shortcutRecorder != nil {
+            return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
+        }
         guard let command = PaletteKeyMap.command(
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,

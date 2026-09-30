@@ -86,7 +86,9 @@ enum BrowserHandlers {
                         let surface = try await browserTabs.open(choice, in: handle, url: "about:blank")
                         try await connection.split(handle, direction: direction, movingTab: surface)
                         // The new pane takes focus and its address bar the keyboard.
-                        pane.workspace?.expectFocus(on: surface, target: .addressBar, generation: intent)
+                        // The daemon may report the tab in the source pane
+                        // before the move: land only in the new pane.
+                        pane.workspace?.expectFocus(on: surface, target: .addressBar, awayFrom: pane.paneKey, generation: intent)
                     } catch {
                         context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
                     }
@@ -100,7 +102,6 @@ enum BrowserHandlers {
         unavailable(["toggleReactGrab"], MiscHandlerStrings.reactGrab)
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
         unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
-        unavailable(["importFromBrowser"], MiscHandlerStrings.browserImport)
         unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
         unavailable(["openLinkInNewTab", "openLinkInDefaultBrowser"], MiscHandlerStrings.linkTarget)
         unavailable(["browserScreenshotSection"], MiscHandlerStrings.sectionScreenshot)

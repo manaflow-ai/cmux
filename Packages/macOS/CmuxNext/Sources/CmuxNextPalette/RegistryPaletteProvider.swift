@@ -20,6 +20,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var capturedTargets: [ActionTargetRef] = []
     /// Palette-internal actions that should not list themselves.
     public var hiddenIDs: Set<ActionID> = ["commandPalette"]
+    /// Opens the shortcut recorder for an action (the Actions menu's Edit
+    /// Keyboard Shortcut…); nil hides that command.
+    public var editShortcut: (@MainActor (ActionID) -> Void)?
 
     public init(registry: ActionRegistry, includeUnbound: Bool = RegistryPaletteProvider.defaultIncludeUnbound) {
         self.registry = registry
@@ -45,6 +48,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
         let copyActionID = PaletteStrings.copyActionID
         let open = PaletteStrings.open
         let runCommand = PaletteStrings.runCommand
+        let editTitle = PaletteStrings.editShortcut
+        let editShortcut = editShortcut
         var sections: [ActionCategory: PaletteSection] = [:]
         func section(_ category: ActionCategory) -> PaletteSection {
             if let cached = sections[category] { return cached }
@@ -77,7 +82,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
                     symbol: "return",
                     effect: effect
                 ),
-                secondary: [
+                secondary: (editShortcut.map { edit in
+                    [PaletteCommand(id: "editShortcut", title: editTitle, symbol: "keyboard", effect: .performKeepingOpen { edit(actionID) })]
+                } ?? []) + [
                     PaletteCommand(
                         id: "copyID",
                         title: copyActionID,
@@ -85,7 +92,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
                         effect: .perform { PaletteClipboard.copy(actionID.rawValue) }
                     ),
                 ],
-                frecencyKey: "action:\(actionID.rawValue)"
+                frecencyKey: "action:\(actionID.rawValue)",
+                actionID: actionID
             ))
         }
         return items

@@ -22,6 +22,7 @@ final class SessionRegistrar {
     struct SessionSnapshot: Hashable {
         var sessionName: String?
         var capabilities: [String]
+        var transport: JSONValue
     }
 
     init(machines: MachineRegistry) {
@@ -41,6 +42,7 @@ final class SessionRegistrar {
             for await _ in Observations({ () -> [String] in
                 [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
+                    + machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
             }) {
                 self?.sync()
             }
@@ -54,11 +56,12 @@ final class SessionRegistrar {
         guard home.store.personal.isLoaded, let connection = home.connection else { return }
         for daemon in machines.daemons where daemon.store.isLoaded {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
-            let snapshot = SessionSnapshot(sessionName: identity.session, capabilities: identity.capabilities.sorted())
+            let snapshot = SessionSnapshot(sessionName: identity.session, capabilities: identity.capabilities.sorted(),
+                                           transport: transport(daemon))
             if recorded[session] != snapshot {
                 recorded[session] = snapshot
                 let request = PutSessionRequest(sessionID: session, machineName: machineName(daemon), sessionName: identity.session,
-                                                transport: transport(daemon), capabilities: snapshot.capabilities)
+                                                transport: snapshot.transport, capabilities: snapshot.capabilities)
                 home.send("put-session") { _ = try await $0.putSession(request) }
             }
             let record = home.store.personal.session(session)
@@ -88,11 +91,14 @@ final class SessionRegistrar {
 
     private func machineName(_ daemon: DaemonService) -> String? {
         if daemon.isLocal { return computerName }
-        return machines.session(daemon.machineID)?.machine.title
+        return machines.machineName(daemon.machineID)
     }
 
+    /// How to reconnect, never a secret: an SSH machine's route, session,
+    /// cmux-tui path and whether it connects at launch (`SSHService`).
     private func transport(_ daemon: DaemonService) -> JSONValue {
-        daemon.isLocal ? .object(["kind": .string("local")])
-            : .object(["kind": .string("cloud"), "machine": .string(daemon.machineID)])
+        if daemon.isLocal { return .object(["kind": .string("local")]) }
+        if let ssh = machines.sshSession(daemon.machineID) { return SSHService.transport(ssh) }
+        return .object(["kind": .string("cloud"), "machine": .string(daemon.machineID)])
     }
 }

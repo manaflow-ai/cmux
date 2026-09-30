@@ -59,6 +59,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download:
             break
+        case .rerouteStore(let url):
+            services.cache.reroute(key, to: url)
         }
     }
 

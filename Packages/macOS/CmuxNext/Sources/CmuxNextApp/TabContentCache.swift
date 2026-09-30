@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextRemote
 import CmuxNextTerminal
 import Observation
 
@@ -15,10 +16,23 @@ import Observation
 /// a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
-    private var terminals: [String: TerminalEntry] = [:]
-    private var browsers: [String: BrowserEntry] = [:]
-    private var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: 8)
-    private var presenters: [ObjectIdentifier: WeakPresenter] = [:]
+    var terminals: [String: TerminalEntry] = [:]
+    var browsers: [String: BrowserEntry] = [:]
+    var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
+    var presenters: [ObjectIdentifier: WeakPresenter] = [:]
+    /// Every tab's content phase and visibility generation
+    /// (plans/cmux-next/tab-lifecycle.md): the only source of show and hide
+    /// for terminal surfaces and pages (`TabContentCache+Lifecycle`).
+    var lifecycle = ContentLifecycle<String>()
+    /// Shown tabs whose content did not exist yet (a Chromium page being
+    /// created): the token of their `mount`, answered when it installs.
+    var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
+    /// How many hidden terminal surfaces stay warm (memory budget; pressure).
+    var warmBudget = WarmSetBudget.standard
+    /// Hibernates hidden pages (time, memory pressure) and restores them.
+    var hibernation: BrowserHibernation?
+    /// Hibernated tabs, observed by the tab strips.
+    let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
     let cef = CEFEngine()
@@ -40,6 +54,15 @@ final class TabContentCache {
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
         try await cef.makeTab($0)
     }
+    /// The remote-localhost store and navigation guard of a Chromium page for
+    /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
+    /// could not start, so the page must not load (never this Mac's localhost).
+    var configureBrowser: ((TabModel, URL?, BrowserTabConfiguration) async -> BrowserTabConfiguration?)?
+    /// The omnibar and tab-strip machine chip of tab `key` for a URL.
+    var machineBadge: ((String, URL?) -> (text: String, help: String)?)?
+    /// The tab with durable id `key` on any machine (`browserTabs` only
+    /// knows the local daemon).
+    var findTab: ((String) -> TabModel?)?
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
     var onBrowserReady: ((String) -> Void)?
     /// Presentation changed (for the blank-pane invariant).
@@ -84,6 +107,8 @@ final class TabContentCache {
             // Daemon restarted or the tab's surface changed: the pane
             // presenting the old view lets it go before it closes.
             if let owner = ledger.remove(tab.id) { presenters[owner]?.value?.surfaceWasDisplaced(tab.id) }
+            applyLifecycle(lifecycle.send(.removed(tab.id)))
+            pendingMounts[tab.id] = nil
             stale.close()
         }
         let target = DaemonTerminalIO.Target(
@@ -99,6 +124,7 @@ final class TabContentCache {
         let entry = TerminalEntry(validity: validity, session: session, io: io)
         terminals[tab.id] = entry
         session.isRenderingSuspended = !render
+        contentDidMount(tab.id)
         return entry
     }
 
@@ -141,7 +167,7 @@ final class TabContentCache {
         if let adopted = pageRequests.takeAdoption(for: tab.surface) {
             return tracked(install(adopted, for: key), tab)
         }
-        let url = tab.url.flatMap(URL.init(string:))
+        let url = recordURL(tab)
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.openedSurfaces.contains(tab.surface) {
             return deferred(tab, url: url)
         }
@@ -152,7 +178,7 @@ final class TabContentCache {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
             do {
-                page = try await makeCEFTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
+                page = try await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url))
             } catch {
                 guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
                 _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
@@ -166,6 +192,58 @@ final class TabContentCache {
             onBrowserReady?(key)
         }
         return nil
+    }
+
+    /// The URL a browser record may open here. A record from a remote
+    /// machine's tree opens only web pages (`RemoteRelayPolicy`): a remote
+    /// host must not make this Mac load `file:` or `javascript:` content or
+    /// launch an app through a custom scheme.
+    private func recordURL(_ tab: TabModel) -> URL? {
+        guard let services = pageRequests.services, !services.machines.daemon(forTab: tab).isLocal else {
+            return tab.url.flatMap(URL.init(string:))
+        }
+        return RemoteRelayPolicy.remoteBrowserURL(tab.url)
+    }
+
+    /// The Chromium configuration of `tab` showing `url`, with its
+    /// remote-localhost store. A failed proxy start leaves the page blank.
+    private func chromiumConfiguration(for tab: TabModel, key: String, url: URL?) async -> BrowserTabConfiguration {
+        await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
+    }
+
+    /// `base` with the remote-localhost store of `tab` (every Chromium page a
+    /// tab gets goes through here, a hibernated page waking included). A
+    /// failed proxy start leaves the page blank, never on this Mac's localhost.
+    func chromiumConfiguration(for tab: TabModel?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration {
+        guard let tab, let configureBrowser else { return base }
+        if let configured = await configureBrowser(tab, base.initialURL, base) { return configured }
+        var blank = base
+        blank.initialURL = nil
+        blank.restoreState = nil
+        blank.navigationGuard = .noLoopback
+        return blank
+    }
+
+    /// The tab with durable id `key` on any machine.
+    func tabModel(_ key: String) -> TabModel? {
+        browserTabs.tabModel(key) ?? findTab?(key)
+    }
+
+    /// Re-creates Chromium page `key` in the other remote-localhost store
+    /// with `url` (its navigation left the store; `BrowserTabIntent.rerouteStore`).
+    /// The daemon record keeps the tab; the new page writes its URL back.
+    func reroute(_ key: String, to url: URL) {
+        guard let tab = tabModel(key), let entry = browsers[key], entry.tab.engineKind == .cef,
+              pendingBrowsers.insert(key).inserted else { return }
+        browserTabs.untrack(key)
+        browsers.removeValue(forKey: key)?.close()
+        Task {
+            defer { pendingBrowsers.remove(key) }
+            guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url)) else { return }
+            install(page, for: key)
+            browserTabs.track(page, tabID: key)
+            onBrowserReady?(key)
+        }
     }
 
     /// A page that loads nothing until the user reloads it; then the real
@@ -214,12 +292,16 @@ final class TabContentCache {
         (page as? CEFTab)?.devToolsObserver = self
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         onBrowserEntryCreated?(entry)
         if page.engineKind == .cef, let handler = makeExtensionMenuHandler?(key) {
             entry.extensionMenuHandler = handler
             entry.chrome.extensionMenuHandler = handler
         }
         browsers[key] = entry
+        // Pages are kept by hibernation, never by the terminal warm set.
+        ledger.setRetained(key, false)
+        contentDidMount(key)
         return entry
     }
 
@@ -233,79 +315,31 @@ final class TabContentCache {
         onBrowserReady?(key)
     }
 
+    /// Replaces `key`'s page (hibernation, restore): the old page closes,
+    /// the record write-back follows the new one, and panes showing `key`
+    /// re-show with the new view.
+    func swapPage(_ key: String, with page: any BrowserTab) {
+        browserTabs.untrack(key)
+        browsers.removeValue(forKey: key)?.close()
+        let entry = install(page, for: key)
+        if !(page is HibernatedBrowserTab) {
+            browserTabs.track(page, tabID: key)
+        }
+        _ = entry
+        onBrowserReady?(key)
+    }
+
     /// The tab id whose page is `page`.
     func key(of page: any BrowserTab) -> String? {
         browsers.first { $0.value.tab === page }?.key
     }
 
-    // MARK: Presentation and lifetime
-
-    /// `presenter` shows `key` (its view is, or is about to be, in the
-    /// presenter's hierarchy). Takes the surface from any previous presenter.
-    func present(_ key: String, by presenter: any SurfacePresenter, presence: SurfacePresence) {
-        let owner = ObjectIdentifier(presenter)
-        presenters[owner] = WeakPresenter(value: presenter)
-        apply(ledger.present(key, by: owner, presence: presence))
-    }
-
-    /// `presenter` stopped showing `key`. Ignored when another presenter
-    /// took it meanwhile (the tab moved there).
-    func withdraw(_ key: String, by presenter: any SurfacePresenter) {
-        apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
-    }
-
-    /// `presenter` scrolled on screen, into the keep-alive band, or away.
-    func setPresence(_ presence: SurfacePresence, presenter: any SurfacePresenter) {
-        apply(ledger.setPresence(presence, owner: ObjectIdentifier(presenter)))
-    }
-
-    /// `presenter` is going away.
-    func removePresenter(_ presenter: any SurfacePresenter) {
-        let owner = ObjectIdentifier(presenter)
-        apply(ledger.removeOwner(owner))
-        presenters[owner] = nil
-    }
-
-    /// The pane presenting `key`, if any.
-    func presenter(of key: String) -> (any SurfacePresenter)? {
-        ledger.owner(of: key).flatMap { presenters[$0]?.value }
-    }
-
-    func isRendering(_ key: String) -> Bool { ledger.isRendering(key) }
-
-    private func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
-        guard !effects.isEmpty else { return }
-        for displaced in effects.displaced {
-            presenters[displaced.owner]?.value?.surfaceWasDisplaced(displaced.key)
-        }
-        for (key, render) in effects.rendering { applyRendering(key, render) }
-        for key in effects.evicted { terminals.removeValue(forKey: key)?.close() }
-        presenters = presenters.filter { $0.value.value != nil }
-        onPresentationChange?()
-    }
-
-    private func applyRendering(_ key: String, _ render: Bool) {
-        if let entry = terminals[key] {
-            entry.session.isRenderingSuspended = !render
-            entry.io.setVisible(render)
-            if !render {
-                // Rendered off the main thread: the GPU readback used to block it.
-                Task { [weak self] in
-                    guard let image = await entry.session.snapshotInBackground(maxPixelSize: 480) else { return }
-                    // The tab may have closed while the preview rendered.
-                    guard let self, self.terminals[key] != nil else { return }
-                    self.previews.insert(image, for: key)
-                }
-            }
-        }
-        if let entry = browsers[key] {
-            Task { await entry.tab.setOccluded(!render) }
-        }
-    }
-
     /// The tab closed: free everything it held.
     func release(_ key: String) {
         if let owner = ledger.remove(key) { presenters[owner]?.value?.surfaceWasDisplaced(key) }
+        applyLifecycle(lifecycle.send(.removed(key)))
+        pendingMounts[key] = nil
+        hibernation?.forget(key)
         terminals.removeValue(forKey: key)?.close()
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
@@ -343,7 +377,7 @@ protocol SurfacePresenter: AnyObject {
     func surfaceWasDisplaced(_ key: String)
 }
 
-private struct WeakPresenter {
+struct WeakPresenter {
     weak var value: (any SurfacePresenter)?
 }
 

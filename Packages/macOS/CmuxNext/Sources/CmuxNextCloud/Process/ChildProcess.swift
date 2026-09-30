@@ -1,4 +1,4 @@
-import Foundation
+package import Foundation
 import Synchronization
 
 /// A cmux-tui helper process (`wg hub`, `remote connect`) whose stdout is a
@@ -6,7 +6,7 @@ import Synchronization
 /// the main actor. Stdout lines are bounded (drop-oldest past 256 pending);
 /// stderr keeps a 4 KB tail for error messages. The child runs with
 /// `--exit-with-parent`, so a crash of this app ends it too.
-final class ChildProcess: Sendable {
+package final class ChildProcess: Sendable {
     private struct State {
         var process: Process?
         var stderrTail = Data()
@@ -14,21 +14,21 @@ final class ChildProcess: Sendable {
         var exitWaiters: [CheckedContinuation<Int32, Never>] = []
     }
 
-    let lines: AsyncStream<String>
+    package let lines: AsyncStream<String>
     private let continuation: AsyncStream<String>.Continuation
     private let state = Mutex(State())
     private let executable: URL
     private let arguments: [String]
     private let environment: [String: String]
 
-    init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) {
+    package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
-    func start() throws {
+    package func start() throws {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -71,15 +71,15 @@ final class ChildProcess: Sendable {
         try process.run()
     }
 
-    var pid: Int32? { state.withLock { $0.process?.processIdentifier } }
-    var isRunning: Bool { state.withLock { $0.process != nil && $0.exitStatus == nil } }
+    package var pid: Int32? { state.withLock { $0.process?.processIdentifier } }
+    package var isRunning: Bool { state.withLock { $0.process != nil && $0.exitStatus == nil } }
 
-    var stderrText: String {
+    package var stderrText: String {
         let data = state.withLock { $0.stderrTail }
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func waitForExit() async -> Int32 {
+    package func waitForExit() async -> Int32 {
         await withCheckedContinuation { waiter in
             let done = state.withLock { state -> Int32? in
                 if let status = state.exitStatus { return status }
@@ -91,14 +91,14 @@ final class ChildProcess: Sendable {
     }
 
     /// SIGTERM; the helpers exit and remove their sockets.
-    func terminate() {
+    package func terminate() {
         let process = state.withLock { $0.exitStatus == nil ? $0.process : nil }
         process?.terminate()
     }
 
     /// The first stdout line `match` accepts, within `deadline`. Throws when
     /// the process exits first (with its stderr) or the deadline passes.
-    func firstLine<T: Sendable>(within deadline: Duration, label: String,
+    package func firstLine<T: Sendable>(within deadline: Duration, label: String,
                                 _ match: @escaping @Sendable (String) -> T?) async throws -> T {
         let lines = lines
         return try await withDeadline(deadline, label: label) { [weak self] in
@@ -110,11 +110,11 @@ final class ChildProcess: Sendable {
     }
 }
 
-enum ChildProcessError: Error, Sendable, CustomStringConvertible {
+package enum ChildProcessError: Error, Sendable, CustomStringConvertible {
     case exited(label: String, stderr: String)
     case missingBinary(String)
 
-    var description: String {
+    package var description: String {
         switch self {
         case .exited(let label, let stderr): stderr.isEmpty ? "\(label) exited" : "\(label) exited: \(stderr)"
         case .missingBinary(let path): "cmux-tui not found at \(path)"

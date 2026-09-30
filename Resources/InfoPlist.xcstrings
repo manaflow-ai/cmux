@@ -3800,6 +3800,137 @@
           }
         }
       }
+    },
+    "New $(PRODUCT_NAME) Tab Here": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New $(PRODUCT_NAME) Tab Here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここに新規 $(PRODUCT_NAME) タブ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة تبويب $(PRODUCT_NAME) جديدة هنا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova $(PRODUCT_NAME) kartica ovdje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny $(PRODUCT_NAME)-fane her"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer $(PRODUCT_NAME)-Tab hier"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nueva pestaña de $(PRODUCT_NAME) aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouvel onglet $(PRODUCT_NAME) ici"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuova scheda $(PRODUCT_NAME) qui"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំង $(PRODUCT_NAME) ថ្មីនៅទីនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에서 새로운 $(PRODUCT_NAME) 탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny $(PRODUCT_NAME)-fane her"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowa karta $(PRODUCT_NAME) tutaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova Aba do $(PRODUCT_NAME) Aqui"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая вкладка $(PRODUCT_NAME) здесь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบ $(PRODUCT_NAME) ใหม่ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Burada Yeni $(PRODUCT_NAME) Sekmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нова вкладка $(PRODUCT_NAME) тут"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab $(PRODUCT_NAME) mới tại đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此处新建 $(PRODUCT_NAME) 标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此處新增 $(PRODUCT_NAME) 標籤頁"
+          }
+        }
+      }
     }
   }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextSidebar
 
 // The last tab of the last pane takes its workspace along (coordinator
 // decision 2026-09-30, REWRITE.md round 3; Chrome: dragging a window's only
@@ -47,12 +48,22 @@ extension TabDragSession {
             if let controller = services.windows.openWindow(workspaces: [id], frame: tearOffFrame(drag, at: point, size: size)) {
                 services.windows.bringToFront(controller)
             }
-        case .moveWorkspace(let group, let index):
+        case .moveWorkspace:
+            // The row-drag path: window membership, then one reorder per the
+            // slot (personal order, or move-workspace-to-group at the slot
+            // counted without this workspace's own row).
             let target = drag.winner?.window ?? drag.source.window
-            if let state = target?.state { services.windows.claim(workspaceID: id, in: state) }
-            guard let key = services.workspace(id: id)?.key, let daemon = services.machines.daemon(forWorkspace: id) else { return }
-            daemon.send("move-workspace") { connection in
-                try await TabMoves.place(key, group: group.map(WorkspaceGroupID.init(rawValue:)), index: index, connection: connection)
+            let sidebar = drag.winner?.provider as? SidebarTabDropTarget
+            guard let bridge = sidebar?.bridgeForDrop ?? target?.sidebar else { return }
+            let ids = [SidebarWorkspaceID(id)]
+            switch sidebar?.lastDrop {
+            case .newWorkspace(let section, let group, let index)?:
+                let raw = DropPosition(section: section, group: group, index: index)
+                bridge.accept(ids, at: WorkspaceMovePlan.excluding([id], from: raw, in: bridge.model.sections))
+            case .intoGroup(let group)?:
+                bridge.accept(ids, intoGroup: group)
+            case .intoWorkspace?, nil:
+                bridge.accept(ids, at: nil)
             }
         default:
             break
@@ -61,6 +72,6 @@ extension TabDragSession {
 
     private func repair(for workspace: WorkspaceModel) -> EmptyWorkspaceRepair {
         let machine = services.machines.daemon(forWorkspace: workspace.id)?.machineID
-        return machine.flatMap { services.machines.session($0)?.emptyWorkspaces } ?? services.emptyWorkspaces
+        return services.machines.emptyWorkspaceRepair(machine, local: services.emptyWorkspaces)
     }
 }

@@ -78,6 +78,10 @@ typedef enum {
   // New Window, app windows). The shim blocked it; request = the IDC_*
   // command id (chrome/app/chrome_command_ids.h).
   CMUX_SHIM_CHROME_COMMAND = 26,
+  // The navigation guard (cmux_shim_set_navigation_guard) cancelled a
+  // main-frame navigation that would leave the tab's store. s1 = url,
+  // a = 1 for a redirect. The host re-creates the tab in the other store.
+  CMUX_SHIM_NAVIGATION_REROUTE = 27,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -140,6 +144,12 @@ CMUX_SHIM_EXPORT int cmux_shim_fork_api_version(void);
 // Chromium disables unpacked (--load-extension) extensions without it.
 // Development and verification only; call before cmux_shim_initialize.
 CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled);
+// Page background before the first paint and for documents without one
+// (CefSettings.background_color and CefBrowserSettings.background_color),
+// as opaque 0xAARRGGBB; 0 keeps Chromium's default. Browsers created after
+// the call use it; call before cmux_shim_initialize so tabs the fork adds
+// (cmux_shim_tab_add) fall back to it too.
+CMUX_SHIM_EXPORT void cmux_shim_set_background_color(unsigned int argb);
 // Returns 1 when NSApp conforms to CefAppProtocol and implements its
 // methods (the host app's NSApplication subclass must), 0 otherwise. The shim
 // no longer patches NSApp. Check before cmux_shim_initialize.
@@ -221,6 +231,13 @@ CMUX_SHIM_EXPORT void cmux_shim_ext_action_hide_popup(int browser_id, const char
 CMUX_SHIM_EXPORT void cmux_shim_ext_action_context_menu(int browser_id, const char* extension_id, int screen_x, int screen_y);
 CMUX_SHIM_EXPORT void cmux_shim_free(char* s);
 
+// Navigation state (fork API v7; NULL/0 on older forks): the tab's history
+// with page state as an opaque string (freed with cmux_shim_free), restored
+// into a browser created with an empty URL. 1 when the fork has both.
+CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_state(int browser_id);
+CMUX_SHIM_EXPORT int cmux_shim_tab_restore_navigation(int browser_id, const char* state);
+CMUX_SHIM_EXPORT int cmux_shim_navigation_restore_supported(void);
+
 // Extension management and commands (fork API v3; 0/NULL on older forks).
 CMUX_SHIM_EXPORT char* cmux_shim_ext_list(int browser_id);
 CMUX_SHIM_EXPORT int cmux_shim_ext_set_enabled(int browser_id, const char* extension_id, int enabled);
@@ -284,6 +301,20 @@ CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 // that host a frame of browser_id: the main frame and every out-of-process
 // iframe. Returns how many it wrote; 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity);
+// Remote localhost (plans/cmux-next/remote-localhost.md). Call before the
+// first window with profile_cache_path each launch: that request context
+// sends every request (loopback included) to the app's proxy at
+// 127.0.0.1:port, which accepts only this app's processes. Returns 1 when
+// stored.
+CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* profile_cache_path, int port);
+// 2 applied to the request context, 1 pending (not initialized yet),
+// 0 none, -1 Chromium refused the preference.
+CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_path);
+// Main-frame http(s) navigations of browser_id: 0 unrestricted, 1 must stay
+// loopback (a remote machine's store), 2 must not be loopback (a normal
+// store in a remote workspace). A violation is cancelled and reported as
+// NAVIGATION_REROUTE.
+CMUX_SHIM_EXPORT void cmux_shim_set_navigation_guard(int browser_id, int mode);
 
 #ifdef __cplusplus
 }

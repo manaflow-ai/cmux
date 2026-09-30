@@ -23,6 +23,13 @@ final class PaletteContentView: NSView {
     private let emptyHint = PaletteText.label(Typography.caption, color: Palette.textTertiary)
     private let footer = PaletteFooterView()
     private let actionsMenuView = PaletteActionsMenuView()
+    private let recorderView = PaletteShortcutRecorderView()
+    private var recorderHeight: CGFloat = 0
+    /// A click on a shortcut recorder choice.
+    var onRecorderOption: ((PaletteShortcutOption) -> Void)? {
+        get { recorderView.onChoose }
+        set { recorderView.onChoose = newValue }
+    }
 
     private var appliedResults = -1
     private var appliedScroll = -1
@@ -46,7 +53,9 @@ final class PaletteContentView: NSView {
         [searchBar, topRule, list, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
+        stage.addSubview(recorderView)
         actionsMenuView.isHidden = true
+        recorderView.isHidden = true
         stage.wantsLayer = true
         stage.shadow = {
             let shadow = NSShadow()
@@ -114,6 +123,7 @@ final class PaletteContentView: NSView {
         let scroll = model.scrollRequest
         let pageToken = model.pageToken
         let menuState = model.actionsMenu
+        let recorderState = model.shortcutRecorder
         let size = PaletteLayout.windowSize
 
         if resultsVersion != appliedResults {
@@ -148,12 +158,24 @@ final class PaletteContentView: NSView {
             focusField()
         }
         updateMenu(menuState)
+        updateRecorder(recorderState)
         if size != appliedSize {
             appliedSize = size
             list.relayoutRows()
             onPreferredSizeChange?(size)
             needsLayout = true
         }
+    }
+
+    private func updateRecorder(_ state: PaletteShortcutRecorderState?) {
+        guard let state else {
+            recorderView.isHidden = true
+            return
+        }
+        recorderView.update(state)
+        recorderHeight = PaletteShortcutRecorderView.height(for: state)
+        recorderView.isHidden = false
+        needsLayout = true
     }
 
     private func updateMenu(_ state: PaletteActionsMenuState?) {
@@ -201,6 +223,10 @@ final class PaletteContentView: NSView {
             topRule.layer?.backgroundColor = Palette.separator.cgColor
             bottomRule.layer?.backgroundColor = Palette.separator.cgColor
         }
+        // The recorder floats over the top of the list, under the field.
+        let recorderWidth = min(PaletteLayout.width - 2 * Metrics.space6, PaletteLayout.actionsMenuWidth * 1.5)
+        recorderView.frame = NSRect(x: glass.frame.midX - recorderWidth / 2, y: glass.frame.minY + PaletteLayout.searchHeight + Metrics.space4,
+                                    width: recorderWidth, height: recorderHeight)
         let menuWidth = PaletteLayout.actionsMenuWidth
         actionsMenuView.frame = NSRect(
             x: glass.frame.maxX - menuWidth - Metrics.space4,
@@ -217,20 +243,21 @@ final class PaletteContentView: NSView {
 
     // MARK: Animation
 
-    /// Opens with a fade and a spring from 97% scale anchored at the top
-    /// edge (Spotlight-like). Reopening while the close still runs continues
-    /// from what is on screen instead of restarting from zero.
+    /// Opens like Linear's command menu: a fade and an `appear` spring from
+    /// `Motion.panelOpenScale` about the panel's center. Reopening while the
+    /// close still runs continues from what is on screen instead of
+    /// restarting from zero.
     func animateIn() {
         guard let layer else { return }
         layoutSubtreeIfNeeded()
         let closing = layer.animation(forKey: "opacity") != nil
         Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: closing ? nil : Float(0))
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .panel,
-                   from: closing ? nil : NSValue(caTransform3D: scaleAboutTopCenter(0.97)))
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
+                   from: closing ? nil : NSValue(caTransform3D: panelScale(Motion.panelOpenScale)))
     }
 
-    /// Fades out (with a slight shrink) faster than it opened and calls
-    /// `completion` when done.
+    /// Closes faster than it opened: a `fadeOut` with a slight shrink to
+    /// `Motion.panelCloseScale` about the center; calls `completion` when done.
     func animateOut(completion: @escaping @MainActor () -> Void) {
         guard let layer else {
             completion()
@@ -239,7 +266,7 @@ final class PaletteContentView: NSView {
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
         Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut)
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: scaleAboutTopCenter(0.98)), fade: .fadeOut)
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), fade: .fadeOut)
         CATransaction.commit()
     }
 
@@ -249,15 +276,17 @@ final class PaletteContentView: NSView {
         layer?.removeAnimation(forKey: "sublayerTransform")
     }
 
-    private func scaleAboutTopCenter(_ scale: CGFloat) -> CATransform3D {
-        // sublayerTransform pivots on the layer's center; shift the pivot to
-        // the glass panel's top edge (maxY in the unflipped layer).
-        let pivot = CGPoint(x: bounds.midX, y: bounds.height - PaletteLayout.shadowMargin)
-        let dx = pivot.x - bounds.midX
-        let dy = pivot.y - bounds.midY
-        var transform = CATransform3DMakeTranslation(dx, dy, 0)
-        transform = CATransform3DScale(transform, scale, scale, 1)
-        return CATransform3DTranslate(transform, -dx, -dy, 0)
+    /// Center of the glass panel in this view's coordinates.
+    var panelCenter: CGPoint {
+        let margin = PaletteLayout.shadowMargin
+        return CGPoint(x: margin + PaletteLayout.width / 2, y: bounds.height - margin - PaletteLayout.height / 2)
+    }
+
+    /// The panel scaled about its own center (`Motion.scale` accounts for
+    /// the backing layer's (0, 0) anchor point).
+    func panelScale(_ scale: CGFloat) -> CATransform3D {
+        guard let layer else { return CATransform3DIdentity }
+        return Motion.scale(scale, about: panelCenter, in: layer)
     }
 
     /// Fades the actions menu. The fade starts from the view's current

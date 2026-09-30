@@ -51,7 +51,7 @@ public struct DaemonLanePolicy: Sendable {
         "update-tab-group", "add-tabs-to-tab-group", "remove-tabs-from-tab-group", "move-tab-group",
         "move-tab-group-to-split", "move-tab-group-to-column", "move-tab-group-to-new-workspace",
         "ungroup-tab-group", "close-tab-group", "save-tab-group", "unsave-tab-group", "delete-saved-tab-group",
-        "reopen-saved-tab-group", "ack-tab-notifications", "notify", "run", "create-surface-with-receipt",
+        "reopen-saved-tab-group", "ack-tab-notifications", "notify",
         // Browser tabs the phone can already drive over SSH (CmuxTUIBrowser).
         "new-browser-tab", "browser-frame-presented", "browser-mouse", "browser-mouse-guarded", "browser-wheel",
         "browser-wheel-guarded", "browser-key", "browser-key-press", "browser-insert-text", "browser-navigate",
@@ -59,6 +59,30 @@ public struct DaemonLanePolicy: Sendable {
         // Frontend projections: guarded per subject below.
         "get-frontend-projection", "put-frontend-projection",
     ]
+
+    /// Fields a phone may set on commands that start a terminal program.
+    /// Deny by default (remote-relay-authorization.md): the phone never
+    /// chooses the program (`argv`, `command`), its directory (`cwd`), its
+    /// environment (`env`, which alone can run code through `DYLD_*` or
+    /// `BASH_ENV`) or a terminal host id; a new terminal runs the user's
+    /// login shell, which the phone then drives as a terminal (`send`). A
+    /// field the daemon adds later is refused until it is reviewed here.
+    /// `run` and `create-surface-with-receipt` are not allowed at all.
+    static let creationFields: [String: Set<String>] = {
+        let mutation: Set<String> = ["origin", "mutation_id", "expected_generation", "expected_revision",
+                                     "expected_terminal_revision"]
+        let size: Set<String> = ["cols", "rows"]
+        return [
+            "new-tab": size.union(["pane"]),
+            "new-pane": size.union(["pane"]),
+            "new-pane-right": size.union(["pane", "width"]),
+            "split": size.union(["pane", "dir"]),
+            "new-screen": size.union(["workspace"]),
+            "new-workspace": size.union(["name"]),
+            "create-workspace": mutation.union(["name", "key"]),
+            "create-terminal": mutation.union(size).union(["workspace", "key", "name"]),
+        ]
+    }()
 
     /// Outcome for one request line.
     public enum Verdict: Equatable, Sendable {
@@ -83,6 +107,13 @@ public struct DaemonLanePolicy: Sendable {
         guard Self.allowedCommands.contains(command) else {
             return .refuse(Self.errorLine(id: id, code: "forbidden",
                                           message: "\(command) is not available to a phone"))
+        }
+        if let allowed = Self.creationFields[command] {
+            let extra = Set(object.keys).subtracting(allowed).subtracting(["id", "cmd"])
+            guard extra.isEmpty else {
+                return .refuse(Self.errorLine(id: id, code: "forbidden",
+                                              message: "\(command) does not take \(extra.sorted().joined(separator: ", ")) from a phone"))
+            }
         }
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return projectionVerdict(object, id: id, write: command == "put-frontend-projection")

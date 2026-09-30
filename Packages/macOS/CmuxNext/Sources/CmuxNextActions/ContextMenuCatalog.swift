@@ -14,6 +14,8 @@ public enum ContextMenuCatalog {
         switch context {
         case .tab: tab
         case .tabGroup: tabGroup
+        case .screen: screen
+        case .screenGroup: screenGroup
         case .pane: pane
         case .column: column
         case .workspaceRow: workspaceRow
@@ -23,6 +25,7 @@ public enum ContextMenuCatalog {
         case .browserPage: browserPage
         case .link: link
         case .cloudMachine: cloudMachine
+        case .sshMachine: sshMachine
         case .newTab: newTab
         case .profile: profile
         }
@@ -71,10 +74,28 @@ public enum ContextMenuCatalog {
                   "tabGroup.moveToWorkspace", "tabGroup.moveToNewWindow")
         + [.separator] + actions("tabGroup.ungroup", "tabGroup.close")
 
+    /// A screen tab in the bottom screen bar.
+    static let screen: [ContextMenuEntry] =
+        actions("screen.new", "screen.duplicate") + [.separator]
+        + actions("screen.rename") + [.submenu("screen.setColor", colors("screen") + actions("screen.clearColor"))]
+        + actions("screen.setIcon", "screen.clearIcon", "screen.togglePin") + [.separator]
+        + actions("screenGroup.create", "screenGroup.addScreen", "screenGroup.removeScreen") + [.separator]
+        + actions("screen.moveLeft", "screen.moveRight", "screen.moveToWorkspace", "screen.moveToNewWorkspace", "screen.moveToNewWindow")
+        + [.separator] + actions("screen.close", "screen.closeOthers", "screen.closeToRight", "screen.closeToLeft")
+
+    /// A screen group chip in the screen bar.
+    static let screenGroup: [ContextMenuEntry] =
+        actions("screenGroup.newScreen", "screenGroup.rename") + [.submenu("screenGroup.setColor", colors("screenGroup"))]
+        + actions("screenGroup.toggleCollapsed") + [.separator] + actions("screenGroup.save", "screenGroup.unsave") + [.separator]
+        + actions("screenGroup.moveLeft", "screenGroup.moveRight", "screenGroup.moveToWorkspace", "screenGroup.moveToNewWorkspace",
+                  "screenGroup.moveToNewWindow")
+        + [.separator] + actions("screenGroup.ungroup", "screenGroup.close")
+
     static let pane: [ContextMenuEntry] =
         actions("splitRight", "splitDown", "splitLeft", "splitUp", "newColumn", "splitBrowserRight", "splitBrowserDown")
         + [.separator] + actions("toggleSplitZoom", "equalizeSplits", "triggerFlash", "renamePane") + [.separator]
         + actions("palette.swapWithSession", "reconnectPane") + [.separator]
+        + actions("pane.moveToNewWorkspace") + [.separator]
         + actions("palette.copyPaneID", "palette.copyPaneLink") + [.separator] + actions("closePane")
 
     static let column: [ContextMenuEntry] =
@@ -83,23 +104,35 @@ public enum ContextMenuCatalog {
         + actions("column.moveLeft", "column.moveRight", "equalizeSplits", "toggleSplitZoom")
 
     static let workspaceRow: [ContextMenuEntry] =
-        actions("renameWorkspace", "editWorkspaceDescription", "palette.workspaceStatus", "markWorkspaceDone",
-                "palette.workspaceColor", "palette.resetWorkspaceColor", "palette.toggleWorkspacePin",
-                "palette.markWorkspaceRead", "palette.markWorkspaceUnread")
+        actions("workspace.newAbove", "workspace.newBelow", "workspace.newInGroup", "workspace.newInSameDirectory",
+                "workspace.duplicate", "workspace.duplicateTerminalsOnly")
         + [.separator]
-        + actions("moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
-                  "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspace.moveToRoom", "workspace.duplicateToRoom")
+        + actions("renameWorkspace", "editWorkspaceDescription", "palette.workspaceStatus", "markWorkspaceDone",
+                "palette.workspaceColor", "palette.resetWorkspaceColor", "workspace.setIcon", "workspace.clearIcon",
+                "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
+                "notifications.toggleWorkspaceMute")
         + [.separator]
-        + actions("workspace.showResources", "reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
-                  "palette.copyWorkspaceLink")
+        + actions("moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom", "moveWorkspaceToWindow",
+                  "moveWorkspaceToNewWindow", "moveWorkspaceToGroup", "workspace.moveToNewGroup", "removeWorkspaceFromGroup",
+                  "workspace.moveToRoom", "workspace.duplicateToRoom", "workspace.mergeInto")
         + [.separator]
-        + actions("palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove", "closeWorkspace")
+        + actions("workspace.showResources", "reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "workspace.copyPath",
+                  "palette.copyWorkspaceID", "palette.copyWorkspaceLink")
+        + [.separator]
+        + actions("palette.closeOtherWorkspaces", "workspace.closeOthersInGroup", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
+                  "closeWorkspace")
 
     static let cloudMachine: [ContextMenuEntry] =
         actions("cloudNewTerminal", "cloudOpenMachine", "cloudRenameMachine") + [.separator]
         + actions("cloudCopyMachineID", "cloudCopyLink", "cloudCopyPort") + [.separator]
         + actions("cloudResizeMachine", "palette.cloud.status", "palette.cloud.snapshot", "palette.cloud.fork") + [.separator]
         + actions("cloudKillMachine")
+
+    /// An SSH machine's section header.
+    static let sshMachine: [ContextMenuEntry] =
+        actions("remote.newWorkspace") + [.separator]
+        + actions("remote.reconnect", "remote.disconnect", "remote.install") + [.separator]
+        + actions("remote.forget")
 
     /// A room dot in the sidebar.
     static let profile: [ContextMenuEntry] =
@@ -115,14 +148,18 @@ public enum ContextMenuCatalog {
         + [.submenu("workspaceGroup.setColor", colors("workspaceGroup"))]
         + actions("workspaceGroup.togglePin", "toggleFocusedWorkspaceGroupCollapsed") + [.separator]
         + actions("workspaceGroup.markRead", "workspaceGroup.markUnread", "workspaceGroup.clearNotifications") + [.separator]
+        + actions("workspaceGroup.collapseAll", "workspaceGroup.expandAll") + [.separator]
         + actions("workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToNewWindow",
                   "workspaceGroup.moveToWindow", "workspaceGroup.moveToRoom")
         + [.separator] + actions("workspaceGroup.editConfig") + [.separator]
         + actions("workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces", "workspaceGroup.delete")
 
     static let sidebarBackground: [ContextMenuEntry] =
-        actions("newTab", "newBrowserWorkspace", "openFolder", "newWorkspaceGroup", "room.new") + [.separator]
-        + actions("newCloudWorkspace") + [.separator] + actions("toggleSidebar")
+        actions("newTab", "workspace.newAtTop", "workspace.newOnMachine", "newBrowserWorkspace", "openFolder", "newWorkspaceGroup", "room.new")
+        + [.separator]
+        + actions("workspace.sortByName", "workspace.sortByLastUsed", "workspace.sortByDirectory", "workspaceGroup.collapseAll",
+                  "workspaceGroup.expandAll") + [.separator]
+        + actions("newCloudWorkspace", "remote.connect") + [.separator] + actions("toggleSidebar")
 
     static let terminalSelection: [ContextMenuEntry] =
         actions("terminalCopy", "terminalPaste", "terminal.selectAll", "useSelectionForFind") + [.separator]

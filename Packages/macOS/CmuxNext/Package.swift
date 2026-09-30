@@ -20,10 +20,13 @@ import PackageDescription
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
+//   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
 //   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
+//   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
+//   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 
@@ -84,17 +87,50 @@ let package = Package(
                 "CmuxNextPalette",
                 "CmuxNextLayout",
                 "CmuxNextBrowser",
+                "CmuxNextRemoteLocalhost",
                 "CmuxNextBridge",
                 "CmuxNextControl",
                 "CmuxNextSettings",
                 "CmuxNextCloud",
+                "CmuxNextRemote",
                 "CmuxNextMobile",
                 "CmuxNextUpdater",
                 "CmuxNextResources",
+                "CmuxNextBrowserImport",
+                "CmuxNextOnboarding",
             ],
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Browser import (onboarding step 2; data-model.md 5): source detection
+        // (Chrome, Arc, Dia, Brave, Edge, Vivaldi, Helium, Chromium, Safari,
+        // Firefox), parsers for bookmarks, history, open tabs and extensions,
+        // and the cancellable importer. No UI, nothing main-actor.
+        .target(
+            name: "CmuxNextBrowserImport",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBrowserImportTests",
+            dependencies: ["CmuxNextBrowserImport"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // First-run onboarding window: theme and density, browser import,
+        // default browser and terminal handlers, the key ideas tour. The App
+        // supplies `OnboardingServices`.
+        .target(
+            name: "CmuxNextOnboarding",
+            dependencies: ["CmuxNextDesign", "CmuxNextBrowserImport"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextOnboardingTests",
+            dependencies: ["CmuxNextOnboarding", "CmuxNextBrowserImport", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
@@ -152,6 +188,19 @@ let package = Package(
         .testTarget(
             name: "CmuxNextCloudTests",
             dependencies: ["CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Machines reached over the user's own OpenSSH: destinations, the
+        // `cmux-tui remote connect ssh://` link, probe, reconnect gate, the
+        // pinned cmux-tui install and the remote-to-local deny policy. No UI.
+        .target(
+            name: "CmuxNextRemote",
+            dependencies: ["CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteTests",
+            dependencies: ["CmuxNextRemote"],
             swiftSettings: daemonSwiftSettings
         ),
         // App-layer mapping between daemon records and feature view models,
@@ -293,6 +342,17 @@ let package = Package(
             name: "CmuxNextBrowserTests",
             dependencies: ["CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextRemoteLocalhost",
+            dependencies: ["CmuxNextWakeups"],
+            resources: [.process("Resources")],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteLocalhostTests",
+            dependencies: ["CmuxNextRemoteLocalhost"],
+            swiftSettings: daemonSwiftSettings
         ),
         .target(
             name: "CmuxNextSettings",

@@ -101,12 +101,6 @@ public enum WindowPlacement {
             }
             window.setFrame(frame, display: false)
         }
-        if !noActivate {
-            window.makeKeyAndOrderFront(nil)
-        } else if testScreen != nil {
-            window.orderFrontRegardless()
-        } else {
-            window.orderBack(nil)
-        }
+        WindowActivation.show(window, .present)
     }
 }

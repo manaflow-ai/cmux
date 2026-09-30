@@ -35,6 +35,11 @@ public enum BrowserTabIntent {
     /// A one-line message for the user about this tab (the host shows it
     /// over the page), e.g. why a link did not open.
     case notice(String)
+    /// A main-frame navigation to `url` would leave the tab's store (a
+    /// remote machine's loopback origin, or the reverse); the engine
+    /// cancelled it. The host re-creates the tab in the other store with
+    /// `url` (plans/cmux-next/remote-localhost.md section 3).
+    case rerouteStore(URL)
 }
 
 /// Receives intents from a tab.

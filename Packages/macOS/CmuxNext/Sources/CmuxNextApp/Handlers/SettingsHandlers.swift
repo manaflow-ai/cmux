@@ -27,15 +27,14 @@ enum SettingsHandlers {
         registry.bind("sendFeedback", run: { _ in try context.open(URL(string: "https://github.com/manaflow-ai/cmux/issues/new")!) })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         UpdateHandlers.bind(into: registry, updater: context.services.updater)
+        OnboardingHandlers.bind(into: registry, context: context)
 
         let unbuilt: [(ActionID, String)] = [
             ("palette.installCLI", "cli-install"),
             ("palette.uninstallCLI", "cli-install"),
-            ("palette.makeDefaultTerminal", "default-terminal"),
             ("palette.shortcutKeymap", "shortcut-keymaps"),
             ("palette.restartSocketListener", "control-socket-restart"),
             ("palette.pro.upgrade", "account-billing"),
-            ("palette.welcomeChecklist", "onboarding"),
             ("help.featureFlags", "feature-flags"),
         ]
         for (id, feature) in unbuilt {

@@ -103,6 +103,12 @@ enum DebugKey {
                 "palette_text_input": .bool(palette.model.isTextInput),
                 "palette_notice": palette.model.notice.map { .string($0.text) } ?? .null,
                 "palette_unhandled_key_downs": .number(Double(palette.unhandledKeyDowns)),
+                "palette_selected": palette.model.selectedItem.map { .string($0.actionID?.rawValue ?? $0.id) } ?? .null,
+                "palette_recorder": palette.model.shortcutRecorder.map { recorder in
+                    .object(["action": .string(recorder.actionID.rawValue), "message": recorder.message.map(JSONValue.string) ?? .null,
+                             "recorded": recorder.recorded.map { .string($0.displayString) } ?? .null,
+                             "pending": .bool(recorder.pending != nil), "options": .array(recorder.options.map { .string("\($0)") })])
+                } ?? .null,
             ])
         }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"

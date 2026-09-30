@@ -23,6 +23,11 @@ extension SidebarListView {
         let point = convert(event.locationInWindow, from: nil)
         guard let row = displayed.row(at: point.y) else {
             press = nil
+            // Empty space: a double-click makes a workspace there.
+            if event.clickCount == 2, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+               let target = displayed.emptyAreaTarget(at: point.y, metrics: metrics), case let .machine(machine) = target.section {
+                model.send(.newWorkspace(machine: machine, group: target.group))
+            }
             return
         }
         var press = Press(key: row.key, point: point)

@@ -14,14 +14,12 @@ public import CmuxNextDesign
 @Observable
 @MainActor
 public final class LayoutModel {
-    /// Screens of the workspace, in switcher order.
+    /// Screens of the workspace, in daemon order.
     public private(set) var screens: [LayoutScreen]
     /// The screen shown. Client-local.
     public private(set) var activeScreenID: ScreenID?
     /// The focused pane. Client-local; drives the focus ring and column reveal.
     public private(set) var focusedPane: PaneID?
-    /// Shows the screen switcher chrome. Off by default (REWRITE.md goal 5).
-    public var showsScreenSwitcher = false
     /// Dims panes other than the focused one.
     public var dimsInactivePanes = false
     /// Pins the column centering mode (tests, the demo); nil follows

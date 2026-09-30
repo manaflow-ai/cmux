@@ -5,13 +5,17 @@ import Foundation
 ///
 /// CEF asks for work through `OnScheduleMessagePumpWork(delay_ms)`: 0 means
 /// "now", a delay is its earliest delayed task (CEF sends it only when no
-/// work is pending, so it replaces an earlier delayed request). Two gaps in
-/// CEF's pump (`MessagePumpExternal`, libcef/browser/browser_message_loop.cc
-/// of the pinned fork) need more than those requests:
+/// work is pending, so it replaces an earlier delayed request).
+///
+/// Fork API 7 and later (cef-154.0.28-cmux.7) is demand-driven: its
+/// `MessagePumpExternal` asks for "now" when its slice ends with work left
+/// and reports its next delayed task, so the pump uses `.none` and wakes
+/// only when CEF asks. Older forks have two gaps in `MessagePumpExternal`
+/// (libcef/browser/browser_message_loop.cc) that need `standard`:
 /// - `CefDoMessageLoopWork` stops after a 10 ms time slice even when
 ///   immediate work remains, and Chromium does not ask again for it
-///   (`WorkDeduplicator` believes the pump will call back). A pass that used
-///   the whole slice therefore runs again at once.
+///   (`WorkDeduplicator` believes the pump will call back). With the
+///   follow-ups, a pass that used the whole slice runs again at once.
 /// - A delayed task posted while `CefDoMessageLoopWork` runs is reported
 ///   only in the pass's return value, which CEF drops. So after a pass the
 ///   pump follows up with a few one-shot wakes: 1/30 s later (cefclient's
@@ -20,7 +24,7 @@ import Foundation
 ///   asks: an idle Chromium costs no wakeups (no polling). A delayed task
 ///   posted during activity runs late by at most about its own delay; one
 ///   due more than about 2 s after the last activity waits for CEF's next
-///   request. A fork that reports its next wakeup makes `.none` enough.
+///   request.
 nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     enum SafetyNet: Equatable, Sendable {
         /// Wake only when CEF asks.
@@ -33,6 +37,15 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// CEF's `max_time_slice` for one `CefDoMessageLoopWork` call.
     static let timeSlice: TimeInterval = 0.010
     static let standard = SafetyNet.followUps(first: 1.0 / 30.0, last: 1.0)
+    /// The first fork API whose `MessagePumpExternal` is demand-driven: it
+    /// asks for "now" when its slice ends with work left and reports its
+    /// next delayed task (cef-154.0.28-cmux.7).
+    static let demandDrivenForkAPI: Int32 = 7
+
+    /// `.none` with a demand-driven fork; older pins keep the follow-ups.
+    static func safetyNet(forkAPIVersion: Int32) -> SafetyNet {
+        forkAPIVersion >= demandDrivenForkAPI ? .none : standard
+    }
     /// Share of a safety-net interval the system may add to coalesce wakeups.
     static let safetyNetTolerance = 0.1
 
@@ -124,7 +137,9 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// began.
     mutating func endWork(now: TimeInterval, elapsed: TimeInterval) {
         isWorking = false
-        if reentered || elapsed >= Self.timeSlice {
+        // A demand-driven fork asks again itself when its slice ends.
+        let sliceMayHaveCutWork = safetyNet != .none && elapsed >= Self.timeSlice
+        if reentered || sliceMayHaveCutWork {
             immediate = true
             nextFollowUp = Self.firstFollowUp(of: safetyNet)
         }

@@ -21,7 +21,6 @@ public final class LayoutRootView: NSView {
     weak var planeHost: (any OverlayPlaneHosting)?
     var reportedInteractiveRects: [CGRect] = []
     var reportedDividerMouseAreas: [LayoutMouseArea] = []
-    let switcher = ScreenSwitcherView()
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
@@ -37,7 +36,6 @@ public final class LayoutRootView: NSView {
         var screens: [LayoutScreen]
         var activeScreen: ScreenID?
         var focused: PaneID?
-        var showsSwitcher: Bool
         var dimsInactive: Bool
         var style: LayoutStyle
         var gestureActive: Bool
@@ -58,12 +56,6 @@ public final class LayoutRootView: NSView {
         context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
-        addSubview(switcher)
-        NSLayoutConstraint.activate([
-            switcher.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.space4),
-            switcher.centerXAnchor.constraint(equalTo: centerXAnchor),
-        ])
-        switcher.onSelect = { [weak self] id in self?.model.selectScreen(id) }
         registerForDraggedTypes([LayoutTabDrag.pasteboardType])
         sync(snapshot())
         observe()
@@ -118,7 +110,6 @@ public final class LayoutRootView: NSView {
             screens: model.screens,
             activeScreen: model.activeScreenID,
             focused: model.focusedPane,
-            showsSwitcher: model.showsScreenSwitcher,
             dimsInactive: model.dimsInactivePanes,
             style: model.style,
             gestureActive: model.isGestureActive,
@@ -136,8 +127,7 @@ public final class LayoutRootView: NSView {
                     screens: model.screens,
                     activeScreen: model.activeScreenID,
                     focused: model.focusedPane,
-                    showsSwitcher: model.showsScreenSwitcher,
-                    dimsInactive: model.dimsInactivePanes,
+                            dimsInactive: model.dimsInactivePanes,
                     style: model.style,
                     gestureActive: model.isGestureActive,
                     centerRequest: model.centerRequest,
@@ -178,7 +168,11 @@ public final class LayoutRootView: NSView {
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
                 view.frame = bounds
                 view.isHidden = !isActive
-                addSubview(view, positioned: .below, relativeTo: overlayPlane.isHome ? overlayPlane : switcher)
+                if overlayPlane.isHome {
+                    addSubview(view, positioned: .below, relativeTo: overlayPlane)
+                } else {
+                    addSubview(view)
+                }
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
@@ -208,10 +202,6 @@ public final class LayoutRootView: NSView {
             }
         }
 
-        switcher.isHidden = !snapshot.showsSwitcher
-        if snapshot.showsSwitcher {
-            switcher.update(screens: snapshot.screens, active: snapshot.activeScreen)
-        }
         updateVisibility()
         syncOverlay()
         // Pane padding or corners changed: pages drawn as child windows
@@ -240,12 +230,22 @@ public final class LayoutRootView: NSView {
         return moving || model.hasPendingGestureIntents
     }
 
+    /// While detached from its window, report the panes that were visible
+    /// or in the keep-alive band as keep-alive instead of hidden (a parked
+    /// workspace: its surfaces stay mounted and paused, so showing it again
+    /// draws in one frame with no re-attach).
+    public var keepsPanesWhenDetached = false
+
     func updateVisibility() {
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
         if window != nil, let active = model.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
             keepAlive = view.keepAlivePanes().union(visible)
+        } else if keepsPanesWhenDetached {
+            // Parked (a recently shown workspace kept warm): what showed or
+            // was in the band stays in the band, paused but never released.
+            keepAlive = reportedKeepAlive.union(reportedVisible)
         }
         guard visible != reportedVisible || keepAlive != reportedKeepAlive else { return }
         var changes: [(PaneID, PanePresence)] = []

@@ -98,15 +98,22 @@ public enum TerminalEnvironment {
     /// Shared per-launch provider for terminal `env`: the login environment
     /// captured once (the launcher's capture) and filtered.
     /// `overrides` (the app's `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`,
-    /// `CMUX_TAG`) win, so terminals created in a daemon that an older launch
-    /// started still reach this app.
+    /// `CMUX_TAG`, Ghostty's terminal identity) win, so terminals created in
+    /// a daemon that an older launch started still reach this app.
+    /// `integration` (read per terminal, so a config reload applies to the
+    /// next one) adds Ghostty's shell integration last, over the login
+    /// `PATH`, `SHELL` and data dirs.
     public static func shared(
         base: [String: String] = ProcessInfo.processInfo.environment,
-        overrides: [String: String] = [:]
+        overrides: [String: String] = [:],
+        login: (@Sendable () async -> [String: String]?)? = nil,
+        integration: @escaping @Sendable () async -> GhosttyShellIntegration? = { nil }
     ) -> @Sendable () async -> [String: String] {
         {
-            var env = terminal(login: await LoginEnvironmentCache.shared.value(), base: base)
+            let captured = if let login { await login() } else { await LoginEnvironmentCache.shared.value() }
+            var env = terminal(login: captured, base: base)
             for (key, value) in overrides { env[key] = value }
+            if let integration = await integration() { env = integration.apply(to: env) }
             return env
         }
     }

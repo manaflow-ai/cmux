@@ -10,9 +10,18 @@ struct VisibilityTests {
         TabChromeVisibility.resolve(width: width, isPinned: pinned, isSelected: selected, isHovered: hovered, style: style, metrics: m)
     }
 
-    @Test func wideTabsShowEverything() {
+    @Test func wideTabsShowIconAndTitleButNoCloseUntilHovered() {
         let v = resolve(200)
-        #expect(v.showsIcon && v.showsTitle && v.showsClose && !v.centersContent)
+        #expect(v.showsIcon && v.showsTitle && !v.showsClose && !v.centersContent)
+        #expect(resolve(200, hovered: true).showsClose)
+    }
+
+    /// User feedback (nxdog9): the x shows only on the hovered tab, also
+    /// not on the selected tab while the pointer is elsewhere.
+    @Test func selectedTabShowsCloseOnlyWhileHovered() {
+        #expect(!resolve(200, selected: true).showsClose)
+        #expect(resolve(200, selected: true, hovered: true).showsClose)
+        #expect(!resolve(m.minActiveTabWidth, selected: true).showsClose)
     }
 
     @Test func narrowInactiveTabHidesClose() {
@@ -26,8 +35,8 @@ struct VisibilityTests {
         #expect(resolve(40, hovered: true).showsClose)
     }
 
-    @Test func tinyActiveTabShowsOnlyCloseCentered() {
-        let v = resolve(40, selected: true)
+    @Test func tinyHoveredActiveTabShowsOnlyCloseCentered() {
+        let v = resolve(40, selected: true, hovered: true)
         #expect(v.showsClose)
         #expect(!v.showsIcon)
         #expect(!v.showsTitle)
@@ -36,12 +45,12 @@ struct VisibilityTests {
 
     @Test func tokenDerivedMinActiveWidthFitsIconAndClose() {
         let tokens = TabStripMetrics.standard
-        let v = TabChromeVisibility.resolve(width: tokens.minActiveTabWidth, isPinned: false, isSelected: true, isHovered: false, style: .chrome, metrics: tokens)
+        let v = TabChromeVisibility.resolve(width: tokens.minActiveTabWidth, isPinned: false, isSelected: true, isHovered: true, style: .chrome, metrics: tokens)
         #expect(v.showsIcon && v.showsClose)
     }
 
     @Test func minActiveWidthFitsIconAndClose() {
-        let v = resolve(m.minActiveTabWidth, selected: true)
+        let v = resolve(m.minActiveTabWidth, selected: true, hovered: true)
         #expect(v.showsIcon && v.showsClose)
     }
 
@@ -55,10 +64,10 @@ struct VisibilityTests {
         #expect(v.showsIcon && !v.showsTitle && !v.showsClose && v.centersContent)
     }
 
-    @Test func compactShowsCloseOnlyOnSelectedOrHovered() {
+    @Test func compactShowsCloseOnlyOnTheHoveredTab() {
         #expect(!resolve(160, style: .compact).showsClose)
         #expect(resolve(160, hovered: true, style: .compact).showsClose)
-        #expect(resolve(160, selected: true, style: .compact).showsClose)
+        #expect(!resolve(160, selected: true, style: .compact).showsClose)
     }
 }
 
@@ -289,7 +298,7 @@ struct TokenTests {
         defer { settings.setOverride(.tabMaxWidth, nil) }
         let after = TabStripMetrics()
         #expect(after.maxTabWidth == 300)
-        #expect(after.inactiveCloseMinWidth == 150)
+        #expect(after.compactTabWidth == 225)
         #expect(before.maxTabWidth != 300)
     }
 

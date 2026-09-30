@@ -18,11 +18,40 @@ final class TabStripButtonGroupView: NSView {
     var hoveredIndex: Int? { didSet { if oldValue != hoveredIndex { updateColors(animated: true) } } }
     var pressedIndex: Int? { didSet { if oldValue != pressedIndex { updateColors(animated: false) } } }
     var onPress: ((String) -> Void)?
+    /// VoiceOver moved its focus onto (true) or off (false) every button.
+    var onAccessibilityFocus: ((Bool) -> Void)?
+    /// Shown or faded out (`TabStripButtonReveal`). Hidden buttons keep
+    /// their frames and accessibility elements.
+    private(set) var isRevealed = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
+        layer?.opacity = 0
+    }
+
+    /// Fades the buttons in or out with the `hover` token, from what is on
+    /// screen (an interrupted fade reverses in place).
+    func setRevealed(_ revealed: Bool, animated: Bool) {
+        guard revealed != isRevealed, let layer else { return }
+        isRevealed = revealed
+        let opacity: Float = revealed ? 1 : 0
+        if animated {
+            Motion.set(layer, "opacity", to: opacity, fade: .hover)
+        } else {
+            layer.removeAnimation(forKey: "opacity")
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.opacity = opacity
+            CATransaction.commit()
+        }
+    }
+
+    private var focusedElements: Set<ObjectIdentifier> = [] {
+        didSet {
+            if focusedElements.isEmpty != oldValue.isEmpty { onAccessibilityFocus?(!focusedElements.isEmpty) }
+        }
     }
 
     @available(*, unavailable)
@@ -47,6 +76,7 @@ final class TabStripButtonGroupView: NSView {
             slot.fill.removeFromSuperlayer()
             slot.glyph.removeFromSuperlayer()
         }
+        focusedElements = []
         slots = buttons.map { button in
             let slot = Slot(button: button)
             for layer in [slot.fill, slot.glyph] {
@@ -61,6 +91,10 @@ final class TabStripButtonGroupView: NSView {
             slot.accessibility.setAccessibilityHelp(button.toolTip)
             let id = button.id
             slot.accessibility.onPress = { [weak self] in self?.onPress?(id) }
+            let element = ObjectIdentifier(slot.accessibility)
+            slot.accessibility.onFocus = { [weak self] focused in
+                if focused { self?.focusedElements.insert(element) } else { self?.focusedElements.remove(element) }
+            }
             return slot
         }
         if let hoveredIndex, hoveredIndex >= slots.count { self.hoveredIndex = nil }
@@ -139,10 +173,17 @@ final class TabStripButtonGroupView: NSView {
 /// VoiceOver and automation element for one trailing button.
 nonisolated final class TabButtonAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
     nonisolated(unsafe) var onPress: (@MainActor () -> Void)?
+    nonisolated(unsafe) var onFocus: (@MainActor (Bool) -> Void)?
 
     override init() {
         super.init()
         setAccessibilityRole(.button)
+    }
+
+    override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        super.setAccessibilityFocused(accessibilityFocused)
+        guard let onFocus else { return }
+        MainActor.assumeIsolated { onFocus(accessibilityFocused) }
     }
 
     override func accessibilityPerformPress() -> Bool {

@@ -54,11 +54,11 @@ Targets for dogfood (measure against the old app on the same machine, same workl
 | App resident memory, idle | < 150 MB (daemon measured separately) |
 | Per hidden terminal tab in the app | ~0 (no surface; recreated on show from daemon replay) |
 | Per visible terminal surface | < 15 MB beyond Ghostty's atlas |
-| Per background WebKit tab | released after 10 min hidden (snapshot kept for preview, reload on show); CEF tabs likewise via discard |
+| Per background browser tab | hibernated after `browser.hibernation` (default 60 min hidden, sooner under memory pressure; history and snapshot kept, restored on show), plans/cmux-next/tab-lifecycle.md |
 | Hover previews | downscaled CGImages, LRU cache capped at 32 MB total |
 
 Mechanisms:
-- Terminal surfaces exist only for tabs that are visible (selected tab of on-screen panes) plus a small LRU (default 8) for fast switching. A hidden tab's surface is destroyed; showing it again attaches and replays from the daemon (replay is bounded by the daemon's replay budget; measure switch latency, target < 50 ms).
+- Terminal surfaces exist only for tabs that are visible (selected tab of on-screen panes) plus a small LRU sized by memory (`WarmSetBudget`, 4 to 12; shrunk under memory pressure) for fast switching, plus the panes of recently shown workspaces parked per window (tab-lifecycle.md). A hidden tab's surface is destroyed; showing it again attaches and replays from the daemon (replay is bounded by the daemon's replay budget; measure switch latency, target < 50 ms).
 - Offscreen niri columns keep surfaces alive while within one viewport width of the visible range, otherwise they are released like hidden tabs.
 - No per-tab timers, no per-tab observers of global notifications.
 

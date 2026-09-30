@@ -21,18 +21,40 @@ public nonisolated struct BrowserTabConfiguration: Hashable, Sendable {
     /// The pane that shows the tab. Engines that group tabs per pane (CEF:
     /// one Chromium window per pane) use it; nil gives the tab its own group.
     public var pane: BrowserPaneID?
+    /// History to restore instead of loading `initialURL` fresh (a tab
+    /// waking from hibernation). `initialURL` is the fallback when the
+    /// engine cannot restore it.
+    public var restoreState: BrowserRestoreState?
+    /// The remote-localhost derived store, nil for the profile's own store
+    /// (plans/cmux-next/remote-localhost.md section 3).
+    public var machineStore: BrowserMachineStore?
+    /// Main-frame navigations this tab's store may hold.
+    public var navigationGuard: BrowserNavigationGuard
 
     public init(
         id: BrowserTabID = .random(),
         profile: BrowserProfileID = .default,
         initialURL: URL? = nil,
         zoom: Double = 1,
-        pane: BrowserPaneID? = nil
+        pane: BrowserPaneID? = nil,
+        machineStore: BrowserMachineStore? = nil,
+        navigationGuard: BrowserNavigationGuard = .none
     ) {
         self.id = id
         self.profile = profile
         self.initialURL = initialURL
         self.zoom = zoom
         self.pane = pane
+        self.machineStore = machineStore
+        self.navigationGuard = navigationGuard
     }
+}
+
+/// A page's back/forward history with page state (scroll position, form
+/// data), saved when the page hibernates and restored when it wakes.
+public nonisolated enum BrowserRestoreState: Hashable, Sendable {
+    /// `WKWebView.interactionState`, archived.
+    case webKit(Data)
+    /// The Chromium fork's `cmux_tab_navigation_state` (API 7).
+    case chromium(String)
 }

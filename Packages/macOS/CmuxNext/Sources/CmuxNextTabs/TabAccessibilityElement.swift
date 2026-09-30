@@ -37,6 +37,8 @@ extension TabCell {
         var parts = [displayTitle]
         if item.isPinned { parts.append(Strings.axPinned) }
         if item.isBusy { parts.append(Strings.axBusy) }
+        if item.isDormant { parts.append(Strings.axHibernated) }
+        if let machine = item.machineBadge { parts.append(Strings.axOnMachine(machine)) }
         switch item.status {
         case .needsInput: parts.append(Strings.axNeedsInput)
         case .success: parts.append(Strings.axSuccess)
@@ -45,6 +47,6 @@ extension TabCell {
         }
         accessibility.setAccessibilityLabel(parts.joined(separator: ", "))
         accessibility.setAccessibilityValue(isSelected ? 1 : 0)
-        accessibility.setAccessibilityHelp(item.subtitle)
+        accessibility.setAccessibilityHelp([item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: ", "))
     }
 }

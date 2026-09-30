@@ -191,3 +191,46 @@ private struct SeededGenerator: RandomNumberGenerator {
         return state >> 11 | state << 53
     }
 }
+
+/// Browser pages stay out of the terminal warm set, and the warm set
+/// shrinks under memory pressure.
+struct SurfaceLedgerWarmSetTests {
+    typealias Ledger = SurfaceLedger<String, String>
+
+    @Test func unretainedKeysNeitherCountNorGetEvicted() {
+        var ledger = Ledger(capacity: 2)
+        ledger.setRetained("page1", false)
+        ledger.setRetained("page2", false)
+        var evicted: [String] = []
+        for key in ["t1", "page1", "t2", "page2", "t3"] {
+            evicted += ledger.present(key, by: "P", ownerVisible: true).evicted
+            evicted += ledger.withdraw(key, by: "P").evicted
+        }
+        // Three terminals through a warm set of two: only the oldest goes.
+        #expect(evicted == ["t1"])
+    }
+
+    @Test func shrinkingTheCapacityEvictsTheOldestHiddenSurfaces() {
+        var ledger = Ledger(capacity: 4)
+        for key in ["a", "b", "c", "d"] {
+            _ = ledger.present(key, by: "P", ownerVisible: true)
+            _ = ledger.withdraw(key, by: "P")
+        }
+        let effects = ledger.setCapacity(1)
+        #expect(effects.evicted == ["a", "b", "c"])
+        #expect(ledger.isRetained("d"))
+        #expect(ledger.capacity == 1)
+    }
+}
+
+/// The warm set follows physical memory and memory pressure.
+struct WarmSetBudgetTests {
+    @Test func sizesFromMemoryAndShrinksUnderPressure() {
+        let gb: UInt64 = 1 << 30
+        #expect(WarmSetBudget.forMemory(physicalBytes: 8 * gb, pressure: .normal) == WarmSetBudget(terminalCapacity: 4, parkedWorkspaces: 8, parkedPanes: 4))
+        #expect(WarmSetBudget.forMemory(physicalBytes: 64 * gb, pressure: .normal) == WarmSetBudget(terminalCapacity: 10, parkedWorkspaces: 8, parkedPanes: 10))
+        #expect(WarmSetBudget.forMemory(physicalBytes: 256 * gb, pressure: .normal).terminalCapacity == 12)
+        #expect(WarmSetBudget.forMemory(physicalBytes: 256 * gb, pressure: .warning) == WarmSetBudget(terminalCapacity: 4, parkedWorkspaces: 1, parkedPanes: 2))
+        #expect(WarmSetBudget.forMemory(physicalBytes: 256 * gb, pressure: .critical) == WarmSetBudget(terminalCapacity: 0, parkedWorkspaces: 0, parkedPanes: 0))
+    }
+}

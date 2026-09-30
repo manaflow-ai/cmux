@@ -3,7 +3,7 @@
 /// tab beyond that loses its surface and re-attaches from the daemon replay
 /// when shown again.
 public struct SurfaceRetention<Key: Hashable & Sendable>: Sendable {
-    public let capacity: Int
+    public private(set) var capacity: Int
     public private(set) var visible: Set<Key> = []
     /// Hidden but retained, least recently hidden first.
     public private(set) var recent: [Key] = []
@@ -30,6 +30,16 @@ public struct SurfaceRetention<Key: Hashable & Sendable>: Sendable {
         recent.append(key)
         guard recent.count > capacity else { return [] }
         let evicted = Array(recent.prefix(recent.count - capacity))
+        recent.removeFirst(evicted.count)
+        return evicted
+    }
+
+    /// Changes the capacity; returns the least recently hidden keys that no
+    /// longer fit.
+    public mutating func setCapacity(_ capacity: Int) -> [Key] {
+        self.capacity = max(0, capacity)
+        guard recent.count > self.capacity else { return [] }
+        let evicted = Array(recent.prefix(recent.count - self.capacity))
         recent.removeFirst(evicted.count)
         return evicted
     }

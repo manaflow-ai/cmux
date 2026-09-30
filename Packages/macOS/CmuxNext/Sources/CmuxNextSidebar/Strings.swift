@@ -11,6 +11,10 @@ enum Strings {
     static var statusOffline: String { String(localized: "sidebar.machine.offline", defaultValue: "Offline", bundle: .module) }
     static var statusUpdateAvailable: String { String(localized: "sidebar.machine.updateAvailable", defaultValue: "Update available", bundle: .module) }
     static var statusUpdateRequired: String { String(localized: "sidebar.machine.updateRequired", defaultValue: "Update needed", bundle: .module) }
+    static var statusInstallRequired: String { String(localized: "sidebar.machine.installRequired", defaultValue: "Install needed", bundle: .module) }
+    static var statusInstalling: String { String(localized: "sidebar.machine.installing", defaultValue: "Installing…", bundle: .module) }
+    static var statusAuthFailed: String { String(localized: "sidebar.machine.authFailed", defaultValue: "Sign-in failed", bundle: .module) }
+    static var statusUnreachable: String { String(localized: "sidebar.machine.unreachable", defaultValue: "Unreachable", bundle: .module) }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
     static var activityRunning: String { String(localized: "sidebar.a11y.running", defaultValue: "Agent running", bundle: .module) }

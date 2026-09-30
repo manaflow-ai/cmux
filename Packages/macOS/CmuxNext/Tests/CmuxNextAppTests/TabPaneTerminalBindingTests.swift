@@ -14,7 +14,7 @@ struct TabPaneTerminalBindingTests {
         let registry = Coverage.boundServices().registry
         let unbound = registry.unboundActionIDs(in: HandlerCoverage.categories)
         #expect(unbound.isEmpty, "unbound: \(unbound.map(\.rawValue).sorted())")
-        #expect(HandlerCoverage.categories == [.tab, .pane, .terminal])
+        #expect(HandlerCoverage.categories == [.tab, .pane, .screen, .terminal])
     }
 
     @Test func tabGroupsNeedTheDaemonCapability() {

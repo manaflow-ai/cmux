@@ -43,6 +43,9 @@ struct ForkApi {
   // API version 8: Chromium never shows a window of its own.
   void (*set_window_request_handler)(int (*)(void*, const void*), void*) = nullptr;
   int (*foreign_browser_count)() = nullptr;
+  // API version 7: navigation state (tab hibernation, session restore).
+  char* (*tab_navigation_state)(int) = nullptr;
+  int (*tab_restore_navigation)(int, const char*) = nullptr;
 };
 
 struct Host {
@@ -80,8 +83,20 @@ bool TakeHostClose(int browser_id);
 void StoreUnresponsiveCallback(int browser_id, CefRefPtr<CefUnresponsiveProcessCallback> callback);
 CefRefPtr<CefUnresponsiveProcessCallback> TakeUnresponsiveCallback(int browser_id);
 
+// cmux_shim_set_background_color; 0 = Chromium's default.
+cef_color_t BackgroundColor();
+
 // Request contexts per profile cache path.
 CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path);
+// The initialized context of cache_path this launch, or null.
+CefRefPtr<CefRequestContext> ExistingRequestContext(const std::string& cache_path);
+
+// Remote localhost (shim_proxy.mm). UI thread unless noted.
+void ApplyContextProxy(CefRefPtr<CefRequestContext> context, const std::string& cache_path);
+bool IsLoopbackHost(const std::string& host);
+// True when a main-frame navigation of browser_id to url breaks its guard.
+bool NavigationViolatesGuard(int browser_id, const std::string& url);
+void ForgetNavigationGuard(int browser_id);
 
 // One client per Chromium window. The first OnAfterCreated through it reports
 // `request`; later tabs of the window (cmux_tab_add, chrome.tabs.create,

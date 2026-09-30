@@ -70,7 +70,7 @@ final class PageGoneView: NSView {
 
     private func updateColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Palette.contentBackground.cgColor
+            layer?.backgroundColor = Palette.pageBackground.cgColor
         }
     }
 

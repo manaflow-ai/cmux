@@ -29,6 +29,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let forkAPIVersion: @convention(c) () -> Int32
     let prepareApplication: @convention(c) () -> Int32
     let setExtensionDeveloperMode: @convention(c) (Int32) -> Void
+    let setBackgroundColor: @convention(c) (UInt32) -> Void
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -74,6 +75,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extActionHidePopup: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void
     let extActionContextMenu: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Void
     let free: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
+    let tabNavigationState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let tabRestoreNavigation: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    let navigationRestoreSupported: @convention(c) () -> Int32
     // Fork API v3 (the shim returns 0/NULL on older forks).
     let extList: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let extSetEnabled: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
@@ -108,6 +112,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
+
+    // Remote localhost (plans/cmux-next/remote-localhost.md).
+    let setContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
+    let contextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32
+    let setNavigationGuard: @convention(c) (Int32, Int32) -> Void
 
     enum LoadError: Error, Equatable {
         case open(String)
@@ -150,6 +159,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         forkAPIVersion = try r("cmux_shim_fork_api_version")
         prepareApplication = try r("cmux_shim_prepare_application")
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
+        setBackgroundColor = try r("cmux_shim_set_background_color")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
@@ -177,6 +187,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         extActionHidePopup = try r("cmux_shim_ext_action_hide_popup")
         extActionContextMenu = try r("cmux_shim_ext_action_context_menu")
         free = try r("cmux_shim_free")
+        tabNavigationState = try r("cmux_shim_tab_navigation_state")
+        tabRestoreNavigation = try r("cmux_shim_tab_restore_navigation")
+        navigationRestoreSupported = try r("cmux_shim_navigation_restore_supported")
         extList = try r("cmux_shim_ext_list")
         extSetEnabled = try r("cmux_shim_ext_set_enabled")
         extUninstall = try r("cmux_shim_ext_uninstall")
@@ -203,6 +216,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         sslStatus = try r("cmux_shim_ssl_status")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
+        setContextProxy = try r("cmux_shim_set_context_proxy")
+        contextProxyState = try r("cmux_shim_context_proxy_state")
+        setNavigationGuard = try r("cmux_shim_set_navigation_guard")
     }
 
     /// Returns a string the shim allocated itself (`cmux_shim_ssl_status`)

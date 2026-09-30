@@ -11,7 +11,6 @@ enum MiscHandlerStrings {
     static var reactGrab: String { String(localized: "handlers.misc.unavailable.reactGrab", defaultValue: "React Grab injection is not ported yet.", table: "MiscHandlers", bundle: .module) }
     static var omnibarToggle: String { String(localized: "handlers.misc.unavailable.omnibarToggle", defaultValue: "The address bar cannot be hidden yet.", table: "MiscHandlers", bundle: .module) }
     static var browserHistory: String { String(localized: "handlers.misc.unavailable.browserHistory", defaultValue: "cmux-next keeps no browser history store yet.", table: "MiscHandlers", bundle: .module) }
-    static var browserImport: String { String(localized: "handlers.misc.unavailable.browserImport", defaultValue: "Importing browser data is not ported yet.", table: "MiscHandlers", bundle: .module) }
     static var browserToggle: String { String(localized: "handlers.misc.unavailable.browserToggle", defaultValue: "The cmux browser is always on in cmux-next; there is no setting to turn it off yet.", table: "MiscHandlers", bundle: .module) }
     static var linkTarget: String { String(localized: "handlers.misc.unavailable.linkTarget", defaultValue: "Link context menus do not pass a link to actions yet.", table: "MiscHandlers", bundle: .module) }
     static var sectionScreenshot: String { String(localized: "handlers.misc.unavailable.sectionScreenshot", defaultValue: "Section screenshots need a selection overlay that is not built yet.", table: "MiscHandlers", bundle: .module) }

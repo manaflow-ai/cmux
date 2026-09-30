@@ -30,9 +30,15 @@ public final class PageInfoModel {
     }
 
     public var aboutThisPageURL: URL? {
-        guard showsAboutThisPage, let url = site.url else { return nil }
+        guard showsAboutThisPage, let url = site.url,
+              var page = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        // The fragment and credentials stay on the client; never send them.
+        page.fragment = nil
+        page.user = nil
+        page.password = nil
+        guard let address = page.string else { return nil }
         var components = URLComponents(string: "https://www.google.com/search")
-        components?.queryItems = [URLQueryItem(name: "q", value: "About \(url.absoluteString)"), URLQueryItem(name: "tbm", value: "ilp")]
+        components?.queryItems = [URLQueryItem(name: "q", value: "About \(address)"), URLQueryItem(name: "tbm", value: "ilp")]
         return components?.url
     }
 

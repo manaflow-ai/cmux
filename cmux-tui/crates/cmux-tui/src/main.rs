@@ -2071,6 +2071,25 @@ impl Drop for LocalOwnerEventLoop {
 }
 
 /// Starts the session server: surface environment, state root, mux, and listeners.
+/// `server.loopback_forward` from cmux-tui.json. An invalid value turns
+/// forwarding off instead of widening access.
+fn loopback_forward_policy(
+    value: Option<&serde_json::Value>,
+) -> cmux_tui_core::server::LoopbackForwardPolicy {
+    use cmux_tui_core::server::LoopbackForwardPolicy;
+    let Some(value) = value else { return LoopbackForwardPolicy::default() };
+    match LoopbackForwardPolicy::from_config_value(value) {
+        Ok(policy) => policy,
+        Err(error) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: server.loopback_forward is invalid ({error}); loopback forwarding is off"
+            );
+            LoopbackForwardPolicy::disabled()
+        }
+    }
+}
+
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2093,6 +2112,8 @@ fn run_server(
     }
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
     let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
+    let mut loopback_forward_policy =
+        loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
     // reuse an existing local session and surface children inherit it.
     let socket_path = match args.socket.clone() {
@@ -2356,7 +2377,13 @@ fn run_server(
             "cmux-tui: WebSocket control at ws://{}",
             server.local_addr()
         );
+        // A forwarded page must never reach the daemon's own control port.
+        loopback_forward_policy.deny_port(server.local_addr().port());
     }
+    mux.set_loopback_forward_policy(loopback_forward_policy);
+    mux.set_loopback_forward_audit_reporter(Arc::new(|line| {
+        crate::client_log::stderr_log!("loopback-forward", "cmux-tui: {line}");
+    }));
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);

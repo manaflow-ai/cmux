@@ -50,6 +50,8 @@ public final class TabStripView: NSView {
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
     /// group editor bubble, as in Chrome.
     public var contextMenuProvider: TabContextMenuProvider?
+    /// Inline rename state (`TabStripView+InlineRename.swift`).
+    let inlineRename = TabInlineRename()
 
     // MARK: Views
 
@@ -123,6 +125,15 @@ public final class TabStripView: NSView {
     /// Trailing button under the mouse-down, while the press lasts.
     var pendingTrailingPress: Int?
     var hoverCardSuppressed = false
+    /// Whether the trailing buttons show (pointer, open menu, VoiceOver).
+    var buttonReveal = TabStripButtonReveal() {
+        didSet {
+            guard buttonReveal.isRevealed != oldValue.isRevealed else { return }
+            buttonGroup.setRevealed(buttonReveal.isRevealed, animated: window != nil)
+        }
+    }
+    /// End-of-tracking observer of the menu the strip returned last.
+    var menuEndObserver: (any NSObjectProtocol)?
 
     struct Press {
         var id: TabID
@@ -187,6 +198,7 @@ public final class TabStripView: NSView {
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
         contentView.addSubview(buttonGroup)
         buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
+        buttonGroup.onAccessibilityFocus = { [weak self] focused in self?.buttonReveal.accessibilityFocused = focused }
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
 
         setAccessibilityElement(true)
@@ -246,6 +258,8 @@ public final class TabStripView: NSView {
             groupEditor.hide()
             groups.holdTask?.cancel()
             removeEscapeMonitor()
+            endMenuTracking()
+            buttonReveal.pointerInStrip = false
         }
     }
 
@@ -312,11 +326,6 @@ public final class TabStripView: NSView {
         }
     }
 
-    struct TokenSnapshot: Equatable, Sendable {
-        var metrics: TabStripMetrics
-        var titleFont: CGFloat
-    }
-
     /// Current tab title font size, for change detection.
     var tabTitleFontSize: CGFloat { cells.values.first?.titleFont.pointSize ?? Typography.body.pointSize }
 
@@ -342,15 +351,6 @@ public final class TabStripView: NSView {
         needsLayout = true
         layoutSubtreeIfNeeded()
         relayout(animated: animated && !reduceMotion)
-    }
-
-    struct ModelSnapshot: Sendable {
-        var tabs: [TabItem]
-        var groups: [TabGroupItem]
-        var selectedID: TabID?
-        var style: TabStripStyle
-        var showsNewTabButton: Bool
-        var trailingButtons: [TabStripButton]
     }
 
     public override func layout() {

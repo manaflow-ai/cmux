@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -83,7 +84,7 @@ enum TabHandlers {
         guard let (_, paneModel) = ctx.services.locateTab(tabID) ?? ctx.refuse(RefusalStrings.noTab(tabID)) else { return }
         if let pane = ctx.services.paneController(for: paneModel) {
             pane.select(StripTabID(tabID))
-            pane.view.window?.makeKeyAndOrderFront(nil)
+            if let window = pane.view.window { WindowActivation.show(window, .raise) }
             return
         }
         guard let window = ctx.services.windows.active ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }

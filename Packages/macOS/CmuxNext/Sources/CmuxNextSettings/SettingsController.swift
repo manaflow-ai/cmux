@@ -121,6 +121,11 @@ public final class SettingsController {
         try await file.set(.string(engine.rawValue), at: BrowserDefaultEngine.configPath)
     }
 
+    /// Writes `browser.hibernation` ("off", "moderate", "aggressive" or minutes).
+    public func setBrowserHibernation(_ mode: BrowserHibernationSetting.Mode) async throws {
+        try await file.set(BrowserHibernationSetting(mode: mode).configValue, at: BrowserHibernationSetting.configPath)
+    }
+
     /// Writes `ui.animationSpeed`.
     public func setAnimationSpeed(_ speed: MotionSpeed) async throws {
         try await file.set(.string(speed.rawValue), at: AnimationSpeedSetting.configPath)

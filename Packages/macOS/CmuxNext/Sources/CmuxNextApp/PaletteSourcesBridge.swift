@@ -7,7 +7,7 @@ import CmuxNextPalette
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
-                       targets: WindowTargetSource(services: services),
+                       targets: ScreenTargetSource(services: services, next: WindowTargetSource(services: services)),
                        context: { [weak services] in services.map(capturedTargets) ?? [] })
     }
 
@@ -24,7 +24,12 @@ enum PaletteSourcesBridge {
             }
             refs.append(ActionTargetRef(kind: .pane, id: pane.paneKey))
         }
-        if let screen = window.content?.layoutModel.activeScreenID { refs.append(ActionTargetRef(kind: .screen, id: screen.rawValue)) }
+        if let content = window.content, let screen = content.layoutModel.activeScreenID {
+            if let group = content.workspace.screens.first(where: { $0.id == screen.rawValue })?.group {
+                refs.append(ActionTargetRef(kind: .screenGroup, id: group.rawValue))
+            }
+            refs.append(ActionTargetRef(kind: .screen, id: screen.rawValue))
+        }
         if let workspace = window.state.workspaceID { refs.append(ActionTargetRef(kind: .workspace, id: workspace)) }
         refs.append(ActionTargetRef(kind: .window, id: window.state.id))
         return refs

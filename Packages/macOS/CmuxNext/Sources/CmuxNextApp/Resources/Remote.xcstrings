@@ -1,0 +1,4591 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "remote.button.connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poveži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se connecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під’єднати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連線"
+          }
+        }
+      }
+    },
+    "remote.button.forget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسيان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaboravi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vergessen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Olvidar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oublier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimentica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំភ្លេច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "삭제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapomnij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esquecer"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Забыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลืม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Забути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "忘记"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "忘記"
+          }
+        }
+      }
+    },
+    "remote.button.install": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تثبيت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instaliraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "インストール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំឡើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zainstaluj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安裝"
+          }
+        }
+      }
+    },
+    "remote.connect.failedTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot Connect to %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر الاتصال بـ %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće povezati se s %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke forbinde til %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbindung mit %@ nicht möglich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede conectar a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de se connecter à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile connettersi a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ に接続できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចភ្ជាប់ទៅ %@ បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 연결할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke koble til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można połączyć z %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível conectar a %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удаётся подключиться к %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อ %@ ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ makinesine bağlanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдається під’єднатися до %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể kết nối tới %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法连接到 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法連線到 %@"
+          }
+        }
+      }
+    },
+    "remote.connect.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاتصال بجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poveži se s mašinom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbind til maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mit Maschine verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar a una máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se connecter à une machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connetti a una macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "マシンに接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់ទៅម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신에 연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz z maszyną"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar a uma máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключиться к машине"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makineye bağlan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під’єднатися до машини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối tới máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接到机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連線到機器"
+          }
+        }
+      }
+    },
+    "remote.failed.destination": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is not an SSH destination. Use user@host, a host from your SSH config, or host:port."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” ليس وجهة SSH. استخدم user@host أو مضيفًا من إعدادات SSH أو host:port."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ nije SSH odredište. Koristite user@host, host iz SSH konfiguracije ili host:port."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” er ikke en SSH-destination. Brug user@host, en vært fra din SSH-konfiguration eller host:port."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ ist kein SSH-Ziel. Verwende user@host, einen Host aus deiner SSH-Konfiguration oder host:port."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” no es un destino SSH. Usa user@host, un host de tu configuración SSH o host:port."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "« %@ » n’est pas une destination SSH. Utilisez user@host, un hôte de votre configuration SSH ou host:port."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” non è una destinazione SSH. Usa user@host, un host dalla configurazione SSH o host:port."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」は SSH の接続先ではありません。user@host、SSH 設定のホスト、または host:port を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” មិនមែនជាគោលដៅ SSH ទេ។ ប្រើ user@host ម៉ាស៊ីនពីការកំណត់ SSH ឬ host:port។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”은(는) SSH 대상이 아닙니다. user@host, SSH 설정의 호스트 또는 host:port를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» er ikke et SSH-mål. Bruk user@host, en vert fra SSH-konfigurasjonen eller host:port."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@” nie jest celem SSH. Użyj user@host, hosta z konfiguracji SSH lub host:port."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” não é um destino SSH. Use user@host, um host da sua configuração SSH ou host:port."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» — не адрес SSH. Используйте user@host, хост из конфигурации SSH или host:port."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” ไม่ใช่ปลายทาง SSH ใช้ user@host โฮสต์จากการตั้งค่า SSH หรือ host:port"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” bir SSH hedefi değil. user@host, SSH yapılandırmanızdaki bir ana makine ya da host:port kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» — не адреса SSH. Використайте user@host, хост із конфігурації SSH або host:port."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” không phải đích SSH. Dùng user@host, một máy trong cấu hình SSH, hoặc host:port."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”不是 SSH 目标。请使用 user@host、SSH 配置中的主机或 host:port。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」不是 SSH 目標。請使用 user@host、SSH 設定中的主機或 host:port。"
+          }
+        }
+      }
+    },
+    "remote.failed.noMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No SSH machine is selected. Right-click a machine or pass --machine <name>."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُحدَّد جهاز SSH. انقر بزر الماوس الأيمن على جهاز أو مرّر ‎--machine <name>‎."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije odabrana SSH mašina. Kliknite desnim klikom na mašinu ili proslijedite --machine <name>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen SSH-maskine er valgt. Højreklik på en maskine, eller angiv --machine <name>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine SSH-Maschine ausgewählt. Klicke eine Maschine mit rechts an oder gib --machine <name> an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ninguna máquina SSH seleccionada. Haz clic derecho en una máquina o pasa --machine <name>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune machine SSH n’est sélectionnée. Cliquez sur une machine avec le bouton droit ou passez --machine <name>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna macchina SSH selezionata. Fai clic destro su una macchina o passa --machine <name>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH マシンが選択されていません。マシンを右クリックするか、--machine <name> を指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានជ្រើសម៉ាស៊ីន SSH ទេ។ ចុចស្ដាំលើម៉ាស៊ីន ឬផ្ដល់ --machine <name>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "선택된 SSH 머신이 없습니다. 머신을 오른쪽 클릭하거나 --machine <name>을 전달하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen SSH-maskin er valgt. Høyreklikk på en maskin, eller angi --machine <name>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie wybrano maszyny SSH. Kliknij maszynę prawym przyciskiem lub podaj --machine <name>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma máquina SSH selecionada. Clique com o botão direito em uma máquina ou passe --machine <name>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH-машина не выбрана. Щёлкните машину правой кнопкой или передайте --machine <name>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ได้เลือกเครื่อง SSH คลิกขวาที่เครื่องหรือระบุ --machine <name>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH makinesi seçili değil. Bir makineye sağ tıklayın ya da --machine <name> verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH-машину не вибрано. Клацніть машину правою кнопкою або передайте --machine <name>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa chọn máy SSH. Nhấp chuột phải vào một máy hoặc truyền --machine <name>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未选择 SSH 机器。请右键点按机器，或传入 --machine <name>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未選擇 SSH 機器。請按右鍵點選機器，或傳入 --machine <name>。"
+          }
+        }
+      }
+    },
+    "remote.failed.noPinnedBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build does not know which cmux-tui to install."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يعرف هذا الإصدار أي cmux-tui يثبّت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija ne zna koji cmux-tui da instalira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne build ved ikke, hvilken cmux-tui der skal installeres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Build weiß nicht, welches cmux-tui installiert werden soll."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta compilación no sabe qué cmux-tui instalar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version ne sait pas quel cmux-tui installer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa build non sa quale cmux-tui installare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このビルドはインストールする cmux-tui を特定できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "build នេះមិនដឹងថាត្រូវដំឡើង cmux-tui មួយណាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드는 설치할 cmux-tui를 알 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne builden vet ikke hvilken cmux-tui som skal installeres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta kompilacja nie wie, który cmux-tui zainstalować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta build não sabe qual cmux-tui instalar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта сборка не знает, какой cmux-tui устанавливать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่รู้ว่าจะติดตั้ง cmux-tui ตัวใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu derleme hangi cmux-tui’nin kurulacağını bilmiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця збірка не знає, який cmux-tui встановлювати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng này không biết cần cài cmux-tui nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不知道要安装哪个 cmux-tui。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不知道要安裝哪個 cmux-tui。"
+          }
+        }
+      }
+    },
+    "remote.failed.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not connected yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "‏%@ غير متصل بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ još nije povezan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke forbundet endnu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist noch nicht verbunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ aún no está conectado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ n’est pas encore connecté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non è ancora connesso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ はまだ接続されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ មិនទាន់បានភ្ជាប់នៅឡើយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 아직 연결되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke tilkoblet ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie jest jeszcze połączony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ainda não está conectado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ещё не подключён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ยังไม่ได้เชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ henüz bağlı değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ще не під’єднано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ chưa được kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 尚未连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 尚未連線。"
+          }
+        }
+      }
+    },
+    "remote.failed.password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux never takes passwords. Use your SSH key or agent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يأخذ cmux كلمات المرور أبدًا. استخدم مفتاح SSH أو الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nikad ne prima lozinke. Koristite svoj SSH ključ ili agent."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux tager aldrig imod adgangskoder. Brug din SSH-nøgle eller agent."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nimmt nie Passwörter an. Verwende deinen SSH-Schlüssel oder Agent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nunca acepta contraseñas. Usa tu clave o agente SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’accepte jamais de mot de passe. Utilisez votre clé ou votre agent SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non accetta mai password. Usa la tua chiave o il tuo agente SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux はパスワードを受け取りません。SSH キーまたはエージェントを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនដែលទទួលពាក្យសម្ងាត់ទេ។ ប្រើកូនសោ SSH ឬ agent របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux는 비밀번호를 받지 않습니다. SSH 키 또는 에이전트를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux tar aldri imot passord. Bruk SSH-nøkkelen eller agenten din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nigdy nie przyjmuje haseł. Użyj klucza SSH lub agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux nunca aceita senhas. Use sua chave ou agente SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux никогда не принимает пароли. Используйте SSH-ключ или агент."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ไม่รับรหัสผ่าน ใช้คีย์ SSH หรือเอเจนต์ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux asla parola almaz. SSH anahtarınızı veya ajanınızı kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ніколи не приймає паролі. Використайте SSH-ключ або агент."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không bao giờ nhận mật khẩu. Hãy dùng khóa SSH hoặc agent của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 从不接收密码。请使用你的 SSH 密钥或代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 從不接收密碼。請使用你的 SSH 金鑰或代理程式。"
+          }
+        }
+      }
+    },
+    "remote.failed.path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is not a usable path. Use a plain path, optionally starting with ~/."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” ليس مسارًا صالحًا. استخدم مسارًا بسيطًا، ويمكن أن يبدأ بـ ~/."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ nije upotrebljiva putanja. Koristite običnu putanju, po želji s početkom ~/."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” er ikke en brugbar sti. Brug en almindelig sti, eventuelt startende med ~/."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ ist kein brauchbarer Pfad. Verwende einen einfachen Pfad, optional beginnend mit ~/."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” no es una ruta válida. Usa una ruta simple, que puede empezar por ~/."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "« %@ » n’est pas un chemin utilisable. Utilisez un chemin simple, commençant éventuellement par ~/."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” non è un percorso utilizzabile. Usa un percorso semplice, che può iniziare con ~/."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」は使えるパスではありません。~/ で始めてもよい単純なパスを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” មិនមែនជាផ្លូវដែលអាចប្រើបានទេ។ ប្រើផ្លូវធម្មតា ដែលអាចចាប់ផ្ដើមដោយ ~/។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”은(는) 사용할 수 있는 경로가 아닙니다. ~/로 시작해도 되는 단순한 경로를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» er ikke en brukbar bane. Bruk en enkel bane, eventuelt med ~/ først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@” nie jest poprawną ścieżką. Użyj prostej ścieżki, opcjonalnie zaczynającej się od ~/."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” não é um caminho válido. Use um caminho simples, que pode começar com ~/."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» — непригодный путь. Используйте простой путь, можно начинать с ~/."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” ไม่ใช่พาธที่ใช้ได้ ใช้พาธแบบธรรมดา ขึ้นต้นด้วย ~/ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” kullanılabilir bir yol değil. İsterseniz ~/ ile başlayan düz bir yol kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» — непридатний шлях. Використайте простий шлях, можна починати з ~/."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” không phải đường dẫn dùng được. Dùng đường dẫn đơn giản, có thể bắt đầu bằng ~/."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”不是可用的路径。请使用简单路径，可以以 ~/ 开头。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」不是可用的路徑。請使用簡單路徑，可以用 ~/ 開頭。"
+          }
+        }
+      }
+    },
+    "remote.failed.session": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is not a session name. Use letters, digits, dots, dashes and underscores."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” ليس اسم جلسة. استخدم الأحرف والأرقام والنقاط والشرطات والشرطات السفلية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ nije naziv sesije. Koristite slova, cifre, tačke, crtice i donje crte."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” er ikke et sessionsnavn. Brug bogstaver, tal, punktummer, bindestreger og understreger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ ist kein Sitzungsname. Verwende Buchstaben, Ziffern, Punkte, Bindestriche und Unterstriche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” no es un nombre de sesión. Usa letras, dígitos, puntos, guiones y guiones bajos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "« %@ » n’est pas un nom de session. Utilisez des lettres, chiffres, points, tirets et traits de soulignement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” non è un nome di sessione. Usa lettere, cifre, punti, trattini e trattini bassi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」はセッション名ではありません。英数字、ドット、ハイフン、アンダースコアを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” មិនមែនជាឈ្មោះ session ទេ។ ប្រើអក្សរ លេខ ចំណុច សញ្ញាដក និងសញ្ញាគូសក្រោម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”은(는) 세션 이름이 아닙니다. 문자, 숫자, 점, 하이픈, 밑줄을 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» er ikke et øktnavn. Bruk bokstaver, sifre, punktum, bindestreker og understreker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@” nie jest nazwą sesji. Użyj liter, cyfr, kropek, myślników i podkreśleń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” não é um nome de sessão. Use letras, dígitos, pontos, hifens e sublinhados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» — не имя сеанса. Используйте буквы, цифры, точки, дефисы и подчёркивания."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” ไม่ใช่ชื่อเซสชัน ใช้ตัวอักษร ตัวเลข จุด ขีด และขีดล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” bir oturum adı değil. Harf, rakam, nokta, tire ve alt çizgi kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» — не назва сеансу. Використайте літери, цифри, крапки, дефіси й підкреслення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” không phải tên phiên. Dùng chữ, số, dấu chấm, gạch ngang và gạch dưới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”不是会话名称。请使用字母、数字、点、短横线和下划线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」不是工作階段名稱。請使用字母、數字、點、連字號和底線。"
+          }
+        }
+      }
+    },
+    "remote.failed.ssh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH failed: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل SSH: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH nije uspio: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH mislykkedes: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH fehlgeschlagen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH falló: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Échec de SSH : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH non riuscito: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH に失敗しました: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH បានបរាជ័យ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH 실패: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH mislyktes: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH nie powiodło się: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O SSH falhou: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ошибка SSH: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH ล้มเหลว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH başarısız oldu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помилка SSH: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH thất bại: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH 失败：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH 失敗：%@"
+          }
+        }
+      }
+    },
+    "remote.failed.unknownMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No SSH machine is named “%@”."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد جهاز SSH باسم “%@”."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedna SSH mašina se ne zove „%@“."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen SSH-maskine hedder “%@”."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine SSH-Maschine heißt „%@“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguna máquina SSH se llama “%@”."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune machine SSH ne s’appelle « %@ »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna macchina SSH si chiama “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」という名前の SSH マシンはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានម៉ាស៊ីន SSH ដែលមានឈ្មោះ “%@” ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”(이)라는 SSH 머신이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen SSH-maskin heter «%@»."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żadna maszyna SSH nie nazywa się „%@”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma máquina SSH se chama “%@”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет SSH-машины с именем «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีเครื่อง SSH ชื่อ “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” adlı bir SSH makinesi yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає SSH-машини з назвою «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có máy SSH nào tên “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有名为“%@”的 SSH 机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有名為「%@」的 SSH 機器。"
+          }
+        }
+      }
+    },
+    "remote.failed.unsupportedPlatform": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui has no build for %@. It runs on macOS and Linux (x86_64 and arm64)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يتوفر إصدار من cmux-tui لـ %@. يعمل على macOS وLinux (x86_64 وarm64)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui nema verziju za %@. Radi na macOS-u i Linuxu (x86_64 i arm64)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui har ingen build til %@. Den kører på macOS og Linux (x86_64 og arm64)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Für %@ gibt es keinen cmux-tui-Build. Es läuft auf macOS und Linux (x86_64 und arm64)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui no tiene compilación para %@. Funciona en macOS y Linux (x86_64 y arm64)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui n’a pas de version pour %@. Il fonctionne sous macOS et Linux (x86_64 et arm64)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui non ha una build per %@. Funziona su macOS e Linux (x86_64 e arm64)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 向けの cmux-tui はありません。macOS と Linux（x86_64、arm64）で動作します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui គ្មាន build សម្រាប់ %@ ទេ។ វាដំណើរការលើ macOS និង Linux (x86_64 និង arm64)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@용 cmux-tui 빌드가 없습니다. macOS와 Linux(x86_64, arm64)에서 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui har ingen build for %@. Den kjører på macOS og Linux (x86_64 og arm64)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui nie ma kompilacji dla %@. Działa na macOS i Linuksie (x86_64 i arm64)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui não tem build para %@. Ele roda no macOS e no Linux (x86_64 e arm64)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для %@ нет сборки cmux-tui. Он работает на macOS и Linux (x86_64 и arm64)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มี cmux-tui สำหรับ %@ รองรับ macOS และ Linux (x86_64 และ arm64)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ için cmux-tui derlemesi yok. macOS ve Linux’ta (x86_64 ve arm64) çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для %@ немає збірки cmux-tui. Він працює на macOS і Linux (x86_64 та arm64)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui không có bản dựng cho %@. Nó chạy trên macOS và Linux (x86_64 và arm64)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui 没有适用于 %@ 的版本。它可在 macOS 和 Linux（x86_64 和 arm64）上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui 沒有適用於 %@ 的版本。它可在 macOS 和 Linux（x86_64 和 arm64）上執行。"
+          }
+        }
+      }
+    },
+    "remote.forget.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removes the machine from the saved list with its personal order, groups and room pins. Nothing on the machine changes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يزيل الجهاز من القائمة المحفوظة مع ترتيبه الشخصي ومجموعاته وتثبيتات الغرف. لا يتغير شيء على الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uklanja mašinu sa sačuvane liste zajedno s ličnim redoslijedom, grupama i pričvršćenjima u sobama. Na mašini se ništa ne mijenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjerner maskinen fra den gemte liste med dens personlige rækkefølge, grupper og rumfastgørelser. Intet på maskinen ændres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entfernt die Maschine mit ihrer persönlichen Reihenfolge, ihren Gruppen und Raum-Pins aus der gespeicherten Liste. Auf der Maschine ändert sich nichts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quita la máquina de la lista guardada con su orden personal, grupos y fijaciones de salas. En la máquina no cambia nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retire la machine de la liste enregistrée avec son ordre personnel, ses groupes et ses épinglages de salles. Rien ne change sur la machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimuove la macchina dall’elenco salvato con ordine personale, gruppi e fissaggi nelle stanze. Sulla macchina non cambia nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保存済みリストからマシンを、個人の並び順、グループ、ルームのピン留めと一緒に削除します。マシン上では何も変わりません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដកម៉ាស៊ីនចេញពីបញ្ជីដែលបានរក្សាទុក រួមជាមួយលំដាប់ផ្ទាល់ខ្លួន ក្រុម និងការខ្ទាស់ក្នុងបន្ទប់។ គ្មានអ្វីផ្លាស់ប្ដូរលើម៉ាស៊ីនទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "저장된 목록에서 머신을 개인 순서, 그룹, 룸 고정과 함께 제거합니다. 머신에서는 아무것도 바뀌지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjerner maskinen fra den lagrede listen med personlig rekkefølge, grupper og romfestinger. Ingenting endres på maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuwa maszynę z zapisanej listy wraz z osobistą kolejnością, grupami i przypięciami w pokojach. Na maszynie nic się nie zmienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remove a máquina da lista salva com sua ordem pessoal, grupos e fixações em salas. Nada muda na máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удаляет машину из сохранённого списка вместе с личным порядком, группами и закреплениями в комнатах. На самой машине ничего не меняется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบเครื่องออกจากรายการที่บันทึกไว้ พร้อมลำดับส่วนตัว กลุ่ม และการปักหมุดในห้อง ไม่มีอะไรเปลี่ยนบนเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makineyi kişisel sırası, grupları ve oda sabitlemeleriyle birlikte kayıtlı listeden kaldırır. Makinede hiçbir şey değişmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вилучає машину зі збереженого списку разом з особистим порядком, групами й закріпленнями в кімнатах. На самій машині нічого не змінюється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa máy khỏi danh sách đã lưu cùng thứ tự cá nhân, nhóm và ghim phòng. Không có gì thay đổi trên máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从已保存列表中移除该机器及其个人排序、分组和房间置顶。机器上不会有任何更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從已儲存列表中移除該機器及其個人排序、群組和房間釘選。機器上不會有任何變更。"
+          }
+        }
+      }
+    },
+    "remote.forget.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget %@?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسيان %@؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaboraviti %@?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glem %@?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ vergessen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Olvidar %@?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oublier %@ ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimenticare %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ を削除しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំភ្លេច %@ ឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@을(를) 삭제할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glemme %@?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapomnieć %@?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esquecer %@?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Забыть %@?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลืม %@ ไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ unutulsun mu?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Забути %@?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quên %@?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要忘记 %@ 吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要忘記 %@ 嗎？"
+          }
+        }
+      }
+    },
+    "remote.install.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads cmux-tui %1$@ from files.cmux.com, checks its SHA-256 checksum and installs it at %2$@ on %3$@, without sudo. A cmux-tui running there restarts on the new build; its terminals keep running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُنزّل cmux-tui %1$@ من files.cmux.com ويتحقق من مجموع SHA-256 ثم يثبّته في %2$@ على %3$@ دون sudo. يُعاد تشغيل cmux-tui العامل هناك على الإصدار الجديد وتستمر طرفياته في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzima cmux-tui %1$@ sa files.cmux.com, provjerava njegov SHA-256 kontrolni zbir i instalira ga na %2$@ na %3$@, bez sudo. cmux-tui koji tamo radi ponovo se pokreće na novoj verziji; njegovi terminali nastavljaju raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Henter cmux-tui %1$@ fra files.cmux.com, tjekker SHA-256-kontrolsummen og installerer den i %2$@ på %3$@ uden sudo. En cmux-tui, der kører der, genstarter på den nye build; dens terminaler kører videre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lädt cmux-tui %1$@ von files.cmux.com, prüft die SHA-256-Prüfsumme und installiert es unter %2$@ auf %3$@, ohne sudo. Ein dort laufendes cmux-tui startet mit dem neuen Build neu; seine Terminals laufen weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descarga cmux-tui %1$@ de files.cmux.com, comprueba su suma SHA-256 y lo instala en %2$@ en %3$@, sin sudo. Un cmux-tui en ejecución allí se reinicia con la nueva compilación; sus terminales siguen funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Télécharge cmux-tui %1$@ depuis files.cmux.com, vérifie sa somme SHA-256 et l’installe dans %2$@ sur %3$@, sans sudo. Un cmux-tui en cours d’exécution y redémarre sur la nouvelle version ; ses terminaux continuent de tourner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scarica cmux-tui %1$@ da files.cmux.com, verifica il checksum SHA-256 e lo installa in %2$@ su %3$@, senza sudo. Un cmux-tui in esecuzione lì si riavvia con la nuova build; i suoi terminali restano attivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "files.cmux.com から cmux-tui %1$@ をダウンロードし、SHA-256 チェックサムを確認して %3$@ の %2$@ に sudo なしでインストールします。そこで動作中の cmux-tui は新しいビルドで再起動し、ターミナルは動作し続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទាញយក cmux-tui %1$@ ពី files.cmux.com ពិនិត្យ checksum SHA-256 និងដំឡើងវានៅ %2$@ លើ %3$@ ដោយគ្មាន sudo។ cmux-tui ដែលកំពុងដំណើរការនៅទីនោះចាប់ផ្ដើមឡើងវិញលើ build ថ្មី ហើយ terminal របស់វានៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "files.cmux.com에서 cmux-tui %1$@를 내려받아 SHA-256 체크섬을 확인하고 %3$@의 %2$@에 sudo 없이 설치합니다. 그곳에서 실행 중인 cmux-tui는 새 빌드로 다시 시작되며 터미널은 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Laster ned cmux-tui %1$@ fra files.cmux.com, sjekker SHA-256-kontrollsummen og installerer den i %2$@ på %3$@, uten sudo. En cmux-tui som kjører der, starter på nytt med den nye builden; terminalene fortsetter å kjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobiera cmux-tui %1$@ z files.cmux.com, sprawdza sumę SHA-256 i instaluje go w %2$@ na %3$@, bez sudo. Działający tam cmux-tui uruchamia się ponownie w nowej wersji; jego terminale działają dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baixa o cmux-tui %1$@ de files.cmux.com, confere o checksum SHA-256 e o instala em %2$@ em %3$@, sem sudo. Um cmux-tui em execução lá reinicia na nova build; seus terminais continuam rodando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скачивает cmux-tui %1$@ с files.cmux.com, проверяет контрольную сумму SHA-256 и устанавливает его в %2$@ на %3$@ без sudo. Работающий там cmux-tui перезапускается на новой сборке; его терминалы продолжают работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดาวน์โหลด cmux-tui %1$@ จาก files.cmux.com ตรวจ checksum SHA-256 แล้วติดตั้งที่ %2$@ บน %3$@ โดยไม่ใช้ sudo cmux-tui ที่ทำงานอยู่ที่นั่นจะรีสตาร์ตด้วยบิลด์ใหม่ และเทอร์มินัลยังทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui %1$@ sürümünü files.cmux.com’dan indirir, SHA-256 sağlama toplamını denetler ve %3$@ üzerinde %2$@ konumuna sudo olmadan kurar. Orada çalışan cmux-tui yeni derlemeyle yeniden başlar; terminalleri çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантажує cmux-tui %1$@ з files.cmux.com, перевіряє контрольну суму SHA-256 і встановлює його в %2$@ на %3$@ без sudo. Запущений там cmux-tui перезапускається на новій збірці; його термінали працюють далі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tải cmux-tui %1$@ từ files.cmux.com, kiểm tra checksum SHA-256 và cài vào %2$@ trên %3$@, không dùng sudo. cmux-tui đang chạy ở đó sẽ khởi động lại bằng bản mới; các terminal của nó vẫn tiếp tục chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从 files.cmux.com 下载 cmux-tui %1$@，校验其 SHA-256 校验和，并在不使用 sudo 的情况下安装到 %3$@ 上的 %2$@。那里正在运行的 cmux-tui 会以新版本重启，其终端继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從 files.cmux.com 下載 cmux-tui %1$@，驗證其 SHA-256 校驗和，並在不使用 sudo 的情況下安裝到 %3$@ 上的 %2$@。那裡正在執行的 cmux-tui 會以新版本重新啟動，其終端機繼續執行。"
+          }
+        }
+      }
+    },
+    "remote.install.checksum": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The download did not match its SHA-256 checksum. Nothing was replaced."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يطابق الملف المُنزَّل مجموع SHA-256 الخاص به. لم يُستبدل شيء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzimanje se ne podudara sa SHA-256 kontrolnim zbirom. Ništa nije zamijenjeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Overførslen passede ikke med dens SHA-256-kontrolsum. Intet blev erstattet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Download passt nicht zu seiner SHA-256-Prüfsumme. Nichts wurde ersetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La descarga no coincide con su suma SHA-256. No se reemplazó nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le téléchargement ne correspond pas à sa somme SHA-256. Rien n’a été remplacé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il download non corrisponde al checksum SHA-256. Non è stato sostituito nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ダウンロードが SHA-256 チェックサムと一致しません。何も置き換えていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារដែលបានទាញយកមិនត្រូវនឹង checksum SHA-256 របស់វាទេ។ គ្មានអ្វីត្រូវបានជំនួសទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다운로드가 SHA-256 체크섬과 일치하지 않습니다. 아무것도 바꾸지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nedlastingen stemte ikke med SHA-256-kontrollsummen. Ingenting ble erstattet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobrany plik nie pasuje do sumy SHA-256. Nic nie zostało zastąpione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O download não corresponde ao checksum SHA-256. Nada foi substituído."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Загруженный файл не совпал с контрольной суммой SHA-256. Ничего не заменено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์ที่ดาวน์โหลดไม่ตรงกับ checksum SHA-256 ไม่มีการแทนที่ใดๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İndirilen dosya SHA-256 sağlama toplamıyla eşleşmedi. Hiçbir şey değiştirilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантажений файл не збігся з контрольною сумою SHA-256. Нічого не замінено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp tải về không khớp checksum SHA-256. Không có gì bị thay thế."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下载内容与其 SHA-256 校验和不符。未替换任何内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下載內容與其 SHA-256 校驗和不符。未取代任何內容。"
+          }
+        }
+      }
+    },
+    "remote.install.download": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The download failed: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل التنزيل: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzimanje nije uspjelo: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Overførslen mislykkedes: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Download ist fehlgeschlagen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La descarga falló: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le téléchargement a échoué : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il download non è riuscito: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ダウンロードに失敗しました: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការទាញយកបានបរាជ័យ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다운로드에 실패했습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nedlastingen mislyktes: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobieranie nie powiodło się: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O download falhou: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Загрузка не удалась: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดาวน์โหลดไม่สำเร็จ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İndirme başarısız oldu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантаження не вдалося: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tải xuống thất bại: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下载失败：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下載失敗：%@"
+          }
+        }
+      }
+    },
+    "remote.install.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The install failed: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل التثبيت: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalacija nije uspjela: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installationen mislykkedes: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Installation ist fehlgeschlagen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La instalación falló: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’installation a échoué : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’installazione non è riuscita: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "インストールに失敗しました: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការដំឡើងបានបរាជ័យ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설치에 실패했습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installasjonen mislyktes: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalacja nie powiodła się: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A instalação falhou: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установка не удалась: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ติดตั้งไม่สำเร็จ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kurulum başarısız oldu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установлення не вдалося: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài đặt thất bại: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安装失败：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安裝失敗：%@"
+          }
+        }
+      }
+    },
+    "remote.install.noChecksumTool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine has no sha256sum or shasum, so the download cannot be checked."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي الجهاز على sha256sum أو shasum، لذا لا يمكن التحقق من الملف المُنزَّل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina nema sha256sum ni shasum, pa se preuzimanje ne može provjeriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen har hverken sha256sum eller shasum, så overførslen kan ikke kontrolleres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Maschine hat weder sha256sum noch shasum, daher kann der Download nicht geprüft werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La máquina no tiene sha256sum ni shasum, así que no se puede comprobar la descarga."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La machine n’a ni sha256sum ni shasum : le téléchargement ne peut pas être vérifié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La macchina non ha sha256sum né shasum, quindi il download non può essere verificato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "マシンに sha256sum も shasum もないため、ダウンロードを確認できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនគ្មាន sha256sum ឬ shasum ទេ ដូច្នេះមិនអាចពិនិត្យឯកសារដែលបានទាញយកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신에 sha256sum이나 shasum이 없어 다운로드를 확인할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen har verken sha256sum eller shasum, så nedlastingen kan ikke kontrolleres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna nie ma sha256sum ani shasum, więc nie można sprawdzić pobranego pliku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina não tem sha256sum nem shasum, então o download não pode ser conferido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На машине нет sha256sum или shasum, поэтому загрузку нельзя проверить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องไม่มี sha256sum หรือ shasum จึงตรวจไฟล์ที่ดาวน์โหลดไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makinede sha256sum veya shasum yok, bu yüzden indirilen dosya denetlenemiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На машині немає sha256sum або shasum, тому завантаження не можна перевірити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy không có sha256sum hay shasum nên không thể kiểm tra tệp tải về."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该机器没有 sha256sum 或 shasum，因此无法校验下载内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該機器沒有 sha256sum 或 shasum，因此無法驗證下載內容。"
+          }
+        }
+      }
+    },
+    "remote.install.notWritable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui cannot be written there: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن كتابة cmux-tui هناك: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui se tamo ne može zapisati: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui kan ikke skrives der: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui kann dort nicht geschrieben werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede escribir cmux-tui allí: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d’écrire cmux-tui à cet endroit : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui non può essere scritto lì: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そこに cmux-tui を書き込めません: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចសរសេរ cmux-tui នៅទីនោះបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳에 cmux-tui를 쓸 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui kan ikke skrives der: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można tam zapisać cmux-tui: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível gravar o cmux-tui lá: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удаётся записать туда cmux-tui: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เขียน cmux-tui ที่นั่นไม่ได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui oraya yazılamıyor: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдається записати туди cmux-tui: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể ghi cmux-tui vào đó: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在那里写入 cmux-tui：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在那裡寫入 cmux-tui：%@"
+          }
+        }
+      }
+    },
+    "remote.install.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install cmux-tui on %@?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تثبيت cmux-tui على %@؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalirati cmux-tui na %@?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installér cmux-tui på %@?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui auf %@ installieren?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Instalar cmux-tui en %@?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installer cmux-tui sur %@ ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installare cmux-tui su %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ に cmux-tui をインストールしますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំឡើង cmux-tui លើ %@ ឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 cmux-tui를 설치할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installere cmux-tui på %@?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zainstalować cmux-tui na %@?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalar o cmux-tui em %@?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установить cmux-tui на %@?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ติดตั้ง cmux-tui บน %@ ไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui %@ makinesine kurulsun mu?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установити cmux-tui на %@?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài cmux-tui trên %@?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要在 %@ 上安装 cmux-tui 吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要在 %@ 上安裝 cmux-tui 嗎？"
+          }
+        }
+      }
+    },
+    "remote.install.unrunnable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The downloaded cmux-tui does not run on this machine: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يعمل cmux-tui المُنزَّل على هذا الجهاز: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzeti cmux-tui ne radi na ovoj mašini: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den hentede cmux-tui kører ikke på denne maskine: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das heruntergeladene cmux-tui läuft auf dieser Maschine nicht: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui descargado no funciona en esta máquina: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui téléchargé ne fonctionne pas sur cette machine : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui scaricato non funziona su questa macchina: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ダウンロードした cmux-tui はこのマシンで動作しません: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ដែលបានទាញយកមិនដំណើរការលើម៉ាស៊ីននេះទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내려받은 cmux-tui가 이 머신에서 실행되지 않습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den nedlastede cmux-tui kjører ikke på denne maskinen: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobrany cmux-tui nie działa na tej maszynie: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui baixado não roda nesta máquina: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Загруженный cmux-tui не запускается на этой машине: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ที่ดาวน์โหลดทำงานบนเครื่องนี้ไม่ได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İndirilen cmux-tui bu makinede çalışmıyor: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантажений cmux-tui не запускається на цій машині: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui đã tải không chạy được trên máy này: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下载的 cmux-tui 无法在此机器上运行：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下載的 cmux-tui 無法在此機器上執行：%@"
+          }
+        }
+      }
+    },
+    "remote.need.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui is not installed there. Choose Install cmux-tui on Machine…."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "‏cmux-tui غير مثبّت هناك. اختر تثبيت cmux-tui على الجهاز…."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui tamo nije instaliran. Odaberite Instaliraj cmux-tui na mašinu…."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui er ikke installeret der. Vælg Installér cmux-tui på maskine…."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ist dort nicht installiert. Wähle „cmux-tui auf Maschine installieren …“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui no está instalado allí. Elige Instalar cmux-tui en la máquina…."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui n’y est pas installé. Choisissez Installer cmux-tui sur la machine…."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui non è installato lì. Scegli Installa cmux-tui sulla macchina…."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そこには cmux-tui がインストールされていません。「マシンに cmux-tui をインストール…」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui មិនទាន់បានដំឡើងនៅទីនោះទេ។ ជ្រើស ដំឡើង cmux-tui លើម៉ាស៊ីន…។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳에 cmux-tui가 설치되어 있지 않습니다. 머신에 cmux-tui 설치…를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui er ikke installert der. Velg Installer cmux-tui på maskin …."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui nie jest tam zainstalowany. Wybierz Zainstaluj cmux-tui na maszynie…."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui não está instalado lá. Escolha Instalar cmux-tui na máquina…."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там не установлен. Выберите «Установить cmux-tui на машину…»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ได้ติดตั้ง cmux-tui ที่นั่น เลือก ติดตั้ง cmux-tui บนเครื่อง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui orada kurulu değil. Makineye cmux-tui kur… seçeneğini seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там не встановлено. Виберіть «Установити cmux-tui на машину…»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui chưa được cài ở đó. Chọn Cài cmux-tui trên máy…."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里未安装 cmux-tui。请选择“在机器上安装 cmux-tui…”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡未安裝 cmux-tui。請選擇「在機器上安裝 cmux-tui…」。"
+          }
+        }
+      }
+    },
+    "remote.need.protocol": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux-tui there speaks link protocol %1$d; this app needs %2$d. Install cmux-tui to update it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يستخدم cmux-tui هناك بروتوكول الربط %1$d؛ يحتاج هذا التطبيق إلى %2$d. ثبّت cmux-tui لتحديثه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui tamo koristi protokol veze %1$d; ova aplikacija treba %2$d. Instalirajte cmux-tui da ga ažurirate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der bruger linkprotokol %1$d; denne app kræver %2$d. Installér cmux-tui for at opdatere den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux-tui dort spricht Link-Protokoll %1$d; diese App braucht %2$d. Installiere cmux-tui, um es zu aktualisieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui de allí usa el protocolo de enlace %1$d; esta app necesita el %2$d. Instala cmux-tui para actualizarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui présent parle le protocole de liaison %1$d ; cette app a besoin du %2$d. Installez cmux-tui pour le mettre à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui lì usa il protocollo di collegamento %1$d; questa app richiede il %2$d. Installa cmux-tui per aggiornarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そこの cmux-tui はリンクプロトコル %1$d を使っています。このアプリには %2$d が必要です。更新するには cmux-tui をインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅទីនោះប្រើពិធីការតភ្ជាប់ %1$d ប៉ុន្តែកម្មវិធីនេះត្រូវការ %2$d។ ដំឡើង cmux-tui ដើម្បីធ្វើបច្ចុប្បន្នភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳의 cmux-tui는 링크 프로토콜 %1$d을(를) 사용합니다. 이 앱은 %2$d이(가) 필요합니다. 업데이트하려면 cmux-tui를 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der bruker lenkeprotokoll %1$d; denne appen trenger %2$d. Installer cmux-tui for å oppdatere den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamtejszy cmux-tui używa protokołu łącza %1$d; ta aplikacja wymaga %2$d. Zainstaluj cmux-tui, aby go zaktualizować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui lá usa o protocolo de link %1$d; este app precisa do %2$d. Instale o cmux-tui para atualizá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там использует протокол связи %1$d; этому приложению нужен %2$d. Установите cmux-tui, чтобы обновить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ที่นั่นใช้โปรโตคอลลิงก์ %1$d แต่แอปนี้ต้องการ %2$d ติดตั้ง cmux-tui เพื่ออัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oradaki cmux-tui %1$d bağlantı protokolünü kullanıyor; bu uygulama %2$d gerektiriyor. Güncellemek için cmux-tui kurun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там використовує протокол зв’язку %1$d; цьому застосунку потрібен %2$d. Установіть cmux-tui, щоб оновити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ở đó dùng giao thức liên kết %1$d; ứng dụng này cần %2$d. Cài cmux-tui để cập nhật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里的 cmux-tui 使用链路协议 %1$d；此应用需要 %2$d。请安装 cmux-tui 进行更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡的 cmux-tui 使用連結協定 %1$d；此 App 需要 %2$d。請安裝 cmux-tui 進行更新。"
+          }
+        }
+      }
+    },
+    "remote.need.unrunnable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux-tui there does not run (%@). Install cmux-tui to replace it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يعمل cmux-tui هناك (%@). ثبّت cmux-tui لاستبداله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui tamo ne radi (%@). Instalirajte cmux-tui da ga zamijenite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der kører ikke (%@). Installér cmux-tui for at erstatte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux-tui dort läuft nicht (%@). Installiere cmux-tui, um es zu ersetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui de allí no funciona (%@). Instala cmux-tui para reemplazarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui présent ne fonctionne pas (%@). Installez cmux-tui pour le remplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui lì non funziona (%@). Installa cmux-tui per sostituirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そこの cmux-tui は動作しません（%@）。置き換えるには cmux-tui をインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅទីនោះមិនដំណើរការទេ (%@)។ ដំឡើង cmux-tui ដើម្បីជំនួសវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳의 cmux-tui가 실행되지 않습니다(%@). 교체하려면 cmux-tui를 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui der kjører ikke (%@). Installer cmux-tui for å erstatte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamtejszy cmux-tui nie działa (%@). Zainstaluj cmux-tui, aby go zastąpić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui lá não roda (%@). Instale o cmux-tui para substituí-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там не запускается (%@). Установите cmux-tui, чтобы заменить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ที่นั่นทำงานไม่ได้ (%@) ติดตั้ง cmux-tui เพื่อแทนที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oradaki cmux-tui çalışmıyor (%@). Değiştirmek için cmux-tui kurun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui там не запускається (%@). Установіть cmux-tui, щоб замінити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ở đó không chạy (%@). Cài cmux-tui để thay thế."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里的 cmux-tui 无法运行（%@）。请安装 cmux-tui 进行替换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡的 cmux-tui 無法執行（%@）。請安裝 cmux-tui 進行取代。"
+          }
+        }
+      }
+    },
+    "remote.need.wrongApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is at the cmux-tui path there. Install cmux-tui to replace it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يوجد %@ في مسار cmux-tui هناك. ثبّت cmux-tui لاستبداله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ je na putanji cmux-tui tamo. Instalirajte cmux-tui da ga zamijenite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ligger på cmux-tui-stien der. Installér cmux-tui for at erstatte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unter dem cmux-tui-Pfad dort liegt %@. Installiere cmux-tui, um es zu ersetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ está en la ruta de cmux-tui allí. Instala cmux-tui para reemplazarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ se trouve au chemin de cmux-tui. Installez cmux-tui pour le remplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ si trova nel percorso di cmux-tui lì. Installa cmux-tui per sostituirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そこの cmux-tui のパスには %@ があります。置き換えるには cmux-tui をインストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ស្ថិតនៅផ្លូវ cmux-tui នៅទីនោះ។ ដំឡើង cmux-tui ដើម្បីជំនួសវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그곳의 cmux-tui 경로에 %@이(가) 있습니다. 교체하려면 cmux-tui를 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ligger på cmux-tui-banen der. Installer cmux-tui for å erstatte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pod ścieżką cmux-tui znajduje się %@. Zainstaluj cmux-tui, aby go zastąpić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ está no caminho do cmux-tui lá. Instale o cmux-tui para substituí-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "По пути cmux-tui там находится %@. Установите cmux-tui, чтобы заменить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มี %@ อยู่ที่พาธของ cmux-tui ติดตั้ง cmux-tui เพื่อแทนที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oradaki cmux-tui yolunda %@ var. Değiştirmek için cmux-tui kurun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "За шляхом cmux-tui там розташовано %@. Установіть cmux-tui, щоб замінити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ đang nằm ở đường dẫn cmux-tui. Cài cmux-tui để thay thế."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里的 cmux-tui 路径上是 %@。请安装 cmux-tui 进行替换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡的 cmux-tui 路徑上是 %@。請安裝 cmux-tui 進行取代。"
+          }
+        }
+      }
+    },
+    "remote.status.authFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل تسجيل الدخول عبر SSH: %@ تحقّق من المفتاح أو الوكيل ثم اختر إعادة الاتصال بالجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH prijava nije uspjela: %@ Provjerite ključ ili agent, pa odaberite Ponovo poveži mašinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH-login mislykkedes: %@ Tjek din nøgle eller agent, og vælg derefter Genforbind maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH-Anmeldung fehlgeschlagen: %@ Prüfe deinen Schlüssel oder Agent und wähle dann „Maschine erneut verbinden“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falló el inicio de sesión SSH: %@ Revisa tu clave o agente y elige Reconectar máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Échec de la connexion SSH : %@ Vérifiez votre clé ou votre agent, puis choisissez Reconnecter la machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accesso SSH non riuscito: %@ Controlla la chiave o l’agente, poi scegli Riconnetti macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH のサインインに失敗しました: %@ キーまたはエージェントを確認してから「マシンに再接続」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចូល SSH បានបរាជ័យ៖ %@ ពិនិត្យកូនសោ ឬ agent រួចជ្រើស ភ្ជាប់ម៉ាស៊ីនឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH 로그인 실패: %@ 키 또는 에이전트를 확인한 뒤 머신 다시 연결을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH-pålogging mislyktes: %@ Sjekk nøkkelen eller agenten, og velg deretter Koble til maskin på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logowanie SSH nie powiodło się: %@ Sprawdź klucz lub agenta, a potem wybierz Połącz ponownie z maszyną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O login SSH falhou: %@ Verifique sua chave ou agente e escolha Reconectar máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вход по SSH не удался: %@ Проверьте ключ или агент, затем выберите «Переподключить машину»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้ SSH ไม่สำเร็จ: %@ ตรวจคีย์หรือเอเจนต์ แล้วเลือก เชื่อมต่อเครื่องอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH oturum açma başarısız: %@ Anahtarınızı veya ajanınızı denetleyin, sonra Makineye yeniden bağlan’ı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вхід через SSH не вдався: %@ Перевірте ключ або агент, потім виберіть «Перепід’єднати машину»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập SSH thất bại: %@ Kiểm tra khóa hoặc agent rồi chọn Kết nối lại máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH 登录失败：%@ 请检查你的密钥或代理，然后选择“重新连接机器”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SSH 登入失敗：%@ 請檢查你的金鑰或代理程式，然後選擇「重新連線機器」。"
+          }
+        }
+      }
+    },
+    "remote.status.hostKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host key is not trusted: %1$@ Run ssh %2$@ in a terminal to check it. cmux never skips host key checks."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفتاح المضيف غير موثوق: %1$@ شغّل ssh %2$@ في طرفية للتحقق منه. لا يتخطى cmux فحص مفتاح المضيف أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ključ hosta nije pouzdan: %1$@ Pokrenite ssh %2$@ u terminalu da ga provjerite. cmux nikad ne preskače provjeru ključa hosta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værtsnøglen er ikke betroet: %1$@ Kør ssh %2$@ i en terminal for at kontrollere den. cmux springer aldrig kontrol af værtsnøgler over."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dem Host-Schlüssel wird nicht vertraut: %1$@ Führe ssh %2$@ in einem Terminal aus, um ihn zu prüfen. cmux überspringt die Host-Schlüssel-Prüfung nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La clave del host no es de confianza: %1$@ Ejecuta ssh %2$@ en una terminal para comprobarla. cmux nunca omite la comprobación de claves de host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La clé d’hôte n’est pas approuvée : %1$@ Exécutez ssh %2$@ dans un terminal pour la vérifier. cmux ne saute jamais la vérification des clés d’hôte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La chiave dell’host non è attendibile: %1$@ Esegui ssh %2$@ in un terminale per verificarla. cmux non salta mai il controllo delle chiavi host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホストキーが信頼されていません: %1$@ ターミナルで ssh %2$@ を実行して確認してください。cmux がホストキーの確認を省くことはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កូនសោម៉ាស៊ីនមិនត្រូវបានទុកចិត្តទេ៖ %1$@ រត់ ssh %2$@ ក្នុង terminal ដើម្បីពិនិត្យវា។ cmux មិនដែលរំលងការពិនិត្យកូនសោម៉ាស៊ីនទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트 키를 신뢰할 수 없습니다: %1$@ 터미널에서 ssh %2$@를 실행해 확인하세요. cmux는 호스트 키 확인을 건너뛰지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vertsnøkkelen er ikke klarert: %1$@ Kjør ssh %2$@ i en terminal for å sjekke den. cmux hopper aldri over kontroll av vertsnøkler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klucz hosta nie jest zaufany: %1$@ Uruchom ssh %2$@ w terminalu, aby go sprawdzić. cmux nigdy nie pomija sprawdzania kluczy hosta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A chave do host não é confiável: %1$@ Rode ssh %2$@ em um terminal para conferi-la. O cmux nunca pula a verificação de chaves de host."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ключ хоста не доверенный: %1$@ Выполните ssh %2$@ в терминале, чтобы проверить его. cmux никогда не пропускает проверку ключей хоста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่เชื่อถือคีย์โฮสต์: %1$@ เรียก ssh %2$@ ในเทอร์มินัลเพื่อตรวจสอบ cmux ไม่เคยข้ามการตรวจคีย์โฮสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana makine anahtarına güvenilmiyor: %1$@ Denetlemek için bir terminalde ssh %2$@ çalıştırın. cmux ana makine anahtarı denetimini asla atlamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ключ хоста не довірений: %1$@ Виконайте ssh %2$@ у терміналі, щоб перевірити його. cmux ніколи не пропускає перевірку ключів хоста."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khóa máy chủ không được tin cậy: %1$@ Chạy ssh %2$@ trong terminal để kiểm tra. cmux không bao giờ bỏ qua kiểm tra khóa máy chủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主机密钥不受信任：%1$@ 请在终端中运行 ssh %2$@ 进行核对。cmux 从不跳过主机密钥检查。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主機金鑰不受信任：%1$@ 請在終端機中執行 ssh %2$@ 進行核對。cmux 從不略過主機金鑰檢查。"
+          }
+        }
+      }
+    },
+    "remote.status.installing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installing cmux-tui…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ تثبيت cmux-tui…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instaliranje cmux-tui…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installerer cmux-tui…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui wird installiert …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalando cmux-tui…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installation de cmux-tui…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installazione di cmux-tui…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui をインストール中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងដំឡើង cmux-tui…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui 설치 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installerer cmux-tui …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalowanie cmux-tui…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalando o cmux-tui…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установка cmux-tui…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังติดตั้ง cmux-tui…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui kuruluyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установлення cmux-tui…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang cài cmux-tui…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在安装 cmux-tui…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在安裝 cmux-tui…"
+          }
+        }
+      }
+    },
+    "remote.status.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected. Choose Reconnect Machine to connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير متصل. اختر إعادة الاتصال بالجهاز للاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije povezano. Odaberite Ponovo poveži mašinu da se povežete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afbrudt. Vælg Genforbind maskine for at forbinde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Getrennt. Wähle „Maschine erneut verbinden“, um zu verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desconectado. Elige Reconectar máquina para conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déconnecté. Choisissez Reconnecter la machine pour vous connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disconnesso. Scegli Riconnetti macchina per connetterti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切断されています。接続するには「マシンに再接続」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានផ្ដាច់។ ជ្រើស ភ្ជាប់ម៉ាស៊ីនឡើងវិញ ដើម្បីភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결이 끊겼습니다. 연결하려면 머신 다시 연결을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frakoblet. Velg Koble til maskin på nytt for å koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozłączono. Wybierz Połącz ponownie z maszyną, aby się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desconectado. Escolha Reconectar máquina para conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отключено. Выберите «Переподключить машину», чтобы подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัดการเชื่อมต่อแล้ว เลือก เชื่อมต่อเครื่องอีกครั้ง เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantı kesildi. Bağlanmak için Makineye yeniden bağlan’ı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Від’єднано. Виберіть «Перепід’єднати машину», щоб під’єднатися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã ngắt kết nối. Chọn Kết nối lại máy để kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已断开连接。选择“重新连接机器”以连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已中斷連線。選擇「重新連線機器」以連線。"
+          }
+        }
+      }
+    },
+    "remote.status.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot reach the machine: %@ cmux tries again when the network changes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر الوصول إلى الجهاز: %@ سيحاول cmux مجددًا عند تغيّر الشبكة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina nije dostupna: %@ cmux pokušava ponovo kada se mreža promijeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen kan ikke nås: %@ cmux prøver igen, når netværket ændres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Maschine ist nicht erreichbar: %@ cmux versucht es erneut, wenn sich das Netzwerk ändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede acceder a la máquina: %@ cmux lo reintenta cuando cambia la red."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine injoignable : %@ cmux réessaie quand le réseau change."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile raggiungere la macchina: %@ cmux riprova quando cambia la rete."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "マシンに到達できません: %@ ネットワークが変わると cmux が再試行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចទៅដល់ម៉ាស៊ីនបានទេ៖ %@ cmux ព្យាយាមម្ដងទៀតនៅពេលបណ្ដាញផ្លាស់ប្ដូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신에 연결할 수 없습니다: %@ 네트워크가 바뀌면 cmux가 다시 시도합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen kan ikke nås: %@ cmux prøver igjen når nettverket endres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można połączyć się z maszyną: %@ cmux spróbuje ponownie po zmianie sieci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível alcançar a máquina: %@ O cmux tenta de novo quando a rede muda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина недоступна: %@ cmux повторит попытку при смене сети."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เข้าถึงเครื่องไม่ได้: %@ cmux จะลองอีกครั้งเมื่อเครือข่ายเปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makineye ulaşılamıyor: %@ cmux ağ değiştiğinde yeniden dener."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Машина недоступна: %@ cmux спробує знову, коли зміниться мережа."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể kết nối tới máy: %@ cmux sẽ thử lại khi mạng thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法访问该机器：%@ 网络变化时 cmux 会重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法連到該機器：%@ 網路變化時 cmux 會重試。"
+          }
+        }
+      }
+    },
+    "remote.unavailable.noClient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bundled cmux-tui is missing, so SSH machines cannot connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أداة cmux-tui المضمّنة مفقودة، لذا لا يمكن الاتصال بأجهزة SSH."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ugrađeni cmux-tui nedostaje, pa se SSH mašine ne mogu povezati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den medfølgende cmux-tui mangler, så SSH-maskiner kan ikke forbinde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das mitgelieferte cmux-tui fehlt, daher können sich SSH-Maschinen nicht verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falta el cmux-tui incluido, así que las máquinas SSH no pueden conectarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui fourni est absent : les machines SSH ne peuvent pas se connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui incluso manca, quindi le macchine SSH non possono connettersi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "同梱の cmux-tui が見つからないため、SSH マシンに接続できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui ដែលភ្ជាប់មកជាមួយបាត់ ដូច្នេះម៉ាស៊ីន SSH មិនអាចភ្ជាប់បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "번들된 cmux-tui가 없어 SSH 머신에 연결할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den medfølgende cmux-tui mangler, så SSH-maskiner kan ikke koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brakuje dołączonego cmux-tui, więc maszyny SSH nie mogą się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui incluído está ausente, então as máquinas SSH não podem se conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Встроенный cmux-tui отсутствует, поэтому SSH-машины не могут подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่พบ cmux-tui ที่มาพร้อมแอป จึงเชื่อมต่อเครื่อง SSH ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paketlenmiş cmux-tui eksik, bu yüzden SSH makineleri bağlanamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вбудований cmux-tui відсутній, тому SSH-машини не можуть під’єднатися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thiếu cmux-tui đi kèm nên không thể kết nối máy SSH."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "缺少内置的 cmux-tui，因此无法连接 SSH 机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "缺少內建的 cmux-tui，因此無法連線 SSH 機器。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -34,6 +34,8 @@ final class FocusCoordinator {
 
     /// Called after every reduction, before its effects run.
     var observer: ((Observation) -> Void)?
+    /// Called once the queue drained and every effect ran (notifications).
+    var settledObserver: ((FocusState) -> Void)?
 
     func send(_ event: FocusEvent) {
         queue.append(event)
@@ -52,6 +54,7 @@ final class FocusCoordinator {
             applier.apply(effects, state: next)
             isApplying = false
         }
+        settledObserver?(state)
     }
 
     /// Starts a user intent that lands later (split, new tab). Pass the
@@ -62,9 +65,11 @@ final class FocusCoordinator {
     }
 
     /// Focuses `key` when it exists unless a newer intent happened since
-    /// `generation` (nil: now, for app-driven creations).
-    func expect(_ key: FocusState.Expectation.Key, target: FocusState.Target = .content, generation: UInt64? = nil) {
-        send(.expect(key, target: target, generation: generation ?? state.generation))
+    /// `generation` (nil: now, for app-driven creations). With `awayFrom`
+    /// it lands only once the tab is in a pane other than that one.
+    func expect(_ key: FocusState.Expectation.Key, target: FocusState.Target = .content, awayFrom: String? = nil,
+                generation: UInt64? = nil) {
+        send(.expect(key, target: target, awayFrom: awayFrom, generation: generation ?? state.generation))
     }
 
     /// A user moved `tab` out of `pane` (shortcut, menu, CLI): focus

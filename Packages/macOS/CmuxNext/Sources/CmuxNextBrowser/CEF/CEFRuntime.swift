@@ -277,7 +277,10 @@ final class CEFRuntime {
         self.shim = shim
         self.layout = layout
 
-        let pump = CEFMessagePump(work: { [weak self] in self?.shim?.doWork() })
+        let pump = CEFMessagePump(
+            work: { [weak self] in self?.shim?.doWork() },
+            safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion())
+        )
         self.pump = pump
         pump.start()
 
@@ -289,6 +292,8 @@ final class CEFRuntime {
         )
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
+        // New pages start on the theme color, never white (PageBackground).
+        shim.setBackgroundColor(PageBackground.themeARGB)
         let switches = switchSet.arguments
         switchStorage = switches.map { strdup($0) } + [nil]
         let locale = library.locale
@@ -341,6 +346,9 @@ final class CEFRuntime {
 nonisolated struct CEFPaneKey: Hashable, Sendable {
     var pane: BrowserPaneID
     var profile: BrowserProfileID
+    /// The remote-localhost derived store's machine, nil for the profile's
+    /// own store. A Chromium window holds one store, so it is part of the key.
+    var machineKey: String? = nil
 }
 
 nonisolated struct CEFDevToolsKey: Hashable, Sendable {

@@ -96,6 +96,9 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             BrowserContextMenuBuilder.present(request, in: tab.contentView)
         case .notice(let text):
             chrome.showNotice(text)
+        case .rerouteStore:
+            // The debug window has no machines, so it never sets a guard.
+            break
         }
     }
 

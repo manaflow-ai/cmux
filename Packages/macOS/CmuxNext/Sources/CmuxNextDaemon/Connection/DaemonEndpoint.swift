@@ -38,6 +38,10 @@ public enum DaemonCapabilities {
     public static let notificationAck = "notification-ack-v1"
     public static let tabGroups = "tab-groups-v1"
     public static let savedTabGroups = "saved-tab-groups-v1"
+    /// Screen color, icon, pin, and order (`set-screen-metadata`, `set-screen-pinned`, `move-screen`).
+    public static let screenMetadata = "screen-metadata-v1"
+    /// Screen groups and saved screen groups.
+    public static let screenGroups = "screen-groups-v1"
     /// Per-terminal `env` on `new-tab`, `split`, `create-terminal`; `cwd` on `split`.
     public static let terminalEnv = "terminal-env-v1"
     /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
@@ -50,11 +54,12 @@ public enum DaemonCapabilities {
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
     public static let batchClose = "batch-close-v1"
+    /// Browser tabs reach the machine's loopback services over a dedicated
+    /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
+    public static let loopbackForward = "loopback-forward-v1"
     /// Profiles (plans/cmux-next/data-model.md): the `*-profile` commands,
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
-    /// Not in `optional` until the pinned cmux-tui serves it; the pin commit
-    /// that adds profiles-v1 adds it back.
     public static let profiles = "profiles-v1"
     /// Personal state kept only on the home (local) session
     /// (plans/cmux-next/data-model.md): a remote daemon never needs these.
@@ -66,8 +71,15 @@ public enum DaemonCapabilities {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, batchClose]
 
+    /// Capabilities the app already speaks but the pinned cmux-tui does not
+    /// serve yet. They are advertised, so a daemon that has them enables them,
+    /// but they are not in `optional` (the pinned daemon must serve every
+    /// `optional` capability, BranchDaemonTests). The pin commit that brings
+    /// one moves it into `optional`.
+    public static let awaitingPin: [String] = [profiles, screenMetadata, screenGroups, loopbackForward]
+
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
-    public static let advertised: [String] = required + optional + [
+    public static let advertised: [String] = required + optional + awaitingPin + [
         "attach-identity-v1",
         "creation-receipts-v1",
         "creation-attempt-keys-v1",

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextControl
 import CmuxNextDaemon
@@ -65,12 +66,18 @@ final class AppCompatFrontend: CompatFrontend {
             return ["window_id": .string(controller.state.id)]
         case .focusWindow(let windowID):
             let controller = try window(windowID)
-            controller.window?.orderFront(nil)
-            controller.window?.makeKey()
-            if !services.environment.noActivate { NSApp.activate() }
+            if let window = controller.window { WindowActivation.show(window, .focus) }
             services.windows.didActivate(controller)
         case .closeWindow(let windowID):
             try window(windowID).close()
+        case .expectNotification:
+            services.notifications.expectCreate()
+        case .noteNotification(let id, let source):
+            if let id {
+                services.notifications.record(NotificationID(rawValue: id), source: NotificationSource(rawValue: source) ?? .agent)
+            } else {
+                services.notifications.createFailed()
+            }
         }
         return [:]
     }

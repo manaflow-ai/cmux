@@ -164,6 +164,18 @@ final class LineTransport: Sendable {
         if case .failure(let error) = submit(.discard(cmd: cmd, onError: onError), body) { throw error }
     }
 
+    /// Writes one line that has no `id` and gets no reply (`loopback-data`
+    /// and the other stream lines of `loopback-forward-v1`). Ordered with
+    /// every other write. False once the socket failed or closed.
+    func sendLine(_ payload: Data) -> Bool {
+        socket.withLock { socket in
+            guard socket.fd >= 0, state.withLock({ $0.closed == nil }) else { return false }
+            var line = payload
+            line.append(0x0A)
+            return writer.write(line) == nil
+        }
+    }
+
     /// Allocates the id, registers the waiter, and writes, all under the
     /// socket lock so `state.order` equals wire order. On failure before
     /// registration the waiter is resumed here; after it, `failAll` owns it.

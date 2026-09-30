@@ -59,6 +59,15 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module), kind: .target(.tabGroup))
     }
 
+    static var groupScreenGroup: ActionArgument {
+        ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module), kind: .target(.screenGroup))
+    }
+
+    /// A saved group id.
+    static var savedString: ActionArgument {
+        ActionArgument(name: "saved", title: String(localized: "argument.savedGroup", defaultValue: "Saved Group", table: "ScreenActions", bundle: .module), kind: .string)
+    }
+
     static var directionChoice: ActionArgument {
         ActionArgument(name: "direction", title: String(localized: "argument.direction", defaultValue: "Direction", bundle: .module), kind: .enumeration([choice("right"), choice("down"), choice("left"), choice("up")]))
     }

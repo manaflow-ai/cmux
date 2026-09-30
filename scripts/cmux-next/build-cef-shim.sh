@@ -84,7 +84,7 @@ done
   -o "$OUT_DIR/libcmux_cef_shim.dylib" \
   "$OUT_DIR/obj/shim/shim_process.mm.o" "$OUT_DIR/obj/shim/shim_client.mm.o" "$OUT_DIR/obj/shim/shim_browser.mm.o" \
   "$OUT_DIR/obj/shim/shim_site.mm.o" "$OUT_DIR/obj/shim/shim_devtools.mm.o" \
-  "$OUT_DIR/obj/shim/shim_windows.mm.o" \
+  "$OUT_DIR/obj/shim/shim_windows.mm.o" "$OUT_DIR/obj/shim/shim_proxy.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \

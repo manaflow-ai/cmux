@@ -16,6 +16,10 @@ public enum Palette {
     public static let sidebarBackground = token(\.sidebarBackground)
     /// Terminal and browser content area background (never glass).
     public static let contentBackground = token(\.contentBackground)
+    /// A browser page before its first paint, and the views over a page
+    /// (load error, sad tab): the terminal background, opaque, because a
+    /// page is opaque and a stale page must not show through.
+    public static let pageBackground = token(\.contentBackground, opaque: true)
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static let chromeBackground = token(\.chromeBackground)
     /// Floating cards: palette, hover card, editors.

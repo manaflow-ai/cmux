@@ -41,9 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
-        if !environment.noActivate { NSApp.activate() }
-        services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment)
+        WindowActivation.activateApp()
+        services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider())
         cloudContext = services.startCloud()
+        services.ssh.start()
         services.updater.start()
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -69,6 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+        services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
+        NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
+        services.onboarding.seedHistory()
+        services.onboarding.showIfNeeded()
     }
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`).
@@ -85,14 +91,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = SettingsController(registry: registry)
         self.settings = settings
         services.settings = settings
+        let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
+        services.paletteShortcutEditor = shortcutEditor
+        services.palette.shortcutRecorder.editor = shortcutEditor
         settings.start()
         services.tabBarButtons.start(settings: settings)
         services.cache.browserTabs.preference.follow(settings)
+        services.notifications.follow(settings)
+        services.startHibernation(settings: settings)
+        services.terminalTheme.follow(settings)
+        services.remoteLocalhost.follow(settings)
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
+                control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater)
                 control.registerInputMethods(services)
@@ -108,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installCompat(on router: ControlRouter) {
         let frontend = services.compat!
         frontend.afterIntent = { [control] in control.publishSnapshotNow() }
-        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironment) {
+        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironmentProvider()) {
             frontend.currentConnection()
         }
         compat.install(on: router)
@@ -131,11 +145,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
-    /// `<scheme>://auth-callback` from the browser fallback of sign-in.
+    /// Web, `ssh:` and `x-man-page:` links (cmux as their handler) open as
+    /// tabs; `<scheme>://auth-callback` from the browser fallback of
+    /// sign-in goes to Cloud auth.
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URL(string: text) else { return }
+        if services?.externalOpen.open(url) == true { return }
         let cloud = services?.cloud
         Task { _ = await cloud?.auth.handleCallback(url) }
+    }
+
+    /// Files opened with cmux (scripts, folders, HTML) and URLs delivered
+    /// without an Apple event.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { services?.externalOpen.open(url) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -143,6 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
+        services?.ssh.stop()
         control.stop()
         services?.tabBarButtons.stop()
         settings?.stop()

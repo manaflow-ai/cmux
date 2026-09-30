@@ -1,4 +1,4 @@
-import CmuxNextActions
+public import CmuxNextActions
 
 /// One row of palette results.
 public struct PaletteItem: Identifiable {
@@ -26,6 +26,8 @@ public struct PaletteItem: Identifiable {
     public var frecencyKey: String?
     /// Score adjustment applied after matching; positive ranks higher.
     public var rankBias: Int
+    /// The registry action this row runs, if any: Cmd-K edits its shortcut.
+    public var actionID: ActionID?
 
     public init(
         id: String,
@@ -41,7 +43,8 @@ public struct PaletteItem: Identifiable {
         alternate: PaletteCommand? = nil,
         secondary: [PaletteCommand] = [],
         frecencyKey: String? = nil,
-        rankBias: Int = 0
+        rankBias: Int = 0,
+        actionID: ActionID? = nil
     ) {
         self.id = id
         self.title = title
@@ -57,6 +60,7 @@ public struct PaletteItem: Identifiable {
         self.secondary = secondary
         self.frecencyKey = frecencyKey ?? id
         self.rankBias = rankBias
+        self.actionID = actionID
     }
 
     /// Every command, primary first, as the Actions menu lists them.

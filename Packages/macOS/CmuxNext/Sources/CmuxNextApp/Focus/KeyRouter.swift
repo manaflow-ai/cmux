@@ -29,6 +29,9 @@ import CmuxNextTerminal
 final class KeyRouter: BrowserKeyRouting {
     private unowned let registry: ActionRegistry
     weak var services: AppServices?
+    /// A key that is not a Command or Control chord goes on to `window`'s
+    /// focused view: the user types into that pane (notification dismissal).
+    var onTyping: ((NSWindow?) -> Void)?
     /// The user's Ghostty host keybinds (`GhosttyRuntime.hostAction`),
     /// injectable for tests.
     var ghosttyHostAction: (NSEvent) -> TerminalHostAction? = { GhosttyRuntime.shared.hostAction(forKeyDown: $0) }
@@ -103,7 +106,11 @@ final class KeyRouter: BrowserKeyRouting {
     /// process, before any window or responder. `window` is where the key
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard event.type == .keyDown, Self.isChord(event.modifierFlags) else { return false }
+        guard event.type == .keyDown else { return false }
+        guard Self.isChord(event.modifierFlags) else {
+            onTyping?(window)
+            return false
+        }
         let (controller, kind) = focus(for: window)
         guard let controller, kind == .content, let candidate = candidate(for: event, focus: controller.focus.state),
               Self.intercepts(candidate, focus: controller.focus.state, keyWindow: kind) else { return false }

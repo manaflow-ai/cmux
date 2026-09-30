@@ -115,7 +115,7 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
         case .profile:
             [PaletteTargetOption(id: "default", title: "Default", symbol: "circle.fill"),
              PaletteTargetOption(id: "prof_work", title: "Work", symbol: "circle.fill")]
-        case .pane, .column, .screen:
+        case .pane, .column, .screen, .screenGroup:
             [PaletteTargetOption(id: "\(kind.rawValue)1", title: "\(kind.rawValue.capitalized) 1")]
         }
     }

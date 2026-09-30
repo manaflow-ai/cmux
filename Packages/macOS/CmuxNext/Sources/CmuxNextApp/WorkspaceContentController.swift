@@ -13,12 +13,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let daemon: DaemonService
     let layoutModel = LayoutModel()
     private(set) var layoutView: LayoutRootView!
+    /// Layout plus the bottom screen bar; what the window shows.
+    private(set) var contentView: WorkspaceContentView!
+    private(set) var screenBar: ScreenBarController!
     unowned let services: AppServices
     unowned let state: WindowState
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
+    private var attentionObservation: Task<Void, Never>?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -26,6 +30,23 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
+    /// Kept mounted off screen by its window (a recently shown workspace):
+    /// its panes are paused in the keep-alive band and it sends no focus
+    /// events, because the window's focus follows the shown workspace.
+    private(set) var isParked = false
+
+    /// Parks this content before its window shows another workspace.
+    func park() {
+        isParked = true
+        layoutView.keepsPanesWhenDetached = true
+    }
+
+    /// Shows this parked content again (the window installs its view next).
+    func unpark() {
+        isParked = false
+        layoutView.keepsPanesWhenDetached = false
+        applyCurrent()
+    }
 
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
         self.workspace = workspace
@@ -34,17 +55,22 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
-        layoutModel.showsScreenSwitcher = state.showsScreenSwitcher
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
         observe()
+        screenBar = ScreenBarController(content: self)
+        contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
+        contentView.showsBar = screenBar.isVisible
+        screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
     }
 
     func teardown() {
         observation?.cancel()
         connectionObservation?.cancel()
+        attentionObservation?.cancel()
+        screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
-        layoutView.removeFromSuperview()
+        contentView.removeFromSuperview()
     }
 
     private func observe() {
@@ -60,6 +86,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let store = daemon.store
         connectionObservation = Task { [weak self] in
             for await _ in Observations({ store.connectionState }) { self?.repairIfEmpty() }
+        }
+        // Panes with an unread notification draw the attention ring.
+        let notifications = services.notifications
+        attentionObservation = Task { [weak self] in
+            for await marks in Observations({ notifications.attentionMarks(for: workspace) }) {
+                guard let self else { return }
+                if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
+            }
         }
     }
 
@@ -87,7 +121,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     /// The local daemon's repair, or the owning Cloud machine's.
     private var emptyWorkspaceRepair: EmptyWorkspaceRepair {
-        services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
+        services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
     }
 
     // MARK: Focus

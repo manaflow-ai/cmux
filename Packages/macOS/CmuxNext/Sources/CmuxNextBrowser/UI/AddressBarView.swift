@@ -32,6 +32,9 @@ public final class AddressBarView: NSView {
     private let backdrop = OmnibarCardTopView()
     private let chip = PageInfoChipButton()
     let field = AddressField()
+    private let machineBadgeView = MachineBadgeView()
+    private var fieldToEdge: NSLayoutConstraint!
+    private var fieldToBadge: NSLayoutConstraint!
     private let panel = OmniboxSuggestionPanel()
     private let density = DensityBinding()
 
@@ -84,6 +87,10 @@ public final class AddressBarView: NSView {
         addSubview(pill)
         addSubview(chip)
         addSubview(field)
+        machineBadgeView.isHidden = true
+        addSubview(machineBadgeView)
+        fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
+        fieldToBadge = field.trailingAnchor.constraint(equalTo: machineBadgeView.leadingAnchor, constant: -OmnibarStyle.textLeading)
         NSLayoutConstraint.activate([
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -102,8 +109,10 @@ public final class AddressBarView: NSView {
             density.bind(chip.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
 
             field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: OmnibarStyle.textLeading),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding),
+            fieldToEdge,
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
+            machineBadgeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.chipLeading - 2),
+            machineBadgeView.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         panel.onPick = { [weak self] row, flags in
             self?.commitMarkedText()
@@ -128,6 +137,19 @@ public final class AddressBarView: NSView {
     public var isEditing: Bool { controller.state.hasFocus }
 
     var state: OmnibarState { controller.state }
+
+    /// The machine whose localhost this tab sees, as a subtle chip; nil
+    /// hides it (plans/cmux-next/remote-localhost.md section 6).
+    public func setMachineBadge(_ text: String?, help: String?) {
+        if let text {
+            machineBadgeView.show(text: text, help: help ?? text)
+        }
+        let visible = text != nil
+        guard machineBadgeView.isHidden == visible else { return }
+        machineBadgeView.isHidden = !visible
+        fieldToEdge.isActive = !visible
+        fieldToBadge.isActive = visible
+    }
 
     /// Shows the page's URL. While editing, typed text never changes.
     public func update(url: URL?, security: BrowserSecurityState) {

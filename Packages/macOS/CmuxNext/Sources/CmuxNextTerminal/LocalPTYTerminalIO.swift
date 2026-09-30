@@ -174,16 +174,22 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         return "/bin/zsh"
     }
 
-    /// TERM and friends. Uses `xterm-ghostty` when the terminfo entry is
-    /// reachable next to the Ghostty resources, else `xterm-256color`.
-    private static func terminalEnvironment() -> [String: String] {
-        var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "cmux", "TERM": "xterm-256color"]
-        if let resources = ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"] {
-            let terminfo = ((resources as NSString).deletingLastPathComponent as NSString).appendingPathComponent("terminfo")
-            if FileManager.default.fileExists(atPath: (terminfo as NSString).appendingPathComponent("78/xterm-ghostty")) {
-                result["TERMINFO"] = terminfo
-                result["TERM"] = "xterm-ghostty"
-            }
+    /// Ghostty's terminal identity, as the daemon's terminals get it
+    /// (`TerminalEnvironment.ghostty` in CmuxNextDaemon): `xterm-ghostty`
+    /// with the bundled `TERMINFO` when that entry exists, else
+    /// `xterm-256color`; `COLORTERM`, `TERM_PROGRAM=ghostty` and its version.
+    static func terminalEnvironment(
+        resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
+        version: String? = GhosttyRuntime.version
+    ) -> [String: String] {
+        var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
+        if let version, !version.isEmpty { result["TERM_PROGRAM_VERSION"] = version }
+        guard let resourcesDirectory, !resourcesDirectory.isEmpty else { return result }
+        result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory
+        let terminfo = ((resourcesDirectory as NSString).deletingLastPathComponent as NSString).appendingPathComponent("terminfo")
+        if FileManager.default.fileExists(atPath: (terminfo as NSString).appendingPathComponent("78/xterm-ghostty")) {
+            result["TERMINFO"] = terminfo
+            result["TERM"] = "xterm-ghostty"
         }
         return result
     }

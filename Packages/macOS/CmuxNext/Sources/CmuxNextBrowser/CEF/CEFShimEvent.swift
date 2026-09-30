@@ -43,6 +43,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// A Chrome command that would open a Chromium window; the shim blocked
     /// it (`IDC_*` id).
     case chromeCommand(browser: Int32, command: Int32)
+    /// The navigation guard cancelled a main-frame navigation to `url`.
+    case navigationReroute(browser: Int32, url: String, isRedirect: Bool)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -81,6 +83,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 24: self = .renderUnresponsive(browser: browser)
         case 25: self = .renderResponsive(browser: browser)
         case 26: self = .chromeCommand(browser: browser, command: request)
+        case 27: self = .navigationReroute(browser: browser, url: s1, isRedirect: a != 0)
         default: self = .unknown(kind: kind)
         }
     }

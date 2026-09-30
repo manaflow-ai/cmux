@@ -28,6 +28,7 @@ extension CEFTab {
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
+            documentCommitted(URL(string: url))
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
             // Mixed content shows up while the page loads subresources.
@@ -58,6 +59,8 @@ extension CEFTab {
             ))
         case .closeRequested:
             emit(.close)
+        case .navigationReroute(_, let url, _):
+            if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive:

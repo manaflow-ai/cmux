@@ -3193,6 +3193,15 @@ final class SocketClient {
         socketAuthenticated = false
     }
 
+    /// Whether the process on the other end of the Unix socket `fd` runs as
+    /// this user (`getpeereid`).
+    static func peerIsCurrentUser(_ fd: Int32) -> Bool {
+        guard fd >= 0 else { return false }
+        var uid: uid_t = 0
+        var gid: gid_t = 0
+        return getpeereid(fd, &uid, &gid) == 0 && uid == getuid()
+    }
+
     func configureAuthentication(password: String?) {
         authenticationPassword = password
         hasConfiguredAuthentication = true
@@ -3216,6 +3225,21 @@ final class SocketClient {
         }
         authenticationInProgress = true
         defer { authenticationInProgress = false }
+        // The password authenticates us to the app; send it only to a
+        // listener run by this user. A socket another local user created at
+        // the path (a shared /tmp path, a hostile CMUX_SOCKET_PATH) gets
+        // nothing.
+        if relayEndpoint == nil {
+            if socketFD < 0 { try connect() }
+            guard Self.peerIsCurrentUser(socketFD) else {
+                throw CLIError(message: String(
+                    format: String(localized: "cli.socket.error.foreignOwner",
+                                   defaultValue: "Refusing to send the socket password to %@: the socket is not owned by the current user.",
+                                   bundle: .cmuxCLI),
+                    path
+                ))
+            }
+        }
         let authResponse = try send(
             command: "auth \(authenticationPassword)",
             responseTimeout: responseTimeout,

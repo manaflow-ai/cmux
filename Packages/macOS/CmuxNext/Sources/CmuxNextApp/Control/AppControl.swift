@@ -60,10 +60,20 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.report(call.params, services: services))
             },
+            // Unread tabs, attention marks, banners and the dismissal log
+            // (plans/cmux-next/notifications.md); "click" runs a banner click.
+            .mainActor("debug.notifications") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugNotifications.handle(call.params, services: services))
+            },
             // App overlays vs content child windows (Chromium pages).
             .mainActor("debug.layers") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.report(services: services))
+            },
+            .mainActor("debug.screens") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugScreens.report(services: services))
             },
             .mainActor("debug.surfaces") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -81,6 +91,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugCEF.report(services))
             },
+            // Remote localhost proxy: port, counters, recent outcomes.
+            .mainActor("debug.remote-localhost") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(services.remoteLocalhost.report())
+            },
             // Chromium process failures, restart state, crash reports.
             .mainActor("debug.crashes") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -95,6 +110,10 @@ final class AppControl {
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
+            .mainActor("debug.webkit_inspector") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugWebInspector.handle(call.params, services: services))
+            },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
@@ -123,6 +142,9 @@ final class AppControl {
                 await DebugExtensions.devTools(call.params, services)
             },
             .mainActor("debug.menu") { call in .value(DebugExtensions.menu(call.params)) },
+            .mainActor("debug.onboarding") { [weak services] call in
+                .value(services.map { DebugOnboarding.run(call.params, services: $0) } ?? .null)
+            },
             .mainActor("debug.extensions.toolbar") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.toolbar(call.params, $0) } ?? .null)
             },

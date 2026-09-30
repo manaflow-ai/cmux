@@ -30,8 +30,9 @@ public final class CompatService: Sendable {
     let journal = CompatJournalSequence()
     /// Daemon event sequence at the last acknowledged compat write.
     let writes = CompatWriteBarrier()
-    /// cmux keys every terminal this app spawns gets (`LaunchIdentity.terminalEnvironment`).
-    let terminalEnvironment: [String: String]
+    /// `env` for every terminal this app spawns: the login allowlist, the
+    /// launch and Ghostty terminal identity, and Ghostty's shell integration.
+    let terminalEnvironment: @Sendable () async -> [String: String]
     private let routerRef = Mutex(WeakRouter())
 
     var router: ControlRouter? { routerRef.withLock { $0.router } }
@@ -39,7 +40,8 @@ public final class CompatService: Sendable {
         router?.identity ?? ControlIdentity(version: "0", build: "0", bundleID: nil, tag: nil, processID: getpid())
     }
 
-    public init(frontend: any CompatFrontend, terminalEnvironment: [String: String] = [:],
+    public init(frontend: any CompatFrontend,
+                terminalEnvironment: @escaping @Sendable () async -> [String: String] = TerminalEnvironment.shared(),
                 connection: @escaping ConnectionProvider) {
         self.frontend = frontend
         self.terminalEnvironment = terminalEnvironment

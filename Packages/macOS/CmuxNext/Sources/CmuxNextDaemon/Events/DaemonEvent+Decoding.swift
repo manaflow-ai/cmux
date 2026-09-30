@@ -6,7 +6,7 @@ extension DaemonEvent {
         switch self {
         case .workspaceAdded(let d), .workspaceClosed(let d), .workspaceRenamed(let d), .workspaceMoved(let d),
              .workspaceChanged(let d): d.clientTransactionID
-        case .screenAdded(let d), .screenClosed(let d), .screenRenamed(let d): d.clientTransactionID
+        case .screenAdded(let d), .screenClosed(let d), .screenRenamed(let d), .screenChanged(let d): d.clientTransactionID
         case .paneAdded(let d), .paneClosed(let d): d.clientTransactionID
         case .tabAdded(let d), .tabClosed(let d), .tabRenamed(let d), .tabChanged(let d): d.clientTransactionID
         case .treeChanged(let transaction), .layoutChanged(_, let transaction): transaction
@@ -29,6 +29,7 @@ extension DaemonEvent {
             case "screen-added": return .screenAdded(try d(ScreenDelta.self))
             case "screen-closed": return .screenClosed(try d(ScreenDelta.self))
             case "screen-renamed": return .screenRenamed(try d(ScreenDelta.self))
+            case "screen-changed": return .screenChanged(try d(ScreenDelta.self))
             case "pane-added": return .paneAdded(try d(PaneDelta.self))
             case "pane-closed": return .paneClosed(try d(PaneDelta.self))
             case "tab-added": return .tabAdded(try d(TabDelta.self))

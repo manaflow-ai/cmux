@@ -48,8 +48,9 @@ private let immediately = -TimeInterval.infinity
         #expect(schedule.nextWake?.deadline == immediately)
     }
 
-    @Test func passThatUsedTheTimeSliceRunsAgain() {
-        var schedule = CEFPumpSchedule(safetyNet: .none)
+    // An older fork does not ask again when its slice cuts work off.
+    @Test func passThatUsedTheTimeSliceRunsAgainWithAnOlderFork() {
+        var schedule = CEFPumpSchedule(safetyNet: CEFPumpSchedule.standard)
         #expect(begin(&schedule, 10))
         schedule.endWork(now: 10.0101, elapsed: CEFPumpSchedule.timeSlice + 0.0001)
         #expect(schedule.nextWake?.deadline == immediately)
@@ -67,5 +68,35 @@ private let immediately = -TimeInterval.infinity
         schedule.request(milliseconds: 3_000, now: 10.01)
         #expect(abs((schedule.nextWake?.deadline ?? 0) - 13.01) < 1e-9)
         #expect(schedule.nextWake?.tolerance == 0)
+    }
+
+    // A demand-driven fork (API 7) reports "now" itself when its time slice
+    // ends with work left, so a long pass alone must not wake the pump.
+    @Test func demandOnlyLongPassWaitsForCEF() {
+        var schedule = CEFPumpSchedule(safetyNet: .none)
+        #expect(begin(&schedule, 10))
+        schedule.endWork(now: 10.02, elapsed: 0.02)
+        #expect(schedule.nextWake == nil)
+    }
+
+    // The fork reports its next delayed task from inside the pass.
+    @Test func demandOnlyRequestsInsideAPassAreHonoredAfterIt() {
+        var schedule = CEFPumpSchedule(safetyNet: .none)
+        #expect(begin(&schedule, 10))
+        schedule.request(milliseconds: 200, now: 10.001)
+        #expect(schedule.nextWake == nil)
+        schedule.endWork(now: 10.002, elapsed: 0.002)
+        #expect(abs((schedule.nextWake?.deadline ?? 0) - 10.201) < 1e-9)
+        #expect(begin(&schedule, 10.201))
+        schedule.request(milliseconds: 0, now: 10.2105)
+        schedule.endWork(now: 10.2115, elapsed: 0.0105)
+        #expect(schedule.nextWake?.deadline == immediately)
+    }
+
+    @Test func demandDrivenForkDropsTheFollowUps() {
+        #expect(CEFPumpSchedule.safetyNet(forkAPIVersion: 7) == .none)
+        #expect(CEFPumpSchedule.safetyNet(forkAPIVersion: 8) == .none)
+        #expect(CEFPumpSchedule.safetyNet(forkAPIVersion: 6) == CEFPumpSchedule.standard)
+        #expect(CEFPumpSchedule.safetyNet(forkAPIVersion: 0) == CEFPumpSchedule.standard)
     }
 }

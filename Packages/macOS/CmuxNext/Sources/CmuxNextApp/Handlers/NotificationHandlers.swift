@@ -48,6 +48,7 @@ enum NotificationHandlers {
                 await MainActor.run { context.copy(text) }
             }
         })
+        NotificationSettingsHandlers.bind(into: registry, context: context)
         registry.bindUnavailable(["showNotifications"], ActionFailure(message: MiscHandlerStrings.notificationsPanel))
         registry.bindUnavailable(["clearAllNotifications"], ActionFailure(message: MiscHandlerStrings.clearLedger))
     }
@@ -70,18 +71,32 @@ enum NotificationHandlers {
         return latest
     }
 
-    /// Shows the tab and acknowledges its notification: focusing it reads it.
-    /// On daemons without notification-ack-v1 the reveal still happens.
+    /// Shows the tab and opens its notification: it is read unless
+    /// `notifications.dismissal` is `never`. On daemons without
+    /// notification-ack-v1 the reveal still happens.
     static func open(_ located: LocatedTab, _ context: AppActionContext) throws {
         _ = try context.requireConnection()
         context.reveal(located)
-        if context.daemon.supports(ack) { try acknowledge([located.tab.surface], context) }
+        if context.daemon.supports(ack) { context.services.notifications.opened(located.tab) }
     }
 
+    /// A dismiss verb: acknowledges at once (and withdraws banners).
     static func acknowledge(_ surfaces: [SurfaceID], _ context: AppActionContext) throws {
         _ = try context.requireConnection()
+        let store = context.daemon.store
+        let notifications = context.services.notifications
+        var remote: [SurfaceID] = []
+        for surface in surfaces {
+            if context.daemon === context.services.daemon, let tab = store.tab(surface: surface) {
+                notifications.acknowledge(tab)
+            } else {
+                remote.append(surface)
+            }
+        }
+        guard !remote.isEmpty else { return }
+        let pending = remote
         context.daemon.send("ack-tab-notifications") { connection in
-            for surface in surfaces { _ = try await connection.acknowledgeNotifications(of: surface) }
+            for surface in pending { _ = try await connection.acknowledgeNotifications(of: surface) }
         }
     }
 }

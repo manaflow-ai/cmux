@@ -1,7 +1,7 @@
 import Foundation
 
 /// The JSON lines cmux-tui helpers print on stdout.
-enum CloudLinkEvent: Equatable, Sendable {
+package enum CloudLinkEvent: Equatable, Sendable {
     /// `wg hub`: `{"event":"hub-ready","socket":…,"routes":[…]}`.
     case hubReady(socket: String)
     /// `remote connect --headless --json`: the first
@@ -10,7 +10,7 @@ enum CloudLinkEvent: Equatable, Sendable {
     case connected(localSocket: String)
     case other
 
-    static func parse(_ line: String) -> CloudLinkEvent {
+    package static func parse(_ line: String) -> CloudLinkEvent {
         guard let data = line.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let event = object["event"] as? String else { return .other }

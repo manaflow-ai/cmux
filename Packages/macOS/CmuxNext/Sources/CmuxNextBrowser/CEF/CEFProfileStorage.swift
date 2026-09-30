@@ -31,5 +31,18 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
         root.appending(path: "Profile-" + profile.rawValue.uuidString)
     }
 
+    /// The remote-localhost derived store of `profile` for one machine
+    /// (plans/cmux-next/remote-localhost.md section 3), a sibling of the
+    /// profile directory because Chrome style needs direct children of the
+    /// root. `machineKey` must be lowercase hex; anything else gets the
+    /// profile's own path.
+    public func cachePath(for profile: BrowserProfileID, machineKey: String?) -> URL {
+        guard let machineKey, !machineKey.isEmpty, machineKey.utf8.count <= 32,
+              machineKey.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }) else {
+            return cachePath(for: profile)
+        }
+        return root.appending(path: "Profile-" + profile.rawValue.uuidString + "-m-" + machineKey)
+    }
+
     public var logFile: URL { root.appending(path: "cef.log") }
 }

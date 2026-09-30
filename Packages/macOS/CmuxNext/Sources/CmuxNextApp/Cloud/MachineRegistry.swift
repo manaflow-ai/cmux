@@ -4,8 +4,8 @@ import Foundation
 import Observation
 
 /// Every daemon tree the app shows: the local daemon plus one connection per
-/// Cloud machine. Each is a separate tree with its own store, shown as its
-/// own sidebar section. Workspaces never mix machines (REWRITE.md "no
+/// Cloud machine and per SSH machine (`SSHService`). Each is a separate tree
+/// with its own store, shown as its own sidebar section. Workspaces never mix machines (REWRITE.md "no
 /// mixed-machine workspaces in v1"), so a workspace, pane, or tab resolves
 /// to exactly one daemon, and every command for it goes there.
 @Observable
@@ -15,20 +15,47 @@ final class MachineRegistry {
     let local: DaemonService
     /// Cloud machines in sidebar order (newest last).
     private(set) var cloud: [CloudMachineSession] = []
+    /// SSH machines in the order they were added.
+    private(set) var ssh: [SSHMachineSession] = []
 
     init(local: DaemonService) {
         self.local = local
     }
 
-    /// Local first, then Cloud machines.
-    var daemons: [DaemonService] { [local] + cloud.map(\.daemon) }
+    /// Local first, then Cloud machines, then SSH machines.
+    var daemons: [DaemonService] { [local] + remoteDaemons }
+
+    /// Every daemon that is not the local one.
+    var remoteDaemons: [DaemonService] { cloud.map(\.daemon) + ssh.map(\.daemon) }
 
     func session(_ machineID: String) -> CloudMachineSession? {
         cloud.first { $0.machineID == machineID }
     }
 
+    func sshSession(_ machineID: String) -> SSHMachineSession? {
+        ssh.first { $0.machineID == machineID }
+    }
+
     func daemon(machine machineID: String) -> DaemonService? {
-        machineID == Self.localID ? local : session(machineID)?.daemon
+        machineID == Self.localID ? local : session(machineID)?.daemon ?? sshSession(machineID)?.daemon
+    }
+
+    /// The empty-workspace repair of `machineID` (the local one for local
+    /// or an unknown machine).
+    func emptyWorkspaceRepair(_ machineID: String?, local fallback: EmptyWorkspaceRepair) -> EmptyWorkspaceRepair {
+        guard let machineID else { return fallback }
+        return session(machineID)?.emptyWorkspaces ?? sshSession(machineID)?.emptyWorkspaces ?? fallback
+    }
+
+    /// The short name on a remote machine's tabs: the host (never the
+    /// session), or the Cloud machine's title.
+    func machineBadge(_ machineID: String) -> String? {
+        session(machineID)?.machine.title ?? sshSession(machineID)?.host.destination.displayName
+    }
+
+    /// The sidebar name of a remote machine, nil for local.
+    func machineName(_ machineID: String) -> String? {
+        session(machineID)?.machine.title ?? sshSession(machineID)?.host.label
     }
 
     /// What `daemon` can do for the app. A remote daemon never needs the
@@ -64,13 +91,13 @@ final class MachineRegistry {
 
     /// The daemon holding pane `pane` (by object identity).
     func daemon(forPane pane: PaneModel) -> DaemonService {
-        for daemon in cloud.map(\.daemon) where daemon.store.pane(pane.handle) === pane { return daemon }
+        for daemon in remoteDaemons where daemon.store.pane(pane.handle) === pane { return daemon }
         return local
     }
 
     /// The daemon holding `tab` (by object identity).
     func daemon(forTab tab: TabModel) -> DaemonService {
-        for daemon in cloud.map(\.daemon) where daemon.store.tab(surface: tab.surface) === tab { return daemon }
+        for daemon in remoteDaemons where daemon.store.tab(surface: tab.surface) === tab { return daemon }
         return local
     }
 
@@ -89,6 +116,18 @@ final class MachineRegistry {
     func remove(_ machineID: String) -> CloudMachineSession? {
         guard let index = cloud.firstIndex(where: { $0.machineID == machineID }) else { return nil }
         return cloud.remove(at: index)
+    }
+
+    // MARK: SSH sessions (SSHService only)
+
+    func add(_ session: SSHMachineSession) {
+        guard sshSession(session.machineID) == nil else { return }
+        ssh.append(session)
+    }
+
+    func removeSSH(_ machineID: String) -> SSHMachineSession? {
+        guard let index = ssh.firstIndex(where: { $0.machineID == machineID }) else { return nil }
+        return ssh.remove(at: index)
     }
 }
 

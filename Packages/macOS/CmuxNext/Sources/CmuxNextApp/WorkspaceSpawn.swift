@@ -14,6 +14,12 @@ struct WorkspaceSpawn: Sendable {
     var keep = false
     /// Room the workspace is born in; nil = the target window's room.
     var profile: ProfileID?
+    /// Where the new workspace goes in its window's sidebar; nil leaves it
+    /// where the daemon puts it (after the loose rows).
+    var slot: WorkspaceSlot?
+    /// Runs once the daemon reports the workspace and its window lists it
+    /// (after the slot is applied), with the window's sidebar.
+    var onListed: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
 
     init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
          profile: ProfileID? = nil) {
@@ -58,7 +64,12 @@ extension WindowManager {
         let daemon = daemon ?? services.daemon
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
-        if let windowID { claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
+        if let windowID {
+            if spawn.slot != nil || spawn.onListed != nil {
+                pendingPlacements[key.rawValue] = PendingPlacement(window: windowID, slot: spawn.slot, then: spawn.onListed)
+            }
+            claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
+        }
         let terminal = TerminalID.generate()
         // The workspace is born in its window's room (or the one asked for):
         // pinned there in the home session before the create command, so no
@@ -72,13 +83,13 @@ extension WindowManager {
         let defaults = daemon.isLocal ? room?.defaults : nil
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
-        var vars = daemon.isLocal ? await TerminalEnvironment.shared(overrides: services.environment.terminalEnvironment)() : [:]
+        var vars = daemon.isLocal ? await services.environment.terminalEnvironmentProvider()() : [:]
         vars.merge(defaults?.env ?? [:]) { _, profile in profile }
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
         let env: [String: String]? = daemon.supports(DaemonCapabilities.terminalEnv) ? vars : nil
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.terminalReap) ? true : nil
-        let repair: EmptyWorkspaceRepair = services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
+        let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
         return try await repair.populating(key) {
             let result = try await connection.request(CreateWorkspaceRequest(name: spawn.name, key: key, mutation: connection.mutation()))

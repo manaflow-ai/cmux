@@ -12,15 +12,6 @@ enum WorkspaceHandlers {
         registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
         registry.bind("nextSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: 1) })
         registry.bind("prevSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: -1) })
-        registry.bind("palette.moveWorkspaceToTop", run: { invocation in
-            let key = try context.workspace(invocation).key
-            let daemon = context.services.activeDaemon
-            Task {
-                await daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: 0)) { connection, _ in
-                    _ = try await connection.moveWorkspace(key, to: 0)
-                }
-            }
-        })
         registry.bind("palette.closeOtherWorkspaces", run: { invocation in
             let keep = try context.workspace(invocation).model
             close(context.sidebarOrder.filter { $0 !== keep }, context)

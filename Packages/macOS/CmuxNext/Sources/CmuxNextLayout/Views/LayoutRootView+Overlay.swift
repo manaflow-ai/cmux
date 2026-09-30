@@ -3,11 +3,10 @@ public import AppKit
 /// The overlay plane: pane rings and dims follow their hosts' displayed
 /// frames, and the rects of overlays that take the mouse are reported.
 extension LayoutRootView {
-    /// Puts the plane back as a subview of this view, below the screen
-    /// switcher (which takes clicks and stays in the root).
+    /// Puts the plane back as the topmost subview of this view.
     public func returnPlaneHome() {
         if overlayPlane.superview !== self {
-            addSubview(overlayPlane, positioned: .below, relativeTo: switcher)
+            addSubview(overlayPlane)
         }
         overlayPlane.syncFrame()
         syncOverlay()
@@ -39,8 +38,7 @@ extension LayoutRootView {
     }
 
     /// Rects (this view's coordinates) where native overlays in the root
-    /// draw: divider lines and the screen switcher (which also takes the
-    /// mouse). Content drawn above the window (Chromium pages) must leave
+    /// draw: divider lines. Content drawn above the window (Chromium pages) must leave
     /// these uncovered. A divider's wider hit area is not here: it draws
     /// nothing over panes (`dividerMouseAreas`).
     public var interactiveOverlayRects: [CGRect] {
@@ -48,7 +46,6 @@ extension LayoutRootView {
         if let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden {
             rects += screen.dividerLineRects.map { convert($0, from: screen) }
         }
-        if !switcher.isHidden, switcher.frame.width > 0 { rects.append(switcher.frame) }
         return rects
     }
 

@@ -26,7 +26,18 @@ extension SidebarBridge {
         guard let state else { return }
         let before = model.sections
         services.windows.moveWorkspaces(ids.map(\.rawValue), toWindow: state.id)
-        if let position { reorder(ids, to: position, in: before) }
+        if let position { place(ids, at: position, in: before) }
+    }
+
+    /// Puts `ids` at `position` of this window's `sections` (taken before
+    /// the move): personal order in the home session when it serves
+    /// personal state, else reorder commands to the owning daemon.
+    func place(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
+        if usesPersonalOrganization {
+            placePersonal(ids, at: position, in: sections)
+        } else {
+            reorder(ids, to: position, in: sections)
+        }
     }
 
     /// Workspaces dragged from another window onto a group header here.

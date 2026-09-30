@@ -89,6 +89,7 @@ extension WebKitTab: WKNavigationDelegate {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.finished(id))
+        pageDidFinish()
         syncHistory()
         refreshFavicon()
     }
@@ -247,6 +248,12 @@ extension WebKitTab: WKScriptMessageHandler {
         guard message.name == PaneFullscreenScript.messageHandlerName,
               message.frameInfo.isMainFrame,
               let on = message.body as? Bool else { return }
+        // Entering hides the chrome: only in answer to the user (a script
+        // could otherwise hide the address bar and draw a fake one).
+        if on, !((webView as? WebKitWebView)?.hadRecentUserInput() ?? false) {
+            webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
+            return
+        }
         apply(.contentFullscreenChanged(on))
     }
 }

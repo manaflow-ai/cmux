@@ -19,18 +19,15 @@ public struct TabChromeVisibility: Equatable, Sendable {
         if isPinned {
             return TabChromeVisibility(showsIcon: true, showsTitle: false, showsClose: false, centersContent: true)
         }
+        // The x shows only on the hovered tab (user feedback, nxdog9), also
+        // on the selected one. Close stays reachable by Cmd-W, middle-click,
+        // the context menu, the palette and the CLI.
         let showsClose: Bool
         switch style {
         case .chrome:
-            if isSelected {
-                showsClose = true
-            } else if isHovered {
-                showsClose = width >= metrics.hoverCloseMinWidth
-            } else {
-                showsClose = width >= metrics.inactiveCloseMinWidth
-            }
+            showsClose = isHovered && (isSelected || width >= metrics.hoverCloseMinWidth)
         case .compact:
-            showsClose = isSelected || isHovered
+            showsClose = isHovered
         }
         let inner = width - metrics.contentLeadingInset - metrics.contentTrailingInset
         let iconAndClose = metrics.iconSize + metrics.titleCloseSpacing + metrics.closeButtonSize

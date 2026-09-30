@@ -537,3 +537,17 @@ ends and outside an edit, so an edit reaches the machine as one event with its f
 - `OmnibarTypingTests`, `OmnibarViewTests` and `OmnibarFieldEditorTests` use the real
   `BrowserChromeView` offscreen and the omnibar's own field editor. They cover marked text, undo, Cmd-Return,
   row hover and click, focus loss and navigation while typing.
+
+## 8. Focus ring
+
+Status: implemented 2026-09-30. The ring is an overlay: `PaneOverlayView` in the layout's
+`OverlayPlane` (above Chromium page windows), stroked inside the pane's content area, so
+it never changes a pane frame, inset or the hosted view's frame
+(`FocusRingNoShiftTests` moves focus across splits and niri columns under every ring
+style, width and corner setting). cmux.json `focusRing.{enabled, style (ring | glow |
+none), color (default: the Ghostty theme's focus gray), width, cornerRadius (default: the
+pane radius), showWhenSinglePane}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
+Style, Toggle Focus Ring for a Single Pane. The glow is a stroke with a shadow clipped to
+the content rect, so it falls inward only. The attention ring of an unread notification
+shares the overlay (plans/cmux-next/notifications.md). Column scrolling:
+plans/cmux-next/niri.md.

@@ -59,14 +59,26 @@ bool TakeHostClose(int browser_id) {
 }
 
 static bool g_extension_developer_mode = false;
+static cef_color_t g_background_color = 0;
+
+cef_color_t BackgroundColor() {
+  return g_background_color;
+}
 // accept_language_list from cmux_shim_initialize, for every request context.
 static std::string g_accept_languages;
 
 namespace {
 
+std::set<std::string>& initialized_contexts() {
+  static std::set<std::string> set;
+  return set;
+}
+
 // Applies per-profile preferences once the profile is loaded.
 class ContextHandler : public CefRequestContextHandler {
  public:
+  explicit ContextHandler(std::string cache_path) : cache_path_(std::move(cache_path)) {}
+
   void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override {
     if (g_extension_developer_mode) {
       CefRefPtr<CefValue> value = CefValue::Create();
@@ -74,9 +86,13 @@ class ContextHandler : public CefRequestContextHandler {
       CefString error;
       context->SetPreference("extensions.ui.developer_mode", value, error);
     }
+    // Remote localhost: before any browser of this context navigates.
+    ApplyContextProxy(context, cache_path_);
+    initialized_contexts().insert(cache_path_);
   }
 
  private:
+  std::string cache_path_;
   IMPLEMENT_REFCOUNTING(ContextHandler);
 };
 
@@ -107,9 +123,16 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   if (!g_accept_languages.empty()) {
     CefString(&settings.accept_language_list) = g_accept_languages;
   }
-  CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, new ContextHandler());
+  CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, new ContextHandler(cache_path));
   contexts[cache_path] = context;
   return context;
+}
+
+CefRefPtr<CefRequestContext> ExistingRequestContext(const std::string& cache_path) {
+  if (!initialized_contexts().count(cache_path)) return nullptr;
+  auto& contexts = request_contexts();
+  auto it = contexts.find(cache_path);
+  return it == contexts.end() ? nullptr : it->second;
 }
 
 static void ForkObserver(void*, int event, int window_id, int browser_id, int a) {
@@ -160,6 +183,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_move_to_window, "cmux_tab_move_to_window");
   CMUX_BIND(set_window_request_handler, "cmux_set_window_request_handler");
   CMUX_BIND(foreign_browser_count, "cmux_foreign_browser_count");
+  CMUX_BIND(tab_navigation_state, "cmux_tab_navigation_state");
+  CMUX_BIND(tab_restore_navigation, "cmux_tab_restore_navigation");
 #undef CMUX_BIND
 }
 
@@ -203,6 +228,10 @@ void cmux_shim_set_extension_developer_mode(int enabled) {
   g_extension_developer_mode = enabled != 0;
 }
 
+void cmux_shim_set_background_color(unsigned int argb) {
+  g_background_color = static_cast<cef_color_t>(argb);
+}
+
 int cmux_shim_fork_api_version(void) {
   return fork_api().version;
 }
@@ -244,6 +273,7 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   if (locale && *locale) {
     CefString(&settings.locale) = locale;
   }
+  settings.background_color = g_background_color;
   g_accept_languages = accept_languages ? accept_languages : "";
   if (!g_accept_languages.empty()) {
     CefString(&settings.accept_language_list) = g_accept_languages;

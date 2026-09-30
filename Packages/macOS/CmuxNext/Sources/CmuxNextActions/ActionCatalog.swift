@@ -26,12 +26,15 @@ public nonisolated enum ActionCatalog {
         var all: [ActionDescriptor] = []
         all += windowActions()
         all += workspaceActions()
+        all += workspaceVerbActions()
         all += workspaceGroupsActions()
         all += profileActions()
         all += paneActions()
         all += tabActions()
         all += resourceActions()
         all += tabGroupsActions()
+        all += screenActions()
+        all += screenGroupActions()
         all += terminalActions()
         all += browserActions()
         all += pageInfoActions()
@@ -40,7 +43,9 @@ public nonisolated enum ActionCatalog {
         all += notificationsActions()
         all += agentsActions()
         all += cloudActions()
+        all += remoteActions()
         all += settingsActions()
+        all += hibernationActions()
         all += layoutActions()
         return all
     }

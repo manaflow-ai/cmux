@@ -21,7 +21,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// The underlying web view. Exposed for WebKit-only features (the
     /// automation executor); engine-neutral callers use `contentView`.
     @ObservationIgnored public let webView: WKWebView
-    public var contentView: NSView { webView }
+    /// The web view's container (`WebKitPageContainer`): WebKit places an
+    /// attached Web Inspector beside the web view inside it.
+    public var contentView: NSView { container }
+    @ObservationIgnored private let container: WebKitPageContainer
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
@@ -41,6 +44,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.engine = engine
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
+        container = WebKitPageContainer(page: webView)
         super.init()
 
         webView.owner = self
@@ -50,6 +54,9 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.allowsMagnification = true
         webView.isInspectable = true
         webView.underPageBackgroundColor = .clear
+        // No white before the first page: the pane's theme color shows
+        // through until a real page finishes (`PageBackground`).
+        setDrawsPageBackground(false)
 
         let controller = webViewConfiguration.userContentController
         controller.addUserScript(WKUserScript(
@@ -67,6 +74,22 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     isolated deinit {
         faviconTask?.cancel()
+    }
+
+    /// WKWebView paints white behind every page by default. macOS has no
+    /// public switch, so this uses WebKit's `_setDrawsBackground:` SPI
+    /// through KVC ("drawsBackground"), checked first; without it the tab
+    /// keeps WebKit's default.
+    func setDrawsPageBackground(_ draws: Bool) {
+        guard webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) else { return }
+        webView.setValue(draws, forKey: "drawsBackground")
+    }
+
+    /// The first real page finished: from now on WebKit draws its default
+    /// behind pages again (white for pages without a background).
+    func pageDidFinish() {
+        guard !PageBackground.isBlank(webView.url) else { return }
+        setDrawsPageBackground(true)
     }
 
     // MARK: Navigation commands
@@ -108,7 +131,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     }
 
     /// WebKit draws in-view and throttles hidden views itself.
-    public func setOccluded(_ occluded: Bool) async {}
+    public func setContentVisible(_ visible: Bool) {}
 
     // MARK: Snapshot, script, find
 
@@ -186,6 +209,13 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
     }
 
+    /// Leaves pane fullscreen now: the chrome returns at once, and the page
+    /// is told (its shim exits and fires fullscreenchange).
+    func leaveContentFullscreen() {
+        apply(.contentFullscreenChanged(false))
+        exitContentFullscreen()
+    }
+
     /// Opens Web Inspector through WebKit's private `_inspector` object.
     /// There is no public API for this; if WebKit removes it, the user can
     /// still use "Inspect Element" from the context menu.
@@ -211,6 +241,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         webView.removeFromSuperview()
+        container.removeFromSuperview()
     }
 
     // MARK: Internals shared with the delegate extension

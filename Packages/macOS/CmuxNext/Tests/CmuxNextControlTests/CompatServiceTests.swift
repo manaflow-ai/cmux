@@ -114,6 +114,30 @@ import Testing
         }
         #expect(store.workspace("W").log.count == CompatSidebarStore.logLimit)
     }
+
+    /// A control client cannot grow the app's memory without bound through
+    /// sidebar metadata: every stored string and the agent PID table are
+    /// capped, not only the entry counts.
+    @Test func sidebarMetadataIsBoundedInBytes() {
+        let store = CompatSidebarStore()
+        let huge = String(repeating: "é", count: 1 << 20)
+        for index in 0..<(CompatSidebarStore.statusLimit + 3) {
+            store.setStatus("\(index)\(huge)", .init(value: huge, icon: huge, color: huge, url: huge, format: huge), workspace: "W")
+        }
+        for _ in 0..<5 { store.appendLog(.init(level: huge, source: huge, message: huge), workspace: "W") }
+        for index in 0..<10_000 { store.setAgentPID("\(index)\(huge.prefix(8))", index, workspace: "W") }
+        store.setProgress((0.5, huge), workspace: "W")
+        let workspace = store.workspace("W")
+        let limit = CompatSidebarStore.fieldByteLimit
+        let pidLimit = CompatSidebarStore.agentPIDLimit
+        let statusStrings = workspace.statuses.flatMap { [$0.key, $0.status.value, $0.status.icon, $0.status.color, $0.status.url, $0.status.format].compactMap { $0 } }
+        let logStrings = workspace.log.flatMap { [$0.level, $0.source, $0.message].compactMap { $0 } }
+        for string in statusStrings + logStrings + Array(workspace.agentPIDs.keys) + [workspace.progress?.label ?? ""] {
+            #expect(string.utf8.count <= limit)
+        }
+        #expect(workspace.statuses.count == CompatSidebarStore.statusLimit)
+        #expect(workspace.agentPIDs.count <= pidLimit)
+    }
 }
 
 /// Compat mutations run registry actions through the executor (the shared

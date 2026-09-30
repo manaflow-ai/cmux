@@ -128,6 +128,13 @@ extension DaemonStore {
             screen.update(delta.entity)
             structureChanged()
             return .none
+        case .screenChanged(let delta):
+            guard let workspace = workspacesByHandle[delta.workspace], let screen = screensByHandle[delta.screen],
+                  workspace.screens.contains(where: { $0 === screen }) else { return .resync }
+            screen.update(delta.entity)
+            if let index = delta.index { workspace.moveScreen(screen, to: index) }
+            structureChanged()
+            return .none
 
         case .paneAdded(let delta):
             guard let screen = screensByHandle[delta.screen] else { return .resync }

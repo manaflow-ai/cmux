@@ -42,6 +42,10 @@ import Testing
             guard !fired else { return }
             fired = true
             stallForTest()
+            // End the run right after this pass (the watchdog's late
+            // observer still stamps it): the test holds the main actor
+            // only as long as it must, since other suites wait for it.
+            CFRunLoopStop(CFRunLoopGetMain())
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), commit, .commonModes)
         defer { CFRunLoopObserverInvalidate(commit) }

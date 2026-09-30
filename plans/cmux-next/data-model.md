@@ -292,6 +292,18 @@ Engines: `default` -> `BrowserProfileID.default` (existing data stays); a UUID
 removes its engine data. A new room shares the current room's browser profile
 unless the user picks "new browser profile".
 
+One exception to "the browser profile is the only storage key" (remote
+localhost, plans/cmux-next/remote-localhost.md section 3): a tab whose
+machine is a remote session and whose main-frame URL is a loopback origin
+(`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`) uses a derived store,
+browser profile x that session's `registry_id` (CEF
+`Chromium/Profile-<uuid>-m-<16 hex of sha256(registry_id)>`, whose request
+context sends its traffic through the app's proxy). Every other URL of that
+tab uses the profile's own store, so logins stay shared across machines; a
+navigation across the boundary re-creates the engine tab in the other store.
+Deleting a browser profile must also remove its derived stores (browser
+profile deletion does not exist yet; add it there).
+
 ## 6. Themes and colors
 
 | Level | Colors | Reason |

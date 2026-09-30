@@ -42,6 +42,9 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     private var owners: [Key: Owner] = [:]
     private var ownerPresence: [Owner: SurfacePresence] = [:]
     private var retention: SurfaceRetention<Key>
+    /// Keys the LRU never counts or evicts (browser pages: their memory is
+    /// managed by hibernation, not by the terminal warm set).
+    private var unretained: Set<Key> = []
     /// Rendering state last reported to the caller.
     private var rendering: Set<Key> = []
 
@@ -62,7 +65,26 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         owners.compactMap { $0.value == owner ? $0.key : nil }
     }
 
+    public var capacity: Int { retention.capacity }
+
     // MARK: Changes
+
+    /// Keeps `key` out of the LRU (true) or lets it count again (false).
+    public mutating func setRetained(_ key: Key, _ retained: Bool) {
+        if retained {
+            unretained.remove(key)
+        } else if unretained.insert(key).inserted {
+            retention.remove(key)
+        }
+    }
+
+    /// Resizes the warm set (memory budget or pressure). Returns the keys
+    /// evicted by a smaller capacity.
+    public mutating func setCapacity(_ capacity: Int) -> Effects {
+        var effects = Effects()
+        for evicted in retention.setCapacity(capacity) { evict(evicted, into: &effects) }
+        return effects
+    }
 
     /// `owner` shows `key`. Takes it from any previous owner.
     public mutating func present(_ key: Key, by owner: Owner, ownerVisible visible: Bool) -> Effects {
@@ -121,6 +143,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     @discardableResult
     public mutating func remove(_ key: Key) -> Owner? {
         retention.remove(key)
+        unretained.remove(key)
         rendering.remove(key)
         guard let owner = owners.removeValue(forKey: key) else { return nil }
         forgetOwnerIfIdle(owner, except: nil)
@@ -140,13 +163,16 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
             if render { rendering.insert(key) } else { rendering.remove(key) }
             effects.rendering[key] = render
         }
-        for evicted in retention.setVisible(key, presence != .hidden) {
-            rendering.remove(evicted)
-            effects.rendering[evicted] = nil
-            effects.evicted.append(evicted)
-            if let owner = owners.removeValue(forKey: evicted) {
-                effects.displaced.append(Displacement(key: evicted, owner: owner))
-            }
+        guard !unretained.contains(key) else { return }
+        for evicted in retention.setVisible(key, presence != .hidden) { evict(evicted, into: &effects) }
+    }
+
+    private mutating func evict(_ key: Key, into effects: inout Effects) {
+        rendering.remove(key)
+        effects.rendering[key] = nil
+        effects.evicted.append(key)
+        if let owner = owners.removeValue(forKey: key) {
+            effects.displaced.append(Displacement(key: key, owner: owner))
         }
     }
 

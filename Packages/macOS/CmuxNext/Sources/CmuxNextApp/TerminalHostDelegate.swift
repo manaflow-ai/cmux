@@ -34,16 +34,35 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// default engine (`browser.defaultEngine`, Chromium). Other schemes, or
     /// no window, go to the system.
     func openLink(_ url: URL) -> Bool {
-        guard let pane = services?.windows.active?.focusedPane, url.scheme == "http" || url.scheme == "https" else {
-            return NSWorkspace.shared.open(url)
+        guard url.scheme == "http" || url.scheme == "https" else { return NSWorkspace.shared.open(url) }
+        guard let pane = services?.windows.active?.focusedPane else {
+            // No window: never hand a web link to the system, which may be
+            // cmux itself as the default browser (a loop). It waits for one.
+            services?.externalOpen.perform(.browserTab(url))
+            return true
         }
         pane.newBrowserTab(url: url)
         return true
     }
 
+    /// OSC 9, OSC 777 and OSC 99 from a program in this terminal: a daemon
+    /// notification on this terminal's tab, tagged as a terminal source.
+    /// (Only terminals the app shows reach here; see notifications.md.)
     func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String) {
+        guard let services else { return }
+        let surface = services.cache.tabKey(for: session).flatMap { services.locateTab($0)?.0.surface }
         let text = body
-        services?.daemon.send("notify") { connection in _ = try await connection.notify(title: title, body: text) }
+        let notifications = services.notifications
+        notifications.expectCreate()
+        services.daemon.send("notify") { connection in
+            do {
+                let id = try await connection.notify(title: title, body: text, surface: surface)
+                await MainActor.run { notifications.record(id, source: .terminal) }
+            } catch {
+                await MainActor.run { notifications.createFailed() }
+                throw error
+            }
+        }
     }
 
     /// The tab showing `session`, or nil (the focused pane) for a surface the
