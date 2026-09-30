@@ -1,4 +1,5 @@
 public import Foundation
+import Synchronization
 import os
 
 /// One attached terminal view on its own connection (v12 has no stream
@@ -32,9 +33,17 @@ public actor TerminalAttachment: TerminalByteChannel {
     private nonisolated let transport: LineTransport
     private nonisolated let queue: TerminalEventQueue
     private nonisolated let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
-    private var lease: String?
-    private var lastReported: CellSize?
-    private var ownsGeometry = false
+
+    /// Written by the attach handshake, then read by every command. Guarded
+    /// so the synchronous command path can run from any thread in caller
+    /// order; no lock is held across a send.
+    private struct Control: Sendable {
+        var lease: String?
+        var lastReported: CellSize?
+        var detached = false
+    }
+
+    private nonisolated let control = Mutex(Control())
 
     /// Opens a connection, attaches in byte mode at `size`, and optionally
     /// claims canonical geometry (the focused view in the key window does).
@@ -102,12 +111,13 @@ public actor TerminalAttachment: TerminalByteChannel {
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
-        lease = response.lease
-        lastReported = size
+        control.withLock {
+            $0.lease = response.lease
+            $0.lastReported = size
+        }
         if claimGeometry {
             _ = try await DaemonConnection.perform(
                 SetClientSizingRequest(surface: surface, enabled: true, exclusive: true), on: transport)
-            ownsGeometry = true
         }
         queue.arm()
     }
@@ -136,9 +146,38 @@ public actor TerminalAttachment: TerminalByteChannel {
     }
 
     public func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
-        let size = CellSize(cols: max(1, cols), rows: max(1, rows))
-        guard size != lastReported else { return }
-        lastReported = size
+        sendResize(CellSize(cols: cols, rows: rows))
+    }
+
+    // MARK: Geometry and lifetime
+
+    /// Makes this view the geometry owner: only the owner resizes the PTY.
+    public func claimGeometry() {
+        claimGeometry(reporting: nil)
+    }
+
+    /// Keeps the stream for cached rendering but stops contributing a size
+    /// (the view became hidden).
+    public func releaseGeometry() {
+        sendReleaseGeometry()
+    }
+
+    /// Detaches and closes the connection. The terminal keeps running.
+    public func detach() {
+        detachNow()
+    }
+
+    // MARK: Synchronous commands (any thread, sent in call order)
+
+    /// Passive grid report. Skipped when it equals the last report.
+    public nonisolated func sendResize(_ size: CellSize) {
+        let size = CellSize(cols: max(1, size.cols), rows: max(1, size.rows))
+        let lease = control.withLock { control -> String?? in
+            guard control.lastReported != size else { return .none }
+            control.lastReported = size
+            return .some(control.lease)
+        }
+        guard case .some(let lease) = lease else { return }
         if let lease {
             fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: size.cols, rows: size.rows))
         } else {
@@ -146,35 +185,42 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
     }
 
-    // MARK: Geometry and lifetime
-
-    /// Makes this view the geometry owner: only the owner resizes the PTY.
-    public func claimGeometry() {
-        // The daemon accepts a sizing claim only from a view that already
-        // reported a size on this attachment, so report first.
-        if let lastReported, let lease {
-            fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: lastReported.cols, rows: lastReported.rows))
+    /// Reports `size` (or the last reported size), then claims canonical
+    /// geometry. The daemon accepts a claim only from a view that already
+    /// reported a size on this attachment, so the report always goes first.
+    public nonisolated func claimGeometry(reporting size: CellSize?) {
+        let (lease, report) = control.withLock { control -> (String?, CellSize?) in
+            if let size { control.lastReported = CellSize(cols: max(1, size.cols), rows: max(1, size.rows)) }
+            return (control.lease, control.lastReported)
+        }
+        if let report, let lease {
+            fireAndForget(ResizeAttachedViewRequest(surface: surface, lease: lease, cols: report.cols, rows: report.rows))
         }
         fireAndForget(SetClientSizingRequest(surface: surface, enabled: true, exclusive: true))
-        ownsGeometry = true
     }
 
-    /// Keeps the stream for cached rendering but stops contributing a size
-    /// (the view became hidden).
-    public func releaseGeometry() {
-        ownsGeometry = false
-        lastReported = nil
+    public nonisolated func sendReleaseGeometry() {
+        let lease = control.withLock { control -> String? in
+            control.lastReported = nil
+            return control.lease
+        }
         guard let lease else { return }
         fireAndForget(ReleaseAttachedViewSizeRequest(surface: surface, lease: lease))
     }
 
-    /// Detaches and closes the connection. The terminal keeps running.
-    public func detach() {
+    /// Idempotent: the first call detaches and closes the connection.
+    public nonisolated func detachNow() {
+        let lease = control.withLock { control -> String?? in
+            guard !control.detached else { return .none }
+            control.detached = true
+            return .some(control.lease)
+        }
+        guard case .some(let lease) = lease else { return }
         if let lease { fireAndForget(DetachAttachedViewRequest(surface: surface, lease: lease)) }
         transport.close()
     }
 
-    private func fireAndForget<R: DaemonRequest>(_ request: R) {
+    private nonisolated func fireAndForget<R: DaemonRequest>(_ request: R) {
         let logger = logger
         do {
             try transport.sendNoReply(cmd: R.command, onError: { error in

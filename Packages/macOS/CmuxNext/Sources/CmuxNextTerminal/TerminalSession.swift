@@ -5,7 +5,10 @@ import GhosttyKit
 ///
 /// Embed ``view``. The session consumes `io.events` on the main actor,
 /// feeds bytes through a serial off-main output lane, and writes Ghostty's
-/// encoded input back to `io.write` in order.
+/// encoded input back to `io.write` in order. Consumption is demand-driven:
+/// the next event is taken only once the lane has room, so a slow parser
+/// pushes back on the IO (which bounds its own buffer) instead of queueing
+/// without limit (state-audit.md T1).
 ///
 /// Geometry: the mirror's grid must equal the PTY's grid at every point in
 /// the byte stream, or later output lands in the wrong cells. A `.resize`
@@ -86,7 +89,7 @@ public final class TerminalSession {
         eventsTask = Task { [weak self] in
             for await event in events {
                 guard let self else { return }
-                self.handle(event)
+                await self.handle(event)
             }
         }
         // The first grid report fired inside the surface init, before
@@ -143,7 +146,7 @@ public final class TerminalSession {
 
     // MARK: Events
 
-    private func handle(_ event: TerminalIOEvent) {
+    private func handle(_ event: TerminalIOEvent) async {
         switch event {
         case .replay(let data):
             if surfaceHasContent { swapSurface() }
@@ -154,11 +157,14 @@ public final class TerminalSession {
             restoreKittyReplay(replay)
             surfaceHasContent = true
         case .output(let data):
+            guard let lane = surfaceView.lane else { return }
+            await lane.waitForCapacity()
+            // The surface may have been swapped while waiting (kitty restore fallback).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
-            applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))
+            await applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))
         case .exited:
             model.hasExited = true
         }
@@ -214,15 +220,17 @@ public final class TerminalSession {
     /// Resizes the live mirror to the daemon's grid in stream order: output
     /// queued before this event is parsed first, so Ghostty reflows the same
     /// screen the daemon reflowed.
-    private func applyCanonicalGrid(_ grid: TerminalGridSize) {
+    private func applyCanonicalGrid(_ grid: TerminalGridSize) async {
         canonicalGrid = grid
         if ownsGeometry, let index = recentReports.firstIndex(of: grid), index < recentReports.count - 1 {
             recentReports.removeFirst(index + 1)
             return
         }
         // Parse queued output at the old grid first; skip the wait when the
-        // grid is already right (the echo of this view's own report).
-        if surfaceView.currentGrid != grid { surfaceView.lane?.drain() }
+        // grid is already right (the echo of this view's own report). The
+        // event loop is suspended meanwhile, so later output stays behind
+        // this grid change, and the main thread keeps running.
+        if surfaceView.currentGrid != grid, let lane = surfaceView.lane { await lane.drained() }
         surfaceView.applyCanonicalGrid(grid)
     }
 

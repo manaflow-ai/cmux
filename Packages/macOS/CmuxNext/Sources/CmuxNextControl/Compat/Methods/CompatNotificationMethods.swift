@@ -41,7 +41,7 @@ enum CompatNotificationMethods {
     }
 
     static func entries(_ call: CompatCall) async throws -> [ListNotificationsRequest.Entry] {
-        try await call.service.daemon("list-notifications") { try await $0.notificationLedger() }
+        try await call.service.daemon("list-notifications", mutates: false) { try await $0.notificationLedger() }
     }
 
     static func item(_ entry: ListNotificationsRequest.Entry, world: CompatWorld) -> JSON {

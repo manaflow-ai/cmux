@@ -32,7 +32,14 @@ extension DaemonStore {
                 confirm(transaction)
             }
         }
+        // A batch that needs a resync is reflected only once the snapshot
+        // lands (`resync` advances to its barrier).
+        if followup == .none, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
         return followup
+    }
+
+    func advanceAppliedSequence(to sequence: UInt64) {
+        if sequence > appliedSequence { appliedSequence = sequence }
     }
 
     private func isLifecycle(_ event: DaemonEvent) -> Bool {

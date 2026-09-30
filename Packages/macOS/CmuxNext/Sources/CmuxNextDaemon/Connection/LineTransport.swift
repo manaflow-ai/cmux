@@ -341,6 +341,10 @@ final class LineTransport: Sendable {
         onClose(reason)
     }
 
+    /// Events routed so far. Read after a command's reply, it bounds every
+    /// event the daemon emitted before that reply (a write barrier).
+    var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
+
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
         if let name = envelope.event {

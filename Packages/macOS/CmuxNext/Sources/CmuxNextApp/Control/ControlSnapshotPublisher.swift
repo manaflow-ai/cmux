@@ -61,6 +61,12 @@ final class ControlSnapshotPublisher {
         }
     }
 
+    /// A compat read waiting on the write barrier publishes on this turn
+    /// (the store just applied a batch); otherwise the next frame does.
+    private func modelChanged() {
+        if router.snapshots.hasWaiters { publishNow() } else { invalidate() }
+    }
+
     /// Publishes now. Compat intents call this so a CLI read that follows a
     /// CLI write sees it (the scheduled publish lands a frame later).
     func publishNow() {
@@ -70,7 +76,7 @@ final class ControlSnapshotPublisher {
             (buildTopology(), services.settings?.snapshot.root)
         } onChange: { [weak self] in
             // Runs synchronously inside the mutation; publish after it lands.
-            Task { @MainActor in self?.invalidate() }
+            Task { @MainActor in self?.modelChanged() }
         }
         router.snapshots.publish { snapshot in
             snapshot.topology = topology
@@ -88,6 +94,9 @@ final class ControlSnapshotPublisher {
             services.paneController(for: pane)?.selectedTab?.id
         }
         if case .unavailable(let error) = services.daemon.startup { topology.daemonFailure = error.description }
+        // Read inside tracking: every applied batch republishes, so a compat
+        // read waiting on its write barrier wakes (CompatWriteBarrier).
+        topology.daemonSequence = services.daemon.store.appliedSequence
         topology.windows = windows.controllers.map { controller in
             ControlWindowInfo(
                 id: controller.state.id,

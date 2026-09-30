@@ -15,6 +15,10 @@ public struct ControlTopology: Sendable, Hashable {
     public var workspaceGroups: [ControlWorkspaceGroupInfo] = []
     public var workspaces: [ControlWorkspaceInfo] = []
     public var focus = ControlFocus()
+    /// `DaemonStore.appliedSequence` when this topology was built: every
+    /// daemon event up to it is reflected. Compat reads wait for it to pass
+    /// a write's barrier instead of refetching the tree.
+    public var daemonSequence: UInt64 = 0
 
     public init() {}
 

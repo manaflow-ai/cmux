@@ -93,7 +93,7 @@ enum CompatCreate {
         if let input = call.string("initial_input") { text += input }
         guard !text.isEmpty else { return }
         let input = text
-        _ = try await call.service.daemon("send") { try await $0.send(surface, text: input) }
+        _ = try await call.service.daemon("send", mutates: false) { try await $0.send(surface, text: input) }
     }
 
     /// Old creation result: window, workspace, pane, surface ids plus type.

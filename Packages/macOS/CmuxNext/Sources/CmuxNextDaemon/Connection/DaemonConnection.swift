@@ -33,6 +33,9 @@ public actor DaemonConnection {
         public var requestTimeout: Duration?
         /// Deadline for `list-workspaces` snapshots, which can be large.
         public var snapshotTimeout: Duration?
+        /// Deadline for commands that launch a terminal host
+        /// (`TerminalSpawningRequest`): cmux-tui's own 3 s launch bound plus margin.
+        public var spawnTimeout: Duration?
         /// Per-terminal `env` the convenience spawn calls send when the daemon
         /// supports `terminal-env-v1` and the caller passed none. Nil sends none.
         public var terminalEnvironment: (@Sendable () async -> [String: String])?
@@ -45,6 +48,7 @@ public actor DaemonConnection {
             backoff: [Duration] = [.milliseconds(50), .milliseconds(250), .seconds(1), .seconds(2)],
             requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
             snapshotTimeout: Duration? = .seconds(10),
+            spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
             terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.shared()
         ) {
             self.clientName = clientName
@@ -54,6 +58,7 @@ public actor DaemonConnection {
             self.backoff = backoff
             self.requestTimeout = requestTimeout
             self.snapshotTimeout = snapshotTimeout
+            self.spawnTimeout = requestTimeout == nil ? nil : spawnTimeout
             self.terminalEnvironment = terminalEnvironment
         }
     }
@@ -125,17 +130,31 @@ public actor DaemonConnection {
 
     /// Control-plane deadline default: 2 s (architecture.md 5a).
     public static let defaultRequestTimeout: Duration = .seconds(2)
+    /// Terminal host launches: cmux-tui waits up to 2 s for the host
+    /// handshake after a 1 s connect retry window.
+    public static let defaultSpawnTimeout: Duration = .seconds(5)
 
     /// Sends one command and decodes its response. Fails with
     /// `DaemonError.timedOut` after `timeout` (default: the configured
     /// `requestTimeout`) instead of waiting forever.
     public func request<R: DaemonRequest>(_ request: R) async throws -> R.Response {
-        try await self.request(request, timeout: configuration.requestTimeout)
+        let spawns = R.self is any TerminalSpawningRequest.Type
+        return try await self.request(request, timeout: spawns ? configuration.spawnTimeout : configuration.requestTimeout)
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
         guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
         return try await Self.perform(request, on: transport, timeout: timeout)
+    }
+
+    /// The event sequence this connection has routed so far, or nil when
+    /// not connected. Taken after a command's reply, it is a write barrier:
+    /// once `DaemonStore.appliedSequence` reaches it, the store reflects
+    /// every event the daemon emitted before that reply (the reply's
+    /// `eventBarrier` is at most this). Sequences grow across reconnects.
+    public func eventSequence() -> UInt64? {
+        guard case .ready(let transport, let serial) = phase else { return nil }
+        return DaemonEventEnvelope.sequence(serial: serial, index: transport.routedEventCount)
     }
 
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)

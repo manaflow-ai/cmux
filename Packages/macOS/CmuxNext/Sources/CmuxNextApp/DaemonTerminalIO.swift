@@ -2,18 +2,25 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTerminal
 import Foundation
-import Synchronization
 import os
 
-/// Bridges one daemon terminal attachment (`TerminalByteChannel`) to a
+/// Bridges one daemon terminal attachment (`TerminalAttachment`) to a
 /// Ghostty surface (`TerminalIO`).
 ///
+/// The attachment lifecycle is one `TerminalAttachMachine` run by a
+/// `TerminalAttachDriver` (state-audit.md T1, T3-T5):
 /// - Attaches on its own connection without claiming geometry, so showing a
-///   tab never reflows the PTY. The first settled grid report claims it.
-/// - Maps replays (plain or with Kitty state) and output in order; a replay
-///   is preceded by its grid so the mirror sizes before parsing it. A daemon
-///   `resized` is only a grid change: the mirror reflows in place.
-/// - `overflow` (this view fell behind) re-attaches for a fresh replay.
+///   tab never reflows the PTY. The first settled grid report after the
+///   replay claims it while the view renders (SurfaceLedger visibility).
+/// - Input typed while attaching or reattaching is queued and sent once, in
+///   order, after the replay. Grid reports meanwhile are coalesced.
+/// - Maps replays (plain or with Kitty state) and output in order through a
+///   bounded step queue; a replay is preceded by its grid so the mirror
+///   sizes before parsing it. A daemon `resized` is only a grid change.
+/// - `overflow` (this view fell behind, the daemon's 8 MiB limit) detaches
+///   the old link and reattaches for a fresh replay.
+/// - Closing during an attach ends the view at once and detaches the link
+///   the attach returns, with its lease, as soon as it completes.
 /// - Grid reports go through `ResizeCoordinator` and reach the daemon only
 ///   after the view stops resizing.
 nonisolated final class DaemonTerminalIO: TerminalIO {
@@ -22,36 +29,34 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         var initialSize: CellSize
     }
 
-    private struct State {
-        var attachment: TerminalAttachment?
-        var claimed = false
-        var visible = true
-        var closed = false
-        var lastSize: CellSize?
-    }
-
     let events: AsyncStream<TerminalIOEvent>
-    private let continuation: AsyncStream<TerminalIOEvent>.Continuation
-    private let state = Mutex(State())
-    private let target: Target
-    private let endpoint: @Sendable () async throws -> DaemonEndpoint
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
-    private let pump = Mutex<Task<Void, Never>?>(nil)
+    private let driver: TerminalAttachDriver<TerminalAttachment>
 
-    init(target: Target, endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
-        self.target = target
-        self.endpoint = endpoint
-        // concurrency-allow: known gap, see plans/cmux-next/state-audit.md T1 (defeats TerminalEventQueue backpressure)
-        (events, continuation) = AsyncStream.makeStream(of: TerminalIOEvent.self, bufferingPolicy: .unbounded)
-        let task = Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
-            await self.run()
-        }
-        pump.withLock { $0 = task }
+    init(target: Target, visible: Bool = true, endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
+        let surface = target.attachment.surface.rawValue
+        let driver = TerminalAttachDriver<TerminalAttachment>(
+            initialSize: target.initialSize,
+            visible: visible,
+            opener: { size in
+                try await TerminalAttachment.attach(endpoint: try await endpoint(), target: target.attachment,
+                                                    size: size, claimGeometry: false)
+            },
+            onFailure: { error in
+                logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
+            },
+            onReattach: { attempt in
+                logger.info("terminal \(surface) fell behind; reattaching for a fresh replay (open \(attempt))")
+            }
+        )
+        self.driver = driver
+        events = AsyncStream(unfolding: { await driver.nextStep().map(Self.event(for:)) },
+                             onCancel: { driver.cancelSteps() })
+        driver.start()
     }
 
     deinit {
-        pump.withLock { $0?.cancel() }
+        driver.close()
     }
 
     // MARK: TerminalIO
@@ -60,7 +65,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     var answersTerminalQueries: Bool { true }
 
     func write(_ data: Data) async {
-        state.withLock { $0.attachment }?.enqueueInput(data)
+        driver.input(data)
     }
 
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
@@ -73,99 +78,34 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     /// Called by `ResizeCoordinator` once the size settled.
     @MainActor func applySettled(_ size: CellSize) {
-        let (attachment, claim) = state.withLock { state -> (TerminalAttachment?, Bool) in
-            state.lastSize = size
-            let claim = state.visible && !state.claimed && state.attachment != nil
-            if claim { state.claimed = true }
-            return (state.attachment, claim)
-        }
-        guard let attachment else { return }
-        Task {
-            await attachment.resize(cols: size.cols, rows: size.rows, pixelWidth: 0, pixelHeight: 0)
-            if claim { await attachment.claimGeometry() }
-        }
+        driver.resize(size)
     }
 
     /// Hidden views release canonical geometry so another client (or the
     /// next visible view) owns it; shown views claim it again.
     @MainActor func setVisible(_ visible: Bool) {
-        let (attachment, action) = state.withLock { state -> (TerminalAttachment?, Bool?) in
-            guard state.visible != visible else { return (nil, nil) }
-            state.visible = visible
-            if !visible, state.claimed {
-                state.claimed = false
-                return (state.attachment, false)
-            }
-            if visible, !state.claimed, state.lastSize != nil, state.attachment != nil {
-                state.claimed = true
-                return (state.attachment, true)
-            }
-            return (nil, nil)
-        }
-        guard let attachment, let action else { return }
-        Task { action ? await attachment.claimGeometry() : await attachment.releaseGeometry() }
+        driver.setVisible(visible)
     }
 
-    /// Ends the attachment. The terminal keeps running in the daemon.
-    func close() {
-        let attachment = state.withLock { state -> TerminalAttachment? in
-            state.closed = true
-            defer { state.attachment = nil }
-            return state.attachment
-        }
-        pump.withLock { $0?.cancel() }
-        if let attachment { Task { await attachment.detach() } }
-        continuation.finish()
-        Task { @MainActor in ResizeCoordinator.shared.cancel(self) }
+    /// Ends the attachment (or cancels the attach in flight). The terminal
+    /// keeps running in the daemon.
+    @MainActor func close() {
+        driver.close()
+        ResizeCoordinator.shared.cancel(self)
     }
 
-    // MARK: Pump
+    /// Attachment state for diagnostics and tests.
+    var attachPhase: TerminalAttachDriver<TerminalAttachment>.Machine.Phase { driver.machine.phase }
 
-    private func run() async {
-        var attempts = 0
-        while !Task.isCancelled, !state.withLock({ $0.closed }) {
-            let attachment: TerminalAttachment
-            do {
-                let endpoint = try await endpoint()
-                let size = state.withLock { $0.lastSize } ?? target.initialSize
-                attachment = try await TerminalAttachment.attach(endpoint: endpoint, target: target.attachment,
-                                                                 size: size, claimGeometry: false)
-            } catch {
-                logger.error("attach \(self.target.attachment.surface.rawValue) failed: \(String(describing: error), privacy: .public)")
-                break
-            }
-            // A visible view owns canonical geometry at the size it attached with.
-            let claimNow = state.withLock { state -> Bool in
-                state.attachment = attachment
-                state.claimed = state.visible && state.lastSize != nil
-                return state.claimed
-            }
-            if claimNow { await attachment.claimGeometry() }
-            let reason = await forward(attachment)
-            state.withLock { $0.attachment = nil }
-            guard reason == .overflow, attempts < 8 else { break }
-            attempts += 1
-            logger.info("terminal \(self.target.attachment.surface.rawValue) overflowed; re-attaching")
-        }
-        continuation.finish()
-    }
+    // MARK: Steps
 
-    /// Forwards one attachment's stream. Returns why it ended. A daemon
-    /// `resized` becomes a grid change applied to the live mirror in place
-    /// (`TerminalStreamPlan`), never a replay.
-    private func forward(_ attachment: TerminalAttachment) async -> TerminalChannelCloseReason? {
-        for await event in attachment.events {
-            for step in TerminalStreamPlan.steps(for: event) {
-                switch step {
-                case .grid(let columns, let rows): continuation.yield(.resize(cols: columns, rows: rows))
-                case .replay(let replay): continuation.yield(Self.replayEvent(replay))
-                case .output(let data): continuation.yield(.output(data))
-                case .exited: continuation.yield(.exited)
-                }
-            }
-            if case .closed(let reason) = event { return reason }
+    private static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
+        switch step {
+        case .grid(let columns, let rows): .resize(cols: columns, rows: rows)
+        case .replay(let replay): replayEvent(replay)
+        case .output(let data): .output(data)
+        case .exited: .exited
         }
-        return nil
     }
 
     /// A replay with usable Kitty graphics state restores it; otherwise the

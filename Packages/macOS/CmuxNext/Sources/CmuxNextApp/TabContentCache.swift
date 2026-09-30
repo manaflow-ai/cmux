@@ -71,15 +71,14 @@ final class TabContentCache {
                                                   generation: daemon.store.generation),
             initialSize: tab.size ?? CellSize(cols: 80, rows: 24)
         )
-        let io = DaemonTerminalIO(target: target, endpoint: { try await daemon.endpoint() })
+        // Paused (and not claiming geometry) until a visible pane presents it.
+        let render = ledger.isRendering(tab.id)
+        let io = DaemonTerminalIO(target: target, visible: render, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
         let entry = TerminalEntry(validity: validity, session: session, io: io)
         terminals[tab.id] = entry
-        // Paused until a visible pane presents it.
-        let render = ledger.isRendering(tab.id)
         session.isRenderingSuspended = !render
-        io.setVisible(render)
         return entry
     }
 

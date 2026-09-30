@@ -4,7 +4,7 @@ import Foundation
 /// The daemon's `split` has no `tab` field; moving an existing tab into a new
 /// pane is `move-tab-to-split` (`DaemonConnection.split(_:direction:movingTab:)`
 /// routes there). `tab` is not sent.
-public struct SplitRequest: DaemonRequest {
+public struct SplitRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
     public static let command = "split"
     public var pane: PaneID
@@ -27,7 +27,7 @@ public struct SplitRequest: DaemonRequest {
 }
 
 /// Adds a pane to the pane's column (vertical stack inside a column).
-public struct NewPaneRequest: DaemonRequest {
+public struct NewPaneRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
     public static let command = "new-pane"
     public var pane: PaneID
@@ -45,7 +45,7 @@ public struct NewPaneRequest: DaemonRequest {
 }
 
 /// Adds a new scrolling column to the right (`viewport-splits-v1`).
-public struct NewColumnRequest: DaemonRequest {
+public struct NewColumnRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
     public static let command = "new-pane-right"
     public var pane: PaneID
