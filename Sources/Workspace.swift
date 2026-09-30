@@ -1942,7 +1942,7 @@ extension Workspace {
                     restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
             )
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
-                remotePTYAttachStartupCommand(sessionID: $0, remoteCommand: nil)
+                remotePTYAttachStartupCommand(sessionID: $0, remoteCommand: remoteConfiguration?.configuredRemoteCommand)
             }
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
