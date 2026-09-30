@@ -109,3 +109,11 @@ misses its 15 s budget on the Testbox at the base commit too (timing flake).
    unused by the cmux-next app; prove it and remove it from the Resources phase.
 6. The daemon forwards page commands for frontend browser tabs to their app, so a CLI on
    another machine reaches them.
+7. The daemon's `cmux.protocol/2` selectors take full ids only; unique prefixes work only
+   for app action targets and `browser tab_…`. Add prefix resolution to the daemon
+   selector (one snapshot, `selector.ambiguous` with candidates) so C7 holds everywhere.
+8. An app action whose target matches nothing still reports `ran: true` (for example
+   `workspace rename --target ws_zzz`). Handlers must fail with `not_found`; the
+   resolver passes unknown ids through so objects the snapshot has not seen yet work.
+9. `current` means the session's focused object, not the caller's terminal; the caller's
+   own terminal is `$CMUX_TUI_TERMINAL_ID`.
