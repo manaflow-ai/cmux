@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
 
@@ -81,6 +82,6 @@ extension AppActionContext {
 
     /// Brings the app forward unless launched with `CMUX_NEXT_NO_ACTIVATE=1`.
     func activateApp() {
-        if !services.environment.noActivate { NSApp.activate() }
+        WindowActivation.activateApp()
     }
 }

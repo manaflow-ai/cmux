@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextWakeups
@@ -243,18 +244,9 @@ final class WindowManager {
 
     /// Orders a new window in without taking focus under no-activate.
     private func present(_ controller: WindowController) {
-        if !ordersWindowsIn {
-            // Tests: never on the user's display.
-        } else if services.environment.testWindow != nil, services.environment.noActivate {
-            // Agent screenshot launch: in front on its own screen, still not
-            // key and the app not activated.
-            controller.window?.orderFrontRegardless()
-        } else if services.environment.noActivate {
-            // Behind every other window, not key, app not activated.
-            controller.window?.orderBack(nil)
-        } else {
-            controller.showWindow(nil)
-        }
+        // Tests: never on the user's display. Otherwise one rule: under
+        // no-activate behind the others (in front on a test screen), never key.
+        if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, .present) }
         onPresent?(controller)
     }
 
@@ -266,12 +258,7 @@ final class WindowManager {
             return
         }
         guard ordersWindowsIn, let window = controller.window else { return }
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        if services.environment.noActivate {
-            window.orderFrontRegardless()
-        } else {
-            window.makeKeyAndOrderFront(nil)
-        }
+        WindowActivation.show(window, .raise)
     }
 
     func windowWillClose(_ controller: WindowController) {

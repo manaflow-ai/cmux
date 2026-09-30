@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextActions
 
 /// Window and app-level actions (category `window`) not bound in
@@ -56,9 +57,7 @@ enum WindowHandlers {
             context.services.windows.reopenOrCreateWindow()
             return
         }
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        window.orderFront(nil)
-        context.activateApp()
+        WindowActivation.show(window, .focus)
     }
 
     /// Prevents idle system sleep while on; a second run turns it off.

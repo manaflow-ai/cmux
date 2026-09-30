@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
-        if !environment.noActivate { NSApp.activate() }
+        WindowActivation.activateApp()
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider())
         cloudContext = services.startCloud()
