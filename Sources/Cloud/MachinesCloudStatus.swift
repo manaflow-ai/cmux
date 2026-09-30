@@ -17,9 +17,20 @@ struct MachinesCloudStatus: View {
     let performListStatusAction: (MachineListStatusPresentation.Action) -> Void
 
     var body: some View {
-        if activeOperation != nil || listStatus != nil || treeError != nil {
+        if let activeOperation {
+            // Opening a Cloud surface is usually fast enough that a status row
+            // would only flash. Keep the progress affordance at the status row's
+            // origin, but give it no layout height so the tree never jumps.
+            Color.clear
+                .frame(maxWidth: .infinity, height: 0)
+                .overlay(alignment: .topLeading) {
+                    operationMessage(activeOperation)
+                        .allowsHitTesting(false)
+                        .zIndex(1)
+                }
+        } else if listStatus != nil || treeError != nil {
             HStack(spacing: 6) {
-                message
+                persistentMessage
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
@@ -27,18 +38,24 @@ struct MachinesCloudStatus: View {
         }
     }
 
+    private func operationMessage(_ operation: String) -> some View {
+        HStack(spacing: 5) {
+            ProgressView().controlSize(.mini)
+            Text(operation)
+                .cmuxFont(size: 11)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+        .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial)
+    }
+
     @ViewBuilder
-    private var message: some View {
-        if let operation = activeOperation {
-            HStack(spacing: 5) {
-                ProgressView().controlSize(.mini)
-                Text(operation)
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        } else if let listStatus {
+    private var persistentMessage: some View {
+        if let listStatus {
             MachinesListStatusToolbarRow(
                 status: listStatus,
                 error: listError,
