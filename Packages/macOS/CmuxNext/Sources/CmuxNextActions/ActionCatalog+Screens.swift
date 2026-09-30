@@ -29,7 +29,7 @@ extension ActionCatalog {
                    startsTerminal: true),
             screen("screen.newWith", String(localized: "action.screen.newWith", defaultValue: "New Screen with…", table: "ScreenActions", bundle: .module),
                    "rectangle.stack.badge.plus", cli: "screen new-with", keywords: ["tmux", "window", "create", "name", "directory"],
-                   surfaces: [.palette], arguments: [CatalogArgument.nameString.optional, CatalogArgument.colorChoice.optional,
+                   surfaces: [.palette], arguments: [CatalogArgument.nameString, CatalogArgument.colorChoice.optional,
                                                      CatalogArgument.iconString.optional, CatalogArgument.cwdString.optional],
                    startsTerminal: true),
             screen("screen.duplicate", String(localized: "action.screen.duplicate", defaultValue: "Duplicate Screen", table: "ScreenActions", bundle: .module),

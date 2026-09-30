@@ -71,6 +71,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.report(services: services))
             },
+            .mainActor("debug.screens") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugScreens.report(services: services))
+            },
             .mainActor("debug.surfaces") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(SurfaceDiagnosticsReport.make(services))

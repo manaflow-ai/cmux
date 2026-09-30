@@ -118,7 +118,11 @@ final class ScreenBarController {
             guard let index = workspace.screens.firstIndex(where: { $0.id == id.rawValue }) else { return }
             ScreenCommands.close(Array(workspace.screens[(index + 1)...]), in: workspace, daemon: daemon, services: services)
         case .reorder(let id, _, let to):
-            if let screen = screen(id) { ScreenCommands.move(screen, to: to, daemon: daemon) }
+            // A daemon without move-screen keeps the daemon's order.
+            guard daemon.supports(DaemonCapabilities.screenMetadata), let screen = screen(id) else {
+                return view.discardPendingReorder()
+            }
+            ScreenCommands.move(screen, to: to, daemon: daemon)
         case .newTab:
             ScreenCommands.create(in: workspace, daemon: daemon, content: content)
         case .pin(let id), .unpin(let id):
