@@ -102,6 +102,21 @@ import Testing
         #expect(try WindowScreenshotRequest.make(params: ["max_width": 8192]).maximumWidth == 8192)
     }
 
+    @Test func directConstructionEnforcesCaptureBounds() {
+        #expect(throws: WindowScreenshotRequest.Failure.outOfRange(field: "scale", message: "must be between 0.1 and 1")) {
+            try WindowScreenshotRequest(scale: .nan)
+        }
+        #expect(throws: WindowScreenshotRequest.Failure.outOfRange(field: "quality", message: "must be between 0.1 and 1")) {
+            try WindowScreenshotRequest(quality: .infinity)
+        }
+        #expect(throws: WindowScreenshotRequest.Failure.outOfRange(field: "max_width", message: "must be between 64 and 8192")) {
+            try WindowScreenshotRequest(maximumWidth: 32)
+        }
+        #expect(throws: WindowScreenshotRequest.Failure.regionTooLarge) {
+            try WindowScreenshotRequest(target: .region(WindowRecordingRegion(x: 1e300, y: 0, width: 100, height: 100)))
+        }
+    }
+
     @Test func aHugeNumberIsOutOfRangeRatherThanATrap() throws {
         let failure = #expect(throws: WindowScreenshotRequest.Failure.self) {
             try WindowScreenshotRequest.make(params: ["max_width": 1e30])

@@ -28,6 +28,7 @@ FOUNDATION = ROOT / "Packages" / "macOS" / "CmuxFoundation" / "Sources" / "CmuxF
 SHOT_REQUEST = FOUNDATION / "WindowCapture" / "WindowScreenshotRequest.swift"
 RECORD_REQUEST = FOUNDATION / "WindowRecording" / "WindowRecordingRequest.swift"
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-skill-contract.yml"
+CAPTURE_WORKFLOW_GLOB = "skills/cmux-capture/**"
 
 # Every Swift file these checks read. The workflow has to run them when one of
 # these changes, or a doc claim outlives the code it describes.
@@ -106,6 +107,63 @@ def backticked(body: str) -> set[str]:
     return set(re.findall(r"`([^`]+)`", body))
 
 
+def braced_body_after(source: str, marker: str) -> str:
+    """Return one Swift declaration body without being fooled by comments."""
+    start = source.index(marker)
+    opening = source.index("{", start)
+    depth = 0
+    index = opening
+    state = "code"
+    while index < len(source):
+        character = source[index]
+        next_character = source[index + 1] if index + 1 < len(source) else ""
+        if state == "code":
+            if character == "/" and next_character == "/":
+                state = "line_comment"
+                index += 2
+                continue
+            if character == "/" and next_character == "*":
+                state = "block_comment"
+                index += 2
+                continue
+            if character == '"':
+                state = "string"
+                index += 1
+                continue
+            if character == "{":
+                depth += 1
+            elif character == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[opening + 1:index]
+        elif state == "line_comment":
+            if character == "\n":
+                state = "code"
+        elif state == "block_comment":
+            if character == "*" and next_character == "/":
+                state = "code"
+                index += 2
+                continue
+        elif state == "string":
+            if character == "\\":
+                index += 2
+                continue
+            if character == '"':
+                state = "code"
+        index += 1
+    raise AssertionError(f"unclosed body after {marker!r}")
+
+
+def workflow_paths(workflow: str, event: str) -> set[str]:
+    """Read only the paths list under one workflow event."""
+    marker = f"  {event}:"
+    start = workflow.index(marker) + len(marker)
+    following = [workflow.find(f"  {name}:", start) for name in ("pull_request", "push") if workflow.find(f"  {name}:", start) >= 0]
+    end = min(following, default=len(workflow))
+    block = workflow[start:end]
+    return set(re.findall(r'^\s*- "([^"]+)"$', block, re.MULTILINE))
+
+
 class CaptureSkillTests(unittest.TestCase):
     def test_documented_flags_exist_in_the_cli_help(self) -> None:
         text = reference_text()
@@ -124,8 +182,8 @@ class CaptureSkillTests(unittest.TestCase):
 
     def test_documented_recording_states_match_the_enum(self) -> None:
         source = SESSION.read_text(encoding="utf-8")
-        body = source[source.index("enum State: String"):]
-        cases = set(re.findall(r"^\s*case ([a-z]+)$", body[:body.index("}")], re.MULTILINE))
+        body = braced_body_after(source, "enum State: String")
+        cases = set(re.findall(r"^\s*case ([a-z]+)$", body, re.MULTILINE))
         row = [
             line for line in section("Recording", reference_text()).splitlines()
             if line.startswith("| `id`, `state` |")
@@ -295,12 +353,12 @@ class CaptureSkillTests(unittest.TestCase):
 
     def test_the_workflow_runs_this_guard_when_its_sources_change(self) -> None:
         triggers = WORKFLOW.read_text(encoding="utf-8")
-        missing = [
-            str(path.relative_to(ROOT))
-            for path in WATCHED
-            if f'"{path.relative_to(ROOT)}"' not in triggers
-        ]
-        self.assertEqual([], missing, "sources this guard reads are missing from the triggers")
+        expected = {str(path.relative_to(ROOT)) for path in WATCHED}
+        expected.add(CAPTURE_WORKFLOW_GLOB)
+        for event in ("pull_request", "push"):
+            paths = workflow_paths(triggers, event)
+            missing = sorted(expected - paths)
+            self.assertEqual([], missing, f"{event}.paths omits capture guard inputs")
 
     def test_skill_points_at_its_reference(self) -> None:
         self.assertIn("references/commands.md", SKILL.read_text(encoding="utf-8"))

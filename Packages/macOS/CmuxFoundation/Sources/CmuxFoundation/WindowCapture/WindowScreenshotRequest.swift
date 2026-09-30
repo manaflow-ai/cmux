@@ -94,16 +94,53 @@ public struct WindowScreenshotRequest: Equatable, Sendable {
         label: String = "",
         outputPath: String? = nil,
         caption: String? = nil
-    ) {
+    ) throws {
+        guard scale.isFinite, Self.allowedScale.contains(scale) else {
+            throw Failure.outOfRange(field: "scale", message: "must be between 0.1 and 1")
+        }
+        guard quality.isFinite, Self.allowedQuality.contains(quality) else {
+            throw Failure.outOfRange(field: "quality", message: "must be between 0.1 and 1")
+        }
+        if let maximumWidth, !Self.allowedMaximumWidth.contains(maximumWidth) {
+            throw Failure.outOfRange(
+                field: "max_width",
+                message: "must be between \(Self.allowedMaximumWidth.lowerBound) and \(Self.allowedMaximumWidth.upperBound)"
+            )
+        }
+        if case let .region(region) = target {
+            guard region.isFinite else {
+                throw Failure.malformedRegion(String(describing: region))
+            }
+            guard region.width >= Self.minimumRegionExtent,
+                  region.height >= Self.minimumRegionExtent else {
+                throw Failure.regionTooSmall
+            }
+            guard abs(region.x) <= Self.maximumRegionExtent,
+                  abs(region.y) <= Self.maximumRegionExtent,
+                  region.width <= Self.maximumRegionExtent,
+                  region.height <= Self.maximumRegionExtent else {
+                throw Failure.regionTooLarge
+            }
+        }
+        if let outputPath {
+            guard outputPath.hasPrefix("/") else {
+                throw Failure.outputPathNotAbsolute(outputPath)
+            }
+            guard outputPath.lowercased().hasSuffix(".\(format.fileExtensions[0])")
+                    || format.fileExtensions.dropFirst().contains(where: { outputPath.lowercased().hasSuffix(".\($0)") }) else {
+                throw Failure.outputExtensionMismatch(path: outputPath, format: format)
+            }
+        }
+
         self.target = target
-        self.windowHandle = windowHandle
+        self.windowHandle = WindowCaptureValueDecoding.trimmedNonEmpty(windowHandle)
         self.format = format
         self.scale = scale
         self.maximumWidth = maximumWidth
         self.quality = quality
-        self.label = label
+        self.label = WindowRecordingLabel(label, fallback: "screenshot").value
         self.outputPath = outputPath
-        self.caption = caption
+        self.caption = WindowCaptureValueDecoding.trimmedNonEmpty(caption)
     }
 
     /// Validates one decoded `window.screenshot` parameter dictionary.
@@ -150,7 +187,7 @@ public struct WindowScreenshotRequest: Equatable, Sendable {
             extensions: format.fileExtensions
         )
 
-        return WindowScreenshotRequest(
+        return try WindowScreenshotRequest(
             target: region.map { Target.region($0) } ?? .window,
             windowHandle: WindowCaptureValueDecoding.trimmedNonEmpty(params["window"]),
             format: format,
