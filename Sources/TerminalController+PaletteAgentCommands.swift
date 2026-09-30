@@ -3,21 +3,11 @@ import CmuxCommandPalette
 import Foundation
 
 extension TerminalController {
-    /// How long `palette.list` waits for a window to project its rows. The work
-    /// on the other side is one synchronous pass over the contributions, so a
-    /// few seconds only ever elapse when the main actor is busy or the target
-    /// window is not mounted.
-    nonisolated static let paletteAgentCommandsTimeoutSeconds: TimeInterval = 5
-
     /// `palette.list`: the command palette rows the target window would show.
     ///
-    /// Runs on the socket worker. The listing is produced by the window's
-    /// SwiftUI body on the main actor, so this handler registers a waiter with
-    /// `PaletteAgentCommandsBroker` and blocks until that window answers.
-    /// Waiting on the main thread instead would deadlock, because the body that
-    /// has to answer cannot run while the main thread is parked; keeping the
-    /// method in the socket-worker lane of `ControlCommandExecutionPolicy` is
-    /// what makes the wait safe.
+    /// The projection is a value snapshot owned by the target window. Reading
+    /// it on the main actor is synchronous and never waits for SwiftUI to mount
+    /// a responder or deliver a notification.
     ///
     /// Params: `window_id`, `workspace_id`, `surface_id`, `pane_id` (all
     /// optional). The window is resolved through `v2ResolveTabManager`, the same
@@ -83,56 +73,24 @@ extension TerminalController {
             )
         }
 
-        let requestId = UUID()
-        let outcome: PaletteAgentCommandsOutcome? = socketAwaitCallback(
-            timeout: Self.paletteAgentCommandsTimeoutSeconds
-        ) { completion in
-            Task { @MainActor in
-                // A window that closes between being resolved and being asked
-                // leaves nothing to answer. Say so now: waiting out the timeout
-                // would tell an agent the app was too busy to answer, when the
-                // truth is that its target is gone and retrying the same id
-                // never will.
-                guard let window = AppDelegate.shared?.mainWindow(for: targetWindowId) else {
-                    completion(.windowClosed)
-                    return
-                }
-                PaletteAgentCommandsBroker.shared.request(
-                    id: requestId,
-                    window: window,
-                    completion: { completion(.answered($0)) }
-                )
+        guard let reply = v2MainSync({
+            guard let window = AppDelegate.shared?.mainWindow(for: targetWindowId) else {
+                return nil
             }
-        }
-
-        if case .windowClosed? = outcome {
+            return PaletteAgentCommandsBroker.shared.snapshot(for: window)
+        }) else {
             return .err(
-                code: "not_found",
+                code: "unavailable",
                 message: String(
-                    localized: "socket.palette.list.windowNotFound",
-                    defaultValue: "No window with that id."
+                    localized: "socket.palette.list.unavailable",
+                    defaultValue: "The window command palette is not ready."
                 ),
                 data: ["window_id": targetWindowId.uuidString]
             )
         }
-        guard case let .answered(reply)? = outcome else {
-            // Drop the waiter so a late answer does not fire into a caller that
-            // has already given up.
-            Task { @MainActor in
-                PaletteAgentCommandsBroker.shared.cancel(id: requestId)
-            }
-            return .err(
-                code: "timeout",
-                message: String(
-                    localized: "socket.palette.list.timeout",
-                    defaultValue: "No window answered in time."
-                ),
-                data: ["timeout_seconds": Self.paletteAgentCommandsTimeoutSeconds]
-            )
-        }
 
         var result: [String: Any] = [
-            "commands": reply.commands.map { command -> [String: Any] in
+            "commands": reply.map { command -> [String: Any] in
                 var payload: [String: Any] = [
                     "id": command.commandId,
                     "title": command.title,
@@ -145,9 +103,7 @@ extension TerminalController {
                 return payload
             },
         ]
-        if let windowId = reply.windowId {
-            result["window_id"] = windowId.uuidString
-        }
+        result["window_id"] = targetWindowId.uuidString
         return .ok(result)
     }
 }

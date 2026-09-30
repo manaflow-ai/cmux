@@ -943,6 +943,7 @@ struct ContentView: View {
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
+    @State private var commandPaletteAgentCommandsProvider = PaletteAgentCommandsProvider()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
     @State private var fileExplorerWidth: CGFloat = 220
@@ -3220,10 +3221,6 @@ struct ContentView: View {
             openCommandPaletteCommands()
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteAgentCommandsRequested)) { notification in
-            handleCommandPaletteAgentCommandsRequest(notification)
-        })
-
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
             if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
                 presentSavedLayoutSavePrompt()
@@ -3555,6 +3552,9 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onDisappear {
+            if let observedWindow {
+                PaletteAgentCommandsBroker.shared.unregister(for: observedWindow)
+            }
             sidebarState.removeVisibilityWillChangeHandler(ownerId: windowId)
             workspaceSwitchPortalSignalRouter.clearSources()
             if isResizerDragging {
@@ -3595,6 +3595,11 @@ struct ContentView: View {
         appearance: WindowAppearanceSnapshot,
         commandPaletteOverlayView: AnyView
     ) {
+        PaletteAgentCommandsBroker.shared.register(
+            commandPaletteAgentCommandsProvider,
+            for: window
+        )
+        refreshCommandPaletteAgentCommandsSnapshot()
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
         window.isRestorable = false
         setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
@@ -7123,6 +7128,7 @@ struct ContentView: View {
     private func commandPaletteCommands(
         commandsContext: CommandPaletteCommandsContext
     ) -> [CommandPaletteCommand] {
+        refreshCommandPaletteAgentCommandsSnapshot()
         let context = commandsContext.snapshot
         let contributions = commandPaletteCommandContributions()
         var handlerRegistry = CommandPaletteHandlerRegistry()
@@ -7164,7 +7170,7 @@ struct ContentView: View {
         return commands
     }
 
-    /// Projects this window's palette rows for the `palette.list` socket method.
+    /// Refreshes the value snapshot read by `palette.list` for this window.
     ///
     /// Mirrors `commandPaletteCommands(commandsContext:)` gate for gate, against
     /// the same cached context, so an agent reads the palette this window would
@@ -7173,11 +7179,7 @@ struct ContentView: View {
     /// `isEnabled == false` instead of being dropped, so an agent can tell a
     /// command that does not apply right now from one that does not exist.
     /// `CommandPaletteAgentSurface` applies the rest of the listing rules.
-    ///
-    /// The handler registry is built here for the same reason the palette builds
-    /// one: a contribution with no handler is a row that cannot run, and the
-    /// listing drops it rather than naming it.
-    private func commandPaletteAgentCommands() -> [CommandPaletteAgentCommand] {
+    private func refreshCommandPaletteAgentCommandsSnapshot() {
         let commandsContext = commandPaletteCachedCommandsContext()
         let context = commandsContext.snapshot
         var handlerRegistry = CommandPaletteHandlerRegistry()
@@ -7196,31 +7198,8 @@ struct ContentView: View {
                 hasRegisteredHandler: handlerRegistry.handler(for: contribution.commandId) != nil
             )
         }
-        return CommandPaletteAgentSurface.app.commands(from: candidates)
-    }
-
-    /// Answers a `palette.list` request that targets this window.
-    ///
-    /// Routing reuses `shouldHandleCommandPaletteRequest`, so naming no window
-    /// resolves to the key window exactly like the other palette requests do,
-    /// and a request naming another window is ignored here and answered there.
-    private func handleCommandPaletteAgentCommandsRequest(_ notification: Notification) {
-        guard let requestId = notification.userInfo?[
-            PaletteAgentCommandsBroker.requestIdKey
-        ] as? UUID else { return }
-        guard Self.shouldHandleCommandPaletteRequest(
-            observedWindow: observedWindow,
-            requestedWindow: notification.object as? NSWindow,
-            keyWindow: NSApp.keyWindow,
-            mainWindow: NSApp.mainWindow
-        ) else { return }
-        let windowId = observedWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) }
-        PaletteAgentCommandsBroker.shared.fulfill(
-            id: requestId,
-            reply: PaletteAgentCommandsReply(
-                windowId: windowId,
-                commands: commandPaletteAgentCommands()
-            )
+        commandPaletteAgentCommandsProvider.replace(
+            with: CommandPaletteAgentSurface.app.commands(from: candidates)
         )
     }
 
