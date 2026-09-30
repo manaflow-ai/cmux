@@ -43,8 +43,8 @@
     },
     {
       "click": {
-        "label": "Copy Working Directory",
-        "type": "menuItem"
+        "id": "CommandPaletteResultRow.8.palette.copyWorkingDirectory",
+        "type": "button"
       }
     },
     {
