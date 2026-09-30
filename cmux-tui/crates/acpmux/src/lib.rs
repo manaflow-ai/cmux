@@ -15,6 +15,7 @@ pub mod client;
 pub mod config;
 pub mod daemon;
 pub mod hub;
+pub mod login_env;
 pub mod native;
 pub mod peer;
 pub mod rpc;

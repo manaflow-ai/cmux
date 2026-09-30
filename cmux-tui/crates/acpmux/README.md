@@ -199,7 +199,7 @@ Enter        send prompt        Ctrl-s   steer, or queue when the agent cannot s
 Ctrl-t / n   new session tab    Alt-n     new session tab    Ctrl-g   cancel turn
 Cmd-Ctrl-h/j/k/l  move focus like cmux panes: h sidebar, l content, k transcript, j composer
                   (Alt-h/j/k/l on terminals that do not deliver Cmd)
-Tab          focus sidebar (j/k, x stop, f fork, r rename); Esc or Enter back
+Tab          focus sidebar (Option-j/k or arrows, x stop, f fork, r rename); Esc or Enter back
 Ctrl-n/p     next / prev line in the composer (history at the ends); next / prev session in the sidebar
 Alt-s        hide / show the sidebar (`:sidebar`); Alt-h shows it again
 Alt-←/→      narrow / widen the sidebar (or drag its rule; the transcript keeps 40 columns)
@@ -770,16 +770,20 @@ ACP agent: `initialize`, `session/new`, `session/load`, `session/list`, `session
 a name works anywhere a `sessionId` is expected.
 
 `session/new` accepts `_meta.acpmux: {agent, name, policy}`. `session/prompt` accepts
-`_meta.acpmux: {steer: true}`. Every `session/update` carries `_meta.acpmux: {seq, at}`.
+`_meta.acpmux: {steer: true, promptId}`. Its response still comes at the end of the turn and adds
+`_meta.acpmux: {promptId, turnId, turnSeq}`; the prompting connection first gets
+`_acpmux/prompt_accepted {sessionId, promptId, turnId, queued, position?}` as soon as the prompt
+is recorded. `session/cancel` works as a notification or as a request (answered `{}`). Every live
+`session/update` keeps the agent's `_meta` and adds `_meta.acpmux: {seq, at, kind}`.
 
 Extensions:
 
 | Method | Purpose |
 | --- | --- |
-| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state. |
-| `_acpmux/attach {sessionId, afterSeq?, limit?}` | Subscribe and get the session detail plus recent raw events. |
+| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv` and `listen`. |
+| `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
-| `_acpmux/events {sessionId, afterSeq, limit}` | Page through the raw log. |
+| `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
@@ -787,8 +791,34 @@ Extensions:
 | `_acpmux/shutdown` | Stop the daemon. |
 
 Notifications to attached clients: `session/update` (standard), `_acpmux/event` (mux-internal
-records such as `user_message`, `status`, `turn_end`, `permission_request`),
-`_acpmux/permission_pending`, `_acpmux/session_changed` (watchers).
+records such as `user_message`, `status`, `turn_result`, `permission_request`),
+`_acpmux/permission_pending`. Watchers get `_acpmux/session_changed {sessionId, kind,
+recordKind, seq, session}` (kind `queue` for queue changes, `permission_resolved` for automatic
+approvals) and `_acpmux/permission_pending` with `via: "watch"` for sessions they are not
+attached to.
+
+Paging for chat clients: `beforeSeq` returns the newest `limit` records before it, oldest first,
+and `hasMore` says older ones exist. `kinds` filters records before `limit` counts them:
+`["transcript"]` keeps agent updates a chat renders plus `user_message`, `queued`, `dequeued`,
+`turn_started`, `turn_result`, permissions and `message_superseded`, and drops raw wire records,
+responses and `.replay` records. Categories `mux`, `wire` and `all`, or exact record kinds, also
+work. `eventStream: true` on attach delivers every live record (filtered by `kinds`) as
+`_acpmux/event`, with agent notifications nested in `msg`, instead of `session/update`.
+
+Turns: `queued`, `dequeued`, `user_message`, `turn_started`, `turn_end` and `turn_result`
+carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_started`. A failed
+turn's `turn_result` has `errorText` and `errorCode`, and `errorChunkSeqs` when the harness had
+streamed that same text as an ordinary message. A terminal error that Codex reports in-band
+(`_meta.codex.error` without `willRetry`) fails the turn even when Codex then ends it normally.
+Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed. When Codex abandons a partial answer after a
+dropped stream and redelivers it, acpmux records `message_superseded {oldMessageId,
+newMessageId}` before the redelivery. Other harnesses send no such signal.
+
+The daemon binds its socket and `--listen` address (`127.0.0.1:0` picks a free port) before it
+imports the login shell environment, so `_acpmux/status` answers at once; session creation waits
+for the import. `daemon run --ready-fd N` writes `{"ready":true,"pid","socket","listen","webUrl"}`
+to descriptor N when bound. SIGTERM stops every agent, saves sessions and exits within 5 s.
+`acpmux daemon schema` prints the full RPC schema.
 
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
 extensions keep working.

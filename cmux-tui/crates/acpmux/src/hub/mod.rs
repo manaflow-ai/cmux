@@ -6,12 +6,16 @@
 //! (prompt, cancel, config), `transfer` (export, import), `views` (summaries).
 
 mod lifecycle;
+mod paging;
+mod stream;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
+pub use paging::{EventFilter, EventPage};
 mod peers;
 mod permissions;
 pub mod rules;
 mod transfer;
 mod turns;
+pub(crate) use turns::merge_mux_meta;
 mod views;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
@@ -63,6 +67,52 @@ pub struct TurnInfo {
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
+    /// Stable turn identifier, assigned when the prompt is accepted and
+    /// carried by `queued`, `user_message`, `turn_started` and `turn_result`.
+    pub turn_id: String,
+    /// The client's `_meta.acpmux.promptId`, or one acpmux generated.
+    pub prompt_id: String,
+    /// Sequence of this turn's `turn_started` record.
+    pub turn_seq: u64,
+}
+
+/// A prompt waiting for the running turn to end.
+#[derive(Debug, Clone)]
+pub struct QueuedPrompt {
+    pub prompt_id: String,
+    pub turn_id: String,
+    pub client: String,
+    pub preview: String,
+    pub queued_at: u64,
+}
+
+/// Options for `Hub::prompt_with`.
+#[derive(Default)]
+pub struct PromptOptions {
+    /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
+    pub prompt_id: Option<String>,
+    /// Called once, as soon as the prompt is recorded (queued or started),
+    /// with `{sessionId, promptId, turnId, queued, position?, steer?}`.
+    pub on_accepted: Option<Box<dyn FnOnce(Value) + Send>>,
+}
+
+/// What the agent's stream says about the current assistant message, used
+/// to record `message_superseded` and to attach streamed error text to
+/// `turn_result`.
+#[derive(Debug, Default)]
+pub(super) struct StreamState {
+    /// `messageId` of the assistant message streaming now.
+    pub(super) open_message: Option<String>,
+    /// Set by a harness retry signal while `open_message` was streaming:
+    /// (abandoned messageId, the retry notice text).
+    pub(super) retry_from: Option<(String, String)>,
+    /// A terminal error the harness reported in-band during this turn.
+    pub(super) harness_error: Option<Value>,
+    /// Text and sequences of the trailing `agent_message_chunk` records of
+    /// the current message; compared with the error text when a turn fails.
+    pub(super) trailing_text: String,
+    pub(super) trailing_seqs: Vec<u64>,
+    pub(super) trailing_overflow: bool,
 }
 
 pub struct Session {
@@ -74,6 +124,8 @@ pub struct Session {
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
+    pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    pub(super) stream: StdMutex<StreamState>,
     pub(super) pending_permissions: StdMutex<HashMap<String, PendingPermission>>,
     pub(super) rehydrate: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
@@ -104,6 +156,9 @@ impl Session {
     pub fn queued(&self) -> u64 {
         self.queued.load(Ordering::SeqCst)
     }
+    pub fn queue(&self) -> Vec<QueuedPrompt> {
+        self.queue.lock().unwrap().clone()
+    }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.pending_permissions
             .lock()
@@ -132,6 +187,11 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// False while the daemon finishes startup work (login environment,
+    /// launcher checks) in the background. Session creation and agent
+    /// spawns wait for it; every other request is answered at once.
+    pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    pub(super) login_env_requested: AtomicBool,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -182,6 +242,8 @@ impl Hub {
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
+            startup_ready: tokio::sync::watch::channel(true).0,
+            login_env_requested: AtomicBool::new(false),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -196,6 +258,70 @@ impl Hub {
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
+    }
+
+    /// Hold session creation and agent spawns until `finish_startup`.
+    pub fn begin_startup(&self, login_env: bool) {
+        self.login_env_requested.store(login_env, Ordering::SeqCst);
+        self.startup_ready.send_replace(false);
+    }
+
+    /// Background startup: import the login environment (when requested),
+    /// reload the catalog so PATH discovery sees it, check launchers, then
+    /// let spawns through and probe models.
+    pub async fn finish_startup(self: &Arc<Self>) {
+        let login_env = self.login_env_requested.load(Ordering::SeqCst);
+        let mut reloaded = false;
+        if login_env && crate::login_env::import().await {
+            match self.reload_catalog().await {
+                Ok(_) => reloaded = true,
+                Err(e) => tracing::warn!("catalog reload after login env: {e}"),
+            }
+        }
+        self.verify_launchers().await;
+        self.startup_ready.send_replace(true);
+        tracing::info!("startup complete; agents may spawn");
+        // A catalog reload already started fresh probes.
+        if !reloaded {
+            self.probe_models().await;
+        }
+    }
+
+    pub fn startup_complete(&self) -> bool {
+        *self.startup_ready.borrow()
+    }
+
+    /// Wait until background startup has finished (immediate outside a daemon).
+    pub(super) async fn wait_startup(&self) {
+        let mut rx = self.startup_ready.subscribe();
+        let _ = rx.wait_for(|ready| *ready).await;
+    }
+
+    /// Run `--version` on proxy launchers off the executor and mark the ones
+    /// that fail unavailable (and drop fallbacks that point at them).
+    async fn verify_launchers(&self) {
+        let mut probe = self.config.read().await.clone();
+        let Ok(probe) = tokio::task::spawn_blocking(move || {
+            crate::config::verify_launchers(&mut probe);
+            probe
+        })
+        .await
+        else {
+            return;
+        };
+        let mut cfg = self.config.write().await;
+        for (name, reason) in &probe.unavailable {
+            let argv = |c: &Config| c.harnesses.get(name).map(|p| p.argv.clone());
+            if argv(&cfg) != argv(&probe) || cfg.unavailable.contains_key(name) {
+                continue;
+            }
+            for p in cfg.harnesses.values_mut() {
+                if p.fallback.as_deref() == Some(name.as_str()) {
+                    p.fallback = None;
+                }
+            }
+            cfg.unavailable.insert(name.clone(), reason.clone());
+        }
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>) {
@@ -238,6 +364,8 @@ impl Hub {
             turn_lock: Mutex::new(()),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
+            queue: StdMutex::new(Vec::new()),
+            stream: StdMutex::new(StreamState::default()),
             pending_permissions: StdMutex::new(HashMap::new()),
             rehydrate: AtomicBool::new(false),
             inbound_tx,
@@ -316,6 +444,7 @@ impl Hub {
                 | "turn_end"
                 | "turn_error"
                 | "queued"
+                | "dequeued"
                 | "created"
                 | "tags"
                 | "rules"
@@ -495,16 +624,19 @@ impl Hub {
             let last = session.meta().last_seq;
             let from = last.saturating_sub(400);
             let Ok(events) = self.store.events(&session.id, from, 400) else { continue };
-            let mut open: Option<u64> = None;
+            let mut open: Option<(u64, Value)> = None;
             for e in &events {
                 match e.kind.as_str() {
-                    "turn_started" => open = Some(e.seq),
+                    "turn_started" => {
+                        open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
+                    }
                     "turn_result" => open = None,
                     _ => {}
                 }
             }
-            if let Some(seq) = open {
-                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "error": "the daemon restarted before this turn settled"}));
+            if let Some((seq, turn_id)) = open {
+                let error = "the daemon restarted before this turn settled";
+                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
                 self.save_meta(&session);
             }
         }

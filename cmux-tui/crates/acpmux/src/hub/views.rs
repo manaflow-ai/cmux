@@ -26,7 +26,8 @@ impl Hub {
             "lastPrompt": m.last_prompt,
             "preview": m.preview.as_deref().map(|p| short_text(p, 160)),
             "queued": session.queued(),
-            "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview})),
+            "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview, "turnId": t.turn_id, "promptId": t.prompt_id, "turnSeq": t.turn_seq})),
+            "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at})).collect::<Vec<_>>(),
             "pendingPermissions": session.pending_permissions().len(),
             "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
             "model": current_model(&m),
@@ -35,6 +36,7 @@ impl Hub {
             "tags": live_tags(&m),
             "stateSeq": session.state_seq.load(Ordering::SeqCst),
             "unread": m.unread,
+            "lastTurn": m.last_turn,
             "attached": session.attached.load(Ordering::SeqCst),
         })
     }
@@ -86,6 +88,9 @@ impl Hub {
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
             "webUrl": cfg.websocket.as_ref().map(web_url),
+            "listen": cfg.websocket.as_ref().map(|w| w.listen.clone()),
+            "ready": self.startup_complete(),
+            "loginEnv": crate::login_env::state(self.login_env_requested.load(Ordering::SeqCst)),
         })
     }
 }

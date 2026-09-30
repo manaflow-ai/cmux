@@ -93,6 +93,7 @@ impl ChildAgent {
         };
         let (program, args) = (&owned.0, &owned.1);
         let mut cmd = Command::new(program);
+        crate::login_env::apply_tokio(&mut cmd);
         crate::config::scrub_nested_claude_env_tokio(&mut cmd);
         // Caller context, herdr-style: the agent knows which session it is.
         for (k, _) in std::env::vars_os() {

@@ -3,13 +3,13 @@
 //! WebSocket text frames. Both feed `serve_connection`.
 
 use crate::config::PermissionPolicy;
-use crate::hub::{Hub, HubEvent, VERSION};
+use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
 use crate::rpc::{Message, RpcError, method};
 use crate::store::EventRecord;
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -17,11 +17,21 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::{broadcast, mpsc};
 
+/// How one connection receives one attached session's live records.
+#[derive(Debug, Clone, Default)]
+pub struct SubOpts {
+    /// Every record arrives as `_acpmux/event` (agent notifications nested
+    /// in `msg`) instead of `session/update` plus `_acpmux/event`.
+    pub event_stream: bool,
+    /// With `event_stream`, only records this filter passes are sent.
+    pub filter: EventFilter,
+}
+
 pub struct Conn {
     pub id: String,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
-    subs: StdMutex<HashSet<String>>,
+    subs: StdMutex<HashMap<String, SubOpts>>,
     watch_all: AtomicBool,
 }
 
@@ -29,14 +39,24 @@ impl Conn {
     fn send(&self, msg: &Message) {
         let _ = self.out.try_send(msg.to_line());
     }
-    fn subscribed(&self, session_id: &str) -> bool {
-        self.subs.lock().unwrap().contains(session_id)
+    fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
+        self.subs.lock().unwrap().get(session_id).cloned()
     }
+    /// Subscribe with default options; keeps options already set.
     fn subscribe(&self, session_id: &str) -> bool {
-        self.subs.lock().unwrap().insert(session_id.to_owned())
+        let mut subs = self.subs.lock().unwrap();
+        if subs.contains_key(session_id) {
+            return false;
+        }
+        subs.insert(session_id.to_owned(), SubOpts::default());
+        true
+    }
+    /// Subscribe, replacing any options. True when the subscription is new.
+    fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
+        self.subs.lock().unwrap().insert(session_id.to_owned(), opts).is_none()
     }
     fn unsubscribe(&self, session_id: &str) -> bool {
-        self.subs.lock().unwrap().remove(session_id)
+        self.subs.lock().unwrap().remove(session_id).is_some()
     }
     fn label(&self) -> String {
         let n = self.name.lock().unwrap().clone();
@@ -47,23 +67,33 @@ impl Conn {
 // ----------------------------------------------------------------- listen
 
 pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
+    let listener = bind_unix(&path).await?;
+    serve_unix(hub, listener).await
+}
+
+/// Bind the daemon socket (mode 0600), refusing to steal a live one.
+pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     if path.exists() {
         // Refuse to steal a live socket.
-        if tokio::net::UnixStream::connect(&path).await.is_ok() {
+        if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon owns {}", path.display());
         }
-        std::fs::remove_file(&path)?;
+        std::fs::remove_file(path)?;
     }
-    let listener = UnixListener::bind(&path).with_context(|| format!("bind {}", path.display()))?;
+    let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
     tracing::info!("listening on {}", path.display());
+    Ok(listener)
+}
+
+pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(s) => s,
@@ -103,8 +133,20 @@ const INDEX_HTML: &str = include_str!("../../web/index.html");
 /// WebSocket protocol. The request head is peeked, never consumed, so the
 /// WebSocket handshake still sees the full request.
 pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: Option<String>) -> Result<()> {
-    let listener = TcpListener::bind(&addr).await.with_context(|| format!("bind {addr}"))?;
-    tracing::info!("web + websocket listening on {addr}");
+    let listener = bind_ws(&addr).await?;
+    serve_ws(hub, listener, token).await
+}
+
+/// Bind the dashboard/WebSocket port. `127.0.0.1:0` picks a free port; read
+/// it back with `local_addr`.
+pub async fn bind_ws(addr: &str) -> Result<TcpListener> {
+    let listener = TcpListener::bind(addr).await.with_context(|| format!("bind {addr}"))?;
+    let local = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| addr.to_owned());
+    tracing::info!("web + websocket listening on {local}");
+    Ok(listener)
+}
+
+pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: Option<String>) -> Result<()> {
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(s) => s,
@@ -239,7 +281,7 @@ pub async fn serve_connection(
         id: uuid::Uuid::now_v7().to_string(),
         name: StdMutex::new(String::new()),
         out,
-        subs: StdMutex::new(HashSet::new()),
+        subs: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
     });
     tracing::debug!(conn = %conn.id, "client connected");
@@ -301,7 +343,7 @@ pub async fn serve_connection(
     }
     fan.abort();
     // Every attachment this connection held ends with it.
-    let subs: Vec<String> = conn.subs.lock().unwrap().drain().collect();
+    let subs: Vec<String> = conn.subs.lock().unwrap().drain().map(|(k, _)| k).collect();
     for id in subs {
         if let Ok(s) = hub.resolve(&id) {
             hub.attach_count(&s, -1);
@@ -314,38 +356,62 @@ pub async fn serve_connection(
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     let rec = &ev.record;
     let watching = conn.watch_all.load(Ordering::SeqCst);
-    let attached = conn.subscribed(&ev.session_id);
+    let sub = conn.sub_opts(&ev.session_id);
+    let attached = sub.is_some();
     if !watching && !attached {
         return;
     }
-    if attached && rec.dir != "peer" {
-        // Agent -> client updates as standard ACP notifications.
-        if rec.dir == "in"
-            && !rec.kind.ends_with(".replay")
-            && let Some(m) = rec.msg.get("method").and_then(Value::as_str)
-            && m == method::SESSION_UPDATE
-        {
-            let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
-            params["sessionId"] = Value::String(ev.session_id.clone());
-            params["_meta"] = json!({"acpmux": {"seq": rec.seq, "at": rec.at}});
-            conn.send(&Message::notification(method::SESSION_UPDATE, params));
-        }
-        if rec.dir == "mux" {
-            conn.send(&Message::notification(method::MUX_EVENT, event_value(&ev.session_id, rec)));
-            if rec.kind == "permission_request" {
-                let mut p = rec.msg.clone();
-                p["sessionId"] = Value::String(ev.session_id.clone());
-                conn.send(&Message::notification(method::MUX_PERMISSION_PENDING, p));
+    if let Some(sub) = &sub
+        && rec.dir != "peer"
+    {
+        if sub.event_stream {
+            if sub.filter.matches(rec) {
+                conn.send(&Message::notification(
+                    method::MUX_EVENT,
+                    event_value(&ev.session_id, rec),
+                ));
             }
+        } else {
+            // Agent -> client updates as standard ACP notifications.
+            if rec.dir == "in"
+                && !rec.kind.ends_with(".replay")
+                && let Some(m) = rec.msg.get("method").and_then(Value::as_str)
+                && m == method::SESSION_UPDATE
+            {
+                let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
+                params["sessionId"] = Value::String(ev.session_id.clone());
+                crate::hub::merge_mux_meta(
+                    &mut params,
+                    json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
+                );
+                conn.send(&Message::notification(method::SESSION_UPDATE, params));
+            }
+            if rec.dir == "mux" {
+                conn.send(&Message::notification(
+                    method::MUX_EVENT,
+                    event_value(&ev.session_id, rec),
+                ));
+            }
+        }
+        if rec.dir == "mux" && rec.kind == "permission_request" {
+            conn.send(&Message::notification(
+                method::MUX_PERMISSION_PENDING,
+                permission_pending(&ev.session_id, rec, "attach"),
+            ));
         }
     }
     if watching {
         if let Some(remote) = &ev.remote {
             // Peers already filter to the interesting kinds and send a summary.
             if rec.dir == "peer" {
+                let sid = remote
+                    .summary
+                    .get("sessionId")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String(ev.session_id.clone()));
                 conn.send(&Message::notification(
                     method::MUX_SESSION_CHANGED,
-                    json!({"session": remote.summary, "kind": rec.kind, "seq": rec.seq, "peer": remote.peer}),
+                    json!({"sessionId": sid, "session": remote.summary, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer}),
                 ));
             }
             return;
@@ -353,40 +419,58 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir == "mux" && rec.kind == "purged" {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"session": {"sessionId": ev.session_id}, "kind": "purged", "seq": rec.seq}),
+                json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq}),
             ));
             return;
         }
-        if rec.dir == "mux"
-            && matches!(
-                rec.kind.as_str(),
-                "status"
-                    | "created"
-                    | "user_message"
-                    | "turn_end"
-                    | "turn_error"
-                    | "renamed"
-                    | "forked"
-                    | "imported"
-                    | "permission_request"
-                    | "permission_decision"
-                    | "mode"
-                    | "model"
-                    | "config"
-                    | "policy"
-                    | "rules"
-                    | "tags"
-                    | "turn_started"
-                    | "turn_result"
-            )
-            && let Ok(s) = hub.resolve(&ev.session_id)
-        {
+        if rec.dir != "mux" {
+            return;
+        }
+        let kind = match rec.kind.as_str() {
+            "status"
+            | "created"
+            | "user_message"
+            | "turn_end"
+            | "turn_error"
+            | "renamed"
+            | "forked"
+            | "imported"
+            | "permission_request"
+            | "permission_decision"
+            | "mode"
+            | "model"
+            | "config"
+            | "policy"
+            | "rules"
+            | "tags"
+            | "turn_started"
+            | "turn_result" => rec.kind.as_str(),
+            "queued" | "dequeued" => "queue",
+            "permission_auto" => "permission_resolved",
+            _ => return,
+        };
+        if let Ok(s) = hub.resolve(&ev.session_id) {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"session": hub.session_summary(&s), "kind": rec.kind, "seq": rec.seq}),
+                json!({"sessionId": ev.session_id, "session": hub.session_summary(&s), "kind": kind, "recordKind": rec.kind, "seq": rec.seq}),
+            ));
+        }
+        // A watcher that is not attached still learns a permission is waiting.
+        if rec.kind == "permission_request" && !attached {
+            conn.send(&Message::notification(
+                method::MUX_PERMISSION_PENDING,
+                permission_pending(&ev.session_id, rec, "watch"),
             ));
         }
     }
+}
+
+fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
+    let mut p = rec.msg.clone();
+    p["sessionId"] = Value::String(session_id.to_owned());
+    p["seq"] = json!(rec.seq);
+    p["via"] = Value::String(via.to_owned());
+    p
 }
 
 pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {

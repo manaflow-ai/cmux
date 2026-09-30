@@ -108,6 +108,34 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "partial "}})
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error after output"}})
         return
+    # "meta: X" sends a chunk whose notification carries the agent's own _meta.
+    if text.startswith("meta:"):
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text[5:].strip()}}, "_meta": {"fake": {"n": 1}}}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "_meta": {"fake": {"done": True}}}})
+        return
+    # "codex-retry" streams a partial message, reports a Codex stream retry,
+    # then redelivers the answer under a new messageId. "codex-retry-after-tool"
+    # finishes the message with a tool call before the retry notice.
+    if text.startswith("codex-retry"):
+        after_tool = text == "codex-retry-after-tool"
+        update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": "partial"}})
+        if after_tool:
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tc1", "title": "ls", "kind": "read", "status": "completed"})
+        update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Reconnecting... 1", "willRetry": True, "additionalDetails": "stream disconnected"}}}})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m2", "content": {"type": "text", "text": "partial answer"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "codex-fail" reports a terminal Codex error in-band, then ends the turn.
+    if text == "codex-fail":
+        update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Error", "willRetry": False, "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}}}}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "fail-streamed: X" streams X as the answer, then fails with X.
+    if text.startswith("fail-streamed:"):
+        msg = text[14:].strip()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": msg}})
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": msg}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:

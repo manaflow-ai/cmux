@@ -204,6 +204,9 @@ pub mod method {
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
+    /// Sent to the prompting connection as soon as a `session/prompt` is
+    /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
+    pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
 }
 
 #[cfg(test)]

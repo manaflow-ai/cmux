@@ -18,7 +18,7 @@ pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &st
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
                     if let Err(e) = hub.cancel(&s).await {
-                        tracing::warn!(conn = %conn.id, "cancel failed: {e}");
+                        tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
                     let _ = peer.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
@@ -74,7 +74,14 @@ pub(super) async fn handle_request(
                 | method::SESSION_RESUME
                 | method::SESSION_FORK
         ) {
-            attach(hub, conn, &id);
+            if m == method::MUX_ATTACH {
+                let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
+                let event_stream =
+                    params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
+                conn.subscribe_with(&id, SubOpts { event_stream, filter });
+            } else {
+                attach(hub, conn, &id);
+            }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 let _ =
                     peer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
@@ -120,7 +127,7 @@ pub(super) async fn handle_request(
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
-                ]}}
+                ], "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText"]}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -198,7 +205,10 @@ pub(super) async fn handle_request(
                 {
                     let mut p = rec.msg.get("params").cloned().unwrap_or(json!({}));
                     p["sessionId"] = Value::String(s.id.clone());
-                    p["_meta"] = json!({"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}});
+                    crate::hub::merge_mux_meta(
+                        &mut p,
+                        json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind, "replay": true}),
+                    );
                     conn.send(&Message::notification(method::SESSION_UPDATE, p));
                 }
             }
@@ -244,7 +254,29 @@ pub(super) async fn handle_request(
                 .and_then(Value::as_bool)
                 .or_else(|| params.get("steer").and_then(Value::as_bool))
                 .unwrap_or(false);
-            hub.prompt(&s, blocks, &conn.label(), steer).await
+            let prompt_id = mux_meta(&params)
+                .and_then(|m| m.get("promptId"))
+                .and_then(Value::as_str)
+                .filter(|p| !p.is_empty())
+                .map(str::to_owned);
+            let notify = conn.clone();
+            let opts = crate::hub::PromptOptions {
+                prompt_id,
+                on_accepted: Some(Box::new(move |v| {
+                    notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
+                })),
+            };
+            hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
+        }
+        // ACP defines cancel as a notification; a client that sends it as a
+        // request gets an empty result instead of a request forwarded to
+        // the agent that never answers.
+        method::SESSION_CANCEL => {
+            let s = hub.resolve(session_key(&params)?)?;
+            if let Err(e) = hub.cancel(&s).await {
+                tracing::debug!(conn = %conn.id, "cancel: {e}");
+            }
+            Ok(json!({}))
         }
         method::SESSION_FORK => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -606,23 +638,25 @@ pub(super) async fn handle_request(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
-            attach(hub, conn, &s.id);
+            let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
+            let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
+            if conn.subscribe_with(&s.id, SubOpts { event_stream, filter: filter.clone() }) {
+                hub.attach_count(&s, 1);
+            }
             let after = params.get("afterSeq").and_then(Value::as_u64);
+            let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
             let detail = hub.session_detail(&s);
-            let events = match after {
-                Some(a) => {
-                    hub.events(&s.id, a, limit).map_err(|e| RpcError::internal(e.to_string()))?
-                }
-                None => {
-                    // Last `limit` records.
-                    let last = s.meta().last_seq;
-                    let from = last.saturating_sub(limit as u64);
-                    hub.events(&s.id, from, limit).map_err(|e| RpcError::internal(e.to_string()))?
-                }
-            };
-            let events: Vec<Value> = events.iter().map(|r| event_value(&s.id, r)).collect();
-            Ok(json!({"session": detail, "events": events}))
+            // afterSeq alone pages forward (oldest first); otherwise the page
+            // is the newest `limit` records before beforeSeq (or the end).
+            let newest = after.is_none() || before.is_some();
+            let page = hub
+                .events_page(&s.id, after.unwrap_or(0), before, limit, newest, &filter)
+                .map_err(|e| RpcError::internal(e.to_string()))?;
+            let events: Vec<Value> = page.events.iter().map(|r| event_value(&s.id, r)).collect();
+            Ok(
+                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": s.meta().last_seq}),
+            )
         }
         method::MUX_DETACH => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -639,16 +673,24 @@ pub(super) async fn handle_request(
         method::MUX_EVENTS => {
             let s = hub.resolve(session_key(&params)?)?;
             let after = params.get("afterSeq").and_then(Value::as_u64).unwrap_or(0);
+            let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
+            let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let last = s.meta().last_seq;
             if after > last {
                 return Err(RpcError::invalid_params(format!(
                     "cursor_future: afterSeq {after} is beyond the last event {last}"
                 )));
             }
-            let events =
-                hub.events(&s.id, after, limit).map_err(|e| RpcError::internal(e.to_string()))?;
-            Ok(json!({"events": events.iter().map(|r| event_value(&s.id, r)).collect::<Vec<_>>()}))
+            // beforeSeq pages backwards: the newest `limit` records before it.
+            let page = hub
+                .events_page(&s.id, after, before, limit, before.is_some(), &filter)
+                .map_err(|e| RpcError::internal(e.to_string()))?;
+            Ok(json!({
+                "events": page.events.iter().map(|r| event_value(&s.id, r)).collect::<Vec<_>>(),
+                "hasMore": page.has_more,
+                "lastSeq": last,
+            }))
         }
         method::MUX_RENAME => {
             let s = hub.resolve(session_key(&params)?)?;

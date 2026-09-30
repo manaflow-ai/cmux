@@ -360,6 +360,31 @@ impl App {
             return;
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        // The sidebar steps with Option-j/k (plain j/k do nothing there), ahead of
+        // the global Alt-j/k focus bindings, which are no-ops from the sidebar.
+        // '∆'/'˚' are what macOS sends when Option is not treated as Meta.
+        if self.focus == Focus::Sidebar {
+            let alt = key.modifiers.contains(KeyModifiers::ALT);
+            match key.code {
+                KeyCode::Char('j') if alt => {
+                    self.select_step(1);
+                    return;
+                }
+                KeyCode::Char('k') if alt => {
+                    self.select_step(-1);
+                    return;
+                }
+                KeyCode::Char('∆') => {
+                    self.select_step(1);
+                    return;
+                }
+                KeyCode::Char('˚') => {
+                    self.select_step(-1);
+                    return;
+                }
+                _ => {}
+            }
+        }
         match self.keymap.feed(key) {
             keymap::Match::Run(command) => {
                 if let Some(n) = command.strip_prefix("session-").and_then(|s| s.parse().ok()) {
@@ -491,8 +516,8 @@ impl App {
             },
             Focus::Sidebar => match key.code {
                 KeyCode::Esc | KeyCode::Tab => self.focus = Focus::Input,
-                KeyCode::Char('j') | KeyCode::Down => self.select_step(1),
-                KeyCode::Char('k') | KeyCode::Up => self.select_step(-1),
+                KeyCode::Down => self.select_step(1),
+                KeyCode::Up => self.select_step(-1),
                 KeyCode::Enter => self.focus = Focus::Input,
                 KeyCode::Char(c) if plain && self.palette_trigger(c) => {
                     self.run_action(Action::Palette, &[])

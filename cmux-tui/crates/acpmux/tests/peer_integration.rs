@@ -191,3 +191,39 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     assert_eq!(st["peers"][0]["name"], "b");
     assert_eq!(st["peers"][0]["connected"], true);
 }
+
+#[tokio::test]
+async fn watchers_learn_peer_sessions_that_arrive_after_their_snapshot() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let port = free_port();
+    tokio::spawn(listen_ws(b.clone(), format!("127.0.0.1:{port}"), None));
+    let mut cb = client(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "late"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+
+    // A client watches A before A knows about B, as a TUI does when it
+    // starts the daemon and the ssh tunnel is still opening.
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = client(a.clone()).await;
+    ca.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    let v = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+    assert!(v["sessions"].as_array().unwrap().is_empty());
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), None).await.unwrap();
+    let changed =
+        ca.wait(method::MUX_SESSION_CHANGED, |p| p["session"]["sessionId"] == remote_id).await;
+    assert_eq!(changed["peer"], "b");
+    assert_eq!(changed["session"]["name"], "b/late");
+
+    // Removing the session on B tells A's watcher it is gone.
+    cb.call(method::SESSION_DELETE, json!({"sessionId": remote_id.clone()})).await.unwrap();
+    ca.wait(method::MUX_SESSION_CHANGED, |p| {
+        p["session"]["sessionId"] == remote_id && p["kind"] == "purged"
+    })
+    .await;
+}

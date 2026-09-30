@@ -126,6 +126,10 @@ pub struct SessionMeta {
     /// A turn ended while no client was attached.
     #[serde(default)]
     pub unread: bool,
+    /// Outcome of the last turn: {turnId, promptId, status, stopReason?,
+    /// errorText?, errorSource?, endedAt}.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_turn: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -151,6 +155,19 @@ pub trait Store: Send + Sync {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
     /// Events with `seq > after`, at most `limit`.
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>>;
+    /// Visit records with `seq > after` in order until `visit` returns false.
+    fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
+        for rec in self.events(id, after, usize::MAX)? {
+            if !visit(rec) {
+                break;
+            }
+        }
+        Ok(())
+    }
+    /// Make every appended record durable (called on shutdown).
+    fn flush(&self) -> Result<()> {
+        Ok(())
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -321,6 +338,30 @@ impl Store for LocalStore {
         Ok(())
     }
 
+    fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
+        for (_, path) in self.segments(id)? {
+            let file = File::open(&path)?;
+            for line in BufReader::new(file).lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
+                if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn flush(&self) -> Result<()> {
+        for w in self.writers.lock().unwrap().values() {
+            w.file.sync_data()?;
+        }
+        Ok(())
+    }
+
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let mut out = Vec::new();
         for (_, path) in self.segments(id)? {
@@ -410,6 +451,7 @@ mod tests {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            last_turn: None,
         }
     }
 

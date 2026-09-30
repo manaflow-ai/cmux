@@ -11,42 +11,92 @@ impl Hub {
     pub async fn prompt(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        mut blocks: Vec<Value>,
+        blocks: Vec<Value>,
         client: &str,
         steer: bool,
     ) -> Result<Value, RpcError> {
+        self.prompt_with(session, blocks, client, steer, PromptOptions::default()).await
+    }
+
+    /// `prompt` with a client prompt id and an acceptance callback. The
+    /// response gains `_meta.acpmux {promptId, turnId, turnSeq}` next to the
+    /// agent's own `_meta`.
+    pub async fn prompt_with(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        mut blocks: Vec<Value>,
+        client: &str,
+        steer: bool,
+        opts: PromptOptions,
+    ) -> Result<Value, RpcError> {
+        let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let mut on_accepted = opts.on_accepted;
+        let mut accept = |v: Value| {
+            if let Some(f) = on_accepted.take() {
+                f(v);
+            }
+        };
         let child = self.child_for(session).await?;
         let agent_sid = session
             .meta()
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let text = prompt_text(&blocks);
-        let steer_now =
-            steer && session.steering.load(Ordering::SeqCst) && session.turn().is_some();
+        let running = session.turn();
+        let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
         if steer_now {
+            let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             self.append(
                 session,
                 "mux",
                 "user_message",
-                json!({"text": text, "steer": true, "client": client}),
+                json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id}),
+            );
+            accept(
+                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
             );
             let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
             params["_meta"] = json!({"steer": true});
-            return child.request(method::SESSION_PROMPT, params).await;
+            let mut r = child.request(method::SESSION_PROMPT, params).await?;
+            merge_mux_meta(
+                &mut r,
+                json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}),
+            );
+            return Ok(r);
         }
+        let turn_id = uuid::Uuid::now_v7().to_string();
         let waiting = session.turn().is_some() || session.queued() > 0;
         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
         if waiting {
+            session.queue.lock().unwrap().push(QueuedPrompt {
+                prompt_id: prompt_id.clone(),
+                turn_id: turn_id.clone(),
+                client: client.to_owned(),
+                preview: short_text(&text, 200),
+                queued_at: now_ms(),
+            });
             // Tell every client right away; the turn itself starts when the lock frees.
             self.append(
                 session,
                 "mux",
                 "queued",
-                json!({"text": text, "client": client, "position": position}),
+                json!({"text": text, "client": client, "position": position, "promptId": prompt_id, "turnId": turn_id}),
+            );
+            accept(
+                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": true, "position": position}),
             );
         }
         let guard = session.turn_lock.lock().await;
         session.queued.fetch_sub(1, Ordering::SeqCst);
+        if waiting {
+            session.queue.lock().unwrap().retain(|q| q.turn_id != turn_id);
+            self.append(
+                session,
+                "mux",
+                "dequeued",
+                json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
+            );
+        }
         // The child may have died while we waited.
         let child = self.child_for(session).await?;
         let agent_sid = session
@@ -77,17 +127,34 @@ impl Hub {
             started_at: now_ms(),
             client: client.to_owned(),
             prompt_preview: short_text(&text, 200),
+            turn_id: turn_id.clone(),
+            prompt_id: prompt_id.clone(),
+            turn_seq: 0,
         });
-        self.append(session, "mux", "user_message", json!({"text": text, "client": client}));
+        self.reset_stream(session);
+        self.append(
+            session,
+            "mux",
+            "user_message",
+            json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id}),
+        );
+        if !waiting {
+            accept(
+                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
+            );
+        }
         session.stderr_tail.lock().unwrap().clear();
         let turn_seq = self
             .append(
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "client": client}),
+                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id}),
             )
             .seq;
+        if let Some(t) = session.turn.lock().unwrap().as_mut() {
+            t.turn_seq = turn_seq;
+        }
         self.set_status(session, SessionStatus::Running);
         let mut result = child
             .request(
@@ -109,7 +176,7 @@ impl Hub {
                     session,
                     "mux",
                     "failover",
-                    json!({"from": from, "to": to, "reason": e.message}),
+                    json!({"from": from, "to": to, "reason": e.message, "turnId": turn_id}),
                 );
                 self.detach_child(session).await;
                 session.meta.lock().unwrap().harness = to.clone();
@@ -147,29 +214,63 @@ impl Hub {
                 }
             }
         }
+        // A harness that reported a terminal error in-band (Codex
+        // `_meta.codex.error` without willRetry) and then ended the turn
+        // normally still failed it: answer the prompt with that error.
+        let harness_error = session.stream.lock().unwrap().harness_error.clone();
+        let harness_failure = match (&result, &harness_error) {
+            (Ok(v), Some(h))
+                if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") =>
+            {
+                let text = h.get("text").and_then(Value::as_str).unwrap_or("");
+                let text =
+                    if text.is_empty() { "the harness reported an error" } else { text }.to_owned();
+                let data = json!({"errorSource": h.get("source"), "errorCode": h.get("code"), "stopReason": v.get("stopReason")});
+                Some(RpcError::new(-32000, text).with_data(data))
+            }
+            _ => None,
+        };
+        let harness_failed = harness_failure.is_some();
+        if let Some(e) = harness_failure {
+            result = Err(e);
+        }
+        let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         match &result {
             Ok(v) => {
                 let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
-                self.append(session, "mux", "turn_end", json!({"stopReason": stop}));
-                let status =
-                    if stop.as_str() == Some("cancelled") { "cancelled" } else { "completed" };
                 self.append(
                     session,
                     "mux",
-                    "turn_result",
-                    json!({"status": status, "stopReason": stop, "turnSeq": turn_seq}),
+                    "turn_end",
+                    json!({"stopReason": stop, "turnId": turn_id, "turnSeq": turn_seq}),
                 );
+                let status =
+                    if stop.as_str() == Some("cancelled") { "cancelled" } else { "completed" };
+                let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                if let Some(o) = msg.as_object_mut() {
+                    o.extend(self.turn_error_fields(session, None));
+                }
+                self.record_last_turn(session, &msg);
+                self.append(session, "mux", "turn_result", msg);
             }
             Err(e) => {
                 self.append(
                     session,
                     "mux",
                     "turn_error",
-                    json!({"error": e.message, "code": e.code}),
+                    json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq}),
                 );
-                self.append(session, "mux", "turn_result", json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq}));
+                let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                if let Some(o) = msg.as_object_mut() {
+                    let agent_error =
+                        (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
+                    o.extend(self.turn_error_fields(session, agent_error));
+                }
+                self.record_last_turn(session, &msg);
+                self.append(session, "mux", "turn_result", msg);
             }
         }
+        self.reset_stream(session);
         // Nobody watching: the sidebar dot and `wait --until done` see it.
         if session.attached.load(Ordering::SeqCst) == 0 {
             session.meta.lock().unwrap().unread = true;
@@ -183,7 +284,23 @@ impl Hub {
         }
         self.save_meta(session);
         drop(guard);
+        if let Ok(v) = &mut result {
+            merge_mux_meta(v, ids);
+        }
         result
+    }
+
+    /// Keep the outcome of the last turn on the session (`lastTurn` in the
+    /// summary), so `wait` can report a failed turn after it resolves.
+    fn record_last_turn(&self, session: &Session, turn_result: &Value) {
+        let mut last = serde_json::Map::new();
+        for k in ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource"] {
+            if let Some(v) = turn_result.get(k) {
+                last.insert(k.to_owned(), v.clone());
+            }
+        }
+        last.insert("endedAt".into(), json!(now_ms()));
+        session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
     }
 
     /// The profile to fall over to, when the current one names one that exists.
@@ -483,6 +600,7 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            last_turn: None,
         };
         let new = self.make_session(meta);
         if is_claude {
@@ -594,9 +712,40 @@ impl Hub {
         }
     }
 
+    /// Stop every agent at once (each gets SIGTERM, then SIGKILL after
+    /// 300 ms), then save every session and make the log durable.
     pub async fn shutdown_all(&self) {
+        let sessions = self.sessions();
+        futures::future::join_all(sessions.iter().map(|s| self.detach_child(s))).await;
+        self.flush();
+    }
+
+    /// Save every session's meta and sync the event log to disk.
+    pub fn flush(&self) {
         for s in self.sessions() {
-            self.detach_child(&s).await;
+            self.save_meta(&s);
+        }
+        if let Err(e) = self.store.flush() {
+            tracing::warn!("store flush failed: {e}");
+        }
+    }
+}
+
+/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
+/// agent sent.
+pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    if !mux.is_object() {
+        *mux = json!({});
+    }
+    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
         }
     }
 }

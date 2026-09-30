@@ -74,6 +74,10 @@ impl App {
                     }
                 }
             }
+            // Watchers now also get permission_pending for sessions they do not
+            // attach to; the TUI already marks those from session_changed.
+            method::MUX_PERMISSION_PENDING
+                if p.get("via").and_then(Value::as_str) == Some("watch") => {}
             method::MUX_PERMISSION_PENDING => {
                 let title = p
                     .pointer("/request/toolCall/title")

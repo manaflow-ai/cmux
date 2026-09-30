@@ -138,9 +138,7 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         } else {
             String::new()
         };
-        if pending > 0 {
-            code = code.max(2);
-        }
+        code = code.max(session_exit_code(s));
         rows.push(json!({"name": name, "sessionId": id, "status": status, "pendingPermissions": pending, "unread": s.get("unread"), "matched": s.get("matched"), "reply": reply}));
         if opts.notify {
             terminal_notify(
@@ -178,6 +176,18 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         std::process::exit(code);
     }
     Ok(())
+}
+
+/// Exit code a waited-on session contributes: 2 while it waits for a
+/// permission, 1 when its last turn failed, otherwise 0.
+fn session_exit_code(s: &Value) -> i32 {
+    if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
+        2
+    } else if s.pointer("/lastTurn/status").and_then(Value::as_str) == Some("failed") {
+        1
+    } else {
+        0
+    }
 }
 
 /// Resolve when a session's transcript contains the text. Existing text
@@ -756,6 +766,18 @@ impl ReadSuppressor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wait_exit_code_reports_permissions_then_failed_turns() {
+        assert_eq!(session_exit_code(&json!({"pendingPermissions": 1})), 2);
+        assert_eq!(
+            session_exit_code(&json!({"pendingPermissions": 1, "lastTurn": {"status": "failed"}})),
+            2
+        );
+        assert_eq!(session_exit_code(&json!({"lastTurn": {"status": "failed"}})), 1);
+        assert_eq!(session_exit_code(&json!({"lastTurn": {"status": "completed"}})), 0);
+        assert_eq!(session_exit_code(&json!({})), 0);
+    }
 
     #[test]
     fn cursor_parsing() {
