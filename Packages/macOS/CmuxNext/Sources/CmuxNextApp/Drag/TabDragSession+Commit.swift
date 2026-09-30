@@ -60,7 +60,7 @@ extension TabDragSession {
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
             Task {
                 let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
-                if let key { openTornOff(workspace: key, frame: frame) }
+                if let key { focusTornOff(openTornOff(workspace: key, frame: frame), drag: drag) }
                 settle(key != nil)
             }
         case .moveWindow, .cancel:
@@ -99,7 +99,7 @@ extension TabDragSession {
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
             Task {
                 let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
-                if let key { openTornOff(workspace: key, frame: frame) }
+                if let key { focusTornOff(openTornOff(workspace: key, frame: frame), drag: drag) }
                 settle(key != nil)
             }
         case .moveWindow, .cancel:
@@ -109,7 +109,8 @@ extension TabDragSession {
 
     /// Opens the torn-off workspace in a new window under the pointer. The
     /// window list and frame persist through `WindowManager`.
-    func openTornOff(workspace key: WorkspaceKey, frame: CGRect) {
+    @discardableResult
+    func openTornOff(workspace key: WorkspaceKey, frame: CGRect) -> WindowController? {
         services.windows.openWindow(workspaces: [key.rawValue], frame: frame)
     }
 

@@ -28,6 +28,11 @@ final class AppControl {
         let probe = frameProbe
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
+            // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md).
+            .mainActor("debug.focus") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugFocus.report(services: services))
+            },
             .mainActor("debug.surfaces") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(SurfaceDiagnosticsReport.make(services))

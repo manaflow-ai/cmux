@@ -23,7 +23,10 @@ struct LocalBrowserTab: Hashable, Sendable {
 /// Outlives its `WindowController` while the window is registered (the last
 /// window closed but restorable), and persists in the daemon's `personal`
 /// projection keyed by `id`; never part of the shared tree. Focus, sidebar
-/// multi-selection and scroll stay in memory (architecture.md 1).
+/// multi-selection and scroll stay in memory (architecture.md 1): focus is
+/// `focus`, this window's state machine (plans/cmux-next/focus.md), which
+/// owns the focused pane, the last focused pane per workspace and browser
+/// focus mode. It reads the selected workspace and tab selection from here.
 @Observable
 final class WindowState {
     /// Stable id that survives relaunch (the projection record id). Changes
@@ -35,8 +38,9 @@ final class WindowState {
     /// Machine that holds `workspaceID` (`local` or a Cloud machine id).
     var machineID: String = MachineRegistry.localID
     var selection = TabSelectionMemory()
-    /// Focused layout pane per workspace.
-    var focusedPane: [String: LayoutPaneID] = [:]
+    /// This window's focus state machine: the only owner of focus, last
+    /// focused pane per workspace, and browser focus mode. Never persisted.
+    let focus = FocusCoordinator()
     /// Session-only browser tabs per pane (`PaneModel.id`).
     var localBrowserTabs: [String: [LocalBrowserTab]] = [:]
     /// Sidebar width in points (nil = default) and icons-only collapse.

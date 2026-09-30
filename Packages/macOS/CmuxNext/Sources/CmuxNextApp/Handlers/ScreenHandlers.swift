@@ -11,11 +11,11 @@ enum ScreenHandlers {
         registry.bind("screen.new", invoke: { _ in
             guard let content = ctx.content(), let connection = ctx.connection() else { return }
             let workspace = content.workspace.handle
+            let intent = content.beginFocusIntent()
             Task {
                 do {
                     let created = try await connection.newScreen(in: workspace)
-                    content.pendingFocusSurface = created.surface
-                    content.applyCurrent()
+                    content.expectFocus(on: created.surface, generation: intent)
                 } catch {
                     ctx.services.daemon.logger.error("new-screen failed: \(String(describing: error), privacy: .public)")
                 }
