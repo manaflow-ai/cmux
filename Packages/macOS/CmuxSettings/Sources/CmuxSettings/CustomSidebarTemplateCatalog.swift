@@ -57,7 +57,11 @@ public struct CustomSidebarTemplateCatalog: Sendable {
     private let resourceDirectory: URL
     private let descriptorsByID: [String: CustomSidebarTemplateDescriptor]
 
-    public init(bundle: Bundle = .module) {
+    public init() {
+        self.init(bundle: Bundle.module)
+    }
+
+    public init(bundle: Bundle) {
         resourceDirectory = bundle.url(
             forResource: "CustomSidebarTemplates",
             withExtension: nil
