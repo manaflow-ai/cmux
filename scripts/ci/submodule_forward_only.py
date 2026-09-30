@@ -73,6 +73,21 @@ def local_relation(path: str, base: str, new: str) -> str | None:
     return None
 
 
+def deepened_relation(path: str, base: str, new: str) -> str | None:
+    """Fetches the history a shallow clone lacks, then decides locally.
+
+    The last resort after the GitHub compare, which fails whenever the
+    repository's shared Actions token is out of API quota. Without it, a
+    forward bump whose old pin sits deeper than the clone reads as
+    undecidable. Ancestry needs only commits, so blobs are skipped.
+    """
+    shallow = run("git", "-C", path, "rev-parse", "--is-shallow-repository")
+    if shallow.returncode != 0 or shallow.stdout.strip() != "true":
+        return None
+    run("git", "-C", path, "fetch", "--quiet", "--filter=blob:none", "--unshallow", "origin", base, new)
+    return local_relation(path, base, new)
+
+
 def github_relation(url: str, new: str, base: str) -> str | None:
     match = re.search(r"github\.com[:/]([^/]+)/([^/#]+?)(?:\.git)?$", url)
     if not match:
@@ -158,7 +173,11 @@ def main() -> int:
         if base_sha == new_sha:
             print(f"PASS {path}: unchanged at {new_sha}")
             continue
-        relation = local_relation(path, base_sha, new_sha) or github_relation(url, new_sha, base_sha)
+        relation = (
+            local_relation(path, base_sha, new_sha)
+            or github_relation(url, new_sha, base_sha)
+            or deepened_relation(path, base_sha, new_sha)
+        )
         if relation == "forward":
             print(f"PASS {path}: {base_sha} -> {new_sha} (forward)")
             continue
