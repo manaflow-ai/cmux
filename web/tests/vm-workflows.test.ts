@@ -6216,7 +6216,7 @@ describe("VM Effect workflows", () => {
         await tx`
           insert into cloud_vm_observed_destroy_cleanups (vm_id, provider, cleanup, updated_at)
           values (
-            ${vmId}, 'freestyle', ${sql.json(malformedCleanups[index] as never)},
+            ${vmId}, 'freestyle', ${tx.json(malformedCleanups[index] as never)},
             now() - interval '2 days' + ${index} * interval '1 second'
           )
         `;
