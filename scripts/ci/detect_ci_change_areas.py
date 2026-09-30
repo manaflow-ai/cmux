@@ -1653,6 +1653,7 @@ def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
 # this an exact list: test_linux_guard_only_scripts_reach_no_other_runner
 # fails if anything else starts naming one.
 LINUX_GUARD_ONLY_SCRIPTS = frozenset({
+    "scripts/check-cli-contract-verbs.py",
     "scripts/check-package-resolved-policy.py",
     "scripts/check-sidebar-lazy-layout.py",
     "scripts/lint-stored-dispatch-work-items.py",
