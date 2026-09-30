@@ -114,6 +114,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugWebInspector.handle(call.params, services: services))
             },
+            // Open popup panels (sized window.open popups).
+            .mainActor("debug.popups") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugPopups.report(call.params, services: services))
+            },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))

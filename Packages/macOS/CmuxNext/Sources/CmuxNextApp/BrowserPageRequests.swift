@@ -28,13 +28,20 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private var closeOnArrival: Set<SurfaceID> = []
 
     func browserTab(_ page: any BrowserTab, didRequest intent: BrowserTabIntent) {
+        // A popup panel's page: the panel handles it (window.close closes
+        // the panel), except links it opens in tabs (its opener's pane).
+        if let services, services.popups.handle(page, intent) { return }
         if case .close = intent, let services, services.cache.key(of: page) == nil {
             // Not installed yet: its daemon tab is still being created.
             return pageClosedBeforeAdoption(page)
         }
-        guard let services, let key = services.cache.key(of: page), let (_, pane) = services.locateTab(key) else {
+        guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
+              let (_, pane) = services.locateTab(key) else {
             // The opener is gone: nowhere to show a new page.
-            if case .adoptTab(let child, _) = intent { child.close() }
+            switch intent {
+            case .adoptTab(let child, _), .openPopup(let child, _): child.close()
+            default: break
+            }
             return
         }
         let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
@@ -61,11 +68,23 @@ final class BrowserPageRequests: BrowserTabDelegate {
             break
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
-        case .openPopup(let child, _):
-            open(url: child.state.url, adopting: child, engine: engine, in: pane, background: false)
+        case .openPopup(let child, let request):
+            openPopup(child, request: request, openerKey: key, pane: pane)
         case .unhandledEscape:
             break
         }
+    }
+
+    /// A sized popup opens in a floating panel over the window that shows
+    /// its opener (else the active window); it is never a daemon tab.
+    private func openPopup(_ child: any BrowserTab, request: BrowserPopupRequest, openerKey: String, pane: PaneModel) {
+        guard let services else { child.close(); return }
+        let owner = services.windows.controllers.first { $0.content?.pane(for: pane.handle) != nil }
+        guard let window = (owner ?? services.windows.active)?.window else {
+            child.close()
+            return
+        }
+        services.popups.open(child, request: request, over: window, openerKey: openerKey)
     }
 
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, in pane: PaneModel, background: Bool) {

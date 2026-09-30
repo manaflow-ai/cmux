@@ -21,29 +21,6 @@ let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, 
     }
 }
 
-/// How the next tab a window request sent to a window opens: its
-/// disposition and, for a popup, the window features the page gave.
-nonisolated struct CEFPlacement: Equatable, Sendable {
-    var disposition: BrowserNewTabDisposition
-    var bounds: CGRect?
-}
-
-/// Placements by Chromium window id, oldest first.
-nonisolated struct CEFPlacementQueue: Equatable, Sendable {
-    private var queues: [Int32: [CEFPlacement]] = [:]
-
-    mutating func record(window: Int32, _ placement: CEFPlacement) {
-        queues[window, default: []].append(placement)
-    }
-
-    mutating func take(window: Int32) -> CEFPlacement? {
-        guard var queue = queues[window], !queue.isEmpty else { return nil }
-        let first = queue.removeFirst()
-        queues[window] = queue.isEmpty ? nil : queue
-        return first
-    }
-}
-
 /// Window requests so far and what became of them (`debug.cef`).
 nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
     struct Entry: Equatable, Sendable {
@@ -83,7 +60,7 @@ extension CEFRuntime {
         switch decision {
         case .insert(let anchor, let disposition):
             if let window = shim?.tabWindowID(anchor), window != 0 {
-                placements[window, default: []].append(disposition)
+                placements.record(window: window, CEFPlacement(disposition: disposition, bounds: request.bounds))
             }
             return anchor
         case .openInNewTab(let url, let disposition):
@@ -124,19 +101,26 @@ extension CEFRuntime {
         return key.offTheRecord ? context : Self.normalizedPath(context)
     }
 
-    /// The first recorded disposition for the next tab inserted into
-    /// `window` (by a window request), if any.
-    func takePlacement(window: Int32) -> BrowserNewTabDisposition? {
-        guard var queue = placements[window], !queue.isEmpty else { return nil }
-        let first = queue.removeFirst()
-        placements[window] = queue.isEmpty ? nil : queue
-        return first
+    /// How the next tab inserted into `window` opens: the oldest placement a
+    /// window request recorded for it, else `fallback` with the popup
+    /// features Chromium reported at creation.
+    func takePlacement(window: Int32, fallback: BrowserNewTabDisposition, created: CEFCreatedBy = .none) -> CEFPlacement {
+        guard var placement = placements.take(window: window) else {
+            return CEFPlacement(disposition: fallback, bounds: created.features)
+        }
+        if placement.bounds == nil { placement.bounds = created.features }
+        return placement
     }
 
     func windowCandidates(for request: CEFWindowRequest) -> [CEFWindowCandidate] {
-        let sourceHost = tabsByBrowser[request.sourceBrowser]?.host
+        // A popup panel holds only its popup: what a popup page opens goes
+        // to the window of the pane that opened the popup.
+        var sourceHost = tabsByBrowser[request.sourceBrowser]?.host
+        if let popup = sourceHost, popup.isPopupHost {
+            sourceHost = popup.tabs.lazy.compactMap(\.popupOpenerHost).first
+        }
         return hosts.values.compactMap { host in
-            guard host.isLive, let anchor = host.anchorBrowser else { return nil }
+            guard host.isLive, !host.isPopupHost, let anchor = host.anchorBrowser else { return nil }
             return CEFWindowCandidate(
                 anchor: anchor,
                 profilePath: storeKey(of: host.key),

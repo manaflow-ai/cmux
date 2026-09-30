@@ -35,7 +35,8 @@ extension CEFRuntime {
         guard !adoptions.isClosed(browser) else { return }
         let disposition = created.disposition.tabDisposition ?? .foregroundTab
         if let host = hosts.values.first(where: { $0.owns(window: window) || $0.containsBrowser(inWindow: window) }) {
-            host.adoptChromiumTab(browser: browser, disposition: takePlacement(window: window) ?? disposition)
+            let placement = takePlacement(window: window, fallback: disposition, created: created)
+            host.adoptChromiumTab(browser: browser, disposition: placement.disposition, bounds: placement.bounds)
             return
         }
         if hosts.values.contains(where: \.isCreatingWindow) {
@@ -56,13 +57,14 @@ extension CEFRuntime {
         guard let created = unplaced[browser], tabsByBrowser[browser] == nil,
               let host = hosts.values.first(where: { $0.owns(window: window) }) else { return }
         unplaced[browser] = nil
-        let disposition = takePlacement(window: window) ?? created.disposition.tabDisposition ?? .foregroundTab
+        let placement = takePlacement(window: window, fallback: created.disposition.tabDisposition ?? .foregroundTab,
+                                      created: created)
         // The event arrives inside Chromium's tab strip notification, which
         // forbids tab strip changes (the host may select the new tab): adopt
         // on the next main-actor turn.
         Task { @MainActor [weak self, weak host] in
             guard let self, let host, self.tabsByBrowser[browser] == nil, !self.adoptions.isClosed(browser) else { return }
-            host.adoptChromiumTab(browser: browser, disposition: disposition)
+            host.adoptChromiumTab(browser: browser, disposition: placement.disposition, bounds: placement.bounds)
         }
     }
 
@@ -72,7 +74,8 @@ extension CEFRuntime {
         let waiting = adoptions.takeWaiting()
         for orphan in waiting {
             if host.owns(window: orphan.window) {
-                host.adoptChromiumTab(browser: orphan.browser, disposition: takePlacement(window: orphan.window) ?? .foregroundTab)
+                let placement = takePlacement(window: orphan.window, fallback: .foregroundTab)
+                host.adoptChromiumTab(browser: orphan.browser, disposition: placement.disposition, bounds: placement.bounds)
             } else if hosts.values.contains(where: \.isCreatingWindow) {
                 adoptions.enqueue(orphan)
             } else if forkAPIVersion >= 8 {

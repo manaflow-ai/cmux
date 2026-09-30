@@ -68,7 +68,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
     @ObservationIgnored private var isOccluded = false
-    @ObservationIgnored let host: CEFPaneHost
+    /// The pane window this tab belongs to. A popup starts in its opener's
+    /// Chromium window but belongs to its own popup host from adoption on;
+    /// `awaitsWindowMove` is true until Chromium moved it there.
+    @ObservationIgnored var host: CEFPaneHost
+    @ObservationIgnored var awaitsWindowMove = false
+    /// The host of the page that opened this popup: it shows its own page
+    /// again once the popup left its window.
+    @ObservationIgnored weak var popupOpenerHost: CEFPaneHost?
     @ObservationIgnored unowned let runtime: CEFRuntime
     @ObservationIgnored lazy var container: CEFTabContentView = {
         let view = CEFTabContentView()

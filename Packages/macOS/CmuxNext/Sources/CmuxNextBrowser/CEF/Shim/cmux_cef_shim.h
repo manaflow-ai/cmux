@@ -82,6 +82,10 @@ typedef enum {
   // main-frame navigation that would leave the tab's store. s1 = url,
   // a = 1 for a redirect. The host re-creates the tab in the other store.
   CMUX_SHIM_NAVIGATION_REROUTE = 27,
+  // The page did not handle a key down (CefKeyboardHandler::OnKeyEvent
+  // after the renderer). Only Escape without modifiers is reported;
+  // a = Windows key code (0x1B). A popup panel closes on it.
+  CMUX_SHIM_KEY_UNHANDLED = 28,
 } cmux_shim_event_kind_t;
 
 typedef enum {

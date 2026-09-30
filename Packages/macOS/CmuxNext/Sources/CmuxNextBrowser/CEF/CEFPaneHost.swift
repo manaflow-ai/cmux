@@ -11,15 +11,15 @@ import Foundation
 final class CEFPaneHost {
     let key: CEFPaneKey
     let hostView = CEFHostView()
-    private unowned let runtime: CEFRuntime
+    unowned let runtime: CEFRuntime
 
-    private enum WindowState: Equatable {
+    enum WindowState: Equatable {
         case none
         case creating(request: Int32)
         case live(window: Int32)
     }
 
-    private var window: WindowState = .none
+    var window: WindowState = .none
     /// Tabs of this host, in creation order.
     private(set) var tabs: [CEFTab] = []
     /// The tab whose creation created the window.
@@ -29,7 +29,10 @@ final class CEFPaneHost {
     /// The browser this host last made Chromium's active tab (its own
     /// `cmux_tab_activate`, or the window's first tab). Chromium echoes an
     /// activation for it, often after the user has moved on.
-    private(set) var lastActivated: Int32?
+    var lastActivated: Int32?
+    /// A popup host's about:blank browser that created its Chromium window;
+    /// it closes once the popup moved in (`CEFPaneHost+Popups`).
+    var placeholder: CEFTab?
 
     init(key: CEFPaneKey, runtime: CEFRuntime) {
         self.key = key
@@ -54,12 +57,15 @@ final class CEFPaneHost {
         return false
     }
 
-    /// A browser of this window, to address it (cmux_tab_add, moves).
-    var anchorBrowser: Int32? { tabs.lazy.compactMap(\.browserID).first }
+    /// A browser of this window, to address it (cmux_tab_add, moves). A
+    /// popup still in its opener's window is not one.
+    var anchorBrowser: Int32? { tabs.lazy.filter { !$0.awaitsWindowMove }.compactMap(\.browserID).first }
 
     func containsBrowser(inWindow id: Int32) -> Bool {
         guard let shim = runtime.shim else { return false }
-        return tabs.contains { $0.browserID.map { shim.tabWindowID($0) == id } ?? false }
+        return tabs.contains { tab in
+            !tab.awaitsWindowMove && (tab.browserID.map { shim.tabWindowID($0) == id } ?? false)
+        }
     }
 
     /// Called when a tab's content view enters a window: show that tab.
@@ -76,9 +82,14 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = tab.isContentHidden
         visibleTab = tab
-        runtime.lastShownHost = self
+        // Tabs from windows cmux does not host go to a pane, never a panel.
+        if !isPopupHost { runtime.lastShownHost = self }
         ensureCreated(tab)
-        if let browser = tab.browserID {
+        if tab.awaitsWindowMove {
+            // Still in its opener's window: activating it there would show
+            // it in the opener's pane. It moves into this host's window.
+            ensureOwnWindow(for: tab)
+        } else if let browser = tab.browserID {
             lastActivated = browser
             _ = runtime.shim?.tabActivate(browser)
             hostView.postGeometryChange()
@@ -103,7 +114,7 @@ final class CEFPaneHost {
 
     // MARK: Creation
 
-    private func ensureCreated(_ tab: CEFTab) {
+    func ensureCreated(_ tab: CEFTab) {
         guard tab.browserID == nil, tab.isCreationPending == false, let shim = runtime.shim else { return }
         switch window {
         case .none:
@@ -177,21 +188,29 @@ final class CEFPaneHost {
             waiting.isCreationPending = false
             addToWindow(waiting)
         }
-        if let visible = visibleTab, let id = visible.browserID {
+        if let visible = visibleTab, !visible.awaitsWindowMove, let id = visible.browserID {
             lastActivated = id
             _ = runtime.shim?.tabActivate(id)
         }
         refreshExtensionActions()
         runtime.extensionStore(for: key.profile).refresh()
         runtime.windowBecameLive(self)
+        if tabs.contains(where: \.awaitsWindowMove) {
+            // Never inside OnAfterCreated (Chromium's tab insertion): moving
+            // a tab between tab strips there would re-enter it.
+            Task { @MainActor [weak self] in self?.movePopupsIn() }
+        }
     }
 
     /// A tab Chromium opened in this window (target=_blank, window.open,
     /// chrome.tabs.create, a window request the fork placed here). It is
     /// handed to the host app through the opener's delegate as `.adoptTab`,
     /// which keeps `window.opener`.
+    /// A `.popup` becomes a floating panel page with its own window
+    /// (`adoptPopup`); `bounds` are its window features.
     func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab, bounds: CGRect? = nil) {
         let opener = visibleTab ?? tabs.last
+        if disposition == .popup { return adoptPopup(browser: browser, bounds: bounds, opener: opener) }
         let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
         // Same window, same store: a popup of a remote machine's localhost
         // page keeps its store and navigation guard.
@@ -208,9 +227,11 @@ final class CEFPaneHost {
         tabs.removeAll { $0 === tab }
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
+        if placeholder === tab { placeholder = nil }
         if tabs.isEmpty {
             window = .none
             hostView.removeFromSuperview()
+            if isPopupHost { runtime.hosts[key] = nil }
         }
     }
 

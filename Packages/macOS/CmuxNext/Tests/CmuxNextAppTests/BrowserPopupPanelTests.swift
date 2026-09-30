@@ -30,7 +30,7 @@ import Testing
     @Test func positionOnTheScreenIsHonored() {
         let result = frame(BrowserPopupRequest(size: CGSize(width: 400, height: 300), origin: CGPoint(x: 100, y: 50)))
         #expect(result.minX == 100)
-        #expect(result.maxY == 900 - 50)
+        #expect(abs(result.maxY - 850) < 0.001)
     }
 
     /// A position off the opener's screen (another display, or a page that

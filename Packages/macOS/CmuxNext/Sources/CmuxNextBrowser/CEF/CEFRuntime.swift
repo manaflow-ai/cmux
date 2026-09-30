@@ -42,7 +42,7 @@ final class CEFRuntime {
     var unplaced: [Int32: CEFCreatedBy] = [:]
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
-    var placements: [Int32: [BrowserNewTabDisposition]] = [:]
+    var placements = CEFPlacementQueue()
     /// Window requests so far (`debug.cef` `window_requests`).
     var windowRequestLog = CEFWindowRequestLog()
     /// Opens `url` in a new cmux tab when no Chromium window of its profile

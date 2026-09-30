@@ -75,6 +75,8 @@ final class AppServices {
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) var remoteLocalhost: RemoteLocalhostService!
     var chromiumLikelyObservations: [Task<Void, Never>] = []
+    /// Sized browser popups (OAuth, payment) in floating panels.
+    let popups = BrowserPopupPanels()
 
     init(environment: AppEnvironment) {
         self.environment = environment

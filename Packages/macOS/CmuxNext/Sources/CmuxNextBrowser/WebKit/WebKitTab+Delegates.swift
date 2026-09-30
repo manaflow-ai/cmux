@@ -139,15 +139,16 @@ extension WebKitTab: WKUIDelegate {
     ) -> WKWebView? {
         // Without a host there is nowhere to show the page: block the popup.
         guard hasDelegate, let child = makeChildTab(configuration: configuration) else { return nil }
-        let disposition: BrowserNewTabDisposition
         if let explicit = Self.newTabDisposition(for: navigationAction) {
-            disposition = explicit
+            emit(.adoptTab(child, explicit))
         } else if windowFeatures.width != nil || windowFeatures.height != nil {
-            disposition = .popup
+            // A sized popup (OAuth, payment): a floating panel, with opener.
+            let features = CGRect(x: windowFeatures.x?.doubleValue ?? 0, y: windowFeatures.y?.doubleValue ?? 0,
+                                  width: windowFeatures.width?.doubleValue ?? 0, height: windowFeatures.height?.doubleValue ?? 0)
+            emit(.openPopup(child, BrowserPopupRequest(features: features)))
         } else {
-            disposition = .foregroundTab
+            emit(.adoptTab(child, .foregroundTab))
         }
-        emit(.adoptTab(child, disposition))
         return child.webView
     }
 

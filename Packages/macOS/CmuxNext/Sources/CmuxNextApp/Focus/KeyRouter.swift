@@ -107,6 +107,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        // A popup panel (or its Chromium page window) has the keyboard:
+        // Cmd-W closes the popup, never the opener's tab.
+        if services?.popups.interceptKeyDown(event, in: window) == true { return true }
         guard Self.isChord(event.modifierFlags) else {
             onTyping?(window)
             return false
@@ -218,6 +221,10 @@ final class KeyRouter: BrowserKeyRouting {
         let controllers = services.windows.controllers
         if let controller = controllers.first(where: { $0.window === window }) { return (controller, .content) }
         let owner = window.parent ?? window.sheetParent
+        // A Chromium page window in a popup panel: the panel's window gates
+        // menu chords like a panel (content chords stay with the page).
+        if let panel = owner as? NSPanel, let grand = panel.parent,
+           let controller = controllers.first(where: { $0.window === grand }) { return (controller, .textPanel) }
         guard let controller = controllers.first(where: { $0.window === owner }) else { return (nil, .other) }
         return (controller, window is NSPanel || window.sheetParent != nil ? .textPanel : .content)
     }

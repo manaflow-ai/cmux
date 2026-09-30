@@ -45,6 +45,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case chromeCommand(browser: Int32, command: Int32)
     /// The navigation guard cancelled a main-frame navigation to `url`.
     case navigationReroute(browser: Int32, url: String, isRedirect: Bool)
+    /// The page did not handle a key down (Windows key code; the shim
+    /// reports only a plain Escape).
+    case keyUnhandled(browser: Int32, keyCode: Int)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -84,6 +87,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 25: self = .renderResponsive(browser: browser)
         case 26: self = .chromeCommand(browser: browser, command: request)
         case 27: self = .navigationReroute(browser: browser, url: s1, isRedirect: a != 0)
+        case 28: self = .keyUnhandled(browser: browser, keyCode: Int(a))
         default: self = .unknown(kind: kind)
         }
     }
