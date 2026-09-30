@@ -9,6 +9,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
+    /// Extra Chromium switches for diagnosis (development bundles only), for
+    /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
+    var extraSwitches: [String] = []
 
     var arguments: [String] {
         var result: [String] = []
@@ -26,11 +29,14 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if !loadExtensions.isEmpty {
             result.append("load-extension=" + loadExtensions.joined(separator: ","))
         }
+        result.append(contentsOf: extraSwitches)
         return result
     }
 
     /// Switches for this process. `CMUX_NEXT_CEF_LOAD_EXTENSIONS` is a
     /// colon-separated list of unpacked extension directories.
+    /// `CMUX_NEXT_CEF_EXTRA_SWITCHES` is a colon-separated list of switches
+    /// without leading dashes, read only by development bundles.
     static func current(
         forkAPIVersion: Int32,
         bundleIdentifier: String?,
@@ -42,6 +48,17 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
-        return CEFSwitches(forkAPIVersion: forkAPIVersion, useMockKeychain: dev, loadExtensions: extensions)
+        let extra = dev
+            ? (environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"] ?? "")
+                .split(separator: ":")
+                .map { String($0.drop { $0 == "-" }) }
+                .filter { !$0.isEmpty }
+            : []
+        return CEFSwitches(
+            forkAPIVersion: forkAPIVersion,
+            useMockKeychain: dev,
+            loadExtensions: extensions,
+            extraSwitches: extra
+        )
     }
 }
