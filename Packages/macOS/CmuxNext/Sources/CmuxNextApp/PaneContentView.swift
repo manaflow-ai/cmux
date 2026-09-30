@@ -22,11 +22,11 @@ final class PaneContentView: NSView, PaneContentChrome {
         stripView = TabStripView(model: stripModel)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         wantsLayer = true
-        layer?.backgroundColor = Palette.contentBackground.cgColor
         contentHost.wantsLayer = true
         contentHost.layer?.masksToBounds = true
         addSubview(contentHost)
         addSubview(stripView)
+        themeDidChange()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ Metrics.tabStripHeight }) { self?.needsLayout = true }
         }
@@ -144,9 +144,13 @@ final class PaneContentView: NSView, PaneContentChrome {
         themeDidChange()
     }
 
+    /// The content background, or nothing in a translucent window, where
+    /// the window root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
+        let tokens = ThemeStore.shared.tokens
+        let paints = WindowBackdrop(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur).panesPaintBackground
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Palette.contentBackground.cgColor
+            layer?.backgroundColor = paints ? Palette.contentBackground.cgColor : nil
         }
     }
 }

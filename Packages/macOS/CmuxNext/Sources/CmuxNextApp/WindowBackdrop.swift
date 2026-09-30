@@ -10,6 +10,11 @@ import CoreGraphics
 struct WindowBackdrop: Equatable {
     var isOpaque: Bool
     var appliesBlur: Bool
+    /// Panes (and the views behind a surface) paint the background only in
+    /// an opaque window. In a translucent one the window root paints the one
+    /// translucent sheet and every layer above it stays clear, so the
+    /// terminal shows the background at the configured opacity once.
+    var panesPaintBackground: Bool { isOpaque }
     /// Alpha of the white window background while non-opaque.
     let windowBackgroundAlpha: CGFloat = 0.001
 
