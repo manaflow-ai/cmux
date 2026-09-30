@@ -122,13 +122,14 @@ final class CloudRestoreReplayFixture {
 
     func deliver(
         _ bytes: Data, event: String, marker: String, colors: [String: Any]? = nil,
-        columns: Int = 80, rows: Int = 24
+        columns: Int = 80, rows: Int = 24, pending: Data? = nil
     ) async throws {
         var payload: [String: Any] = [
             "event": event, "surface": 17, "cols": columns, "rows": rows,
             "data": bytes.base64EncodedString()
         ]
         if let colors { payload["colors"] = colors }
+        if let pending { payload["pending"] = pending.base64EncodedString() }
         socket.send(payload)
         try await waitUntil { self.surface.readText(region: .screen)?.contains(marker) == true }
     }
@@ -139,6 +140,18 @@ final class CloudRestoreReplayFixture {
         surface.teardownSurface()
         window.orderOut(nil)
         workspace.tearDown()
+    }
+
+    /// Waits until Ghostty's terminal holds `columns` × `rows`, then returns
+    /// the screen text.
+    func waitForTerminalGrid(columns: Int, rows: Int) async throws -> String {
+        try await waitUntil {
+            let frame = self.surface.mobileRenderGridFrame(
+                stateSeq: 0, scrollbackLines: 0, includeTheme: false
+            )?.frame
+            return frame?.columns == columns && frame?.rows == rows
+        }
+        return try #require(surface.readText(region: .screen))
     }
 
     private func waitUntil(_ condition: @MainActor () -> Bool) async throws {

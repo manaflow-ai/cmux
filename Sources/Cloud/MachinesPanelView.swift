@@ -22,7 +22,7 @@ struct MachinesPanelView: View {
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
-    @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
+    @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -43,6 +43,10 @@ struct MachinesPanelView: View {
         self.tabManager = tabManager
         self.teamPickerPresentation = teamPickerPresentation
         self.activationCoordinator = activationCoordinator
+        _bannerDismissals = State(
+            initialValue: AppDelegate.shared?.cloudBannerDismissalStore
+                ?? CloudBannerDismissalStore(defaults: .standard)
+        )
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
@@ -193,10 +197,21 @@ struct MachinesPanelView: View {
             activeOperation: viewModel.activeOperation,
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
-            treeError: viewModel.treeErrorDescription,
+            treeError: visibleTreeErrorDescription,
             onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
+            onDismissTreeError: { error in
+                bannerDismissals.dismiss(id: "machines.tree-error", signature: error)
+            },
             performListStatusAction: performListStatusAction
         )
+    }
+
+    private var visibleTreeErrorDescription: String? {
+        guard let error = viewModel.treeErrorDescription,
+              !bannerDismissals.isDismissed(id: "machines.tree-error", signature: error) else {
+            return nil
+        }
+        return error
     }
 
     /// Only while cached machines stay on screen; a dismissed failure stays
@@ -326,25 +341,6 @@ struct MachinesPanelView: View {
         }
     }
 
-    private func performListStatusAction(_ action: MachineListStatusPresentation.Action) {
-        switch action {
-        case .retry:
-            viewModel.recoverList()
-        case .signInAgain:
-            signOutForFreshSignIn()
-        case .upgrade:
-            ProUpgradePresenter.present(source: .machinesPanelRequiresPro)
-        }
-    }
-
-    /// Server-rejected sessions can only be fixed by re-authenticating; the
-    /// sign-out flips the pane to the sign-in gate, whose flow mints a fresh
-    /// session.
-    private func signOutForFreshSignIn() {
-        guard let accountFlow else { return }
-        Task { await accountFlow.signOut() }
-    }
-
     /// Cloud-agent launcher: each agent entry opens a local terminal running
     /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
     /// the same kickoff prompt on the clipboard for any other terminal.
@@ -457,8 +453,7 @@ struct MachinesPanelView: View {
         nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
             Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
         }
-        // The header "+" is Cmd-Y from this window: same gates, sheet and
-        // optimistic create, and no workspace until the sheet completes.
+        // The header "+" is Cmd-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
         nodeActions.newMachine = { [weak tabManager] in
             _ = AppDelegate.shared?.performNewCloudMachineAction(
                 tabManager: tabManager,
@@ -466,6 +461,7 @@ struct MachinesPanelView: View {
                 debugSource: "cloudTree.cloudMachinesSection"
             )
         }
+        nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
