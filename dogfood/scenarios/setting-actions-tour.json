@@ -134,7 +134,7 @@
       "tree": "cli-config-get-and-set-output"
     },
     {
-      "type": "rm -f ~/.config/cmux/cmux.json; cmux reload-config; printf \"config restored\\n\"\n"
+      "type": "rm -f /tmp/cmux-setting-actions-tour/.config/cmux/cmux.json; cmux reload-config; printf \"config restored\\n\"\n"
     },
     {
       "wait": 1.0
