@@ -6805,7 +6805,8 @@ struct CMUXCLI {
             guard let target = optionValue(commandArgs, name: "--window"), let windowID = try normalizeWindowHandle(target, client: client) else {
                 throw CLIError(message: "close-window requires --window")
             }
-            let response = try sendV1Command("close_window \(windowID)", client: client)
+            let force = commandArgs.contains("--force")
+            let response = try sendV1Command("close_window \(windowID)\(force ? " --force" : "")", client: client)
             print(response)
 
         case "resize-window":
@@ -7321,6 +7322,7 @@ struct CMUXCLI {
                 sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
             }
             if let sfId { params["surface_id"] = sfId }
+            params["force"] = commandArgs.contains("--force")
             let payload = try client.sendV2(method: "surface.close", params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId,
                let closedSurfaceId = (payload["surface_id"] as? String) ?? sfId {
@@ -10451,7 +10453,7 @@ struct CMUXCLI {
         let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
         let (windowOpt, rem5) = parseOption(rem4, name: "--window")
 
-        var positional = rem5
+        var positional = rem5.filter { $0 != "--force" }
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -10515,6 +10517,7 @@ struct CMUXCLI {
         if let description, !description.isEmpty {
             params["description"] = description
         }
+        params["force"] = commandArgs.contains("--force")
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
         var summaryParts = ["OK", "action=\(action)"]
@@ -10552,7 +10555,7 @@ struct CMUXCLI {
         let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
         let (windowOpt, rem7) = parseOption(rem6, name: "--window")
 
-        var positional = rem7
+        var positional = rem7.filter { $0 != "--force" }
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -10617,6 +10620,7 @@ struct CMUXCLI {
         if let urlOpt, !urlOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        params["force"] = commandArgs.contains("--force")
         try applyTabActionFocusOption(focusOpt, to: &params)
         let payload = try client.sendV2(method: "tab.action", params: params)
         var summaryParts = ["OK", "action=\(action)"]
@@ -10927,10 +10931,12 @@ struct CMUXCLI {
         }
 
         var params: [String: Any] = [:]
+        let force = commandArgs.contains("--force")
         let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
         if let winId { params["window_id"] = winId }
         let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
         if let wsId { params["workspace_id"] = wsId }
+        if force { params["force"] = true }
         let payload = try client.sendV2(method: "workspace.close", params: params)
         if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId {
             try? tmuxPruneCompatWorkspaceState(workspaceId: closedWorkspaceId)
@@ -19431,12 +19437,13 @@ struct CMUXCLI {
             """
         case "close-window":
             return """
-            Usage: cmux close-window --window <id|ref|index>
+            Usage: cmux close-window --window <id|ref|index> [--force]
 
             Close the specified window.
 
             Flags:
               --window <id|ref|index>   Window to close (required)
+              --force                   Close even when live processes would be terminated
 
             Example:
               cmux close-window --window 0
@@ -19608,6 +19615,7 @@ struct CMUXCLI {
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --description <text>         Description for set-description
+              --force                      Close even when a live process would be killed
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -19647,6 +19655,7 @@ struct CMUXCLI {
               --title <text>               Title for rename (or pass trailing title text)
               --url <url>                  Optional URL for new-browser-right
               --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)
+              --force                      Close even when a live process would be killed
 
             Example:
               cmux tab-action --tab tab:3 --action pin
@@ -20113,6 +20122,7 @@ struct CMUXCLI {
               --panel <id|ref|index>      Alias for --surface
               --workspace <id|ref|index>  Workspace context (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/surface refs and indexes
+              --force                     Close even when a live process would be killed
 
             Example:
               cmux close-surface

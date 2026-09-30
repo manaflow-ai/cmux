@@ -251,6 +251,43 @@ struct SidebarAppKitRowCellTests {
         return cell
     }
 
+    @Test
+    func workspaceCloseButtonAccessibilityFollowsRevealState() throws {
+        let model = Self.makeModel(canClose: true)
+        let cell = SidebarWorkspaceRowTableCellView()
+        cell.configure(
+            model: model,
+            actions: Self.makeActions(model: model),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        let closeButton = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSButton }
+                .first { $0.accessibilityIdentifier() == "sidebarWorkspaceCloseButton" }
+        )
+
+        #expect(closeButton.isHidden)
+        #expect(!closeButton.isAccessibilityElement())
+
+        cell.enforcePointerHovering(true)
+
+        #expect(!closeButton.isHidden)
+        #expect(closeButton.isAccessibilityElement())
+        #expect(closeButton.accessibilityRole() == .button)
+        #expect(
+            closeButton.accessibilityLabel()
+                == String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close workspace")
+        )
+        #expect(closeButton.accessibilityIdentifier() == "sidebarWorkspaceCloseButton")
+
+        cell.enforcePointerHovering(false)
+
+        #expect(closeButton.isHidden)
+        #expect(!closeButton.isAccessibilityElement())
+    }
+
     @Test(arguments: [false, true], [
         ("**Pi finished.**", "Pi finished."),
         ("Run `swift test` and read [the results](https://example.com).", "Run swift test and read the results."),
@@ -1906,14 +1943,21 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func recycledHoveredCellSnapsCloseButtonHidden() {
+    func recycledHoveredCellSnapsCloseButtonHidden() throws {
         let cell = Self.configuredCell(model: Self.makeModel())
         cell.enforcePointerHovering(true)
         #expect(!cell.closeButtonPaintForTesting.isHidden)
+        let closeButton = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSButton }
+                .first { $0.accessibilityIdentifier() == "sidebarWorkspaceCloseButton" }
+        )
+        #expect(closeButton.isAccessibilityElement())
 
         cell.prepareForReuse()
         #expect(cell.closeButtonPaintForTesting.isHidden)
         #expect(cell.closeButtonPaintForTesting.alpha == 0)
+        #expect(!closeButton.isAccessibilityElement())
 
         let nextModel = Self.makeModel()
         cell.configure(
