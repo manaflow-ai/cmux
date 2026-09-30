@@ -140,6 +140,8 @@ fi
 # curl process, so a retry opens a fresh connection (download-with-retry.sh).
 DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
 DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
+[[ "$DOWNLOAD_ATTEMPTS" =~ ^[1-9][0-9]*$ && "$DOWNLOAD_STALL_SECONDS" =~ ^[1-9][0-9]*$ ]] \
+  || { echo "error: download attempts and stall seconds must be positive integers" >&2; exit 64; }
 download() { # <url> <output>
   local attempt=1
   until curl --proto '=https' --tlsv1.2 -fsSL \

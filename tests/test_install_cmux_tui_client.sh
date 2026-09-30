@@ -331,7 +331,11 @@ while True:
 PY
 STALL_SERVER_PID=$!
 trap 'kill "$STALL_SERVER_PID" 2>/dev/null || true; rm -rf "$TEST_DIR"' EXIT
-for _ in $(seq 1 100); do [[ -s "$STALL_DIR/port" ]] && break; sleep 0.1; done
+port_deadline=$((SECONDS + 10))
+while (( SECONDS < port_deadline )) && [[ ! -s "$STALL_DIR/port" ]]; do
+  sleep 0.1
+done
+[[ -s "$STALL_DIR/port" ]] || { echo "FAIL: stall server did not start" >&2; exit 1; }
 STALL_PORT="$(cat "$STALL_DIR/port")"
 mkdir -p "$TEST_DIR/Stalled.app/Contents"
 stall_status=0
