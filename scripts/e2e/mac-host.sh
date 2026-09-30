@@ -10,8 +10,9 @@
 #   CMUX_E2E_TAG                    tag of the app build and backend stack
 #   CMUX_E2E_DONE_FILE              path the iOS job touches when finished
 #   CMUX_E2E_WAIT_TIMEOUT_SECONDS   hold budget after readiness (default 1500)
-#   CMUX_DEV_BACKEND_URL            backend stack URL (informational here; the
-#                                   app has it baked in from its build)
+#   CMUX_IROH_V2_BASE_URL etc.      per-run backend origins from
+#                                   scripts/e2e/backend-env.sh; they reach the
+#                                   app because it is exec'd, not `open`ed
 # Failure phases are named so the workflow can label infra vs product:
 #   launch / socket / sign-in / wait-timeout (wait-timeout is NOT a failure).
 set -euo pipefail
@@ -37,17 +38,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
-phase launch "$APP"
-open -g "$APP"
+# Exec the binary instead of `open`: LaunchServices would apply the baked
+# LSEnvironment (staging origins from reload.sh) over this environment, and a
+# direct child also gives cleanup an exact pid.
+EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
+[[ -n "${CMUX_IROH_V2_BASE_URL:-}" ]] || { phase launch "CMUX_IROH_V2_BASE_URL unset; run scripts/e2e/backend-env.sh env first"; exit 1; }
+phase launch "$APP (iroh-v2 $CMUX_IROH_V2_BASE_URL)"
+"$APP/Contents/MacOS/$EXECUTABLE" >"${RUNNER_TEMP:-/tmp}/cmux-e2e-mac-${TAG}.log" 2>&1 &
+APP_PID=$!
 
-# Bounded readiness wait on the tagged debug socket, then capture the pid the
-# socket belongs to so cleanup never kills another tag's instance.
+# Bounded readiness wait on the tagged debug socket.
 deadline=$(( $(date +%s) + 180 ))
 until CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" identify >/dev/null 2>&1; do
   (( $(date +%s) < deadline )) || { phase socket "debug socket never came up: $SOCKET"; exit 1; }
   sleep 2
 done
-APP_PID="$(pgrep -f "DerivedData/cmux-${TAG}/.*/cmux DEV" | head -1 || true)"
 
 # The app must be signed into the CI account before the phone tries to pair.
 deadline=$(( $(date +%s) + 180 ))

@@ -11,13 +11,13 @@ uses environment variables for shared credentials and backend state.
 ## mac-host.sh
 
 Launches the tagged Mac app, signs it into the CI Stack account, advertises it
-through the dev backend so the iOS client can discover and pair with it, then
-blocks until the iOS job signals completion.
+through this run's backend so the iOS client can discover and pair with it,
+then blocks until the iOS job signals completion.
 
 | Env | Meaning |
 | --- | --- |
-| `CMUX_E2E_TAG` | Shared dev tag for this run (`ci<PR#>` or `ci-main`). Names the app bundle (`com.cmuxterm.app.debug.<tag>`), the debug socket (`/tmp/cmux-debug-<tag>.sock`), and the backend stack. |
-| `CMUX_DEV_BACKEND_URL` | Web API origin of the ensured backend stack (private Tailscale Serve URL on the durable VM). |
+| `CMUX_E2E_TAG` | Tag the prebuilt products are stamped with (`e2eci`). Names the app bundle (`com.cmuxterm.app.debug.<tag>`) and the debug socket (`/tmp/cmux-debug-<tag>.sock`). |
+| `CMUX_IROH_V2_BASE_URL`, `CMUX_PRESENCE_BASE_URL`, `CMUX_API_BASE_URL`, ... | This run's backend origins, from `backend-env.sh env`. Required: the script execs the app binary so they win over the LSEnvironment baked into the build. |
 | `CMUX_E2E_DONE_FILE` | Absolute path of the teardown file. Poll for it locally (sleep loop); the iOS job touches it over Tailscale SSH. Never substitute GitHub API status polling — a ~25-minute per-PR poll loop draws down the repo-wide API rate limit, and the file needs no token. |
 | `CMUX_E2E_WAIT_TIMEOUT_SECONDS` | Optional bound on the done-file wait; default 1500 (~25m). Expiry exits 0 with phase `wait-timeout`; setup failures exit nonzero. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Dedicated CI Stack account (the pair ios-streamed-validate.yml uses; the app's dev-secrets resolution reads `CMUX_DOGFOOD_STACK_*` from the environment first). Never echo, never pass on argv, never write to disk. |
@@ -25,6 +25,16 @@ blocks until the iOS job signals completion.
 Exit 0 means the app launched, signed in, and either received the done-file or
 reached the bounded `wait-timeout`. On failure exit nonzero and name the phase
 on the last stderr line: `launch`, `socket`, `sign-in`, or `wait-timeout`.
+
+## backend-up.sh and backend-env.sh
+
+`backend-up.sh up` starts this run's backend on the Linux runner: Postgres,
+`web/`, and the iroh-v2 and presence Workers with their Durable Objects in
+local workerd, published by Tailscale Serve on the runner's tailnet name.
+`backend-up.sh hold` then serves until `CMUX_E2E_BACKEND_DONE_FILE` appears.
+`backend-env.sh env` prints the app-side origins for that name, and
+`backend-env.sh wait` blocks until all three answer. Contract and caching:
+[docs/ci/ios-e2e.md](../../docs/ci/ios-e2e.md#per-run-backend).
 
 ## ios-e2e-run.sh
 
@@ -43,7 +53,7 @@ and simulator explicitly through flags.
 
 | Env | Meaning |
 | --- | --- |
-| `CMUX_DEV_BACKEND_URL` | Web API origin used for sign-in and pairing. |
+| `SIMCTL_CHILD_CMUX_IROH_V2_BASE_URL`, ... | This run's backend origins, from `backend-env.sh env --simctl`, inherited by the app simctl launches. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Same account as the Mac host; pairing's same-account RPC gate requires both ends to resolve one account. Same secrecy rules. |
 
 On failure exit nonzero and print `E2E FAIL step=<id>` as the last stderr
