@@ -297,17 +297,10 @@ func sendStateFromScreen(screen string) map[string]any {
 		if strings.HasPrefix(line, "❯") || strings.HasPrefix(line, "›") || (kind == "codex" && strings.HasPrefix(line, "> ")) {
 			promptIndex = i
 			body = promptBody(line)
-			if kind == "" {
-				if strings.HasPrefix(line, "❯") {
-					kind = "claude"
-				} else {
-					kind = "codex"
-				}
-			}
 			break
 		}
 	}
-	if promptIndex < 0 && kind == "" {
+	if kind == "" {
 		return state
 	}
 	state["agent"], state["agent_kind"] = true, kind
