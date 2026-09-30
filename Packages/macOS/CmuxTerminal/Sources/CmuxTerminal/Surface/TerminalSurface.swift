@@ -254,6 +254,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Reports a cell-size change (the font size changed), which changes the
     /// natural grid without changing the pane's pixel size.
     @MainActor public func cellSizeDidChange() {
+        // A pin fixes pixels from the old cell size; recompute them so the
+        // assigned grid survives a font change.
+        if assignedGrid != nil { reapplyAssignedGrid() }
         onNaturalGridInputsChanged?()
     }
     /// Routes accepted explicit user input to the surface's current panel owner.
