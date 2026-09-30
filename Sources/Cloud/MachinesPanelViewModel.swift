@@ -34,8 +34,8 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
     /// Human-readable label of the Cloud VM action currently running from this
-    /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
-    /// header while set — the in-app substitute for a floating progress HUD.
+    /// panel ("Checkpointing noble-wren…"). Shows in the status row under the
+    /// Cloud toolbar while set — the in-app substitute for a floating progress HUD.
     @Published private(set) var activeOperation: String?
     /// The surface catalog as one value: machines (this Mac first), their
     /// terminals/screens/browsers, and which local panes project them.
@@ -139,7 +139,7 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
     var treeTask: Task<Void, Never>?
-    let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
+    let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refreshPortDiscovery(machine: $0) }
     /// Explicit machine pins and the stable fleet order; nil keeps fleet order.
     let machinePinStore: CloudMachinePinStore?
     private let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot
@@ -179,12 +179,17 @@ final class MachinesPanelViewModel: ObservableObject {
             let finished = notification.userInfo?[finishedUserInfoKey] as? MachineCreateCoordinator.Finished
             MainActor.assumeIsolated { self?.createsDidChange(finished: finished) }
         }
-        authScopeObservers = [Notification.Name.cmuxCloudVMAccessDidEnd, .cmuxCloudTeamScopeDidChange].map { name in
+        authScopeObservers = [
+            Notification.Name.cmuxCloudVMAccessDidEnd,
+            .cmuxCloudTeamScopeDidChange,
+            .cmuxCloudTeamScopeReady,
+        ].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     if name == .cmuxCloudVMAccessDidEnd { self.resetForAuthTransition() }
-                    else if self.wantsPolling { self.startPolling() }
+                    else if name == .cmuxCloudTeamScopeDidChange { self.beginTeamScopeTransition() }
+                    else { self.finishTeamScopeTransition() }
                 }
             }
         }
@@ -420,6 +425,21 @@ final class MachinesPanelViewModel: ObservableObject {
         listProblem = nil
         hasLoadedOnce = false
         isLoading = false
+    }
+
+    /// Clears old-team rows as soon as auth announces a scope transition.
+    private func beginTeamScopeTransition() {
+        resetForAuthTransition()
+        machinePinStore?.refreshScope()
+        awaitingCatalogScope = true
+    }
+
+    /// Re-enables catalog rows only after the shared provider registry has
+    /// finished retiring the old team and resuming the new one.
+    private func finishTeamScopeTransition() {
+        awaitingCatalogScope = false
+        readCatalog()
+        if wantsPolling { startPolling() }
     }
 
     /// Retire old requests before changing pin scope. Catalog discoveries are

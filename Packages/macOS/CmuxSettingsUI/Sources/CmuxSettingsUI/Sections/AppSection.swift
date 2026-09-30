@@ -3,7 +3,7 @@ import CmuxSettings
 import SwiftUI
 
 /// **App** section — mirrors the legacy in-app section row-for-row
-/// inside a single `SettingsCard`: Language, Appearance, App Icon,
+/// inside a single `SettingsCard`: Language, App Icon,
 /// New Workspace Placement, Inherit Working Directory, Minimal Mode,
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
@@ -17,14 +17,13 @@ import SwiftUI
 @MainActor
 public struct AppSection: View {
     private let catalog: SettingCatalog
+    private let defaultsStore: UserDefaultsSettingsStore
     private let hostActions: SettingsHostActions
 
     // Every bound value-model lives here as view state, constructed once
     // and persisted across renders so the @Observable change tracking
     // actually drives invalidation.
     @State private var language: DefaultsValueModel<AppLanguage>
-    @State private var appearance: DefaultsValueModel<AppearanceMode>
-    @State private var accentColor: DefaultsValueModel<CmuxAccentColorMode>
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
@@ -93,11 +92,10 @@ public struct AppSection: View {
         soundAgentCache: NotificationSoundAgentCache = NotificationSoundAgentCache()
     ) {
         self.catalog = catalog
+        self.defaultsStore = defaultsStore
         self.hostActions = hostActions
         self.soundAgentCache = soundAgentCache
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
-        _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
-        _accentColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.accentColor))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
@@ -170,6 +168,7 @@ public struct AppSection: View {
             SettingsSectionHeader(String(localized: "settings.section.app", defaultValue: "App"), section: .app)
                 .accessibilityIdentifier("SettingsAppSection")
             mainCard
+            AppUpdatesCard(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
@@ -216,31 +215,6 @@ public struct AppSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-            }
-            SettingsCardDivider()
-
-            // Theme — three-up visual picker mirroring legacy
-            ThemePickerRow(
-                selectedMode: appearance.current,
-                onSelect: { appearance.set($0) }
-            )
-            .settingsSearchAnchors(["setting:app:appearance"])
-            SettingsCardDivider()
-
-            // Accent Color
-            SettingsCardRow(
-                configurationReview: .json("app.accentColor"),
-                String(localized: "settings.app.accentColor", defaultValue: "Accent Color"),
-                subtitle: String(localized: "settings.app.accentColor.subtitle", defaultValue: "Color of the selected workspace, attention ring, agent status, and other cmux highlights. System follows the macOS accent color."),
-                controlWidth: Self.columnWidth
-            ) {
-                Picker("", selection: Binding(get: { accentColor.current }, set: { accentColor.set($0) })) {
-                    Text(String(localized: "settings.app.accentColor.cmux", defaultValue: "cmux Blue")).tag(CmuxAccentColorMode.cmux)
-                    Text(String(localized: "settings.app.accentColor.system", defaultValue: "System")).tag(CmuxAccentColorMode.system)
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("SettingsAccentColorPicker")
             }
             SettingsCardDivider()
 

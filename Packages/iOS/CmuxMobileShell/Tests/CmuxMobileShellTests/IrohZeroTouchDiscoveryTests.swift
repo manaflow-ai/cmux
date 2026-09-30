@@ -1067,7 +1067,7 @@ struct IrohZeroTouchDiscoveryTests {
     }
 }
 
-private final class RoutedZeroTouchFactory: CmxByteTransportFactory, @unchecked Sendable {
+final class RoutedZeroTouchFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let routers: [String: LivenessHostRouter]
     private let lock = NSLock()
     private var attempts: [String] = []
@@ -1090,7 +1090,7 @@ private final class RoutedZeroTouchFactory: CmxByteTransportFactory, @unchecked 
 }
 
 @MainActor
-private final class ScriptedIrohDiscovery: MobileIrohMacDiscovering {
+final class ScriptedIrohDiscovery: MobileIrohMacDiscovering {
     private var snapshots: [[MobileDiscoveredIrohMac]]
     private var calls = 0
 
