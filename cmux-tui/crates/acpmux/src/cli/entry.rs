@@ -99,6 +99,17 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             // (a launcher `--version` check can take 20 s).
             std::process::exit(0)
         }
+        Some(Command::Stdio { model, preset, effort, policy }) => {
+            let (harness, model) = match model {
+                Some(target) => {
+                    let (harness, model) = crate::cli::orchestrate::split_target(&target);
+                    (Some(harness), model)
+                }
+                None => (None, None),
+            };
+            crate::cli::stdio::run(crate::cli::stdio::Defaults { harness, model, effort, policy, preset })
+                .await
+        }
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());

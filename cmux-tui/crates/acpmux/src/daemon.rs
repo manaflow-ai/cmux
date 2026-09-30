@@ -221,33 +221,51 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
+    let ready = start_daemon().await?;
+    Client::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e))
+}
+
+/// A connected socket to the daemon, starting one if needed, for a client
+/// that speaks the wire protocol itself (`acpmux stdio`).
+pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
+    let path = socket_path();
+    if let Ok(stream) = tokio::net::UnixStream::connect(&path).await {
+        return Ok(stream);
+    }
+    let ready = start_daemon().await?;
+    tokio::net::UnixStream::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e.into()))
+}
+
+/// Start a daemon and wait until it reports readiness or exits. Returns its
+/// readiness line (empty when it exited first).
+async fn start_daemon() -> Result<String> {
+    let path = socket_path();
     let ready = spawn_detached()?;
     // The daemon writes one line to the pipe once its socket is bound, or
     // the pipe reaches end of file when it exits first (another daemon won
-    // the lock, bad config). Either way connect once afterwards.
+    // the lock, bad config). Either way the caller connects once afterwards.
     let wait = tokio::task::spawn_blocking(move || {
         use std::io::BufRead;
         let mut line = String::new();
         std::io::BufReader::new(ready).read_line(&mut line).map(|_| line)
     });
-    let line = match tokio::time::timeout(START_BUDGET, wait).await {
-        Ok(joined) => joined.context("wait for acpmux daemon")?.unwrap_or_default(),
-        Err(_) => {
-            return Err(anyhow!(
-                "daemon did not come up at {} within {START_BUDGET:?}; see {}",
-                path.display(),
-                home().join("daemon.log").display()
-            ));
-        }
-    };
-    Client::connect(&path).await.map_err(|e| {
-        let why = if line.trim().is_empty() { "exited before it was ready" } else { "is ready but refused the connection" };
-        anyhow!(
-            "daemon {why} at {}: {e:#}; see {}",
+    match tokio::time::timeout(START_BUDGET, wait).await {
+        Ok(joined) => Ok(joined.context("wait for acpmux daemon")?.unwrap_or_default()),
+        Err(_) => Err(anyhow!(
+            "daemon did not come up at {} within {START_BUDGET:?}; see {}",
             path.display(),
             home().join("daemon.log").display()
-        )
-    })
+        )),
+    }
+}
+
+fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
+    let why = if ready.trim().is_empty() {
+        "exited before it was ready"
+    } else {
+        "is ready but refused the connection"
+    };
+    anyhow!("daemon {why} at {}: {error:#}; see {}", path.display(), home().join("daemon.log").display())
 }
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and

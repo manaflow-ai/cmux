@@ -172,6 +172,22 @@ pub enum Command {
         #[arg(long)]
         plain: bool,
     },
+    /// Be an ACP agent on stdin/stdout for an editor (Zed: `"command": "cmux",
+    /// "args": ["acp", "stdio", "-m", "claude"]`). Relays to the daemon;
+    /// the flags are defaults for each new session the editor creates.
+    Stdio {
+        /// HARNESS[/MODEL] for new sessions (`claude`, `codex/gpt-5.5`).
+        #[arg(long, short)]
+        model: Option<String>,
+        /// A preset from `acpmux preset`.
+        #[arg(long, short)]
+        preset: Option<String>,
+        #[arg(long, short)]
+        effort: Option<String>,
+        /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
+        #[arg(long)]
+        policy: Option<String>,
+    },
     /// Print the dashboard URL and open it in the browser.
     Web {
         /// Only print the URL.

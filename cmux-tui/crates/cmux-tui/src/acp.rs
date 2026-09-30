@@ -9,6 +9,10 @@ use acpmux::cli::entry::{self, Invocation};
 
 /// `cmux acp <args>`.
 pub(crate) fn run(args: Vec<OsString>) -> i32 {
+    if args.first().is_some_and(|arg| arg == "open") {
+        let words: Vec<String> = args[1..].iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        return open(&words);
+    }
     let home = std::env::var("HOME").ok().map(PathBuf::from);
     let tag = std::env::var("CMUX_TAG").ok();
     finish(entry::main(
@@ -19,6 +23,40 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
             home: home.and_then(|home| tagged_home(tag.as_deref(), &home)),
         },
     ))
+}
+
+/// `cmux acp open NAME [--pane ID]`: show an agent session in a new tab of
+/// a pane (the caller's by default). The tab runs `cmux acp attach NAME`,
+/// the acpmux TUI, so it works the same in the app and in the TUI.
+fn open(args: &[String]) -> i32 {
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe.to_string_lossy().into_owned(),
+        Err(error) => {
+            eprintln!("cmux acp open: {error}");
+            return 1;
+        }
+    };
+    match open_command(args, &exe) {
+        Ok(command) => crate::cli::run(&command, ""),
+        Err(message) => {
+            eprintln!("{message}");
+            2
+        }
+    }
+}
+
+/// The `cmux pane <pane> run -- <exe> acp attach NAME` arguments.
+fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
+    let messages = &crate::localization::catalog().app_control;
+    let (session, pane) = match args {
+        [session] => (session, "current"),
+        [session, flag, pane] | [flag, pane, session] if flag == "--pane" => (session, pane.as_str()),
+        _ => return Err(messages.acp_open_usage.to_owned()),
+    };
+    Ok([ "pane", pane, "run", "--", exe, "acp", "attach", session.as_str()]
+        .into_iter()
+        .map(str::to_owned)
+        .collect())
 }
 
 /// The binary started as `acpmux`.
@@ -62,6 +100,20 @@ fn sanitize_tag(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_runs_the_acpmux_tui_in_a_new_tab() {
+        let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            open_command(&words(&["review"]), "/b/cmux").unwrap(),
+            words(&["pane", "current", "run", "--", "/b/cmux", "acp", "attach", "review"])
+        );
+        assert_eq!(
+            open_command(&words(&["--pane", "pane_01", "review"]), "/b/cmux").unwrap(),
+            words(&["pane", "pane_01", "run", "--", "/b/cmux", "acp", "attach", "review"])
+        );
+        assert!(open_command(&words(&[]), "/b/cmux").is_err());
+    }
 
     #[test]
     fn tagged_builds_get_their_own_acpmux_home() {
