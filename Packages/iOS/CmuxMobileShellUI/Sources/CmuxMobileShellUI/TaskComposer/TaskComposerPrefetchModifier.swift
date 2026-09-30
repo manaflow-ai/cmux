@@ -6,23 +6,14 @@ struct TaskComposerPrefetchModifier: ViewModifier {
     let store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
 
-    private struct PrefetchTaskID: Equatable {
-        let scenePhase: ScenePhase
-        let workspaceTopologyVersion: UInt64
-        let connectionState: MobileConnectionState
-        let connectedMacPairingID: String
-    }
-
-    private var prefetchTaskID: PrefetchTaskID {
-        PrefetchTaskID(
-            scenePhase: scenePhase,
-            workspaceTopologyVersion: store.workspaceTopologyVersion,
-            connectionState: store.connectionState,
-            connectedMacPairingID: [
-                store.connectedMacDeviceID ?? "",
-                store.connectedMacInstanceTag ?? "",
-            ].joined(separator: "\u{1F}")
-        )
+    private var prefetchTaskID: String {
+        [
+            scenePhase == .active ? "active" : "inactive",
+            String(store.workspaceTopologyVersion),
+            store.connectionState == .connected ? "connected" : "disconnected",
+            store.connectedMacDeviceID ?? "",
+            store.connectedMacInstanceTag ?? "",
+        ].joined(separator: "\u{1F}")
     }
 
     func body(content: Content) -> some View {
