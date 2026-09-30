@@ -287,6 +287,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: terminal.confirmUnsafePaste.id
         ),
         .init(
+            jsonKey: "agentImagePasteSendsCtrlV",
+            defaultsKey: terminal.agentImagePasteSendsCtrlV.userDefaultsKey,
+            invalidPath: terminal.agentImagePasteSendsCtrlV.id
+        ),
+        .init(
             jsonKey: "showPasswordInputIndicator",
             defaultsKey: terminal.showPasswordInputIndicator.userDefaultsKey,
             invalidPath: terminal.showPasswordInputIndicator.id
