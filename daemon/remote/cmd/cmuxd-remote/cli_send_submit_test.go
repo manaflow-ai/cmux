@@ -521,7 +521,21 @@ func TestSendSubmitPopupNotConfirmedUntilClosed(t *testing.T) {
 	}
 }
 
-func TestSendSubmitTrustsAgentKindWithoutHookFlag(t *testing.T) {
+func TestSendSubmitRequiresHostAgentFlagForCodexQueue(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": false, "state": "unknown", "agent_kind": "codex", "busy": true},
+	}, nil)
+	output := captureStdout(t, func() {
+		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	})
+	if output != "submitted\n" || len(mock.keysSnapshot()) != 1 || mock.keysSnapshot()[0] != "return" {
+		t.Fatalf("output=%q keys=%v", output, mock.keysSnapshot())
+	}
+}
+
+func TestSendSubmitUsesAgentKindOnlyWithHostAgentFlag(t *testing.T) {
 	for _, kind := range []string{"claude", "codex"} {
 		t.Run(kind, func(t *testing.T) {
 			mock, socket := startSendSubmitMock(t, []map[string]any{
@@ -537,7 +551,7 @@ func TestSendSubmitTrustsAgentKindWithoutHookFlag(t *testing.T) {
 			keys := mock.keysSnapshot()
 			wantKey := "return"
 			if kind == "codex" {
-				wantKey = "tab"
+				wantKey = "return"
 			}
 			if len(keys) != 1 || keys[0] != wantKey {
 				t.Fatalf("keys = %v, want [%s]", keys, wantKey)

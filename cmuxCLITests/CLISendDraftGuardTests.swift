@@ -183,6 +183,22 @@ struct CLISendDraftGuardTests {
         #expect(key["key"] as? String == "return")
     }
 
+    @Test func sendSubmitDoesNotUseAgentKindWhenHookSaysShell() throws {
+        let shellWithStaleKind: [String: Any] = [
+            "state": "unknown", "agent": false, "terminal": true,
+            "agent_kind": "codex", "busy": true, "blocks_typing": false,
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [shellWithStaleKind, shellWithStaleKind]
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("submitted"), Comment(rawValue: run.result.stdout))
+        let key = try #require(run.requests.first { $0["method"] as? String == "surface.send_key" })
+        #expect((key["params"] as? [String: Any])?["key"] as? String == "return")
+    }
+
     @Test(arguments: ["claude", "codex"])
     func sendSubmitRecognizesAgentKindWithoutHookAgentFlag(kind: String) throws {
         let empty: [String: Any] = ["state": "empty", "agent": false, "terminal": true,
