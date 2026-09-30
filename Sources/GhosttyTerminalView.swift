@@ -6554,11 +6554,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     panel: panel,
                     workspace: workspace
                 )
-                if let (agent, fallbackKey) = TextBoxAgentDetection.defaultCopyKey(context: context) {
-                    let configuredKeys = AppDelegate.shared?.settingsRuntime.map {
-                        $0.jsonStore.snapshotValue(for: $0.catalog.terminal.agentKeys)
-                    } ?? [:]
-                    let key = configuredKeys[agent] ?? fallbackKey
+                let configuredKeys = AppDelegate.shared?.settingsRuntime.map {
+                    $0.jsonStore.snapshotValue(for: $0.catalog.terminal.agentKeys)
+                } ?? [:]
+                if let (_, key) = TextBoxAgentDetection.copyKey(
+                    context: context,
+                    configuredKeys: configuredKeys
+                ) {
                     terminalSurface.permitClipboardWriteForAgentCopy()
                     if !terminalSurface.sendNamedKey(key).accepted {
                         terminalSurface.cancelClipboardWritePermit()

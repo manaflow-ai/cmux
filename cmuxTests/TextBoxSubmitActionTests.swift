@@ -38,6 +38,15 @@ struct TextBoxSubmitActionTests {
             TextBoxAgentDetection.defaultCopyKey(context: "agentPIDKey:claude.session")?.key
                 == "ctrl+shift+c"
         )
+        #expect(
+            TextBoxAgentDetection.defaultCopyKey(context: "agentPIDKey:opencode.session") == nil
+        )
+        #expect(
+            TextBoxAgentDetection.copyKey(
+                context: "agentPIDKey:opencode.session",
+                configuredKeys: ["opencode": "ctrl+y"]
+            )?.key == "ctrl+y"
+        )
         #expect(TextBoxAgentDetection.defaultCopyKey(context: "agentPIDKey:shell") == nil)
     }
     @Test
