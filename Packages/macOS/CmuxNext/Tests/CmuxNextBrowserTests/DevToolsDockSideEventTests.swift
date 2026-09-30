@@ -11,7 +11,7 @@ import Testing
 
     @Test func mapsForkSides() {
         #expect(CEFTab.devToolsDock(forkSide: 0) == .window)
-        #expect(CEFTab.devToolsDock(forkSide: 1) == nil)
+        #expect(CEFTab.devToolsDock(forkSide: 1) == .left)
         #expect(CEFTab.devToolsDock(forkSide: 2) == .bottom)
         #expect(CEFTab.devToolsDock(forkSide: 3) == .right)
     }

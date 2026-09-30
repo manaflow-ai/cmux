@@ -14,14 +14,14 @@ final class CEFDevToolsDivider: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let tab else { return }
         NSColor.separatorColor.setFill()
-        let line = tab.devToolsLayout.dock == .right
+        let line = tab.devToolsLayout.dock.isSide
             ? NSRect(x: bounds.midX - CEFDevToolsLayout.lineThickness / 2, y: 0, width: CEFDevToolsLayout.lineThickness, height: bounds.height)
             : NSRect(x: 0, y: bounds.midY - CEFDevToolsLayout.lineThickness / 2, width: bounds.width, height: CEFDevToolsLayout.lineThickness)
         line.fill()
     }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: tab?.devToolsLayout.dock == .right ? .resizeLeftRight : .resizeUpDown)
+        addCursorRect(bounds, cursor: tab?.devToolsLayout.dock.isSide == true ? .resizeLeftRight : .resizeUpDown)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -39,11 +39,13 @@ final class CEFDevToolsDivider: NSView {
         tab?.rememberDevToolsLayout()
     }
 
+    /// The dock side choices (CEF runs DevTools with docking off, so its
+    /// own three-dot menu has none).
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let tab else { return nil }
         let menu = NSMenu()
-        for (title, dock) in [(Strings.devToolsDockBottom, BrowserDevToolsDock.bottom), (Strings.devToolsDockRight, .right),
-                              (Strings.devToolsUndock, .window)] {
+        for (title, dock) in [(Strings.devToolsDockLeft, BrowserDevToolsDock.left), (Strings.devToolsDockBottom, .bottom),
+                              (Strings.devToolsDockRight, .right), (Strings.devToolsUndock, .window)] {
             let item = NSMenuItem(title: title, action: #selector(dockItem(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = dock.rawValue

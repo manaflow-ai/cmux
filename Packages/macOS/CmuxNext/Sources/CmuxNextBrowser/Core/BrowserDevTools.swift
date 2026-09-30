@@ -7,10 +7,15 @@ public nonisolated enum BrowserDevToolsDock: String, Hashable, Sendable, CaseIte
     case bottom
     /// Right of the page, inside the pane.
     case right
+    /// Left of the page, inside the pane.
+    case left
     /// A separate window.
     case window
 
     public var isDocked: Bool { self != .window }
+
+    /// Beside the page (the divider runs vertically).
+    public var isSide: Bool { self == .left || self == .right }
 }
 
 /// A developer tools request (Chrome's Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C).

@@ -95,6 +95,9 @@ extension Strings {
     static var devToolsDockBottom: String {
         String(localized: "browser.devtools.dockBottom", defaultValue: "Dock to Bottom", bundle: .module)
     }
+    static var devToolsDockLeft: String {
+        String(localized: "browser.devtools.dockLeft", defaultValue: "Dock to Left", bundle: .module)
+    }
     static var devToolsDockRight: String {
         String(localized: "browser.devtools.dockRight", defaultValue: "Dock to Right", bundle: .module)
     }

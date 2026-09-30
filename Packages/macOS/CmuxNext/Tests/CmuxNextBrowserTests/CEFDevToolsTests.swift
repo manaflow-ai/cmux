@@ -172,3 +172,28 @@ import Testing
         #expect(!CEFDevToolsSupport.allowsEmbedded(forkAPIVersion: 2, bundleIdentifier: "com.cmuxterm.app", environment: env))
     }
 }
+
+/// Fork dock sides and the left dock.
+@Suite struct CEFDevToolsDockSideTests {
+    @Test func forkSidesMapToPaneDocks() {
+        #expect(CEFTab.devToolsDock(forkSide: 0) == .window)
+        #expect(CEFTab.devToolsDock(forkSide: 1) == .left)
+        #expect(CEFTab.devToolsDock(forkSide: 2) == .bottom)
+        #expect(CEFTab.devToolsDock(forkSide: 3) == .right)
+        #expect(CEFTab.devToolsDock(forkSide: 9) == nil)
+    }
+
+    @Test func leftDockMirrorsRight() {
+        var layout = CEFDevToolsLayout()
+        layout.dock = .left
+        layout.rightFraction = 0.4
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+        let frames = layout.frames(in: bounds, devToolsDocked: true)
+        #expect(frames.devTools.minX == 0)
+        #expect(frames.line.minX == frames.devTools.maxX)
+        #expect(frames.page.minX == frames.line.maxX)
+        #expect(frames.page.maxX == 1000)
+        layout.dragDivider(to: CGPoint(x: 300, y: 10), in: bounds)
+        #expect(abs(layout.frames(in: bounds, devToolsDocked: true).devTools.width - 300) <= 1)
+    }
+}

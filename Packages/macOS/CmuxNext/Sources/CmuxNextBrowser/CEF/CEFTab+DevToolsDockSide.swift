@@ -6,9 +6,10 @@ extension CEFTab {
     nonisolated static func devToolsDock(forkSide value: Int) -> BrowserDevToolsDock? {
         switch value {
         case 0: .window
+        case 1: .left
         case 2: .bottom
         case 3: .right
-        default: nil  // left: no left dock in the pane layout yet
+        default: nil
         }
     }
 
