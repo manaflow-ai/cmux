@@ -38,7 +38,11 @@ final class BrowserTabService {
             } ?? false
         }
         isAvailable = { [weak daemon] in daemon?.supports(DaemonCapabilities.frontendBrowserTabs) ?? false }
-        cefUnavailable = { [weak cef] in cef?.unavailableReason ?? .notBundled }
+        cefUnavailable = { [weak cef] in
+            // `?? .notBundled` on the optional chain would turn "available" (nil) into notBundled.
+            guard let cef else { return .notBundled }
+            return cef.unavailableReason
+        }
     }
 
     func cefAvailable() -> Bool { cefUnavailable() == nil }
