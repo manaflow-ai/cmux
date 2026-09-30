@@ -252,6 +252,9 @@ struct CoderouterAddAccountSheet: View {
         if error is CoderouterAccountsPanelModel.ServiceUnavailable {
             return String(localized: "coderouter.sidebar.serviceUnavailable", defaultValue: "CodeRouter is temporarily unavailable.")
         }
+        if error is AIAccountCredentialSourceError {
+            return String(localized: "coderouter.sidebar.add.localCredentialMissing", defaultValue: "Sign in to the provider locally, then try again.")
+        }
         return String(localized: "coderouter.sidebar.serviceUnavailable", defaultValue: "CodeRouter is temporarily unavailable.")
     }
 
