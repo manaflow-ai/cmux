@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Synchronization
 import os
@@ -17,7 +18,10 @@ import os
 ///
 /// On EOF it emits `.disconnected`, fails pending requests, and reconnects
 /// through `endpointProvider` (which re-runs `server ensure`, restarting a
-/// crashed daemon) with capped backoff on the injected clock.
+/// crashed daemon). Attempts are spaced by one capped backoff across
+/// consecutive drops (reset only after a connection stays up for
+/// `healthyAfter`), and after `retry.timedRetries` failures no timer runs:
+/// the loop waits for the daemon socket to change or `retryWake` to fire.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -26,8 +30,13 @@ public actor DaemonConnection {
         public var requiredCapabilities: [String]
         public var advertisedCapabilities: [String]
         public var treeEvents: TreeEventMode
-        /// Reconnect delays; the last one repeats.
-        public var backoff: [Duration]
+        /// Spacing and budget of reconnect attempts.
+        public var retry: RetryPolicy
+        /// A connection that stays up this long resets the reconnect backoff.
+        public var healthyAfter: Duration
+        /// Extra events that may let a reconnect succeed (network, sign-in).
+        /// The connection also watches its daemon socket through it.
+        public var retryWake: RetryWake?
         /// Deadline for every control-plane request (architecture.md 5a).
         /// A miss throws `DaemonError.timedOut`; nil disables it (tests only).
         public var requestTimeout: Duration?
@@ -45,7 +54,9 @@ public actor DaemonConnection {
             requiredCapabilities: [String] = DaemonCapabilities.required,
             advertisedCapabilities: [String] = DaemonCapabilities.advertised,
             treeEvents: TreeEventMode = .deltas,
-            backoff: [Duration] = [.milliseconds(50), .milliseconds(250), .seconds(1), .seconds(2)],
+            retry: RetryPolicy = .reconnect,
+            healthyAfter: Duration = .seconds(10),
+            retryWake: RetryWake? = nil,
             requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
             snapshotTimeout: Duration? = .seconds(10),
             spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
@@ -55,7 +66,9 @@ public actor DaemonConnection {
             self.requiredCapabilities = requiredCapabilities
             self.advertisedCapabilities = advertisedCapabilities
             self.treeEvents = treeEvents
-            self.backoff = backoff
+            self.retry = retry
+            self.healthyAfter = healthyAfter
+            self.retryWake = retryWake
             self.requestTimeout = requestTimeout
             self.snapshotTimeout = snapshotTimeout
             self.spawnTimeout = requestTimeout == nil ? nil : spawnTimeout
@@ -81,6 +94,9 @@ public actor DaemonConnection {
     private var phase: Phase = .idle
     private var serial: UInt64 = 0
     private var reconnectTask: Task<Void, Never>?
+    private var pacer: RetryPacer
+    private let wake: RetryWake
+    private let healthy: DemandTimer
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
@@ -94,6 +110,9 @@ public actor DaemonConnection {
         self.configuration = configuration
         self.clock = clock
         self.endpointProvider = endpointProvider
+        pacer = RetryPacer(configuration.retry)
+        wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
+        healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
         // concurrency-allow: drained at once by the store pump into the bounded EventInbox
         (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
     }
@@ -116,6 +135,7 @@ public actor DaemonConnection {
 
     /// Stops reconnecting, closes the socket, and finishes `events`.
     public func close() {
+        healthy.cancel()
         reconnectTask?.cancel()
         reconnectTask = nil
         if case .ready(let transport, _) = phase { transport.close() }
@@ -239,6 +259,8 @@ public actor DaemonConnection {
             self.identity = identity
             self.endpoint = endpoint
             phase = .ready(transport, serial: serial)
+            wake.watch(file: endpoint.socketPath)
+            healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged))
             gate.open(first: connected) { continuation.yield($0) }
@@ -284,6 +306,7 @@ public actor DaemonConnection {
         if case .closed = phase { return }
         if case .ready = phase {} else if case .connecting = phase {} else { return }
         phase = .waiting
+        healthy.cancel()
         let detail: String = switch reason {
         case .closedByClient: "closed"
         case .daemonShutdown: "daemon shut down"
@@ -302,14 +325,20 @@ public actor DaemonConnection {
         }
     }
 
+    /// The connection stayed up for `healthyAfter`: the next drop starts
+    /// the backoff from its first step again.
+    private func stayedHealthy(serial: UInt64) {
+        guard serial == self.serial, case .ready = phase else { return }
+        pacer.reset()
+    }
+
     private func reconnectLoop() async {
-        var attempt = 0
         while !Task.isCancelled {
-            let delays = configuration.backoff
-            if !delays.isEmpty {
-                let delay = delays[min(attempt, delays.count - 1)]
-                do { try await clock.sleep(for: delay) } catch { break }
-            }
+            // A drop or a failed attempt: space the next one, or wait for an
+            // event once the timed budget is spent.
+            wake.rebaseline()
+            let delay = pacer.failed()
+            guard await wake.wait(delay: delay, clock: clock) != .cancelled else { break }
             if isClosedPhase { break }
             do {
                 _ = try await connectOnce()
@@ -324,12 +353,14 @@ public actor DaemonConnection {
                     continuation.finish(throwing: error)
                     return
                 default:
-                    logger.info("cmux-tui reconnect attempt \(attempt) failed: \(error.description, privacy: .public)")
+                    logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(error.description, privacy: .public)")
                 }
             } catch {
-                logger.info("cmux-tui reconnect attempt \(attempt) failed: \(String(describing: error), privacy: .public)")
+                logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(String(describing: error), privacy: .public)")
             }
-            attempt += 1
+            if pacer.isExhausted {
+                logger.info("cmux-tui reconnect: timed retries spent; waiting for the daemon socket or another event")
+            }
         }
         reconnectTask = nil
     }

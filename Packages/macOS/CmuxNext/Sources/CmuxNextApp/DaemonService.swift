@@ -1,7 +1,10 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
+import Network
 import Observation
 import os
 
@@ -28,6 +31,16 @@ final class DaemonService {
 
     init(machineID: String = "local") {
         self.machineID = machineID
+        retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
+    }
+
+    /// Fires `retryWake` when the app becomes active.
+    private func observeRetryEvents() {
+        guard activationObserver == nil else { return }
+        let wake = retryWake
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil
+        ) { _ in wake.fire() }
     }
 
     var isLocal: Bool { machineID == "local" }
@@ -43,8 +56,15 @@ final class DaemonService {
     private(set) var startup: DaemonStartupState = .connecting
     @ObservationIgnored var startupDeadline: Duration = DaemonStartup.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
-    @ObservationIgnored private var startupDeadlineTask: Task<Void, Never>?
+    @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     @ObservationIgnored private var lastStartupError: DaemonError?
+    /// Events that may let a failed connect succeed: the daemon socket
+    /// changing (watched by the connection), the app becoming active, and
+    /// for a Cloud machine a network path change. Retries past their timed
+    /// budget wait only for these (no polling).
+    @ObservationIgnored let retryWake: RetryWake
+    @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
 
     func start(launch: LaunchIdentity) {
         guard runTask == nil else { return }
@@ -56,6 +76,7 @@ final class DaemonService {
             return
         }
         let configuration = DaemonConnection.Configuration(
+            retryWake: retryWake,
             terminalEnvironment: TerminalEnvironment.shared(overrides: launch.terminalEnvironment))
         start { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
     }
@@ -67,10 +88,12 @@ final class DaemonService {
         guard runTask == nil else { return }
         let store = store
         armStartupDeadline()
+        observeRetryEvents()
+        let wake = retryWake
         runTask = Task { [weak self, scheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
-            let connected = await DaemonStartup.connect(clock: clock, makeConnection: makeConnection) { error in
+            let connected = await DaemonStartup.connect(wake: wake, clock: clock, makeConnection: makeConnection) { error in
                 await weakSelf?.noteStartupFailure(error)
             }
             guard let (connection, identity) = connected else { return }
@@ -86,21 +109,32 @@ final class DaemonService {
     }
 
     /// Connects to a remote daemon through `endpoint` (a Cloud machine's link
-    /// socket). The first connect is retried with capped backoff until it
-    /// succeeds or `shutdownConnection()` runs; afterwards the connection
-    /// reconnects by itself, re-asking `endpoint` (which restarts a dead
-    /// link). A connection that ends for good is replaced the same way.
+    /// socket). The first connect is retried with capped backoff
+    /// (`DaemonStartup`); afterwards the connection reconnects by itself,
+    /// re-asking `endpoint` (which restarts a dead link). A connection that
+    /// ends for good is replaced the same way, spaced by one backoff across
+    /// such ends. Retries past their budget wait for a network path change,
+    /// app activation or the link socket changing, never a fixed period.
     func start(remote endpoint: @escaping @Sendable () async throws -> String) {
         guard runTask == nil else { return }
         let store = store
         let machineID = machineID
         armStartupDeadline()
+        observeRetryEvents()
+        let wake = retryWake
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { path in
+            if path.status == .satisfied { wake.fire() }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
+        pathMonitor = monitor
+        let clock = startupClock
         runTask = Task { [weak self, scheduler, logger] in
-            let delays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(10), .seconds(30)]
             weak let weakSelf = self
+            var ends = RetryPacer(.firstConnect)
             while !Task.isCancelled {
-                let connected = await DaemonStartup.connect(delays: delays) {
-                    DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) {
+                let connected = await DaemonStartup.connect(wake: wake, clock: clock) {
+                    DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil)) {
                         DaemonEndpoint(socketPath: try await endpoint())
                     }
                 } onFailure: { error in
@@ -113,7 +147,7 @@ final class DaemonService {
                 await store.run(connection: connection, scheduler: scheduler)
                 await connection.close()
                 if Task.isCancelled { return }
-                do { try await ContinuousClock().sleep(for: delays[0]) } catch { return }
+                guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
             }
         }
     }
@@ -121,8 +155,8 @@ final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         self.connection = connection
         store.noteHandshake(identity)
-        startupDeadlineTask?.cancel()
-        startupDeadlineTask = nil
+        startupDeadlineTimer?.cancel()
+        startupDeadlineTimer = nil
         lastStartupError = nil
         startup = .connected
     }
@@ -137,11 +171,10 @@ final class DaemonService {
     }
 
     private func armStartupDeadline() {
-        startupDeadlineTask?.cancel()
-        let deadline = startupDeadline
-        let clock = startupClock
-        startupDeadlineTask = Task { [weak self] in
-            do { try await clock.sleep(for: deadline) } catch { return }
+        startupDeadlineTimer?.cancel()
+        let timer = DemandTimer(owner: "DaemonService.startupDeadline", clock: startupClock)
+        startupDeadlineTimer = timer
+        timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
         }
@@ -291,8 +324,12 @@ final class DaemonService {
     }
 
     func shutdownConnection() {
-        startupDeadlineTask?.cancel()
-        startupDeadlineTask = nil
+        startupDeadlineTimer?.cancel()
+        startupDeadlineTimer = nil
+        pathMonitor?.cancel()
+        pathMonitor = nil
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+        activationObserver = nil
         runTask?.cancel()
         runTask = nil
         // task-owner: teardown hop; close() is idempotent and finishes the store pump

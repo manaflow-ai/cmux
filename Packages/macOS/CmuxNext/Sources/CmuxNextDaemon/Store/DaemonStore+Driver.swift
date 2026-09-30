@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Synchronization
 
@@ -107,6 +108,8 @@ extension DaemonStore {
         if let failure { markFailed(failure) }
         resyncRetry?.cancel()
         resyncRetry = nil
+        needsResync = false
+        resyncPacer.reset()
         self.driver = nil
     }
 
@@ -116,7 +119,9 @@ extension DaemonStore {
         let batch = driver.inbox.take()
         guard !batch.isEmpty else { return }
         let connected = batch.contains { if case .connected = $0.event { true } else { false } }
-        if apply(batch: batch) == .resync {
+        // A snapshot that failed past its retry budget is retried on the
+        // next daemon event (something changed), not on a timer.
+        if apply(batch: batch) == .resync || needsResync {
             resync(seedAgents: connected)
         }
     }
@@ -124,12 +129,14 @@ extension DaemonStore {
     /// Fetches and applies a snapshot, then flushes events held meanwhile.
     ///
     /// A failed snapshot (the daemon busy past the deadline, a transient
-    /// error) is retried with a bounded backoff until one applies or the
-    /// driver ends. Without the retry the tree stayed stale until some later
-    /// event needed another resync, which may never come.
+    /// error) is retried with a capped backoff (`RetryPolicy.resync`), and
+    /// after its budget on the next daemon event. Without the retry the tree
+    /// stayed stale until some later event needed another resync; without
+    /// the budget a wedged daemon was asked for a snapshot every 2 s forever.
     func resync(seedAgents: Bool = false) {
         guard let driver, !isResyncing else { return }
         isResyncing = true
+        needsResync = false
         resyncRetry?.cancel()
         resyncRetry = nil
         driver.inbox.hold()
@@ -141,7 +148,7 @@ extension DaemonStore {
                 apply(snapshot: tree)
                 snapshotBarrier = max(snapshotBarrier, barrier)
                 advanceAppliedSequence(to: barrier)
-                resyncFailures = 0
+                resyncPacer.reset()
                 if seedAgents { apply(agents: try await driver.connection.agents()) }
             } catch {
                 logger.error("resync failed: \(String(describing: error), privacy: .public)")
@@ -156,12 +163,15 @@ extension DaemonStore {
     private func scheduleResyncRetry(seedAgents: Bool) {
         // While disconnected the reconnect's `connected` event resyncs anyway.
         guard driver != nil, case .connected = connectionState else { return }
-        resyncFailures += 1
-        let attempt = resyncFailures
-        let delay = resyncRetryDelay
-        resyncRetry = Task { @MainActor [weak self] in
-            await delay(attempt)
-            guard !Task.isCancelled, let self, self.driver != nil else { return }
+        guard let delay = resyncPacer.failed() else {
+            logger.error("resync retries spent; the next daemon event resyncs")
+            needsResync = true
+            return
+        }
+        let timer = DemandTimer(owner: "DaemonStore.resync", clock: resyncClock)
+        resyncRetry = timer
+        timer.schedule(after: delay) { @MainActor [weak self] in
+            guard let self, self.driver != nil, self.resyncRetry === timer else { return }
             self.resyncRetry = nil
             self.resync(seedAgents: seedAgents)
         }

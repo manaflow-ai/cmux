@@ -125,7 +125,7 @@ func settle(_ rounds: Int = 20_000) async {
         defer { server.stop() }
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
         let store = DaemonStore()
-        store.resyncRetryDelay = { _ in await Task.yield() }
+        store.resyncClock = ImmediateClock()
         _ = try await connection.start()
         let run = Task { await store.run(connection: connection) }
         defer { run.cancel() }

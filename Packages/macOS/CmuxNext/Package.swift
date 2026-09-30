@@ -69,6 +69,7 @@ let package = Package(
         .target(
             name: "CmuxNextApp",
             dependencies: [
+                "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",

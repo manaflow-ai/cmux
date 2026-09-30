@@ -24,10 +24,13 @@ public enum DaemonStartupState: Sendable, Equatable {
 /// first attempt (a slow `server ensure`, a rival owner holding the session
 /// lock, a daemon busy with a dead client's request) left the app with no
 /// connection for good.
+///
+/// Attempts are spaced by `policy`'s capped backoff; once its timed budget
+/// is spent no timer runs and the loop waits for `wake` (app activation,
+/// network change, the socket appearing). It never re-spawns `server
+/// ensure` on a fixed period.
 public enum DaemonStartup {
-    /// Retry delays; the last one repeats.
-    public static let defaultDelays: [Duration] = [.milliseconds(250), .milliseconds(500), .seconds(1), .seconds(2), .seconds(5)]
-    /// How long the window shows "connecting" before it shows the failure.
+    /// How the window shows "connecting" before it shows the failure.
     public static let defaultDeadline: Duration = .seconds(10)
 
     /// Errors no retry can fix: the binary or daemon is wrong.
@@ -43,12 +46,13 @@ public enum DaemonStartup {
     /// connection is already closed). Returns nil when the task is cancelled
     /// or the failure is permanent.
     public static func connect(
-        delays: [Duration] = defaultDelays,
+        policy: RetryPolicy = .firstConnect,
+        wake: RetryWake = RetryWake(owner: "DaemonStartup"),
         clock: any Clock<Duration> = ContinuousClock(),
         makeConnection: @Sendable () -> DaemonConnection,
         onFailure: @Sendable (DaemonError) async -> Void
     ) async -> (DaemonConnection, DaemonIdentity)? {
-        var attempt = 0
+        var pacer = RetryPacer(policy)
         while !Task.isCancelled {
             let connection = makeConnection()
             do {
@@ -61,10 +65,7 @@ public enum DaemonStartup {
                 await onFailure(failure)
                 if isPermanent(failure) { return nil }
             }
-            if !delays.isEmpty {
-                do { try await clock.sleep(for: delays[min(attempt, delays.count - 1)]) } catch { return nil }
-            }
-            attempt += 1
+            guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
         }
         return nil
     }

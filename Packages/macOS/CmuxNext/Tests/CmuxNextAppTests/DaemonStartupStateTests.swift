@@ -11,7 +11,7 @@ import Testing
         service.startupDeadline = .milliseconds(150)
         let failure = DaemonError.launchFailed("exit 1: the detached session owner did not become ready")
         service.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(backoff: [], terminalEnvironment: nil)) { throw failure }
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) { throw failure }
         }
         defer { service.shutdownConnection() }
         #expect(service.startup == .connecting)
@@ -35,7 +35,7 @@ import Testing
         service.startupDeadline = .seconds(60)
         let failure = DaemonError.unsupportedProtocol(11)
         service.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(backoff: [], terminalEnvironment: nil)) { throw failure }
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) { throw failure }
         }
         defer { service.shutdownConnection() }
         let clock = ContinuousClock()
