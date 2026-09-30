@@ -30,12 +30,14 @@ export type SettingsSubnavGroup = {
 export function SettingsSubnavLayout({
   nav,
   children,
+  testId,
 }: {
   readonly nav: ReactNode;
   readonly children: ReactNode;
+  readonly testId?: string;
 }) {
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4 md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:gap-6">
+    <div data-testid={testId} className="mx-auto w-full max-w-5xl px-3 py-4 md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:gap-6">
       <div>{nav}</div>
       <div className="min-w-0">{children}</div>
     </div>

@@ -109,7 +109,12 @@ public final class TerminalSharingStore {
         return setCountsOverride(value, participantID: me.id, surfaceID: surfaceID)
     }
 
-    /// Disconnects one other participant.
+    /// Disconnects one participant.
+    ///
+    /// This Mac's own UI (`by == nil`) disconnects only other participants.
+    /// Another participant asking through this Mac (a phone or a viewing Mac,
+    /// which passes `by`) may also disconnect this Mac's own view; that
+    /// detaches the view only, never the terminal or the relay connection.
     ///
     /// - Parameters:
     ///   - participantID: the participant to disconnect.
@@ -118,7 +123,7 @@ public final class TerminalSharingStore {
     @discardableResult
     public func disconnect(participantID: String, surfaceID: UUID, by: TerminalDetachActor? = nil) -> Bool {
         guard let snapshot = snapshots[surfaceID],
-              participantID != snapshot.selfParticipantID,
+              by != nil || participantID != snapshot.selfParticipantID,
               snapshot.state.participant(participantID) != nil else { return false }
         return controller(surfaceID)?.sharingDisconnect(participantID: participantID, by: by) ?? false
     }
@@ -142,7 +147,9 @@ public final class TerminalSharingStore {
         guard let snapshot = snapshots[surfaceID],
               let me = snapshot.selfParticipant,
               let controller = controller(surfaceID) else { return false }
-        let policy = snapshot.state.policy.sizedTo(me.participant)
+        let policy = snapshot.state.policy
+            .migratingLegacyPriorityKeys(snapshot.state.participants.map(\.participant))
+            .sizedTo(me.participant)
         if policy != snapshot.state.policy {
             guard controller.sharingSetPolicy(policy) else { return false }
         }

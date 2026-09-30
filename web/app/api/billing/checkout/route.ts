@@ -15,6 +15,7 @@ import {
 } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
+import { dashboardReturnPath } from "../../../../services/billing/returnTo";
 import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
@@ -363,14 +364,20 @@ async function stripePersonalCheckout(
     const successUrl =
       `${requestOrigin(request)}/api/billing/complete` +
       `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
-    const cancelUrl = new URL("/pricing?billing=cancelled", requestOrigin(request));
-    cancelUrl.searchParams.set("interval", interval);
+    // A dashboard upgrade returns to the page that asked for it; only a
+    // validated same-origin /dashboard path is kept.
+    const returnTo = dashboardReturnPath(request.nextUrl.searchParams.get("returnTo"));
+    const cancelUrl = returnTo
+      ? new URL(returnTo, requestOrigin(request))
+      : new URL("/pricing?billing=cancelled", requestOrigin(request));
+    if (!returnTo) cancelUrl.searchParams.set("interval", interval);
     const metadata = {
       stackUserId,
       plan,
       app: "cmux",
       billingInterval: interval,
       nativeCallbackScheme: callbackScheme,
+      ...(returnTo ? { returnTo } : {}),
       ...checkoutAttributionMetadata(attribution),
     };
 

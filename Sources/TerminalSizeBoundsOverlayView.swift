@@ -8,19 +8,29 @@ import GhosttyKit
 import QuartzCore
 import SwiftUI
 
-/// Colors of the shared-terminal sizing UI. Every color derives from the
-/// surface it sits on through ``BonsplitContrastPalette`` (foreground mixed
-/// into background, then nudged to 4.5:1 text and 3:1 lines), so it reads on
-/// light, dark and custom themes alike.
+/// Colors of the shared-terminal sizing UI. The pane chrome (grid border,
+/// hatch, chip outline) uses the split divider's color so the bounds read
+/// as the same gray as every other pane edge; only text derives through
+/// ``BonsplitContrastPalette`` (foreground mixed into background, nudged to
+/// 4.5:1), so it reads on light, dark and custom themes alike.
 @MainActor
 enum TerminalSizingChromeColor {
     /// The pane chrome (border, hatch, crop fade, chip): the terminal theme's
-    /// background and foreground, the Ghostty config colors the pane draws.
-    static func panePalette() -> BonsplitContrastPalette {
-        BonsplitContrastPalette(
-            background: GhosttyBackgroundTheme.currentColor(),
-            foreground: GhosttyApp.shared.defaultForegroundColor
-        )
+    /// background and foreground, the Ghostty config colors the pane draws,
+    /// and the split divider color of the workspace that shows `surface`,
+    /// resolved in `appearance`.
+    static func panePalette(for surface: TerminalSurface?, appearance: NSAppearance) -> BonsplitSizingChromePalette {
+        let divider = surface?.owningWorkspace()?.bonsplitController.configuration.appearance.splitDividerColor
+            ?? NSColor.separatorColor
+        var palette: BonsplitSizingChromePalette?
+        appearance.performAsCurrentDrawingAppearance {
+            palette = BonsplitSizingChromePalette(
+                background: GhosttyBackgroundTheme.currentColor(),
+                foreground: GhosttyApp.shared.defaultForegroundColor,
+                divider: divider
+            )
+        }
+        return palette!
     }
 
     /// The size panel's avatars: the popover's window background and label
@@ -42,8 +52,9 @@ extension BonsplitContrastPalette.RGB {
 
 /// Draws a shared terminal's grid bounds over a pane (local and Cloud alike)
 /// when this view's grid differs: a 1 pt neutral border on the sides facing
-/// empty pane space (colors from ``TerminalSizingChromeColor/panePalette()``),
-/// a faint hatch
+/// empty pane space in the split divider color
+/// (``TerminalSizingChromeColor/panePalette(for:appearance:)``), a fainter
+/// hatch in that color with no fill
 /// outside the grid, a 16 pt fade on a cut edge, and one small chip
 /// (`118×38 · Lawrence's Mac`) that opens the size panel at the tab. A
 /// `disconnected-by` detach of this Mac shows a card with Reattach.
@@ -155,7 +166,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
             return
         }
         let display = TerminalSharingDisplay(snapshot: snapshot)
-        let palette = TerminalSizingChromeColor.panePalette()
+        let palette = TerminalSizingChromeColor.panePalette(for: terminalSurface, appearance: effectiveAppearance)
         updateBorder(geometry: geometry, color: palette.line.nsColor)
         chip.palette = palette
         chip.text = display.presentation.chipText(hiddenColumns: geometry.hiddenColumns)
@@ -251,7 +262,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
         super.draw(dirtyRect)
         guard let snapshot, snapshot.showsBoundsChrome,
               let geometry = currentGeometry(for: snapshot) else { return }
-        let palette = TerminalSizingChromeColor.panePalette()
+        let palette = TerminalSizingChromeColor.panePalette(for: terminalSurface, appearance: effectiveAppearance)
         if geometry.showsBounds { drawHatch(outside: geometry.gridRect, color: palette.hatch.nsColor) }
         let background = palette.background.nsColor
         if geometry.hiddenColumns > 0 { drawCropFade(edge: .maxX, in: geometry.gridRect, background: background) }
@@ -298,8 +309,13 @@ final class TerminalSizeBoundsChipView: NSView {
     private static let verticalPadding: CGFloat = 3
 
     var onPress: (() -> Void)?
-    /// Fill, text (4.5:1 on the fill) and outline (3:1 on the pane).
-    var palette = BonsplitContrastPalette(background: .init(red: 0, green: 0, blue: 0), foreground: .init(red: 1, green: 1, blue: 1)) {
+    /// Fill (the terminal background), text (4.5:1 on the fill) and
+    /// outline (the split divider color).
+    var palette = BonsplitSizingChromePalette(
+        background: .init(red: 0, green: 0, blue: 0),
+        foreground: .init(red: 1, green: 1, blue: 1),
+        line: .init(red: 0.3, green: 0.3, blue: 0.3)
+    ) {
         didSet { if palette != oldValue { needsDisplay = true } }
     }
     var text: String = "" {
@@ -313,7 +329,7 @@ final class TerminalSizeBoundsChipView: NSView {
     override var isFlipped: Bool { true }
 
     private var attributes: [NSAttributedString.Key: Any] {
-        [.font: Self.font, .foregroundColor: palette.glyph.nsColor]
+        [.font: Self.font, .foregroundColor: palette.text.nsColor]
     }
 
     override var fittingSize: NSSize { intrinsicContentSize }
@@ -329,7 +345,7 @@ final class TerminalSizeBoundsChipView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
         // Opaque, so the text keeps its contrast over terminal content.
-        palette.fill.nsColor.setFill()
+        palette.chipFill.nsColor.setFill()
         path.fill()
         palette.line.nsColor.setStroke()
         path.lineWidth = 1

@@ -59,6 +59,17 @@ final class ConfiguredShortcutMatcherTests: XCTestCase {
         XCTAssertFalse(matcher.matchesTab(event: tabEvent, shortcut: unbound))
     }
 
+    func testTabMatchingIgnoresCapsLock() throws {
+        let matcher = ConfiguredShortcutMatcher()
+        let next = MatcherStoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)
+        let previous = MatcherStoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)
+        let nextEvent = try XCTUnwrap(keyEvent(key: "\t", modifiers: [.control, .capsLock], keyCode: 48))
+        let previousEvent = try XCTUnwrap(keyEvent(key: "\t", modifiers: [.control, .shift, .capsLock], keyCode: 48))
+
+        XCTAssertTrue(matcher.matchesTab(event: nextEvent, shortcut: next))
+        XCTAssertTrue(matcher.matchesTab(event: previousEvent, shortcut: previous))
+    }
+
     private func keyEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags,

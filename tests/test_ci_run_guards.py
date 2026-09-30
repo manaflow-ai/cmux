@@ -57,7 +57,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
                 s["name"]
                 for s in job["steps"]
                 if "run" in s
-                and s["name"] not in run_ci_guards.DEPENDENCY_STEPS
+                and s["name"] not in (run_ci_guards.DEPENDENCY_STEPS | run_ci_guards.EVENT_CONDITION_STEPS)
                 and (not s.get("if") or f"'{unit.group}'" in s["if"])
             ]
             self.assertEqual([s.name for s in unit.steps], expected, unit.label)

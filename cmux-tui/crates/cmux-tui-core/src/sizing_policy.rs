@@ -94,6 +94,10 @@ pub struct TerminalSizingParticipant {
     pub device_kind: TerminalDeviceKind,
     #[serde(default)]
     pub device_name: Option<String>,
+    /// Stable per-install id of the device (one Mac app install, one phone
+    /// install, one cmux-tui host). Tells two Macs of the same user apart.
+    #[serde(default)]
+    pub device_id: Option<String>,
     /// Participant id of the relay that forwards this view, if any.
     #[serde(default)]
     pub via: Option<String>,
@@ -110,12 +114,29 @@ impl TerminalSizingParticipant {
         Self { id: id.into(), device_kind, ..Self::default() }
     }
 
-    /// Stable key used by priority lists: `<user_id or anon:id>/<device_kind>`.
+    /// Stable key used by priority lists:
+    /// `<user_id or anon:id>/<device_kind>/<device_id>`, or the legacy
+    /// `<user_id or anon:id>/<device_kind>` when the device has no id.
     pub fn priority_key(&self) -> String {
+        match self.device_id.as_deref().filter(|id| !id.is_empty()) {
+            Some(device) => format!("{}/{device}", self.legacy_priority_key()),
+            None => self.legacy_priority_key(),
+        }
+    }
+
+    /// The two-segment key older policies stored. A policy entry in this form
+    /// matches every device of that kind for that user.
+    pub fn legacy_priority_key(&self) -> String {
         match &self.user_id {
             Some(user) => format!("{user}/{}", self.device_kind.as_str()),
             None => format!("anon:{}/{}", self.id, self.device_kind.as_str()),
         }
+    }
+
+    /// Whether a priority list entry names this participant: its own key, or
+    /// the legacy key of its user and device kind.
+    pub fn matches_priority_key(&self, key: &str) -> bool {
+        key == self.priority_key() || key == self.legacy_priority_key()
     }
 }
 
@@ -352,6 +373,7 @@ impl TerminalSizingEngine {
         participant.display_name = identity.display_name.clone();
         participant.device_kind = identity.device_kind;
         participant.device_name = identity.device_name.clone();
+        participant.device_id = identity.device_id.clone();
         participant.via = identity.via.clone();
         self.publish()
     }
@@ -404,12 +426,14 @@ impl TerminalSizingEngine {
         else {
             return true;
         };
+        // Defer only to a Mac or TUI of the same user that itself counts: a
+        // viewer-only or viewport-less Mac leaves the phone in charge.
         !self.entries.iter().any(|other| {
-            other.participant.user_id.as_ref() == Some(user)
-                && matches!(
-                    other.participant.device_kind,
-                    TerminalDeviceKind::Mac | TerminalDeviceKind::Tui
-                )
+            let other = &other.participant;
+            other.user_id.as_ref() == Some(user)
+                && matches!(other.device_kind, TerminalDeviceKind::Mac | TerminalDeviceKind::Tui)
+                && other.viewport.is_some()
+                && other.counts_override != Some(false)
         })
     }
 
@@ -442,7 +466,7 @@ impl TerminalSizingEngine {
                 for key in &self.policy.priority {
                     let mut matches = counting
                         .iter()
-                        .filter(|entry| entry.participant.priority_key() == *key)
+                        .filter(|entry| entry.participant.matches_priority_key(key))
                         .peekable();
                     if matches.peek().is_some() {
                         return single(newest(matches), TerminalSizingReason::Priority);
@@ -592,6 +616,17 @@ mod tests {
                                 "{at} generation"
                             );
                         }
+                        if let Some(keys) = step.get("priority_keys").and_then(Value::as_object) {
+                            for (participant, expected) in keys {
+                                assert_eq!(
+                                    state
+                                        .participant(participant)
+                                        .map(|row| row.priority_key.as_str()),
+                                    expected.as_str(),
+                                    "{at} priority_key {participant}"
+                                );
+                            }
+                        }
                         if let Some(counts) = step.get("counts").and_then(Value::as_object) {
                             for (participant, expected) in counts {
                                 assert_eq!(
@@ -637,7 +672,8 @@ mod tests {
                 "policy": {"mode": "latest", "priority": [], "fixed": null},
                 "participants": [{
                     "id": "c3", "user_id": "u_maya", "display_name": "Maya Ortiz",
-                    "device_kind": "mac", "device_name": "Mac Studio", "via": null,
+                    "device_kind": "mac", "device_name": "Mac Studio", "device_id": null,
+                    "via": null,
                     "viewport": {"cols": 118, "rows": 38}, "counts_override": null,
                     "counts": true, "priority_key": "u_maya/mac"
                 }]
