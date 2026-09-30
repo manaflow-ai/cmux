@@ -21,6 +21,16 @@ enum BrowserHandlers {
             }
             webKit.webView.reloadFromOrigin()
         })
+        // Per tab, per window (FocusState.browserFocusMode): every key but
+        // tier 0 goes to the page while on.
+        registry.bind("toggleBrowserFocusMode", run: { invocation in
+            let entry = try context.page(invocation)
+            guard let pane = context.scope(invocation).pane, let window = context.services.windowController(showing: pane) else {
+                throw ActionFailure(message: MiscHandlerStrings.noBrowser)
+            }
+            if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
+            window.focus.send(.toggleBrowserFocusMode(tab: entry.tab.id.rawValue))
+        })
         registry.bind("toggleBrowserDeveloperTools", run: { WebInspector.toggle(try context.page($0).tab) })
         registry.bind("showBrowserJavaScriptConsole", run: { WebInspector.showConsole(try context.page($0).tab) })
         registry.bind("toggleBrowserDesignMode", run: { invocation in
@@ -68,14 +78,13 @@ enum BrowserHandlers {
                 let connection = try context.requireConnection()
                 let browserTabs = context.services.cache.browserTabs!
                 let engine = browserTabs.engine(requested: nil)
+                let intent = pane.workspace?.beginFocusIntent()
                 Task {
                     do {
                         let surface = try await browserTabs.create(handle, "about:blank", engine)
                         try await connection.split(handle, direction: direction, movingTab: surface)
                         // The new pane takes focus and its address bar the keyboard.
-                        pane.workspace?.pendingFocusSurface = surface
-                        pane.workspace?.pendingAddressBarFocus = surface
-                        pane.workspace?.applyCurrent()
+                        pane.workspace?.expectFocus(on: surface, target: .addressBar, generation: intent)
                     } catch {
                         context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
                     }
@@ -86,7 +95,6 @@ enum BrowserHandlers {
 
     private static func bindUnavailable(_ registry: ActionRegistry) {
         func unavailable(_ ids: [ActionID], _ reason: String) { registry.bindUnavailable(ids, ActionFailure(message: reason)) }
-        unavailable(["toggleBrowserFocusMode"], MiscHandlerStrings.browserFocusMode)
         unavailable(["toggleReactGrab"], MiscHandlerStrings.reactGrab)
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
         unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)

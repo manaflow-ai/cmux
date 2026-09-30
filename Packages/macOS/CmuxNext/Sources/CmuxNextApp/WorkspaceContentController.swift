@@ -21,12 +21,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
-    /// The first tab of a pane this window just created (split, column);
-    /// its pane takes focus once the daemon reports it.
-    var pendingFocusSurface: SurfaceID?
-    /// A blank browser tab created into a new pane; that pane focuses its
-    /// address bar once it exists.
-    var pendingAddressBarFocus: SurfaceID?
+    /// The window's focus state machine (`WindowState.focus`,
+    /// plans/cmux-next/focus.md). Every focus change in this content goes
+    /// through it.
+    let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
 
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
@@ -34,6 +32,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.daemon = daemon
         self.services = services
         self.state = state
+        focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         layoutModel.showsScreenSwitcher = state.showsScreenSwitcher
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
@@ -74,24 +73,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         handles = result.handles
         layoutModel.apply(screens: result.screens)
         repairIfEmpty()
-        if let surface = pendingFocusSurface,
-           let pane = workspace.screens.flatMap(\.panes).first(where: { $0.tabs.contains { $0.surface == surface } }) {
-            pendingFocusSurface = nil
-            state.focusedPane[workspace.id] = LayoutPaneID(pane.id)
-            layoutModel.focus(LayoutPaneID(pane.id))
-            return
-        }
-        if let remembered = state.focusedPane[workspace.id], layoutModel.focusedPane != remembered,
-           result.screens.contains(where: { $0.layout.contains(remembered) }) {
-            layoutModel.focus(remembered)
-        }
+        sendTopology()
     }
 
     /// A workspace with no pane gets one terminal, focused when it lands.
     private func repairIfEmpty() {
         emptyWorkspaceRepair.check(workspace) { [weak self] surface in
             guard let self else { return }
-            self.pendingFocusSurface = surface
+            self.focus.expect(.surface(String(surface.rawValue)))
             self.applyCurrent()
         }
     }
@@ -103,33 +92,18 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     // MARK: Focus
 
+    /// The coordinator's focused pane, else the first pane in layout order
+    /// (deterministic; never dictionary order).
     var focusedPane: PaneController? {
-        layoutModel.focusedPane.flatMap { panes[$0] } ?? panes.values.first
+        if let id = focus.state.pane, let controller = panes[LayoutPaneID(id)] { return controller }
+        for id in layoutModel.screens.flatMap(\.layout.panes) {
+            if let controller = panes[id] { return controller }
+        }
+        return nil
     }
 
-    /// First responder moved into `pane`.
-    func paneDidFocus(_ pane: PaneController) {
-        state.focusedPane[workspace.id] = pane.layoutPaneID
-        layoutModel.focus(pane.layoutPaneID)
-        publishContext()
-    }
-
-    /// Publishes the focused pane's content kind (`terminalFocused`,
-    /// `browserFocused`) to the action registry. Runs on every change that
-    /// can alter it (pane focus, tab selection, content becoming ready), not
-    /// only on first-responder moves, so CLI and palette runs see a browser
-    /// tab created or selected without a click. Only the active window's
-    /// content publishes.
-    func publishContext() {
-        if let active = services.windows.active, active.content !== self { return }
-        let registry = services.registry
-        let context = ContentContext.merged(registry.context, content: focusedPane?.currentContent)
-        if registry.context != context { registry.context = context }
-    }
-
-    func focusCurrentPane() {
-        focusedPane?.focusContent()
-    }
+    /// The controller of the pane with daemon id `key`.
+    func paneController(key: String) -> PaneController? { panes[LayoutPaneID(key)] }
 
     func pane(for handle: DaemonPaneID) -> PaneController? {
         handles.paneIDs[handle].flatMap { panes[$0] }
@@ -141,12 +115,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
-        if let surface = pendingAddressBarFocus, model.tabs.contains(where: { $0.surface == surface }) {
-            pendingAddressBarFocus = nil
-            controller.pendingAddressBarFocus = surface
-        }
         panes[pane] = controller
-        if layoutModel.focusedPane == pane, controller.view.window != nil { controller.focusContent() }
+        sendTopology()
         return controller.view
     }
 
@@ -154,7 +124,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         panes.removeValue(forKey: pane)?.teardown()
     }
 
-    func paneVisibilityDidChange(_ pane: LayoutPaneID, isVisible: Bool) {
-        panes[pane]?.setVisible(isVisible)
+    func panePresenceDidChange(_ pane: LayoutPaneID, presence: PanePresence) {
+        let surfacePresence: SurfacePresence = switch presence {
+        case .visible: .visible
+        case .keepAlive: .keepAlive
+        case .hidden: .hidden
+        }
+        panes[pane]?.setPresence(surfacePresence)
     }
 }

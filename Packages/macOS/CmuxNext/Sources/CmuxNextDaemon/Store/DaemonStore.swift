@@ -22,6 +22,10 @@ public final class DaemonStore {
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
     public internal(set) var connectionState: DaemonConnectionState = .connecting
+    /// The identity of the last daemon that completed a handshake. Kept
+    /// through a disconnect; replaced on every (re)connect, whose daemon may
+    /// be a different generation or build with different capabilities.
+    public internal(set) var identity: DaemonIdentity?
     public internal(set) var generation: DaemonGeneration?
     public internal(set) var registryID: String?
     public internal(set) var workspaceRevision: UInt64 = 0
@@ -103,6 +107,12 @@ public final class DaemonStore {
     public func apply(agents: [AgentStatus]) {
         agentsBySurface = Dictionary(agents.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
         for (surface, tab) in tabsBySurface { tab.setAgent(agentsBySurface[surface]) }
+    }
+
+    /// Records a completed handshake before its `.connected` event drains,
+    /// so capability checks right after connect see this daemon.
+    public func noteHandshake(_ identity: DaemonIdentity) {
+        if self.identity != identity { self.identity = identity }
     }
 
     /// Marks the connection permanently failed (incompatible daemon).

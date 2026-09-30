@@ -15,7 +15,10 @@ final class DaemonService {
     let store = DaemonStore()
     private(set) var connection: DaemonConnection?
     private(set) var windowState: WindowStateStore?
-    private(set) var identity: DaemonIdentity?
+    /// The current (or last) daemon's identity. The store owns it and
+    /// replaces it on every handshake, so capabilities follow a daemon that
+    /// restarted or was handed off to a newer build after the first connect.
+    var identity: DaemonIdentity? { store.identity }
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var reconciling: Task<Void, Never>?
     @ObservationIgnored private var queuedReconcile: Task<Void, Never>?
@@ -116,7 +119,7 @@ final class DaemonService {
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         self.connection = connection
-        self.identity = identity
+        store.noteHandshake(identity)
         startupDeadlineTask?.cancel()
         startupDeadlineTask = nil
         lastStartupError = nil
@@ -286,20 +289,12 @@ final class DaemonService {
         }
     }
 
-    /// Asks for a fresh snapshot (after commands whose effect has no delta).
-    func refresh() {
-        guard let connection else { return }
-        let store = store
-        Task {
-            if let (tree, _) = try? await connection.snapshot() { store.apply(snapshot: tree) }
-        }
-    }
-
     func shutdownConnection() {
         startupDeadlineTask?.cancel()
         startupDeadlineTask = nil
         runTask?.cancel()
         runTask = nil
+        // task-owner: teardown hop; close() is idempotent and finishes the store pump
         if let connection { Task { await connection.close() } }
         connection = nil
     }

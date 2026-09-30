@@ -28,17 +28,25 @@ public nonisolated enum ColumnStripGeometry {
 
     /// Content-space frames for columns laid out left to right with a gap
     /// before, between, and after them. Returns frames and total content width.
+    /// `minimumWidths` (per column, optional) widen a column whose split tree
+    /// needs more room than its fraction gives, up to the viewport minus its
+    /// gaps, so side-by-side panes never collapse.
     public static func frames(
         widths: [Double],
         viewport: CGSize,
         gap: CGFloat,
-        scale: CGFloat = 2
+        scale: CGFloat = 2,
+        minimumWidths: [CGFloat] = []
     ) -> (frames: [CGRect], contentWidth: CGFloat) {
         var x = gap
         var frames: [CGRect] = []
         frames.reserveCapacity(widths.count)
-        for fraction in widths {
-            let width = SplitGeometry.roundToPixel(pixelWidth(fraction: fraction, viewportWidth: viewport.width, gap: gap), scale: scale)
+        let widest = max(1, viewport.width - gap * 2)
+        for (index, fraction) in widths.enumerated() {
+            var width = SplitGeometry.roundToPixel(pixelWidth(fraction: fraction, viewportWidth: viewport.width, gap: gap), scale: scale)
+            if index < minimumWidths.count, width < minimumWidths[index] {
+                width = max(width, SplitGeometry.ceilToPixel(min(minimumWidths[index], widest), scale: scale))
+            }
             frames.append(CGRect(x: x, y: 0, width: width, height: viewport.height))
             x += width + gap
         }

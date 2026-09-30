@@ -59,6 +59,7 @@ extension CloudHandlers {
     /// workspace. Provisioning plus the first link usually takes 10-60 s.
     static func waitForWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
         let store = session.daemon.store
+        // concurrency-allow: Observations iteration ends on cancellation, so the group never waits past the deadline
         let loaded = await withTaskGroup(of: Bool.self) { group -> Bool in
             group.addTask { await waitLoaded(store) }
             group.addTask { (try? await Task.sleep(for: .seconds(240))) == nil }

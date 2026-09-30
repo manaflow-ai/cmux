@@ -58,8 +58,12 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
+        // `stop()` can run during every await; never start the hub or spawn
+        // a link for a machine that was removed or signed out meanwhile.
         let endpoint = try await api.attachEndpoint(machineID)
+        guard !stopped else { throw CancellationError() }
         let hubSocket = try await hub.socketPath()
+        guard !stopped else { throw CancellationError() }
         try paths.prepare()
         unlink(paths.linkSocket(machineID: machineID))
         var arguments = [
@@ -85,6 +89,7 @@ public actor CloudMachineLink {
             }
             guard !stopped else {
                 child.terminate()
+                if self.child === child { self.child = nil }
                 throw CancellationError()
             }
             socket = path

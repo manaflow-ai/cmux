@@ -11,8 +11,10 @@ extension TerminalHandlers {
         registry.bind("find", invoke: { invocation in
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
             switch content {
-            case .browser(let entry):
-                entry.chrome.perform(.findInPage)
+            case .browser:
+                guard let window = ctx.services.windowController(showing: pane) else { return }
+                window.focus.send(.focusPane(pane.paneKey, source: .intent))
+                window.focus.send(.focusTarget(.findBar, source: .intent))
             case .terminal(let entry):
                 if let text = invocation["text"]?.stringValue, !text.isEmpty { return entry.session.surfaceView.search(text) }
                 guard let window = pane.view.window ?? ctx.refuse(RefusalStrings.noWindowForFind) else { return }

@@ -10,6 +10,7 @@ public protocol FrameScheduler: Sendable {
 public struct NextTurnFrameScheduler: FrameScheduler {
     public init() {}
     public func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
+        // task-owner: the frame hop itself; runs once
         Task { @MainActor in work() }
     }
 }

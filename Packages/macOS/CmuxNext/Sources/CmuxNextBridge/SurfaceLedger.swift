@@ -11,10 +11,13 @@
 /// (a stale source pane, a pane whose removal animation ends late) from
 /// suspending or evicting the surface its destination now shows.
 ///
-/// A key renders while its owner is visible. Keys that stop rendering enter
-/// the ``SurfaceRetention`` LRU; an evicted key is destroyed, and if a pane
-/// still presents it off screen, that pane is told so it re-presents (and the
-/// App re-attaches with a daemon replay) when it becomes visible again.
+/// A key renders while its owner is visible. A key whose owner is in the
+/// keep-alive band (an off-screen niri column within one viewport width,
+/// architecture.md 4) is paused but pinned: never evicted, so scrolling back
+/// shows it at once. Other keys that stop rendering enter the
+/// ``SurfaceRetention`` LRU; an evicted key is destroyed, and if a pane still
+/// presents it off screen, that pane is told so it re-presents (and the App
+/// re-attaches with a daemon replay) when it comes near the viewport again.
 public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable>: Sendable {
     /// What the caller must do after a ledger change, in order.
     public struct Effects: Equatable, Sendable {
@@ -37,7 +40,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     }
 
     private var owners: [Key: Owner] = [:]
-    private var ownerVisible: [Owner: Bool] = [:]
+    private var ownerPresence: [Owner: SurfacePresence] = [:]
     private var retention: SurfaceRetention<Key>
     /// Rendering state last reported to the caller.
     private var rendering: Set<Key> = []
@@ -63,7 +66,12 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
 
     /// `owner` shows `key`. Takes it from any previous owner.
     public mutating func present(_ key: Key, by owner: Owner, ownerVisible visible: Bool) -> Effects {
-        var effects = setVisible(visible, owner: owner)
+        present(key, by: owner, presence: visible ? .visible : .hidden)
+    }
+
+    /// `owner` shows `key` at `presence`. Takes it from any previous owner.
+    public mutating func present(_ key: Key, by owner: Owner, presence: SurfacePresence) -> Effects {
+        var effects = setPresence(presence, owner: owner)
         if let previous = owners[key], previous != owner {
             effects.displaced.append(Displacement(key: key, owner: previous))
             forgetOwnerIfIdle(previous, except: key)
@@ -85,9 +93,14 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
 
     /// `owner` scrolled on or off screen (or its screen switched).
     public mutating func setVisible(_ visible: Bool, owner: Owner) -> Effects {
+        setPresence(visible ? .visible : .hidden, owner: owner)
+    }
+
+    /// `owner` scrolled on screen, into the keep-alive band, or away.
+    public mutating func setPresence(_ presence: SurfacePresence, owner: Owner) -> Effects {
         var effects = Effects()
-        guard ownerVisible[owner] != visible else { return effects }
-        ownerVisible[owner] = visible
+        guard ownerPresence[owner] != presence else { return effects }
+        ownerPresence[owner] = presence
         for key in keys(ownedBy: owner) { update(key, into: &effects) }
         return effects
     }
@@ -99,7 +112,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
             owners[key] = nil
             update(key, into: &effects)
         }
-        ownerVisible[owner] = nil
+        ownerPresence[owner] = nil
         return effects
     }
 
@@ -116,18 +129,18 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
 
     // MARK: Internals
 
-    private func shouldRender(_ key: Key) -> Bool {
-        guard let owner = owners[key] else { return false }
-        return ownerVisible[owner] ?? false
+    private func presence(of key: Key) -> SurfacePresence {
+        owners[key].flatMap { ownerPresence[$0] } ?? .hidden
     }
 
     private mutating func update(_ key: Key, into effects: inout Effects) {
-        let render = shouldRender(key)
+        let presence = presence(of: key)
+        let render = presence == .visible
         if render != rendering.contains(key) {
             if render { rendering.insert(key) } else { rendering.remove(key) }
             effects.rendering[key] = render
         }
-        for evicted in retention.setVisible(key, render) {
+        for evicted in retention.setVisible(key, presence != .hidden) {
             rendering.remove(evicted)
             effects.rendering[evicted] = nil
             effects.evicted.append(evicted)
@@ -139,6 +152,16 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
 
     private mutating func forgetOwnerIfIdle(_ owner: Owner, except key: Key?) {
         guard !owners.contains(where: { $0.value == owner && $0.key != key }) else { return }
-        ownerVisible[owner] = nil
+        ownerPresence[owner] = nil
     }
+}
+
+/// How near a presenter is to the viewport.
+public enum SurfacePresence: Hashable, Sendable {
+    /// On screen: render.
+    case visible
+    /// Off screen within the keep-alive band: keep the surface, paused.
+    case keepAlive
+    /// Away: pause; the surface may be evicted by the LRU.
+    case hidden
 }

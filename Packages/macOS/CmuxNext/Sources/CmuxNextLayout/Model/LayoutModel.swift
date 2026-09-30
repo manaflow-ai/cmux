@@ -44,6 +44,12 @@ public final class LayoutModel {
     /// pause rendering or release attach geometry for occluded panes.
     public private(set) var visiblePanes: Set<PaneID> = []
 
+    /// `visiblePanes` plus panes within one viewport width of the viewport
+    /// on the active screen (architecture.md 4). Keep their content alive
+    /// (paused) so scrolling back shows it with no blank frames; release
+    /// content of panes outside this set like hidden tabs.
+    public private(set) var keepAlivePanes: Set<PaneID> = []
+
     /// True while a divider or column drag is in progress.
     public private(set) var isGestureActive = false
 
@@ -167,11 +173,17 @@ public final class LayoutModel {
 
     /// Focuses `pane` (client-local) and reports `.focus`.
     public func focus(_ pane: PaneID) {
+        focus(pane, notify: true)
+    }
+
+    /// Focuses `pane`. `notify: false` mirrors a focus decided elsewhere
+    /// (the app's focus coordinator) without emitting an intent.
+    public func focus(_ pane: PaneID, notify: Bool) {
         guard let screen = screen(containing: pane) else { return }
         if activeScreenID != screen.id { activeScreenID = screen.id }
         guard focusedPane != pane else { return }
         focusedPane = pane
-        emit(.focus(pane))
+        if notify { emit(.focus(pane)) }
     }
 
     /// Moves focus to the neighboring pane in `direction` on the active screen.
@@ -313,9 +325,12 @@ public final class LayoutModel {
 
     // MARK: View reports
 
-    /// Called by the view when pane visibility changes.
-    public func reportVisiblePanes(_ panes: Set<PaneID>) {
+    /// Called by the view when pane visibility changes. `keepAlive`
+    /// includes the visible panes.
+    public func reportVisiblePanes(_ panes: Set<PaneID>, keepAlive: Set<PaneID>) {
         if visiblePanes != panes { visiblePanes = panes }
+        let keepAlive = keepAlive.union(panes)
+        if keepAlivePanes != keepAlive { keepAlivePanes = keepAlive }
     }
 
     private func emit(_ intent: LayoutIntent) {

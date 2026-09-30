@@ -34,7 +34,8 @@ final class CEFRuntime {
     /// The tab inside a synchronous cmux_tab_add call.
     var tabBeingAdded: CEFTab?
     var nextRequest: Int32 = 1
-    var devToolsCalls: [CEFDevToolsKey: CheckedContinuation<String, any Error>] = [:]
+    /// In-process DevTools calls waiting for their result (with deadlines).
+    let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
     var shutdownTimeout: Task<Void, Never>?

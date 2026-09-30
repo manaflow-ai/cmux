@@ -32,6 +32,7 @@ public final class DaemonCompatBackend: MobileCompatBackend {
     private func forwardEvents() {
         let events = connection.events
         let changes = changes
+        // task-owner: ends when the connection's event stream finishes (close())
         Task.detached {
             do {
                 for try await _ in events { changes.signal() }

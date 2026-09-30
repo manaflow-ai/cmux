@@ -47,12 +47,20 @@ extension PaneController {
         }
     }
 
-    func select(_ id: StripTabID) {
+    /// A user selection (strip click, shortcut, palette, CLI): goes through
+    /// the focus coordinator, which selects and focuses (`applySelection`).
+    func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        guard let workspace else { return applySelection(id) }
+        workspace.focus.send(.selectTab(pane: paneKey, tab: id.rawValue, source: source))
+    }
+
+    /// Makes `id` the selected tab and shows it. Called by the focus
+    /// applier; never moves focus itself.
+    func applySelection(_ id: StripTabID) {
+        guard stripModel.selectedID != id || currentTabKey != id.rawValue else { return }
         state.selection.select(id.rawValue, in: paneKey)
         stripModel.selectedID = id
         showSelected()
-        focusContent()
-        workspace?.paneDidFocus(self)
         services.windows.stateDidChange(state)
     }
 
@@ -73,12 +81,14 @@ extension PaneController {
         let cwd = cwd ?? selectedTab?.cwd
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
+        let intent = self.workspace?.beginFocusIntent()
         services.registry.track(Task {
             do {
                 let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
                 if let text { try await connection.send(created.surface, text: text) }
                 pendingSelectSurface = created.surface
                 apply(snapshot())
+                self.workspace?.expectFocus(on: created.surface, generation: intent)
                 return nil
             } catch {
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
@@ -96,12 +106,13 @@ extension PaneController {
         if browserTabs.isAvailable() {
             let engine = browserTabs.engine(requested: requested)
             let handle = pane.handle
+            let intent = workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
                     let surface = try await browserTabs.create(handle, url?.absoluteString ?? "about:blank", engine)
                     pendingSelectSurface = surface
-                    if url == nil { pendingAddressBarFocus = surface }
                     apply(snapshot())
+                    workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
                 } catch {
                     daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
@@ -114,7 +125,7 @@ extension PaneController {
         state.localBrowserTabs[paneKey, default: []].append(local)
         apply(snapshot())
         select(StripTabID(local.id))
-        if url == nil { services.cache.existingBrowser(local.id)?.chrome.perform(.focusAddressBar) }
+        if url == nil { workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
@@ -167,6 +178,7 @@ extension PaneController {
     /// Moves a tab into `target` at `index` (display order), optimistic.
     func move(_ id: StripTabID, toPane target: PaneController, index: Int) {
         guard let tab = tab(id) else { return }
+        if target !== self { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
         TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
             guard !ok else { return }
             self?.resyncStrip()

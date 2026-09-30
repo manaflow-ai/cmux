@@ -10,9 +10,8 @@ extension WorkspaceContentController {
     func handle(_ intent: LayoutIntent) {
         switch intent {
         case .focus(let pane):
-            state.focusedPane[workspace.id] = pane
-            if let controller = panes[pane], !controller.containsFirstResponder { controller.focusContent() }
-            publishContext()
+            // Mouse-down in a pane or layout keyboard navigation.
+            focus.send(.focusPane(pane.rawValue, source: .intent))
         case .setSplitRatio(let split, let ratio, let transaction, let phase):
             guard let handle = handles.splits[split] else { return layoutModel.rejectTransaction(transaction) }
             let daemonTransaction = gestureTransaction(transaction, phase: phase)
@@ -37,21 +36,28 @@ extension WorkspaceContentController {
                 try await $0.newColumn(rightOf: handle, width: width, options: SpawnOptions(cwd: cwd, workspace: key))
             }
         case .split(let pane, let axis):
-            guard let handle = handles.panes[pane] else { return }
+            guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return }
             let cwd = panes[pane]?.selectedTab?.cwd
             let direction: SplitDirection = axis == .horizontal ? .right : .down
             let key = workspace.key
-            spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key)) }
+            switch services.splitRoom(for: model, edge: axis == .horizontal ? .right : .bottom) {
+            case .split:
+                spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key)) }
+            case .newColumn(_, let anchor):
+                spawnPane("new-pane-right") { try await $0.newColumn(rightOf: anchor, options: SpawnOptions(cwd: cwd, workspace: key)) }
+            case .refused(let reason):
+                services.registry.refuse(reason)
+            }
         }
     }
 
     /// Runs a pane-creating command and focuses the new pane when it lands.
     private func spawnPane(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> SurfaceCreated) {
         guard let connection = daemon.connection else { return }
+        let intent = beginFocusIntent()
         Task {
             do {
-                pendingFocusSurface = try await body(connection).surface
-                applyCurrent()
+                expectFocus(on: try await body(connection).surface, generation: intent)
             } catch {
                 daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
@@ -87,7 +93,8 @@ extension WorkspaceContentController {
     // MARK: Tab drops onto the layout
 
     func drop(_ tabID: LayoutTabID, on target: LayoutDropTarget) {
-        guard let (tab, _) = services.locateTab(tabID.rawValue) else { return }
+        guard let (tab, source) = services.locateTab(tabID.rawValue) else { return }
+        focus.send(.dragEnded(.dropped(tabs: [tab.id], awayFrom: source.id)))
         let restore: @MainActor (Bool) -> Void = { [services] ok in if !ok { services.restoreDetachedTab(tabID.rawValue) } }
         switch target {
         case .pane(let pane, let zone):

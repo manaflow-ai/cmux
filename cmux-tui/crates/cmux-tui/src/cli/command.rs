@@ -1581,13 +1581,14 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             };
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
-            let ingress = cmux_tui_core::agent_hook_journal_ingress(
+            let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
                 &source,
                 &native_event,
                 terminal.as_deref(),
                 native,
             )
             .map_err(|error| UsageError::new(error.to_string()))?;
+            cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
             if serde_json::to_vec(&ingress.payload)
                 .map_err(|error| UsageError::new(format!("encode agent hook: {error}")))?
                 .len()

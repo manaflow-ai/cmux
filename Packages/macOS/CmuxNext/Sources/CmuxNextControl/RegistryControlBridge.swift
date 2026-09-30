@@ -42,6 +42,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
             for action in registry.actions { _ = action.unavailableReason?() }
         } onChange: { [weak self] in
             // onChange runs before the new value is stored; publish after.
+            // task-owner: observation re-arm; ends when isObserving is false (reattach epoch: plans/cmux-next/state-audit.md)
             Task { @MainActor in
                 guard let self, self.isObserving else { return }
                 self.router?.updateCatalog(Self.catalog(from: self.registry))
@@ -55,6 +56,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         withObservationTracking {
             _ = registry.context
         } onChange: { [weak self] in
+            // task-owner: observation re-arm; ends when isObserving is false
             Task { @MainActor in
                 guard let self, self.isObserving else { return }
                 self.router?.updateContextMask(self.registry.context.rawValue)

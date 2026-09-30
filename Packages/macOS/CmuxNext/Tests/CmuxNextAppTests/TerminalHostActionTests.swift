@@ -69,7 +69,9 @@ struct TerminalHostActionTests {
         let window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled],
                                  backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        window.registry = services.registry
+        let focus = FocusCoordinator()
+        window.keyRouter = services.keyRouter
+        window.focus = focus
         for (characters, flags) in [("d", NSEvent.ModifierFlags.command), ("D", [.command, .shift])] {
             let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 1,
                                                       windowNumber: window.windowNumber, context: nil, characters: characters,
@@ -77,6 +79,7 @@ struct TerminalHostActionTests {
             #expect(window.performKeyEquivalent(with: event))
         }
         #expect(recorder.runs.map(\.0) == ["splitRight", "splitDown"])
+        withExtendedLifetime(focus) {}
     }
 
     @Test func terminalRightClickOffersSplits() {

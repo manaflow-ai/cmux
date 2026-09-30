@@ -13,6 +13,8 @@ public final class SettingsApplier {
     /// Action IDs whose shortcut override came from the file last time, so
     /// removing a binding from the file restores the default.
     private var appliedShortcutIDs: Set<ActionID> = []
+    /// Same for key routing tiers.
+    private var appliedTierIDs: Set<ActionID> = []
 
     public init(design: DesignSettings = .shared, registry: ActionRegistry) {
         self.design = design
@@ -66,6 +68,7 @@ public final class SettingsApplier {
             registry.removeShortcutOverride(for: id)
         }
         appliedShortcutIDs = applied
+        diagnostics += applyKeyTiers(snapshot.keyTiers)
 
         diagnostics += tabBarDiagnostics(snapshot.tabBar)
         diagnostics += Self.conflictDiagnostics(in: registry)
@@ -81,6 +84,26 @@ public final class SettingsApplier {
             return SettingsDiagnostic(kind: .unknownAction, path: "ui.surfaceTabBar.buttons",
                                       message: "no action '\(button.actionID)' for button '\(button.id)'")
         }
+    }
+
+    /// `shortcuts.tiers`: a removed entry restores the catalog tier.
+    private func applyKeyTiers(_ tiers: [String: String]) -> [SettingsDiagnostic] {
+        var diagnostics: [SettingsDiagnostic] = []
+        var applied: Set<ActionID> = []
+        for (rawID, value) in tiers.sorted(by: { $0.key < $1.key }) {
+            let requested = ActionID(rawValue: rawID)
+            guard registry.descriptor(for: requested) != nil || registry.isBound(requested) else {
+                diagnostics.append(SettingsDiagnostic(kind: .unknownAction, path: "shortcuts.tiers.\(rawID)", message: "no action with this id"))
+                continue
+            }
+            let id = registry.canonicalID(for: requested)
+            let tier = ActionKeyTier(configValue: value)
+            if registry.keyTierOverrides[id] != tier { registry.setKeyTierOverride(tier, for: id) }
+            applied.insert(id)
+        }
+        for id in appliedTierIDs.subtracting(applied) { registry.setKeyTierOverride(nil, for: id) }
+        appliedTierIDs = applied
+        return diagnostics
     }
 
     private func setOverride(_ shortcut: Shortcut?, for id: ActionID) {

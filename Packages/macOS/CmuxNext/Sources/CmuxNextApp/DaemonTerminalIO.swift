@@ -41,6 +41,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     init(target: Target, endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.target = target
         self.endpoint = endpoint
+        // concurrency-allow: known gap, see plans/cmux-next/state-audit.md T1 (defeats TerminalEventQueue backpressure)
         (events, continuation) = AsyncStream.makeStream(of: TerminalIOEvent.self, bufferingPolicy: .unbounded)
         let task = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }

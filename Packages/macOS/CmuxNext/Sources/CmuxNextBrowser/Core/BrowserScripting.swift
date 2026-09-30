@@ -14,4 +14,6 @@ public nonisolated enum BrowserTabError: Error, Hashable, Sendable {
     case snapshotUnavailable
     case javaScript(String)
     case unsupported(String)
+    /// The engine did not answer in time (what, deadline).
+    case timedOut(String)
 }

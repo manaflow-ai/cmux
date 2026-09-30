@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextActions
 
 /// A problem found while reading cmux.json. Loading never fails on a bad
 /// entry: the entry is skipped and reported here.
@@ -42,6 +43,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
     /// direct `shortcuts.<id>` keys (direct keys win, as in the old loader).
     public var shortcuts: [String: ShortcutBinding]
+    /// Key routing tiers by action ID (`shortcuts.tiers.<id>`: `system`,
+    /// `navigation` or `content`), plans/cmux-next/focus.md section 5.
+    public var keyTiers: [String: String] = [:]
     /// `ui.surfaceTabBar.buttons`, resolved; the defaults when unset.
     public var tabBar: SurfaceTabBarConfig = .defaults
     /// Runnable `actions.<name>` entries plus inline command buttons.
@@ -51,7 +55,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
 
     /// Keys under `shortcuts` that are settings, not action IDs.
-    static let reservedShortcutKeys: Set<String> = ["bindings", "when", "showModifierHoldHints"]
+    static let reservedShortcutKeys: Set<String> = ["bindings", "tiers", "when", "showModifierHoldHints"]
 
     /// Parses a document. `validDensities` and `validMetrics` come from the
     /// design module so this stays free of main-actor types.
@@ -117,6 +121,20 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                     raw += entries.map { ($0.key, "shortcuts.bindings.\($0.key)", $0.value) }
                 } else {
                     snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "shortcuts.bindings", message: "expected an object"))
+                }
+            }
+            if let tiers = section["tiers"] {
+                if case .object(let entries) = tiers {
+                    for (id, value) in entries {
+                        guard case .string(let tier) = value, ActionKeyTier(configValue: tier) != nil else {
+                            snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "shortcuts.tiers.\(id)",
+                                                                           message: "expected \"system\", \"navigation\" or \"content\""))
+                            continue
+                        }
+                        snapshot.keyTiers[id] = tier
+                    }
+                } else {
+                    snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "shortcuts.tiers", message: "expected an object"))
                 }
             }
             raw += section.filter { !reservedShortcutKeys.contains($0.key) }.map { ($0.key, "shortcuts.\($0.key)", $0.value) }

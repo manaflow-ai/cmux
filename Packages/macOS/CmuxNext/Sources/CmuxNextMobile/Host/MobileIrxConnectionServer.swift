@@ -53,8 +53,10 @@ struct MobileIrxConnectionServer: Sendable {
             case .keepalive:
                 _ = connection.respondKeepalive(on: lane)
             case .controlRepair:
+                // task-owner: bound to this phone connection; ends when its transport closes
                 Task { _ = await transport.acceptControlLaneReplacement(lane) }
             case .daemon:
+                // task-owner: bound to this lane; the splice ends when either side closes
                 Task { await splice(lane) }
             default:
                 // Terminal, artifact, simulator and tunnel lanes belong to

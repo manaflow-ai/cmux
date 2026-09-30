@@ -46,6 +46,9 @@ final class AppServices {
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     private let terminalDelegate = TerminalHostDelegate()
+    /// The one keyboard router (plans/cmux-next/focus.md section 5).
+    private(set) var keyRouter: KeyRouter!
+    var paletteObservation: Task<Void, Never>?
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -54,6 +57,11 @@ final class AppServices {
         cache = TabContentCache(daemon: daemon)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
+        keyRouter = KeyRouter(registry: registry)
+        keyRouter.services = self
+        cache.keyRouter = keyRouter
+        cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
+        registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         surfaceInvariant.services = self
         cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
         windows = WindowManager(services: self)
@@ -73,6 +81,7 @@ final class AppServices {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }
         }
+        observePaletteForFocus()
     }
 
     // MARK: Lookup

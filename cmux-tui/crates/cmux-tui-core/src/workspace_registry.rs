@@ -2659,6 +2659,13 @@ impl WorkspaceRegistry {
             migrate_terminal_hosts_add_on_exit(&tx)?;
             tx.commit()?;
         }
+        // Same probe-not-version rule: older builds keep opening the registry
+        // and leave the nullable column untouched on their writes.
+        if !resource_agent_hook_state_has_ended_at_column(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_resource_agent_hook_state_add_ended_at(&tx)?;
+            tx.commit()?;
+        }
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
             let violation = connection
@@ -4133,6 +4140,30 @@ fn terminal_hosts_has_on_exit_column(connection: &Connection) -> anyhow::Result<
         }
     }
     Ok(false)
+}
+
+fn resource_agent_hook_state_has_ended_at_column(connection: &Connection) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare("PRAGMA table_info(resource_agent_hook_state)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        if row.get::<_, String>(1)? == "ended_at_ms" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Add the hook fence's incarnation boundary to registries created before
+/// the column existed. Existing fences have no known boundary (NULL), which
+/// lets a same-id `SessionStart` resume an ended session.
+fn migrate_resource_agent_hook_state_add_ended_at(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "ALTER TABLE resource_agent_hook_state ADD COLUMN ended_at_ms INTEGER
+           CHECK(ended_at_ms IS NULL OR ended_at_ms >= 0);",
+    )?;
+    Ok(())
 }
 
 /// Add the per-terminal exit policy to registries created before the column

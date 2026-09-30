@@ -186,7 +186,8 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            agent_session_id TEXT NOT NULL,
            applied_sequence INTEGER NOT NULL CHECK(applied_sequence >= 0),
            ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
-           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0),
+           ended_at_ms INTEGER CHECK(ended_at_ms IS NULL OR ended_at_ms >= 0)
          );
          CREATE TABLE IF NOT EXISTS resource_agent_hook_apply_cursor (
            id INTEGER PRIMARY KEY CHECK(id = 1),
@@ -436,6 +437,9 @@ pub(crate) struct AgentHookProjectionState {
     pub agent_session_id: String,
     pub applied_sequence: u64,
     pub ended: bool,
+    /// Observed time of the session's latest end, the hook fence's
+    /// incarnation boundary.
+    pub ended_at_ms: Option<u64>,
 }
 
 pub(super) fn migrate_resource_agent_projections(
@@ -1028,21 +1032,29 @@ impl WorkspaceRegistry {
         if let Some(hook_state) = hook_state {
             let applied_sequence = i64::try_from(hook_state.applied_sequence)
                 .context("agent hook sequence exceeds SQLite range")?;
+            let ended_at_ms = hook_state
+                .ended_at_ms
+                .map(i64::try_from)
+                .transpose()
+                .context("agent hook end time exceeds SQLite range")?;
             tx.execute(
                 "INSERT INTO resource_agent_hook_state(
-                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5)
+                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision,
+                   ended_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(terminal_id) DO UPDATE SET
                    agent_session_id = excluded.agent_session_id,
                    applied_sequence = excluded.applied_sequence,
                    ended = excluded.ended,
-                   committed_revision = excluded.committed_revision",
+                   committed_revision = excluded.committed_revision,
+                   ended_at_ms = excluded.ended_at_ms",
                 params![
                     terminal_id.as_str(),
                     hook_state.agent_session_id,
                     applied_sequence,
                     hook_state.ended,
                     sqlite_revision,
+                    ended_at_ms,
                 ],
             )?;
         }

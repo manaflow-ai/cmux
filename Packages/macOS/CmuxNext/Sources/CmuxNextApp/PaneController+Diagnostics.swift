@@ -6,6 +6,8 @@ import CmuxNextTerminal
 struct PaneSurfaceStatus {
     var paneKey: String
     var isVisible: Bool
+    /// `visible`, `keep_alive` or `hidden`.
+    var presence: String
     var selectedTab: String?
     var shownTab: String?
     var kind: String
@@ -30,10 +32,22 @@ struct PaneSurfaceStatus {
         return false
     }
 
+    /// An off-screen pane in the keep-alive band whose selected tab has no
+    /// live, installed content: scrolling to it would show blank frames
+    /// while it re-attaches.
+    var isColdKeepAlive: Bool {
+        guard presence == "keep_alive", selectedTab != nil else { return false }
+        guard selectedTab == shownTab, contentInstalled else { return true }
+        if let terminal { return !terminal.hasSurface }
+        return false
+    }
+
     var json: JSONValue {
         var object: [String: JSONValue] = [
             "pane": .string(paneKey),
             "visible": .bool(isVisible),
+            "presence": .string(presence),
+            "cold_keep_alive": .bool(isColdKeepAlive),
             "selected_tab": selectedTab.map(JSONValue.string) ?? .null,
             "shown_tab": shownTab.map(JSONValue.string) ?? .null,
             "kind": .string(kind),
@@ -77,10 +91,16 @@ extension PaneController {
         case nil:
             break
         }
+        let presenceName = switch presence {
+        case .visible: "visible"
+        case .keepAlive: "keep_alive"
+        case .hidden: "hidden"
+        }
         let installed = view != nil && self.view.content === view && self.view.hostsContent
         return PaneSurfaceStatus(
             paneKey: paneKey,
             isVisible: isVisible,
+            presence: presenceName,
             selectedTab: stripModel.selectedID?.rawValue,
             shownTab: currentTabKey,
             kind: kind,

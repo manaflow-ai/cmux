@@ -22,16 +22,15 @@ final class PaneController: SurfacePresenter {
     weak var workspace: WorkspaceContentController?
 
     private(set) var currentTabKey: String?
-    private(set) var isVisible = false
+    /// How near the layout reports this pane to the viewport.
+    private(set) var presence: SurfacePresence = .hidden
+    var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms (Chrome-speed close).
     var pendingClosed: Set<String> = []
     /// A tab this app just created here; selected once the daemon reports it.
     var pendingSelectSurface: SurfaceID?
     /// Same, named by tab resource id (a reopened tab's restored view).
     var pendingSelectTab: String?
-    /// A blank browser tab this app just created; its address bar takes
-    /// focus once its page exists (CEF pages arrive asynchronously).
-    var pendingAddressBarFocus: SurfaceID?
     private var observation: Task<Void, Never>?
     private var buttonsObservation: Task<Void, Never>?
 
@@ -55,12 +54,7 @@ final class PaneController: SurfacePresenter {
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        view.onFocus = { [weak self] in self?.didFocus() }
         view.onResize = { [weak services] in services?.surfaceInvariant.noteChange() }
-        view.onWindow = { [weak self] in
-            guard let self, self.workspace?.layoutModel.focusedPane == self.layoutPaneID else { return }
-            self.focusContent()
-        }
         observe()
     }
 
@@ -126,26 +120,29 @@ final class PaneController: SurfacePresenter {
         if force { view.stripView.discardPendingReorder() }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
-        var focusNew = false
+        var selectNew = false
         if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
             state.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
-            focusNew = true
+            selectNew = true
         } else if let pending = pendingSelectTab, let tab = pane.tabs.first(where: { $0.id == pending }) {
             state.selection.select(tab.id, in: paneKey)
             pendingSelectTab = nil
-            focusNew = true
+            selectNew = true
         }
         let selected = state.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
-        if focusNew {
+        if selectNew {
+            // A tab this window created: show it now (focus is the
+            // coordinator's expectation, not decided here).
             showSelected()
-            focusContent()
         } else {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)
         }
+        // Focus follows selection; the coordinator re-targets the keyboard.
+        workspace?.sendTopology()
     }
 
     /// Re-pushes daemon truth after a rejection.
@@ -161,13 +158,11 @@ final class PaneController: SurfacePresenter {
         // May replace a stale surface, displacing the view shown here.
         let content = key.flatMap(content(for:))
         currentTabKey = key
-        if let key, content != nil { services.cache.present(key, by: self, visible: isVisible) }
+        if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
         view.show(content?.view)
-        if let pending = pendingAddressBarFocus, case .browser(let entry) = content, selectedTab?.surface == pending {
-            pendingAddressBarFocus = nil
-            entry.chrome.perform(.focusAddressBar)
-        }
-        if isFocusedInWorkspace { workspace?.publishContext() }
+        // The content view exists now: the coordinator re-applies focus if
+        // this pane has it (content is shown a frame after selection).
+        workspace?.focus.send(.contentPresented(pane: paneKey))
         services.surfaceInvariant.noteChange()
     }
 
@@ -183,7 +178,7 @@ final class PaneController: SurfacePresenter {
 
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool {
-        workspace?.layoutModel.focusedPane == layoutPaneID
+        workspace?.focus.state.pane == paneKey
     }
 
     func content(for key: String) -> TabContent? {
@@ -217,31 +212,23 @@ final class PaneController: SurfacePresenter {
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
     }
 
-    /// The layout reported this pane on or off screen.
-    func setVisible(_ visible: Bool) {
-        guard isVisible != visible else { return }
-        isVisible = visible
-        services.cache.setVisible(visible, presenter: self)
-        // Content destroyed while off screen re-attaches (daemon replay).
-        if visible, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
+    /// The layout reported this pane on screen, in the keep-alive band, or away.
+    func setPresence(_ presence: SurfacePresence) {
+        guard self.presence != presence else { return }
+        self.presence = presence
+        services.cache.setPresence(presence, presenter: self)
+        // Content destroyed while away re-attaches (daemon replay) as soon as
+        // the pane nears the viewport, so it is ready before it scrolls in.
+        if presence != .hidden, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
             services.presentation.setNeedsShowSelected(self)
         }
         services.surfaceInvariant.noteChange()
     }
 
-    /// Makes the selected content first responder.
-    func focusContent() {
-        guard let target = currentContent?.focusTarget, let window = view.window else { return }
-        if window.firstResponder !== target { window.makeFirstResponder(target) }
-    }
-
-    var containsFirstResponder: Bool {
-        guard let responder = view.window?.firstResponder as? NSView else { return false }
-        return responder.isDescendant(of: view)
-    }
-
-    private func didFocus() {
-        workspace?.paneDidFocus(self)
+    /// Focuses this pane's selected content through the window's focus
+    /// coordinator (the only writer of focus).
+    func focusContent(source: FocusEvent.Source = .intent) {
+        workspace?.focus.send(.focusPane(paneKey, source: source))
     }
 
     // MARK: Lookup

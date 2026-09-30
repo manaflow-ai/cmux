@@ -10,10 +10,6 @@ final class PaneContentView: NSView {
     private let contentHost = NSView()
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
-    /// The pane or any view inside it became first responder.
-    var onFocus: (() -> Void)?
-    /// The view entered a window (first layout, workspace switch).
-    var onWindow: (() -> Void)?
     /// The pane's size changed (divider drag, window resize, animation).
     var onResize: (() -> Void)?
 
@@ -50,15 +46,16 @@ final class PaneContentView: NSView {
         onResize?()
     }
 
-    /// Swaps the hosted content view. Returns the previous one.
+    /// Swaps the hosted content view. Returns the previous one. Focus is
+    /// not handled here: the window's `FocusCoordinator` re-targets the
+    /// keyboard when the pane reports the new content.
     @discardableResult
     func show(_ view: NSView?) -> NSView? {
         let previous = content
         guard previous !== view || (view != nil && !hostsContent) else { return previous }
         // Another pane may have reparented `previous` already (a moved tab):
-        // only a view still installed here is removed or counts as focused.
+        // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
-        let wasFocused = hosted.map { window?.firstResponder.flatMap { $0 as? NSView }?.isDescendant(of: $0) ?? false } ?? false
         if hosted !== view { hosted?.removeFromSuperview() }
         if let view, view.superview !== contentHost || view.frame != contentHost.bounds {
             view.frame = contentHost.bounds
@@ -66,12 +63,11 @@ final class PaneContentView: NSView {
             contentHost.addSubview(view)
         }
         content = view
-        if wasFocused { onFocus?() }
         return previous
     }
 
     /// Lets the content view go without touching it if another pane took
-    /// it. Unlike `show(nil)`, never reports focus.
+    /// it.
     func detachContent() {
         if hostsContent { content?.removeFromSuperview() }
         content = nil
@@ -81,11 +77,6 @@ final class PaneContentView: NSView {
     var hostsContent: Bool {
         guard let content else { return false }
         return content.superview === contentHost
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil { onWindow?() }
     }
 
     override func viewDidChangeEffectiveAppearance() {

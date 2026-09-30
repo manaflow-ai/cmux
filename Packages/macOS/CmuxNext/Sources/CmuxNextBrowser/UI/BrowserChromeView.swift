@@ -21,6 +21,25 @@ public final class BrowserChromeView: NSView {
 
     public let addressBar: AddressBarView
 
+    /// Which part of the chrome holds a responder view.
+    public enum Region: Hashable, Sendable {
+        case addressBar
+        case findBar
+        case page
+        /// Toolbar buttons, prompt bar, error page.
+        case chrome
+    }
+
+    /// Browser focus mode (the page gets every key but app-level ones):
+    /// a thin gray inset outline around the page.
+    public var showsFocusModeIndicator = false {
+        didSet {
+            guard showsFocusModeIndicator != oldValue else { return }
+            contentContainer.layer?.borderWidth = showsFocusModeIndicator ? 2 : 0
+            updateColors()
+        }
+    }
+
     private let toolbar = NSView()
     private let separator = NSView()
     private let backButton: ChromeIconButton
@@ -47,6 +66,12 @@ public final class BrowserChromeView: NSView {
 
     /// Where finished page loads are recorded (omnibar history suggestions).
     public var history: (any BrowserHistoryStore)?
+
+    /// Closing the find bar or ending address bar editing hands the keyboard
+    /// back to the page. When set, the host does it (a focus coordinator
+    /// that also tracks Chromium page windows); else the chrome focuses the
+    /// page itself.
+    public var onReturnFocusToPage: (() -> Void)?
     private var recordedURL: URL?
     private var recordedTitle: String?
 
@@ -102,7 +127,11 @@ public final class BrowserChromeView: NSView {
             self.findBar.isHidden = true
             self.updateOcclusion()
         }
-        tab.setFocused(true)
+        returnFocusToPage()
+    }
+
+    private func returnFocusToPage() {
+        if let onReturnFocusToPage { onReturnFocusToPage() } else { tab.setFocused(true) }
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -221,7 +250,7 @@ public final class BrowserChromeView: NSView {
         if case .didEndEditing(.commit(let url)) = event { tab.load(url) }
         if let onOmnibarEvent { return onOmnibarEvent(event) }
         switch event {
-        case .didEndEditing(.commit), .didEndEditing(.cancel): tab.setFocused(true)
+        case .didEndEditing(.commit), .didEndEditing(.cancel): returnFocusToPage()
         case .didBeginEditing, .didEndEditing(.blur): break
         }
     }
@@ -330,6 +359,15 @@ public final class BrowserChromeView: NSView {
         }
     }
 
+    /// The region of this chrome that contains `view`, nil when outside.
+    public func region(of view: NSView) -> Region? {
+        guard view.isDescendant(of: self) else { return nil }
+        if view.isDescendant(of: addressBar) { return .addressBar }
+        if view.isDescendant(of: findBar) { return .findBar }
+        if view.isDescendant(of: tab.contentView) { return .page }
+        return .chrome
+    }
+
     private var containsFirstResponder: Bool {
         guard let responder = window?.firstResponder else { return false }
         if let view = responder as? NSView { return view.isDescendant(of: self) }
@@ -349,6 +387,7 @@ public final class BrowserChromeView: NSView {
             layer?.backgroundColor = Palette.contentBackground.cgColor
             toolbar.layer?.backgroundColor = OmnibarStyle.toolbarBackground.cgColor
             separator.layer?.backgroundColor = Palette.separator.cgColor
+            contentContainer.layer?.borderColor = Palette.separator.cgColor
         }
     }
 }

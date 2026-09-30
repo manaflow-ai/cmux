@@ -43,12 +43,8 @@ extension CEFRuntime {
         case .beforeClose(let browser):
             browserClosed(browser)
         case .devToolsResult(let browser, let messageID, let success, let json):
-            guard let continuation = devToolsCalls.removeValue(forKey: CEFDevToolsKey(browser: browser, message: messageID)) else { return }
-            if success {
-                continuation.resume(returning: json)
-            } else {
-                continuation.resume(throwing: BrowserTabError.javaScript(json))
-            }
+            devToolsCalls.resolve(CEFDevToolsKey(browser: browser, message: messageID),
+                                  with: success ? .success(json) : .failure(BrowserTabError.javaScript(json)))
         case .tab(let kind, let browser, let window, let value):
             forkTabEvent(kind, browser: browser, window: window, value: value)
         case .unknown:
@@ -97,10 +93,7 @@ extension CEFRuntime {
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
             tab.browserDidClose()
         }
-        for (key, continuation) in devToolsCalls where key.browser == browser {
-            devToolsCalls[key] = nil
-            continuation.resume(throwing: BrowserTabError.closed)
-        }
+        devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count)
         shutdownProgressed()
         pump?.schedule(after: 0)
@@ -124,13 +117,18 @@ extension CEFRuntime {
 
     // MARK: DevTools
 
-    /// Runs a DevTools method in process and returns its JSON result.
+    /// Longest wait for an in-process DevTools result.
+    static let devToolsTimeout: Duration = .seconds(5)
+
+    /// Runs a DevTools method in process and returns its JSON result, or
+    /// throws `timedOut` when no result arrives within `devToolsTimeout`.
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:]) async throws -> String {
         guard let shim else { throw BrowserTabError.closed }
         let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
         guard message != 0 else { throw BrowserTabError.closed }
-        return try await withCheckedThrowingContinuation { continuation in
-            devToolsCalls[CEFDevToolsKey(browser: browser, message: message)] = continuation
+        let timeout = Self.devToolsTimeout
+        return try await devToolsCalls.reply(for: CEFDevToolsKey(browser: browser, message: message), timeout: timeout) {
+            BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }
     }
 
@@ -146,7 +144,8 @@ extension CEFRuntime {
             state = .shutDown
             return
         }
-        guard state == .ready, let shim else { return }
+        // A second quit while the first waits would replace its waiter.
+        guard state == .ready, shutdownSequence == nil, let shim else { return }
         var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count, windows: Int(shim.windowCount()))
         sequence.begin()
         shutdownSequence = sequence
@@ -164,6 +163,7 @@ extension CEFRuntime {
         }
         shutdownTimeout?.cancel()
         shutdownTimeout = nil
+        devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
         pump?.stop()
         guard shutdownSequence?.phase == .readyToShutdown else {
             logger.error("CEF shutdown timed out; exiting without CefShutdown")

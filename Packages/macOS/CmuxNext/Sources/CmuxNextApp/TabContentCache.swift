@@ -8,8 +8,9 @@ import Observation
 /// Owns every terminal surface and browser page in the process
 /// (architecture.md 4). Surfaces are keyed by tab, not by pane: a tab moved
 /// to another pane keeps its surface and the destination pane reparents the
-/// view (`SurfaceLedger`). Surfaces exist for presented tabs plus an LRU of 8
-/// recently hidden ones; older hidden surfaces are destroyed and re-attach
+/// view (`SurfaceLedger`). Surfaces exist for tabs presented on screen or in
+/// the keep-alive band (off-screen columns within one viewport width, paused)
+/// plus an LRU of 8 recently hidden ones; older hidden surfaces are destroyed and re-attach
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in
 /// a 32 MB image LRU.
 final class TabContentCache {
@@ -32,6 +33,13 @@ final class TabContentCache {
     /// Presentation changed (for the blank-pane invariant).
     var onPresentationChange: (() -> Void)?
     weak var sessionDelegate: (any TerminalSessionDelegate)?
+    /// Routes app shortcuts before a Chromium page window sees them (a CEF
+    /// page window is key, so `ShellWindow` never gets the key).
+    weak var keyRouter: KeyRouter?
+    /// A page's chrome hands the keyboard back to page `key` (find bar
+    /// closed, address bar editing ended); the App routes it through the
+    /// window's focus coordinator.
+    var onPageFocusRequest: ((String) -> Void)?
 
     init(daemon: DaemonService) {
         self.daemon = daemon
@@ -75,6 +83,12 @@ final class TabContentCache {
         return entry
     }
 
+    /// Tab ids whose Ghostty surface has focus (first responder in the key
+    /// window), for `debug.focus`.
+    var focusedTerminalTabs: [String] {
+        terminals.filter { $0.value.session.model.isFocused }.map(\.key).sorted()
+    }
+
     /// The tab id whose surface is `session`.
     func tabKey(for session: TerminalSession) -> String? {
         terminals.first { $0.value.session === session }?.key
@@ -86,6 +100,7 @@ final class TabContentCache {
         if let entry = browsers[key] { return entry }
         let tab = webKit.makeWebKitTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
         let entry = BrowserEntry(tab: tab, suggestionEngine: suggestionEngine, history: history)
+        entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         browsers[key] = entry
         return entry
     }
@@ -109,7 +124,10 @@ final class TabContentCache {
         Task { [weak tab] in
             defer { pendingBrowsers.remove(key) }
             guard let page = try? await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url)) else { return }
-            browsers[key] = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
+            page.keyRouter = keyRouter
+            let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
+            entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+            browsers[key] = entry
             if let tab { browserTabs.track(page, for: tab) }
             onBrowserReady?(key)
         }
@@ -120,10 +138,10 @@ final class TabContentCache {
 
     /// `presenter` shows `key` (its view is, or is about to be, in the
     /// presenter's hierarchy). Takes the surface from any previous presenter.
-    func present(_ key: String, by presenter: any SurfacePresenter, visible: Bool) {
+    func present(_ key: String, by presenter: any SurfacePresenter, presence: SurfacePresence) {
         let owner = ObjectIdentifier(presenter)
         presenters[owner] = WeakPresenter(value: presenter)
-        apply(ledger.present(key, by: owner, ownerVisible: visible))
+        apply(ledger.present(key, by: owner, presence: presence))
     }
 
     /// `presenter` stopped showing `key`. Ignored when another presenter
@@ -132,9 +150,9 @@ final class TabContentCache {
         apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
     }
 
-    /// `presenter` scrolled on or off screen.
-    func setVisible(_ visible: Bool, presenter: any SurfacePresenter) {
-        apply(ledger.setVisible(visible, owner: ObjectIdentifier(presenter)))
+    /// `presenter` scrolled on screen, into the keep-alive band, or away.
+    func setPresence(_ presence: SurfacePresence, presenter: any SurfacePresenter) {
+        apply(ledger.setPresence(presence, owner: ObjectIdentifier(presenter)))
     }
 
     /// `presenter` is going away.

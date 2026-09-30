@@ -22,6 +22,7 @@ extension ControlRouter {
         emit(subscription.ack.compactText)
         for event in subscription.replay { emit(event.compactText) }
         let bus = events
+        // concurrency-allow: heartbeat loop, not a deadline race; every child ends on cancellation
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 for await event in subscription.events { emit(event.compactText) }

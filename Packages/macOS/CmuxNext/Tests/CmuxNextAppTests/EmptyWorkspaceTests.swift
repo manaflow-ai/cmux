@@ -32,13 +32,30 @@ struct EmptyWorkspaceTests {
         let workspace = try #require(services.daemon.store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
         let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
-        await Self.settle { controller.pendingFocusSurface != nil }
+        await Self.settle { controller.focus.state.expectation != nil }
         // Re-applying the still-empty tree (the delta has not landed) must not ask again.
         controller.applyCurrent()
         controller.applyCurrent()
         await Self.settle { false }
         #expect(recorder.keys == [Self.key])
-        #expect(controller.pendingFocusSurface == SurfaceID(rawValue: 42))
+        // The new terminal is focused once the daemon reports it.
+        #expect(controller.focus.state.expectation?.key == .surface("42"))
+        controller.teardown()
+        withExtendedLifetime((services, state)) {}
+    }
+
+    /// The app's own create-workspace + create-terminal answered, but the
+    /// terminal's pane delta has not reached the mirror yet: the workspace
+    /// still looks empty and must not get a second terminal.
+    @Test func workspaceTheAppPopulatedIsNotRepairedBeforeItsDeltaLands() async throws {
+        let (services, recorder) = Self.services(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "new")])
+        try await services.emptyWorkspaces.populating(Self.key) { () async throws -> Void in }
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let state = WindowState(workspaceID: workspace.id)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        controller.applyCurrent()
+        await Self.settle { false }
+        #expect(recorder.keys.isEmpty)
         controller.teardown()
         withExtendedLifetime((services, state)) {}
     }

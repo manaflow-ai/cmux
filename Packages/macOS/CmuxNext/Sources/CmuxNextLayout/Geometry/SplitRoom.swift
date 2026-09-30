@@ -1,0 +1,71 @@
+public import CoreGraphics
+
+/// Why a split cannot happen.
+public nonisolated enum SplitRefusal: Hashable, Sendable {
+    /// Splitting would push a pane below `LayoutStyle.minimumPaneSize`.
+    case notEnoughRoom
+}
+
+/// Where a requested split of a pane goes.
+public nonisolated enum SplitPlacement: Hashable, Sendable {
+    /// The pane splits in place and every pane keeps its minimum size.
+    case split
+    /// Columns screen, side-by-side split, and the pane's column has no room
+    /// for two panes across: open a new column after it instead. Horizontal
+    /// space in a niri strip is unbounded, so the column strip grows rather
+    /// than squeezing panes (niri itself never splits a column sideways).
+    case newColumn
+    /// The split cannot fit. Stacked splits in a column and every split on a
+    /// plain split screen have a fixed container, so they refuse.
+    case refused(SplitRefusal)
+}
+
+/// Decides whether a split fits before it is sent to the daemon. Pure: the
+/// caller passes the screen's layout, its viewport and the style.
+public nonisolated enum SplitRoom {
+    /// Placement for splitting `pane` along `axis` on a screen with `layout`
+    /// shown in `viewport`. `removing` is a pane that leaves in the same step
+    /// (the source of a moved tab that was its only tab). An unknown pane or
+    /// an unmeasured viewport returns `.split`: the daemon decides.
+    public static func placement(
+        splitting pane: PaneID,
+        axis: SplitAxis,
+        in layout: ScreenLayout,
+        viewport: CGSize,
+        style: LayoutStyle,
+        removing: PaneID? = nil
+    ) -> SplitPlacement {
+        guard viewport.width > 0, viewport.height > 0 else { return .split }
+        let removing = removing == pane ? nil : removing
+        switch layout {
+        case let .splits(root):
+            guard root.contains(pane) else { return .split }
+            let need = minimumSize(splitting: pane, axis: axis, in: root, removing: removing, style: style)
+            return fits(need, in: viewport) ? .split : .refused(.notEnoughRoom)
+        case let .columns(columns):
+            guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return .split }
+            let strip = ColumnStripGeometry.frames(
+                widths: columns.map(\.width), viewport: viewport, gap: style.columnGap, scale: 2,
+                minimumWidths: columns.map { SplitGeometry.minimumSize(of: $0.root, style: style).width }
+            )
+            let container = CGSize(width: strip.frames[index].width, height: viewport.height)
+            let need = minimumSize(splitting: pane, axis: axis, in: columns[index].root, removing: removing, style: style)
+            if fits(need, in: container) { return .split }
+            if axis == .horizontal, fits(style.minimumPaneSize, in: CGSize(width: max(1, viewport.width - style.columnGap * 2), height: viewport.height)) {
+                return .newColumn
+            }
+            return .refused(.notEnoughRoom)
+        }
+    }
+
+    /// Minimum size of `tree` after `removing` leaves and `pane` splits.
+    static func minimumSize(splitting pane: PaneID, axis: SplitAxis, in tree: SplitNode, removing: PaneID?, style: LayoutStyle) -> CGSize {
+        let pruned = removing.flatMap { tree.removing($0) } ?? tree
+        let split = pruned.replacingLeaf(pane) { .split("room-check", axis: axis, ratio: 0.5, a: $0, b: .leaf("room-check")) }
+        return SplitGeometry.minimumSize(of: split, style: style)
+    }
+
+    static func fits(_ size: CGSize, in container: CGSize) -> Bool {
+        size.width <= container.width + 0.5 && size.height <= container.height + 0.5
+    }
+}
