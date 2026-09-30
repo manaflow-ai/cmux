@@ -46,6 +46,8 @@ final class FilePreviewGitDiffTracker {
     /// Registration reports once per path; the install performs one base read instead.
     private var isInstallingObservations = false
 
+    /// Creates a tracker for `filePath`. Nothing is read until
+    /// ``startWatchingRepository(using:)`` or ``refreshBase()`` runs.
     init(
         filePath: String,
         reader: any GitHeadContentReading = SystemGitHeadContentReader(),
@@ -75,6 +77,8 @@ final class FilePreviewGitDiffTracker {
         resolveWatchedPaths()
     }
 
+    /// Removes the repository observations but keeps the base and markers,
+    /// so a workspace transfer can resume watching without a blank gutter.
     func stopWatchingRepository() {
         watchResolutionTask?.cancel()
         watchResolutionTask = nil
@@ -96,6 +100,8 @@ final class FilePreviewGitDiffTracker {
         }
     }
 
+    /// Replaces the observations with one per path and rereads the base,
+    /// because the new set can point at a different branch.
     private func installObservations(for paths: [String]) {
         guard paths != watchedPaths else { return }
         removeObservations()
@@ -119,6 +125,9 @@ final class FilePreviewGitDiffTracker {
         refreshBase()
     }
 
+    /// Removes the observations right away. The lifetime's own removal still
+    /// runs on a later main-actor turn, which is harmless because removing an
+    /// observation twice does nothing.
     private func removeObservations() {
         observationLifetime?.cancel()
         observationLifetime = nil
@@ -126,6 +135,8 @@ final class FilePreviewGitDiffTracker {
         observationIDs = []
     }
 
+    /// Rereads the base after a repository change. A change to `HEAD` can
+    /// switch branches, so it also resolves the watched set again.
     private func handleRepositoryChange(movesBranch: Bool) {
         guard !isInstallingObservations else { return }
         refreshBase()
@@ -182,6 +193,8 @@ final class FilePreviewGitDiffTracker {
         continuation.finish()
     }
 
+    /// Decodes the HEAD bytes with the buffer's encoding. Bytes that do not
+    /// decode leave no base, which clears the markers.
     private func decodeBase() {
         baseContent = baseData.flatMap { String(data: $0, encoding: encoding) }
     }
@@ -208,10 +221,8 @@ final class FilePreviewGitDiffTracker {
         let generation = inputGeneration
         let current = latestText
         let diff = diff
-        diffTask = Task { [weak self] in
-            let next = await Task.detached(priority: .utility) {
-                diff.changes(base: baseContent, current: current)
-            }.value
+        diffTask = Task(priority: .utility) { [weak self] in
+            let next = await Self.changes(using: diff, base: baseContent, current: current)
             guard !Task.isCancelled, let self else { return }
             self.diffTask = nil
             if self.inputGeneration == generation {
@@ -222,6 +233,21 @@ final class FilePreviewGitDiffTracker {
         }
     }
 
+    /// Runs the diff off the main actor within the calling task, so
+    /// ``cancel()`` reaches the diff's own cancellation checks.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    private nonisolated static func changes(
+        using diff: FilePreviewGitLineDiff,
+        base: String,
+        current: String
+    ) async -> [Int: FilePreviewGitLineChange] {
+        diff.changes(base: base, current: current)
+    }
+
+    /// Yields `next` unless it matches what was last yielded, so repeated
+    /// equal results never wake the consumer.
     private func publish(_ next: FilePreviewGitGutterMarkers) {
         guard next != markers else { return }
         markers = next

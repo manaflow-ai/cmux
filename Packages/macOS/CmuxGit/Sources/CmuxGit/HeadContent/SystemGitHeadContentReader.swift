@@ -32,6 +32,8 @@ public struct SystemGitHeadContentReader: GitHeadContentReading {
         self.init(runner: SystemWorkspaceChangesGitRunner())
     }
 
+    /// Creates a reader with an injected runner, budgets, and existence
+    /// check, so tests can run against a fixture repository or fake paths.
     init(
         runner: any WorkspaceChangesGitRunning,
         maximumContentByteCount: Int = 2 * 1024 * 1024,

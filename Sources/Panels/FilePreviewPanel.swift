@@ -1397,6 +1397,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         stopTrackingGitLineChanges()
     }
 
+    /// Cancels the tracker and clears the markers, so a stopped panel never
+    /// shows markers that no longer follow the file.
     private func stopTrackingGitLineChanges() {
         gitDiffTracker?.cancel()
         gitDiffTracker = nil

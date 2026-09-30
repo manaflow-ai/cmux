@@ -61,6 +61,15 @@ struct FilePreviewGitLineDiffTests {
         #expect(changes.values.allSatisfy { $0 == .modified })
     }
 
+    @Test("A cancelled caller gets no changes")
+    func cancelledCallerGetsNoChanges() async {
+        let changes = await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return FilePreviewGitLineDiff().changes(base: "one\n", current: "two\n")
+        }.value
+        #expect(changes.isEmpty)
+    }
+
     @Test("Skips input beyond the line budget")
     func skipsInputBeyondLineBudget() {
         let diff = FilePreviewGitLineDiff(maximumLineCount: 2, maximumByteCount: 1024)

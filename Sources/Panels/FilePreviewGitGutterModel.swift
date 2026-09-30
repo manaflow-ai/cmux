@@ -12,6 +12,7 @@ final class FilePreviewGitGutterModel {
     private(set) var markers = FilePreviewGitGutterMarkers.untracked
     private(set) var revision = 0
 
+    /// Stores `next` and advances ``revision`` only when the markers change.
     func publish(_ next: FilePreviewGitGutterMarkers) {
         guard next != markers else { return }
         markers = next

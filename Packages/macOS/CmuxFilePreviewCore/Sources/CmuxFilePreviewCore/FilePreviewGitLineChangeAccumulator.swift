@@ -9,10 +9,14 @@ struct FilePreviewGitLineChangeAccumulator {
     private var insertedLines: [Int] = []
     private(set) var changes: [Int: FilePreviewGitLineChange] = [:]
 
+    /// Creates an accumulator for a buffer of `currentLineCount` lines, which
+    /// places a removal that ends the file on the last line.
     init(currentLineCount: Int) {
         self.currentLineCount = currentLineCount
     }
 
+    /// Records base lines removed in the open run. Removals have no line of
+    /// their own in the buffer, so only their count is kept.
     mutating func recordRemovals(_ count: Int = 1) {
         removalCount += count
     }

@@ -40,6 +40,8 @@ public struct FilePreviewGitLineDiff: Sendable {
         self.init(maximumLineCount: 20_000, maximumByteCount: 2 * 1024 * 1024)
     }
 
+    /// Creates a diff with explicit budgets, so tests can reach each budget
+    /// with small inputs.
     init(maximumLineCount: Int, maximumByteCount: Int, maximumAlignedLineCount: Int = 2_000) {
         self.maximumLineCount = maximumLineCount
         self.maximumByteCount = maximumByteCount
@@ -49,12 +51,15 @@ public struct FilePreviewGitLineDiff: Sendable {
     /// Returns the changed lines of `current` relative to `base`.
     ///
     /// Splitting and trimming scan both texts, so call it off the main actor.
+    /// Each stage checks for cancellation of the calling task, so a caller
+    /// that stops caring does not pay for the rest of the diff.
     ///
     /// - Parameters:
     ///   - base: The git base content, usually the file at HEAD.
     ///   - current: The live buffer content.
     /// - Returns: Changes keyed by 1-based line number in `current`. Empty
-    ///   when the texts match or either side exceeds a budget.
+    ///   when the texts match, either side exceeds a budget, or the calling
+    ///   task is cancelled.
     public func changes(
         base: String,
         current: String
@@ -62,7 +67,9 @@ public struct FilePreviewGitLineDiff: Sendable {
         guard base.utf8.count <= maximumByteCount,
               current.utf8.count <= maximumByteCount else { return [:] }
         let baseLines = Self.lines(of: base)
+        guard !Task.isCancelled else { return [:] }
         let currentLines = Self.lines(of: current)
+        guard !Task.isCancelled else { return [:] }
         guard baseLines.count <= maximumLineCount,
               currentLines.count <= maximumLineCount else { return [:] }
         guard baseLines != currentLines else { return [:] }
@@ -79,6 +86,7 @@ public struct FilePreviewGitLineDiff: Sendable {
         }
         let baseMiddle = Array(baseLines[prefix..<(baseLines.count - suffix)])
         let currentMiddle = Array(currentLines[prefix..<(currentLines.count - suffix)])
+        guard !Task.isCancelled else { return [:] }
 
         var accumulator = FilePreviewGitLineChangeAccumulator(currentLineCount: currentLines.count)
         guard baseMiddle.count <= maximumAlignedLineCount,
@@ -93,7 +101,9 @@ public struct FilePreviewGitLineDiff: Sendable {
 
         var removedBaseOffsets: Set<Int> = []
         var insertedCurrentOffsets: Set<Int> = []
-        for change in currentMiddle.difference(from: baseMiddle) {
+        let difference = currentMiddle.difference(from: baseMiddle)
+        guard !Task.isCancelled else { return [:] }
+        for change in difference {
             switch change {
             case let .remove(offset, _, _):
                 removedBaseOffsets.insert(offset)
