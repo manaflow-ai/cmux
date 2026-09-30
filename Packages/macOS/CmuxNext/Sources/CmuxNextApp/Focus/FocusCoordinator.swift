@@ -23,6 +23,18 @@ final class FocusCoordinator {
     private(set) var recent: [String] = []
     private static let recentLimit = 32
 
+    /// What the coordinator did, for the input journal and the invariant
+    /// monitor (plans/cmux-next/input-spec.md).
+    enum Observation {
+        /// `event` took `before` to `after`; its effects run next.
+        case reduced(FocusEvent, before: FocusState, after: FocusState)
+        /// A responder report dropped as the echo of the applier's own change.
+        case suppressedResponder(FocusEvent.Responder)
+    }
+
+    /// Called after every reduction, before its effects run.
+    var observer: ((Observation) -> Void)?
+
     func send(_ event: FocusEvent) {
         queue.append(event)
         guard !isRunning else { return }
@@ -30,9 +42,11 @@ final class FocusCoordinator {
         defer { isRunning = false }
         while !queue.isEmpty {
             let event = queue.removeFirst()
-            let (next, effects) = FocusReducer.reduce(state, event)
+            let previous = state
+            let (next, effects) = FocusReducer.reduce(previous, event)
             state = next
             record(event)
+            observer?(.reduced(event, before: previous, after: next))
             guard !effects.isEmpty, let applier else { continue }
             isApplying = true
             applier.apply(effects, state: next)
@@ -62,7 +76,10 @@ final class FocusCoordinator {
     /// An AppKit responder change. Ignored while this coordinator applies
     /// its own effects (echo suppression).
     func responderDidChange(_ responder: FocusEvent.Responder, source: FocusEvent.Source) {
-        guard !isApplying else { return }
+        guard !isApplying else {
+            observer?(.suppressedResponder(responder))
+            return
+        }
         send(.responder(responder, source: source))
     }
 

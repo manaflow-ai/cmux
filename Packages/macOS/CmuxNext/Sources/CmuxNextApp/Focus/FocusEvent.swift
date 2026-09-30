@@ -1,8 +1,8 @@
 /// Inputs to the focus state machine (plans/cmux-next/focus.md section 4).
 /// Every entrypoint that changes focus sends one of these to its window's
 /// `FocusCoordinator`; nothing else writes focus.
-nonisolated enum FocusEvent: Hashable, Sendable {
-    enum Source: String, Hashable, Sendable {
+nonisolated enum FocusEvent: Hashable, Sendable, Codable {
+    enum Source: String, Hashable, Sendable, Codable {
         case mouse
         case keyboard
         case cli
@@ -14,7 +14,7 @@ nonisolated enum FocusEvent: Hashable, Sendable {
     }
 
     /// The first responder AppKit actually chose, classified.
-    enum Responder: Hashable, Sendable {
+    enum Responder: Hashable, Sendable, Codable {
         case content(pane: String)
         case addressBar(pane: String)
         case findBar(pane: String)
@@ -25,7 +25,7 @@ nonisolated enum FocusEvent: Hashable, Sendable {
         case windowOrNone
     }
 
-    enum DragOutcome: Hashable, Sendable {
+    enum DragOutcome: Hashable, Sendable, Codable {
         case cancelled
         /// The tabs land in this window; the first one takes focus once it
         /// is in a pane other than `awayFrom` (the source pane of a

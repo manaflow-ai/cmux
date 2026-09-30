@@ -3,9 +3,9 @@
 /// never sent to the daemon. AppKit first responder, Ghostty surface focus,
 /// WebKit/CEF page focus, `LayoutModel.focusedPane` and the registry
 /// context are outputs of it (`FocusEffectApplier`).
-nonisolated struct FocusState: Hashable, Sendable {
+nonisolated struct FocusState: Hashable, Sendable, Codable {
     /// What inside (or outside) the focused pane has the keyboard.
-    enum Target: Hashable, Sendable {
+    enum Target: Hashable, Sendable, Codable {
         /// The focused pane's selected tab content (terminal or page).
         case content
         case addressBar
@@ -36,7 +36,7 @@ nonisolated struct FocusState: Hashable, Sendable {
     }
 
     /// Something that takes the keyboard above the window content.
-    enum Overlay: String, Hashable, Sendable {
+    enum Overlay: String, Hashable, Sendable, Codable {
         case palette
         case sheet
         case rename
@@ -44,7 +44,7 @@ nonisolated struct FocusState: Hashable, Sendable {
     }
 
     /// A focus that lands once its tab exists (a split, new tab, drop).
-    struct Expectation: Hashable, Sendable {
+    struct Expectation: Hashable, Sendable, Codable {
         init(key: Key, target: Target, awayFrom: String? = nil, generation: UInt64) {
             self.key = key
             self.target = target
@@ -52,7 +52,7 @@ nonisolated struct FocusState: Hashable, Sendable {
             self.generation = generation
         }
 
-        enum Key: Hashable, Sendable {
+        enum Key: Hashable, Sendable, Codable {
             case surface(String)
             case tab(String)
         }
@@ -68,7 +68,7 @@ nonisolated struct FocusState: Hashable, Sendable {
     }
 
     /// Where focus returns when a drag is cancelled.
-    struct DragRestore: Hashable, Sendable {
+    struct DragRestore: Hashable, Sendable, Codable {
         var tabs: [String]
         var sourcePane: String
         var pane: String?
@@ -131,7 +131,7 @@ nonisolated struct FocusState: Hashable, Sendable {
     }
 
     /// Registry context bits the focus implies.
-    struct Context: Hashable, Sendable {
+    struct Context: Hashable, Sendable, Codable {
         var terminal = false
         var browser = false
     }

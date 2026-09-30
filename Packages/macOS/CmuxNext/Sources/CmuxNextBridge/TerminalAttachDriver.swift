@@ -29,6 +29,9 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
 public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: Sendable {
     public typealias Opener = @Sendable (CellSize) async throws -> Link
     public typealias Machine = TerminalAttachMachine<LinkRef>
+    /// Sees every reduced event and the machine it produced, in reduction
+    /// order, under the reducer's lock (the input journal). Must not block.
+    public typealias Observer = @Sendable (Machine.Event, Machine) -> Void
 
     /// Identity wrapper so the pure machine can compare links.
     public struct LinkRef: Hashable, Sendable {
@@ -50,6 +53,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private let opener: Opener
     private let onFailure: @Sendable (any Error) -> Void
     private let onReattach: @Sendable (Int) -> Void
+    private let observer: Observer?
 
     public init(
         initialSize: CellSize,
@@ -57,13 +61,15 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         outputHighWater: Int = 1 << 20,
         opener: @escaping Opener,
         onFailure: @escaping @Sendable (any Error) -> Void = { _ in },
-        onReattach: @escaping @Sendable (_ attempt: Int) -> Void = { _ in }
+        onReattach: @escaping @Sendable (_ attempt: Int) -> Void = { _ in },
+        observer: Observer? = nil
     ) {
         core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible)))
         queue = TerminalStepQueue(highWater: outputHighWater)
         self.opener = opener
         self.onFailure = onFailure
         self.onReattach = onReattach
+        self.observer = observer
     }
 
     deinit {
@@ -106,6 +112,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private func send(_ event: Machine.Event) {
         var batch = core.withLock { core -> [Machine.Effect] in
             core.outbox += core.machine.reduce(event)
+            observer?(event, core.machine)
             guard !core.applying, !core.outbox.isEmpty else { return [] }
             core.applying = true
             defer { core.outbox = [] }

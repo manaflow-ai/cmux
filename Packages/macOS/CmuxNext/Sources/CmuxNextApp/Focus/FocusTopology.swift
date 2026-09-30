@@ -2,15 +2,15 @@
 /// shows: panes in layout order, their tabs (strip order) and the selected
 /// tab. Built by `WorkspaceContentController` from the daemon mirror and the
 /// window's client-local selection (plans/cmux-next/focus.md section 4).
-nonisolated struct FocusTopology: Hashable, Sendable {
-    enum Kind: String, Hashable, Sendable {
+nonisolated struct FocusTopology: Hashable, Sendable, Codable {
+    enum Kind: String, Hashable, Sendable, Codable {
         case terminal
         case browser
         /// A tab kind the app shows no content for.
         case other
     }
 
-    struct Tab: Hashable, Sendable {
+    struct Tab: Hashable, Sendable, Codable {
         var id: String
         /// Daemon surface id; nil for session-local browser tabs.
         var surface: String?
@@ -23,7 +23,7 @@ nonisolated struct FocusTopology: Hashable, Sendable {
         }
     }
 
-    struct Pane: Hashable, Sendable {
+    struct Pane: Hashable, Sendable, Codable {
         var id: String
         var tabs: [Tab]
         var selected: String?
