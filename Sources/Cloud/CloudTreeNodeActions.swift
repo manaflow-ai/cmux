@@ -36,6 +36,9 @@ struct CloudTreeNodeActions {
     let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
     /// End a terminal on its machine (the process and its remote tab).
     let closeTerminal: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Close one remote tab placement without ending the terminal process.
+    /// This is the safe close action for workspace-pointer rows.
+    var closeRemoteTab: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     /// Close a workspace on its machine AND kill every terminal in it (austin,
     /// 2026-08-31: a closed workspace never leaves stray terminals behind in the
     /// pool). Confirms first when there is something to kill. The protocol's
@@ -360,6 +363,14 @@ struct CloudTreeNodeActions {
                 run(String(format: String(localized: "cloudTree.operation.close", defaultValue: "Closing on %@\u{2026}"), machineName(resource.machine))) { catalog in
                     guard let provider = catalog.provider(for: resource.machine) else { throw SurfaceCatalogError.noProvider(resource.machine) }
                     try await provider.closeTerminal(resource)
+                }
+            },
+            closeRemoteTab: { resource, view in
+                run(String(format: String(localized: "cloudTree.operation.closeTab", defaultValue: "Closing %@…"), machineName(resource.machine))) { catalog in
+                    guard let provider = catalog.provider(for: resource.machine) as? any SurfacePlacementSyncing else {
+                        throw SurfaceCatalogError.unsupported("closing a remote tab")
+                    }
+                    try await provider.closeRemoteTab(id: view.tabID, inRemoteWorkspace: view.workspace.id)
                 }
             },
             closeWorkspace: { machine, workspace in

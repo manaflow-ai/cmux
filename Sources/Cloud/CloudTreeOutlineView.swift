@@ -721,7 +721,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                             nodeActions.renameTerminal(row.resource, row.remoteView)
                         })
                     }
-                    items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
+                    if let view = row.remoteView {
+                        items.append(item(String(localized: "cloudTree.menu.closeTab", defaultValue: "Close Tab…")) { [nodeActions] in
+                            nodeActions.closeRemoteTab(row.resource.id, view)
+                        })
+                    } else {
+                        items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
+                    }
                 }
                 return items
             case .browser(let row):

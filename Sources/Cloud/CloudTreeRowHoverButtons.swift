@@ -114,8 +114,14 @@ struct CloudTreeRowHoverButtons: View {
             }
         case .terminal(let row):
             if !row.resource.machine.isLocal {
-                xmark(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) {
-                    nodeActions.closeTerminal(row.resource.id)
+                if let view = row.remoteView {
+                    xmark(String(localized: "cloudTree.menu.closeTab", defaultValue: "Close Tab…")) {
+                        nodeActions.closeRemoteTab(row.resource.id, view)
+                    }
+                } else {
+                    xmark(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) {
+                        nodeActions.closeTerminal(row.resource.id)
+                    }
                 }
             }
         default:
