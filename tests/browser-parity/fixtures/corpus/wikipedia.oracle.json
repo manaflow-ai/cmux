@@ -1,0 +1,2838 @@
+{
+ "url": "https://en.wikipedia.org/wiki/WebKit",
+ "interactive": [
+  {
+   "role": "link",
+   "name": "Jump to content"
+  },
+  {
+   "role": "button",
+   "name": "Main menu"
+  },
+  {
+   "role": "link",
+   "name": "Wikipedia The Free Encyclopedia"
+  },
+  {
+   "role": "searchbox",
+   "name": "Search Wikipedia"
+  },
+  {
+   "role": "button",
+   "name": "Search"
+  },
+  {
+   "role": "link",
+   "name": "Donate"
+  },
+  {
+   "role": "link",
+   "name": "Create account"
+  },
+  {
+   "role": "link",
+   "name": "Log in"
+  },
+  {
+   "role": "button",
+   "name": "Hide Contents"
+  },
+  {
+   "role": "link",
+   "name": "(Top)"
+  },
+  {
+   "role": "link",
+   "name": "Origins"
+  },
+  {
+   "role": "button",
+   "name": "Toggle Origins subsection"
+  },
+  {
+   "role": "link",
+   "name": "Split development"
+  },
+  {
+   "role": "link",
+   "name": "Open-sourcing"
+  },
+  {
+   "role": "link",
+   "name": "Further development"
+  },
+  {
+   "role": "link",
+   "name": "WebKit2"
+  },
+  {
+   "role": "link",
+   "name": "Use"
+  },
+  {
+   "role": "button",
+   "name": "Toggle Use subsection"
+  },
+  {
+   "role": "link",
+   "name": "Installed base"
+  },
+  {
+   "role": "link",
+   "name": "Ports"
+  },
+  {
+   "role": "link",
+   "name": "Web Platform for Embedded"
+  },
+  {
+   "role": "link",
+   "name": "Forking by Google"
+  },
+  {
+   "role": "link",
+   "name": "Components"
+  },
+  {
+   "role": "button",
+   "name": "Toggle Components subsection"
+  },
+  {
+   "role": "link",
+   "name": "WebCore"
+  },
+  {
+   "role": "link",
+   "name": "JavaScriptCore"
+  },
+  {
+   "role": "link",
+   "name": "See also"
+  },
+  {
+   "role": "link",
+   "name": "References"
+  },
+  {
+   "role": "link",
+   "name": "External links"
+  },
+  {
+   "role": "button",
+   "name": "37 languages"
+  },
+  {
+   "role": "link",
+   "name": "Article"
+  },
+  {
+   "role": "link",
+   "name": "Talk"
+  },
+  {
+   "role": "link",
+   "name": "Read"
+  },
+  {
+   "role": "link",
+   "name": "Edit"
+  },
+  {
+   "role": "link",
+   "name": "View history"
+  },
+  {
+   "role": "button",
+   "name": "Tools"
+  },
+  {
+   "role": "button",
+   "name": "Hide Appearance"
+  },
+  {
+   "role": "radio",
+   "name": "Small"
+  },
+  {
+   "role": "radio",
+   "name": "Standard"
+  },
+  {
+   "role": "radio",
+   "name": "Large"
+  },
+  {
+   "role": "radio",
+   "name": "Standard"
+  },
+  {
+   "role": "radio",
+   "name": "Wide"
+  },
+  {
+   "role": "radio",
+   "name": "Automatic"
+  },
+  {
+   "role": "radio",
+   "name": "Light"
+  },
+  {
+   "role": "radio",
+   "name": "Dark"
+  },
+  {
+   "role": "link",
+   "name": "TrueType core fonts for the Web"
+  },
+  {
+   "role": "link",
+   "name": "Internet aesthetic § 2020s"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "Original author"
+  },
+  {
+   "role": "link",
+   "name": "Apple Inc."
+  },
+  {
+   "role": "link",
+   "name": "[1]"
+  },
+  {
+   "role": "link",
+   "name": "[2]"
+  },
+  {
+   "role": "link",
+   "name": "Developers"
+  },
+  {
+   "role": "link",
+   "name": "Adobe Systems"
+  },
+  {
+   "role": "link",
+   "name": "Sony"
+  },
+  {
+   "role": "link",
+   "name": "KDE"
+  },
+  {
+   "role": "link",
+   "name": "Igalia"
+  },
+  {
+   "role": "link",
+   "name": "Preview release"
+  },
+  {
+   "role": "link",
+   "name": "[3]"
+  },
+  {
+   "role": "link",
+   "name": "C++"
+  },
+  {
+   "role": "link",
+   "name": "[4]"
+  },
+  {
+   "role": "link",
+   "name": "Operating system"
+  },
+  {
+   "role": "link",
+   "name": "macOS"
+  },
+  {
+   "role": "link",
+   "name": "iOS"
+  },
+  {
+   "role": "link",
+   "name": "iPadOS"
+  },
+  {
+   "role": "link",
+   "name": "Linux"
+  },
+  {
+   "role": "link",
+   "name": "[5]"
+  },
+  {
+   "role": "link",
+   "name": "Microsoft Windows"
+  },
+  {
+   "role": "link",
+   "name": "[6]"
+  },
+  {
+   "role": "link",
+   "name": "[7]"
+  },
+  {
+   "role": "link",
+   "name": "Type"
+  },
+  {
+   "role": "link",
+   "name": "Browser engine"
+  },
+  {
+   "role": "link",
+   "name": "License"
+  },
+  {
+   "role": "link",
+   "name": "LGPL"
+  },
+  {
+   "role": "link",
+   "name": "BSD 2-Clause"
+  },
+  {
+   "role": "link",
+   "name": "[8]"
+  },
+  {
+   "role": "link",
+   "name": "webkit.org"
+  },
+  {
+   "role": "link",
+   "name": "Repository"
+  },
+  {
+   "role": "link",
+   "name": "github.com/WebKit/WebKit"
+  },
+  {
+   "role": "link",
+   "name": "browser engine"
+  },
+  {
+   "role": "link",
+   "name": "Safari"
+  },
+  {
+   "role": "link",
+   "name": "web browser"
+  },
+  {
+   "role": "link",
+   "name": "iOS"
+  },
+  {
+   "role": "link",
+   "name": "iPadOS"
+  },
+  {
+   "role": "link",
+   "name": "PlayStation"
+  },
+  {
+   "role": "link",
+   "name": "Tizen"
+  },
+  {
+   "role": "link",
+   "name": "e-book"
+  },
+  {
+   "role": "link",
+   "name": "Nintendo consoles"
+  },
+  {
+   "role": "link",
+   "name": "GNOME Web"
+  },
+  {
+   "role": "link",
+   "name": "fork"
+  },
+  {
+   "role": "link",
+   "name": "KHTML"
+  },
+  {
+   "role": "link",
+   "name": "KJS"
+  },
+  {
+   "role": "link",
+   "name": "KDE"
+  },
+  {
+   "role": "link",
+   "name": "[1]"
+  },
+  {
+   "role": "link",
+   "name": "[9]"
+  },
+  {
+   "role": "link",
+   "name": "KDE"
+  },
+  {
+   "role": "link",
+   "name": "Apple"
+  },
+  {
+   "role": "link",
+   "name": "Google"
+  },
+  {
+   "role": "link",
+   "name": "Nokia"
+  },
+  {
+   "role": "link",
+   "name": "[9]"
+  },
+  {
+   "role": "link",
+   "name": "Bitstream"
+  },
+  {
+   "role": "link",
+   "name": "Sony"
+  },
+  {
+   "role": "link",
+   "name": "Igalia"
+  },
+  {
+   "role": "link",
+   "name": "[10]"
+  },
+  {
+   "role": "link",
+   "name": "macOS"
+  },
+  {
+   "role": "link",
+   "name": "Linux"
+  },
+  {
+   "role": "link",
+   "name": "Unix-like"
+  },
+  {
+   "role": "link",
+   "name": "[11]"
+  },
+  {
+   "role": "link",
+   "name": "Google Chrome"
+  },
+  {
+   "role": "link",
+   "name": "Blink"
+  },
+  {
+   "role": "link",
+   "name": "[12]"
+  },
+  {
+   "role": "link",
+   "name": "[13]"
+  },
+  {
+   "role": "link",
+   "name": "Opera web browser"
+  },
+  {
+   "role": "link",
+   "name": "JavaScript"
+  },
+  {
+   "role": "link",
+   "name": "Bun"
+  },
+  {
+   "role": "link",
+   "name": "[14]"
+  },
+  {
+   "role": "link",
+   "name": "V8"
+  },
+  {
+   "role": "link",
+   "name": "Node.js"
+  },
+  {
+   "role": "link",
+   "name": "Deno"
+  },
+  {
+   "role": "link",
+   "name": "Blink"
+  },
+  {
+   "role": "link",
+   "name": "C++"
+  },
+  {
+   "role": "link",
+   "name": "application programming interface"
+  },
+  {
+   "role": "link",
+   "name": "classes"
+  },
+  {
+   "role": "link",
+   "name": "Web"
+  },
+  {
+   "role": "link",
+   "name": "open source"
+  },
+  {
+   "role": "link",
+   "name": "BSD 2-Clause"
+  },
+  {
+   "role": "link",
+   "name": "[15]"
+  },
+  {
+   "role": "link",
+   "name": "[8]"
+  },
+  {
+   "role": "link",
+   "name": "WebCore"
+  },
+  {
+   "role": "link",
+   "name": "JavaScriptCore"
+  },
+  {
+   "role": "link",
+   "name": "GNU Lesser General Public License"
+  },
+  {
+   "role": "link",
+   "name": "United States Patent and Trademark Office"
+  },
+  {
+   "role": "link",
+   "name": "[16]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "KHTML"
+  },
+  {
+   "role": "link",
+   "name": "KJS"
+  },
+  {
+   "role": "link",
+   "name": "[17]"
+  },
+  {
+   "role": "link",
+   "name": "[18]"
+  },
+  {
+   "role": "link",
+   "name": "[19]"
+  },
+  {
+   "role": "link",
+   "name": "fork"
+  },
+  {
+   "role": "link",
+   "name": "KHTML"
+  },
+  {
+   "role": "link",
+   "name": "KJS"
+  },
+  {
+   "role": "link",
+   "name": "[1]"
+  },
+  {
+   "role": "link",
+   "name": "KHTML"
+  },
+  {
+   "role": "link",
+   "name": "KJS"
+  },
+  {
+   "role": "link",
+   "name": "lines of code"
+  },
+  {
+   "role": "link",
+   "name": "macOS"
+  },
+  {
+   "role": "link",
+   "name": "library"
+  },
+  {
+   "role": "link",
+   "name": "[1]"
+  },
+  {
+   "role": "link",
+   "name": "mailing list"
+  },
+  {
+   "role": "link",
+   "name": "[20]"
+  },
+  {
+   "role": "link",
+   "name": "Objective-C"
+  },
+  {
+   "role": "link",
+   "name": "[21]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "[22]"
+  },
+  {
+   "role": "link",
+   "name": "[23]"
+  },
+  {
+   "role": "link",
+   "name": "KDE"
+  },
+  {
+   "role": "link",
+   "name": "[24]"
+  },
+  {
+   "role": "link",
+   "name": "[25]"
+  },
+  {
+   "role": "link",
+   "name": "backport"
+  },
+  {
+   "role": "link",
+   "name": "[26]"
+  },
+  {
+   "role": "link",
+   "name": "Acid2"
+  },
+  {
+   "role": "link",
+   "name": "[27]"
+  },
+  {
+   "role": "link",
+   "name": "revision-control"
+  },
+  {
+   "role": "link",
+   "name": "[28]"
+  },
+  {
+   "role": "link",
+   "name": "[29]"
+  },
+  {
+   "role": "link",
+   "name": "Ars Technica"
+  },
+  {
+   "role": "link",
+   "name": "[30]"
+  },
+  {
+   "role": "link",
+   "name": "[31]"
+  },
+  {
+   "role": "link",
+   "name": "[32]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "Dave Hyatt"
+  },
+  {
+   "role": "link",
+   "name": "weblog"
+  },
+  {
+   "role": "link",
+   "name": "revision control"
+  },
+  {
+   "role": "link",
+   "name": "[28]"
+  },
+  {
+   "role": "link",
+   "name": "Scalable Vector Graphics"
+  },
+  {
+   "role": "link",
+   "name": "[33]"
+  },
+  {
+   "role": "link",
+   "name": "[8]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "Cascading Style Sheets"
+  },
+  {
+   "role": "link",
+   "name": "animation"
+  },
+  {
+   "role": "link",
+   "name": "[34]"
+  },
+  {
+   "role": "link",
+   "name": "World Wide Web Consortium"
+  },
+  {
+   "role": "link",
+   "name": "[35]"
+  },
+  {
+   "role": "link",
+   "name": "HTML5"
+  },
+  {
+   "role": "link",
+   "name": "[36]"
+  },
+  {
+   "role": "link",
+   "name": "bytecode interpreter"
+  },
+  {
+   "role": "link",
+   "name": "[37]"
+  },
+  {
+   "role": "link",
+   "name": "[38]"
+  },
+  {
+   "role": "link",
+   "name": "compiles"
+  },
+  {
+   "role": "link",
+   "name": "machine code"
+  },
+  {
+   "role": "link",
+   "name": "[39]"
+  },
+  {
+   "role": "link",
+   "name": "x86"
+  },
+  {
+   "role": "link",
+   "name": "x86-64"
+  },
+  {
+   "role": "link",
+   "name": "[40]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "page layout"
+  },
+  {
+   "role": "link",
+   "name": "rendering"
+  },
+  {
+   "role": "link",
+   "name": "[41]"
+  },
+  {
+   "role": "link",
+   "name": "GTK"
+  },
+  {
+   "role": "link",
+   "name": "MeeGo"
+  },
+  {
+   "role": "link",
+   "name": "[42]"
+  },
+  {
+   "role": "link",
+   "name": "[43]"
+  },
+  {
+   "role": "link",
+   "name": "[44]"
+  },
+  {
+   "role": "link",
+   "name": "[45]"
+  },
+  {
+   "role": "link",
+   "name": "[46]"
+  },
+  {
+   "role": "link",
+   "name": "[47]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "Usage share of web browsers"
+  },
+  {
+   "role": "link",
+   "name": "StatCounter"
+  },
+  {
+   "role": "link",
+   "name": "Safari"
+  },
+  {
+   "role": "link",
+   "name": "Google"
+  },
+  {
+   "role": "link",
+   "name": "Chrome"
+  },
+  {
+   "role": "link",
+   "name": "Android"
+  },
+  {
+   "role": "link",
+   "name": "JavaScript engine"
+  },
+  {
+   "role": "link",
+   "name": "V8"
+  },
+  {
+   "role": "link",
+   "name": "[48]"
+  },
+  {
+   "role": "link",
+   "name": "iOS"
+  },
+  {
+   "role": "link",
+   "name": "[49]"
+  },
+  {
+   "role": "link",
+   "name": "Mail"
+  },
+  {
+   "role": "link",
+   "name": "Entourage"
+  },
+  {
+   "role": "link",
+   "name": "personal information manager"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "S60"
+  },
+  {
+   "role": "link",
+   "name": "[50]"
+  },
+  {
+   "role": "link",
+   "name": "Symbian"
+  },
+  {
+   "role": "link",
+   "name": "BlackBerry"
+  },
+  {
+   "role": "link",
+   "name": "Midori"
+  },
+  {
+   "role": "link",
+   "name": "Chrome"
+  },
+  {
+   "role": "link",
+   "name": "[51]"
+  },
+  {
+   "role": "link",
+   "name": "[52]"
+  },
+  {
+   "role": "link",
+   "name": "Android"
+  },
+  {
+   "role": "link",
+   "name": "PlayStation 3 system software"
+  },
+  {
+   "role": "link",
+   "name": "[53]"
+  },
+  {
+   "role": "link",
+   "name": "unreliable source?"
+  },
+  {
+   "role": "link",
+   "name": "Plasma Workspaces"
+  },
+  {
+   "role": "link",
+   "name": "OmniWeb"
+  },
+  {
+   "role": "link",
+   "name": "iCab"
+  },
+  {
+   "role": "link",
+   "name": "Web"
+  },
+  {
+   "role": "link",
+   "name": "Sleipnir"
+  },
+  {
+   "role": "link",
+   "name": "Gecko"
+  },
+  {
+   "role": "link",
+   "name": "[54]"
+  },
+  {
+   "role": "link",
+   "name": "webOS"
+  },
+  {
+   "role": "link",
+   "name": "[55]"
+  },
+  {
+   "role": "link",
+   "name": "Adobe Integrated Runtime"
+  },
+  {
+   "role": "link",
+   "name": "Adobe Creative Suite"
+  },
+  {
+   "role": "link",
+   "name": "[56]"
+  },
+  {
+   "role": "link",
+   "name": "browser market share"
+  },
+  {
+   "role": "link",
+   "name": "[57]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "Symbian"
+  },
+  {
+   "role": "link",
+   "name": "Web Browser for S60"
+  },
+  {
+   "role": "link",
+   "name": "iOS"
+  },
+  {
+   "role": "link",
+   "name": "iPhone"
+  },
+  {
+   "role": "link",
+   "name": "iPod Touch"
+  },
+  {
+   "role": "link",
+   "name": "iPad"
+  },
+  {
+   "role": "link",
+   "name": "[58]"
+  },
+  {
+   "role": "link",
+   "name": "Android"
+  },
+  {
+   "role": "link",
+   "name": "Blink fork"
+  },
+  {
+   "role": "link",
+   "name": "[59]"
+  },
+  {
+   "role": "link",
+   "name": "[60]"
+  },
+  {
+   "role": "link",
+   "name": "[61]"
+  },
+  {
+   "role": "link",
+   "name": "Palm Pre"
+  },
+  {
+   "role": "link",
+   "name": "[62]"
+  },
+  {
+   "role": "link",
+   "name": "Amazon Kindle"
+  },
+  {
+   "role": "link",
+   "name": "[63]"
+  },
+  {
+   "role": "link",
+   "name": "Microsoft Windows"
+  },
+  {
+   "role": "link",
+   "name": "[64]"
+  },
+  {
+   "role": "link",
+   "name": "[65]"
+  },
+  {
+   "role": "link",
+   "name": "[66]"
+  },
+  {
+   "role": "link",
+   "name": "[67]"
+  },
+  {
+   "role": "link",
+   "name": "[68]"
+  },
+  {
+   "role": "link",
+   "name": "[69]"
+  },
+  {
+   "role": "link",
+   "name": "[70]"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "GNOME Web"
+  },
+  {
+   "role": "link",
+   "name": "GTK"
+  },
+  {
+   "role": "link",
+   "name": "Linux"
+  },
+  {
+   "role": "link",
+   "name": "[71]"
+  },
+  {
+   "role": "link",
+   "name": "full citation needed"
+  },
+  {
+   "role": "link",
+   "name": "GNOME Web"
+  },
+  {
+   "role": "link",
+   "name": "[72]"
+  },
+  {
+   "role": "link",
+   "name": "[73]"
+  },
+  {
+   "role": "link",
+   "name": "Adobe Integrated Runtime"
+  },
+  {
+   "role": "link",
+   "name": "Enlightenment Foundation Libraries"
+  },
+  {
+   "role": "link",
+   "name": "[74]"
+  },
+  {
+   "role": "link",
+   "name": "Qt Software"
+  },
+  {
+   "role": "link",
+   "name": "[75]"
+  },
+  {
+   "role": "link",
+   "name": "Qt WebEngine"
+  },
+  {
+   "role": "link",
+   "name": "Iris Browser"
+  },
+  {
+   "role": "link",
+   "name": "Samsung"
+  },
+  {
+   "role": "link",
+   "name": "[76]"
+  },
+  {
+   "role": "link",
+   "name": "citation needed"
+  },
+  {
+   "role": "link",
+   "name": "Collabora"
+  },
+  {
+   "role": "link",
+   "name": "Robert Bosch GmbH"
+  },
+  {
+   "role": "link",
+   "name": "[77]"
+  },
+  {
+   "role": "link",
+   "name": "not specific enough to verify"
+  },
+  {
+   "role": "link",
+   "name": "Origyn Web Browser"
+  },
+  {
+   "role": "link",
+   "name": "[78]"
+  },
+  {
+   "role": "link",
+   "name": "set-top boxes"
+  },
+  {
+   "role": "link",
+   "name": "further explanation needed"
+  },
+  {
+   "role": "link",
+   "name": "AmigaOS"
+  },
+  {
+   "role": "link",
+   "name": "[79]"
+  },
+  {
+   "role": "link",
+   "name": "AROS"
+  },
+  {
+   "role": "link",
+   "name": "[80]"
+  },
+  {
+   "role": "link",
+   "name": "MorphOS"
+  },
+  {
+   "role": "link",
+   "name": "Origyn Web Browser"
+  },
+  {
+   "role": "link",
+   "name": "HTML5"
+  },
+  {
+   "role": "link",
+   "name": "[81]"
+  },
+  {
+   "role": "link",
+   "name": "[82]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "Igalia"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "Blink"
+  },
+  {
+   "role": "link",
+   "name": "Opera Software"
+  },
+  {
+   "role": "link",
+   "name": "Chromium"
+  },
+  {
+   "role": "link",
+   "name": "Opera web browser"
+  },
+  {
+   "role": "link",
+   "name": "[48]"
+  },
+  {
+   "role": "link",
+   "name": "[83]"
+  },
+  {
+   "role": "link",
+   "name": "citation needed"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "Document Object Model"
+  },
+  {
+   "role": "link",
+   "name": "library"
+  },
+  {
+   "role": "link",
+   "name": "Scalable Vector Graphics"
+  },
+  {
+   "role": "link",
+   "name": "GNU Lesser General Public License"
+  },
+  {
+   "role": "link",
+   "name": "application programming interface"
+  },
+  {
+   "role": "link",
+   "name": "C++"
+  },
+  {
+   "role": "link",
+   "name": "Cocoa API"
+  },
+  {
+   "role": "link",
+   "name": "cross-platform"
+  },
+  {
+   "role": "link",
+   "name": "citation needed"
+  },
+  {
+   "role": "link",
+   "name": "Acid2"
+  },
+  {
+   "role": "link",
+   "name": "Acid3"
+  },
+  {
+   "role": "link",
+   "name": "[84]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "JavaScript engine"
+  },
+  {
+   "role": "link",
+   "name": "[20]"
+  },
+  {
+   "role": "link",
+   "name": "[85]"
+  },
+  {
+   "role": "link",
+   "name": "KDE"
+  },
+  {
+   "role": "link",
+   "name": "KJS"
+  },
+  {
+   "role": "link",
+   "name": "PCRE"
+  },
+  {
+   "role": "link",
+   "name": "regular expression"
+  },
+  {
+   "role": "link",
+   "name": "example needed"
+  },
+  {
+   "role": "link",
+   "name": "[86]"
+  },
+  {
+   "role": "link",
+   "name": "[37]"
+  },
+  {
+   "role": "link",
+   "name": "[38]"
+  },
+  {
+   "role": "link",
+   "name": "register"
+  },
+  {
+   "role": "link",
+   "name": "bytecode interpreter"
+  },
+  {
+   "role": "link",
+   "name": "Just-in-time compilation"
+  },
+  {
+   "role": "link",
+   "name": "[39]"
+  },
+  {
+   "role": "link",
+   "name": "just-in-time"
+  },
+  {
+   "role": "link",
+   "name": "[87]"
+  },
+  {
+   "role": "link",
+   "name": "LLVM"
+  },
+  {
+   "role": "link",
+   "name": "faster-than-light"
+  },
+  {
+   "role": "link",
+   "name": "[88]"
+  },
+  {
+   "role": "link",
+   "name": "[89]"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "Free and open-source software portal"
+  },
+  {
+   "role": "link",
+   "name": "Comparison of browser engines"
+  },
+  {
+   "role": "link",
+   "name": "List of WebKit-based browsers"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "Jump up to:"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "\"(fwd) Greetings from the Safari team at Apple Computer\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Safari is released to the world\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebKit Nightly Builds\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Code Style Guidelines\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebKit Download\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebKit on Windows\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"BuildingCairoOnWindows – WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up to:"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "\"Licensing WebKit | WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up to:"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "\"The WebKit Open Source Project\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Companies and Organizations that have contributed to WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"The WebKit Open Source Project – Getting the Code\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Hello Blink\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"What Is Bun.js and Why Is the JavaScript Community Excited About It?\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Open Source – WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Apple's 'WebKit' is now a Registered Trademark in the US\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Introduction\""
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Sweet sixteen for Safari and WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Happy 20th Birthday, Safari and Webkit!\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up to:"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "Stachowiak, Maciej"
+  },
+  {
+   "role": "link",
+   "name": "\"JavaScriptCore, Apple's JavaScript framework based on KJS\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Safari and KHTML again\""
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"So, when will KHTML merge all the WebCore changes?\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"The bitter failure named 'safari and khtml'\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Open-source divorce for Apple's Safari?\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebCore open source changes\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Konqueror now passes Acid2\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up to:"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "\"Apple Opens WebKit CVS and Bug Database\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "Ars Technica"
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"The unforking of KDE's KHTML and WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"KDE Development Platform 4.5.0 gains performance, stability, new high-speed cache and support for WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"KHTML\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Next Generation KDE Technologies Ported to WebCore\""
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"CSS Transforms\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"CSS3 Animations\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"HTML5 Media Support\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up to:"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "\"Announcing SquirrelFish\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up to:"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "\"SquirrelFish project\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up to:"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "\"Introducing SquirrelFish Extreme\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Changeset 40439\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebKit2 wiki\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Announcing WebKit2\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Source code repository for public parts of Safari 5.1\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WWDC 2014 Session 206 - Introducing the Modern WebKit API - ASCIIwwdc\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"132399 – Move the legacy WebKit API into WebKitLegacy.framework and move it inside WebKit.framework\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Renaming Directories and Project Files to Match Framework Names\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up to:"
+  },
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "\"Google going its own way, forking WebKit rendering engine\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"App Store Review Guidelines\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Nokia S60 Webkit Browser\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Google Chrome, Google's Browser Project\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Comic describing the Google Chrome Project\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "PS3、ファームウェアv4.10からWebKitへ。 - あまたの何かしら。"
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"HP Launches WebOS-Powered Tablet, Phones\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"100 Million Club (H1 2010 update)\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Top 5 Desktop, Tablet & Console Browsers\""
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"The Obligatory iPhone Post\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Android Uses WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebKit in the News\""
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"The Amazing Rise of WebKit Mobile\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Palm Pre in-depth impressions, video, and huge hands-on gallery\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Safari 6 available for Mountain Lion and Lion, but not Windows\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"About the security content of iCloud for Windows 12.3\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"About the security content of iTunes 12.11.3 for Windows\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"BuildingCairoOnWindows – WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"World / Eolie\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebKitGTK+ project website\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebKit/Gtk+ is coming\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebKitClutter project website\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"QT WebKit\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Home\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"pleyo\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Welcome to OWB\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Origyn Web Browser 1.1 For m68k AmigaOS\""
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Origyn Web Browser for AROS\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Origyn Web Browser for MorphOS\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Origyn Web Browser 1.7 Supports HTML5 Media, More\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"WebKit developers planning Chromium extraction\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Full Pass Of Acid3\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"The WebKit Open Source Project – JavaScript\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"The Great Browser JavaScript Showdown\""
+  },
+  {
+   "role": "link",
+   "name": "the original"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Introducing the WebKit FTL JIT\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Apple integrates LLVM compiler to boost WebKit JavaScript performance\""
+  },
+  {
+   "role": "link",
+   "name": "Ars Technica"
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Jump up"
+  },
+  {
+   "role": "link",
+   "name": "\"Introducing the B3 JIT Compiler\""
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "edit"
+  },
+  {
+   "role": "link",
+   "name": "Official website"
+  },
+  {
+   "role": "link",
+   "name": "Edit this at Wikidata"
+  },
+  {
+   "role": "link",
+   "name": "Official website"
+  },
+  {
+   "role": "link",
+   "name": "WebKitGTK"
+  },
+  {
+   "role": "link",
+   "name": "SunSpider 1.0 JavaScript Benchmark"
+  },
+  {
+   "role": "link",
+   "name": "Archived"
+  },
+  {
+   "role": "link",
+   "name": "Wayback Machine"
+  },
+  {
+   "role": "button",
+   "name": "[show]"
+  },
+  {
+   "role": "link",
+   "name": "v"
+  },
+  {
+   "role": "link",
+   "name": "t"
+  },
+  {
+   "role": "link",
+   "name": "e"
+  },
+  {
+   "role": "link",
+   "name": "Browser engines"
+  },
+  {
+   "role": "link",
+   "name": "comparison"
+  },
+  {
+   "role": "button",
+   "name": "[show]"
+  },
+  {
+   "role": "link",
+   "name": "v"
+  },
+  {
+   "role": "link",
+   "name": "t"
+  },
+  {
+   "role": "link",
+   "name": "e"
+  },
+  {
+   "role": "link",
+   "name": "macOS"
+  },
+  {
+   "role": "button",
+   "name": "[show]"
+  },
+  {
+   "role": "link",
+   "name": "v"
+  },
+  {
+   "role": "link",
+   "name": "t"
+  },
+  {
+   "role": "link",
+   "name": "e"
+  },
+  {
+   "role": "link",
+   "name": "ECMAScript"
+  },
+  {
+   "role": "button",
+   "name": "[show]"
+  },
+  {
+   "role": "link",
+   "name": "v"
+  },
+  {
+   "role": "link",
+   "name": "t"
+  },
+  {
+   "role": "link",
+   "name": "e"
+  },
+  {
+   "role": "link",
+   "name": "Widget engines"
+  },
+  {
+   "role": "button",
+   "name": "[show]"
+  },
+  {
+   "role": "link",
+   "name": "v"
+  },
+  {
+   "role": "link",
+   "name": "t"
+  },
+  {
+   "role": "link",
+   "name": "e"
+  },
+  {
+   "role": "link",
+   "name": "Web browsers"
+  },
+  {
+   "role": "link",
+   "name": "Categories"
+  },
+  {
+   "role": "link",
+   "name": "1999 software"
+  },
+  {
+   "role": "link",
+   "name": "2005 software"
+  },
+  {
+   "role": "link",
+   "name": "Apple Inc. developed frameworks"
+  },
+  {
+   "role": "link",
+   "name": "Application programming interfaces"
+  },
+  {
+   "role": "link",
+   "name": "Free layout engines"
+  },
+  {
+   "role": "link",
+   "name": "Free software programmed in C++"
+  },
+  {
+   "role": "link",
+   "name": "Mobile software"
+  },
+  {
+   "role": "link",
+   "name": "Software based on WebKit"
+  },
+  {
+   "role": "link",
+   "name": "Software forks"
+  },
+  {
+   "role": "link",
+   "name": "Software that uses Cairo (graphics)"
+  },
+  {
+   "role": "link",
+   "name": "Software that uses GTK"
+  },
+  {
+   "role": "link",
+   "name": "Software using the BSD license"
+  },
+  {
+   "role": "link",
+   "name": "Parsoid"
+  },
+  {
+   "role": "link",
+   "name": "Creative Commons Attribution-ShareAlike 4.0 License"
+  },
+  {
+   "role": "link",
+   "name": "Terms of Use"
+  },
+  {
+   "role": "link",
+   "name": "Privacy Policy"
+  },
+  {
+   "role": "link",
+   "name": "Wikimedia Foundation, Inc."
+  },
+  {
+   "role": "link",
+   "name": "Privacy policy"
+  },
+  {
+   "role": "link",
+   "name": "About Wikipedia"
+  },
+  {
+   "role": "link",
+   "name": "Disclaimers"
+  },
+  {
+   "role": "link",
+   "name": "Contact Wikipedia"
+  },
+  {
+   "role": "link",
+   "name": "Legal & safety contacts"
+  },
+  {
+   "role": "link",
+   "name": "Code of Conduct"
+  },
+  {
+   "role": "link",
+   "name": "Developers"
+  },
+  {
+   "role": "link",
+   "name": "Statistics"
+  },
+  {
+   "role": "link",
+   "name": "Cookie statement"
+  },
+  {
+   "role": "link",
+   "name": "Mobile view"
+  },
+  {
+   "role": "link",
+   "name": "Wikimedia Foundation"
+  },
+  {
+   "role": "link",
+   "name": "Powered by MediaWiki"
+  }
+ ],
+ "hidden": [
+  "Community portal",
+  "Toggle the table of contents",
+  "Bahasa Indonesia",
+  "Page information",
+  "Get shortened URL",
+  "Switch to legacy parser",
+  "Edit interlanguage links",
+  "Printable version",
+  "In other projects",
+  "Abstract Wikipedia",
+  "Wikimedia Commons",
+  "This page always uses small font size",
+  "The content is as wide as possible for your browser window.",
+  "This page is always in light mode.",
+  "Open source browser engine",
+  ": CS1 maint: deprecated archival service (",
+  "10.6 Snow Leopard",
+  "10.8 Mountain Lion",
+  "10.11 El Capitan",
+  "10.13 High Sierra",
+  "Notification Center",
+  "QuickTime Player",
+  "Interface Builder",
+  "Apple File System",
+  "Apple Push Notification service",
+  "Grand Central Dispatch",
+  "System Integrity Protection",
+  "Uniform Type Identifier",
+  "Universal binary",
+  "Classic Environment",
+  "Google Web Toolkit",
+  "Wakanda Framework",
+  "Douglas Crockford",
+  "Ecma International",
+  "Asynchronous module definition",
+  "JavaScript libraries",
+  "Server-side JavaScript",
+  "JavaScript web frameworks",
+  "Google Desktop gadgets",
+  "Microsoft Gadgets",
+  "Features, standards & protocols",
+  "(uses unnamed Gecko",
+  "Waterfox Classic",
+  "Internet Explorer",
+  "MSN Program Viewer",
+  "IBM Home Page Reader",
+  "Internet Explorer for Mac",
+  "Retrieved from \"",
+  "https://en.wikipedia.org/w/index.php?title=WebKit&oldid=1374995437",
+  "Hidden categories:",
+  "Articles with short description",
+  "Short description matches Wikidata",
+  "Use American English from December 2025",
+  "All Wikipedia articles written in American English",
+  "Use mdy dates from December 2025",
+  "Wikipedia articles in need of updating from July 2015",
+  "All Wikipedia articles in need of updating",
+  "All articles lacking reliable references",
+  "Articles lacking reliable references from October 2025",
+  "CS1 uses Japanese-language script (ja)",
+  "CS1 maint: deprecated archival service",
+  "All articles with incomplete citations",
+  "Articles with incomplete citations from October 2025",
+  "All articles with unsourced statements",
+  "Articles with unsourced statements from February 2014",
+  "Wikipedia articles needing factual verification from October 2025",
+  "Wikipedia articles needing clarification from October 2025",
+  "Articles with unsourced statements from January 2024",
+  "Articles with unsourced statements from May 2021",
+  "All articles needing examples",
+  "Articles needing examples from May 2025",
+  "Official website different in Wikidata and Wikipedia",
+  "Webarchive template wayback links",
+  "Edit preview settings"
+ ],
+ "chromeAiSnapshotBytes": 210081
+}

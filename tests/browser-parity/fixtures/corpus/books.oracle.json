@@ -1,0 +1,423 @@
+{
+ "url": "https://books.toscrape.com/",
+ "interactive": [
+  {
+   "role": "link",
+   "name": "Books to Scrape"
+  },
+  {
+   "role": "link",
+   "name": "Home"
+  },
+  {
+   "role": "link",
+   "name": "Books"
+  },
+  {
+   "role": "link",
+   "name": "Travel"
+  },
+  {
+   "role": "link",
+   "name": "Mystery"
+  },
+  {
+   "role": "link",
+   "name": "Historical Fiction"
+  },
+  {
+   "role": "link",
+   "name": "Sequential Art"
+  },
+  {
+   "role": "link",
+   "name": "Classics"
+  },
+  {
+   "role": "link",
+   "name": "Philosophy"
+  },
+  {
+   "role": "link",
+   "name": "Romance"
+  },
+  {
+   "role": "link",
+   "name": "Womens Fiction"
+  },
+  {
+   "role": "link",
+   "name": "Fiction"
+  },
+  {
+   "role": "link",
+   "name": "Childrens"
+  },
+  {
+   "role": "link",
+   "name": "Religion"
+  },
+  {
+   "role": "link",
+   "name": "Nonfiction"
+  },
+  {
+   "role": "link",
+   "name": "Music"
+  },
+  {
+   "role": "link",
+   "name": "Default"
+  },
+  {
+   "role": "link",
+   "name": "Science Fiction"
+  },
+  {
+   "role": "link",
+   "name": "Sports and Games"
+  },
+  {
+   "role": "link",
+   "name": "Add a comment"
+  },
+  {
+   "role": "link",
+   "name": "Fantasy"
+  },
+  {
+   "role": "link",
+   "name": "New Adult"
+  },
+  {
+   "role": "link",
+   "name": "Young Adult"
+  },
+  {
+   "role": "link",
+   "name": "Science"
+  },
+  {
+   "role": "link",
+   "name": "Poetry"
+  },
+  {
+   "role": "link",
+   "name": "Paranormal"
+  },
+  {
+   "role": "link",
+   "name": "Art"
+  },
+  {
+   "role": "link",
+   "name": "Psychology"
+  },
+  {
+   "role": "link",
+   "name": "Autobiography"
+  },
+  {
+   "role": "link",
+   "name": "Parenting"
+  },
+  {
+   "role": "link",
+   "name": "Adult Fiction"
+  },
+  {
+   "role": "link",
+   "name": "Humor"
+  },
+  {
+   "role": "link",
+   "name": "Horror"
+  },
+  {
+   "role": "link",
+   "name": "History"
+  },
+  {
+   "role": "link",
+   "name": "Food and Drink"
+  },
+  {
+   "role": "link",
+   "name": "Christian Fiction"
+  },
+  {
+   "role": "link",
+   "name": "Business"
+  },
+  {
+   "role": "link",
+   "name": "Biography"
+  },
+  {
+   "role": "link",
+   "name": "Thriller"
+  },
+  {
+   "role": "link",
+   "name": "Contemporary"
+  },
+  {
+   "role": "link",
+   "name": "Spirituality"
+  },
+  {
+   "role": "link",
+   "name": "Academic"
+  },
+  {
+   "role": "link",
+   "name": "Self Help"
+  },
+  {
+   "role": "link",
+   "name": "Historical"
+  },
+  {
+   "role": "link",
+   "name": "Christian"
+  },
+  {
+   "role": "link",
+   "name": "Suspense"
+  },
+  {
+   "role": "link",
+   "name": "Short Stories"
+  },
+  {
+   "role": "link",
+   "name": "Novels"
+  },
+  {
+   "role": "link",
+   "name": "Health"
+  },
+  {
+   "role": "link",
+   "name": "Politics"
+  },
+  {
+   "role": "link",
+   "name": "Cultural"
+  },
+  {
+   "role": "link",
+   "name": "Erotica"
+  },
+  {
+   "role": "link",
+   "name": "Crime"
+  },
+  {
+   "role": "link",
+   "name": "A Light in the Attic"
+  },
+  {
+   "role": "link",
+   "name": "A Light in the ..."
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Tipping the Velvet"
+  },
+  {
+   "role": "link",
+   "name": "Tipping the Velvet"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Soumission"
+  },
+  {
+   "role": "link",
+   "name": "Soumission"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Sharp Objects"
+  },
+  {
+   "role": "link",
+   "name": "Sharp Objects"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "The Requiem Red"
+  },
+  {
+   "role": "link",
+   "name": "The Requiem Red"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "The Dirty Little Secrets of Getting Your Dream Job"
+  },
+  {
+   "role": "link",
+   "name": "The Dirty Little Secrets ..."
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "The Boys in the ..."
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "The Black Maria"
+  },
+  {
+   "role": "link",
+   "name": "The Black Maria"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Starving Hearts (Triangular Trade ..."
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Shakespeare's Sonnets"
+  },
+  {
+   "role": "link",
+   "name": "Shakespeare's Sonnets"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Set Me Free"
+  },
+  {
+   "role": "link",
+   "name": "Set Me Free"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Scott Pilgrim's Precious Little ..."
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Rip it Up and Start Again"
+  },
+  {
+   "role": "link",
+   "name": "Rip it Up and ..."
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Our Band Could Be ..."
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Olio"
+  },
+  {
+   "role": "link",
+   "name": "Olio"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "Libertarianism for Beginners"
+  },
+  {
+   "role": "link",
+   "name": "Libertarianism for Beginners"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "It's Only the Himalayas"
+  },
+  {
+   "role": "link",
+   "name": "It's Only the Himalayas"
+  },
+  {
+   "role": "button",
+   "name": "Add to basket"
+  },
+  {
+   "role": "link",
+   "name": "next"
+  }
+ ],
+ "hidden": [],
+ "chromeAiSnapshotBytes": 35677
+}

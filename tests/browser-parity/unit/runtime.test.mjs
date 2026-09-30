@@ -18,17 +18,18 @@ const { describeKey, splitKeyCombo, MiniURL } = ns.core;
 const { rewriteTopLevel, createReplSession } = ns.replHost;
 const { inspect } = ns.api;
 
-const tree = (nodes, options = {}) => render(options.interactive ? interactiveOnly(shape(nodes, options)) : shape(nodes, options));
+const tree = (nodes, options = {}) => render(options.interactive ? interactiveOnly(shape(nodes, options)) : shape(nodes, options), options);
 
 test("render: states print in a fixed order, then url, placeholder and value", () => {
-  const lines = tree([
+  const nodes = [
     { role: "heading", name: "Sign up", level: 1, children: ["Sign up"] },
     { role: "textbox", name: "Email", ref: "e3", placeholder: "you@x.com", value: "me@x.com", required: true, invalid: true, readonly: true, focused: true },
     { role: "checkbox", name: "Terms", ref: "e4", checked: "mixed", disabled: true },
     { role: "button", name: "Menu", ref: "e5", expanded: false, pressed: true, children: ["Menu"] },
     { role: "link", name: "Home", ref: "e6", url: "/aria.html", children: ["Home"] },
     { role: "generic", name: "Log", ref: "e7", scrollable: 1, hidden: 1, children: ["one", "two"] },
-  ]);
+  ];
+  const lines = tree(nodes, { urls: true });
   assert.deepEqual(lines, [
     '- heading "Sign up" [level=1]',
     '- textbox "Email" [ref=e3] [required] [invalid] [readonly] [focused] [placeholder="you@x.com"]: "me@x.com"',
@@ -39,19 +40,40 @@ test("render: states print in a fixed order, then url, placeholder and value", (
     '  - text: "one"',
     '  - text: "two"',
   ]);
+  // Link URLs print only on request.
+  assert.equal(tree(nodes)[4], '- link "Home" [ref=e6]');
 });
 
 test("shape: text-only rows print as one line with | between cells", () => {
-  const row = (cells) => ({ role: "row", name: cells.map((c) => (typeof c === "string" ? c : c.name)).join(" "), children: cells.map((c) => (typeof c === "string" ? { role: "cell", name: c, children: [c] } : { role: "cell", name: c.name, children: [c] })) });
+  // Rows and cells carry no content names (page-agent names them only from an author label).
+  const row = (cells) => ({ role: "row", children: cells.map((c) => ({ role: "cell", children: [c] })) });
   const lines = tree([{ role: "table", name: "Scores", children: ["Scores", row(["Name", "Score"]), row(["Ada", { role: "button", name: "Edit", ref: "e9", children: ["Edit"] }])] }]);
   assert.deepEqual(lines, [
     '- table "Scores":',
     '  - row: "Name | Score"',
     "  - row:",
-    '    - cell "Ada"',
-    "    - cell:",
-    '      - button "Edit" [ref=e9]',
+    '    - cell: "Ada"',
+    '    - button "Edit" [ref=e9]',
   ]);
+});
+
+test("shape: structure with nothing in it, or around one element, is not printed", () => {
+  assert.deepEqual(tree([{ role: "list", children: [] }, { role: "listitem" }, { role: "separator" }]), ["- separator"]);
+  assert.deepEqual(tree([{ role: "list", children: [{ role: "listitem", children: [{ role: "link", name: "A", ref: "e1", children: ["A"] }] }, { role: "listitem", children: ["Plain"] }] }]),
+    ["- list:", '  - link "A" [ref=e1]', '  - listitem: "Plain"']);
+  assert.deepEqual(tree([{ role: "navigation", children: [{ role: "navigation", children: [{ role: "link", name: "A", ref: "e1", children: ["A"] }] }] }]),
+    ["- navigation:", '  - link "A" [ref=e1]']);
+});
+
+test("shape: long names print as content, and printed names are capped", () => {
+  const long = "word ".repeat(50).trim();
+  assert.deepEqual(tree([{ role: "link", name: long, ref: "e1", children: [long] }]), [`- link [ref=e1]: ${JSON.stringify(long)}`]);
+  const mid = "x".repeat(150);
+  assert.deepEqual(tree([{ role: "link", name: mid, ref: "e2", children: [mid] }]), [`- link ${JSON.stringify(mid)} [ref=e2]`]);
+  assert.deepEqual(tree([{ role: "img", name: mid }]), [`- img ${JSON.stringify("x".repeat(99) + "…")}`]);
+  // A lone text the name already says is dropped; zero-width spaces do not count.
+  assert.deepEqual(tree([{ role: "link", name: "docs, (Directory)", ref: "e3", children: ["docs"] }]), ['- link "docs, (Directory)" [ref=e3]']);
+  assert.deepEqual(tree([{ role: "link", name: "Blog (external)", ref: "e4", children: ["Blog \u200b(external)"] }]), ['- link "Blog (external)" [ref=e4]']);
 });
 
 test("shape: a name that repeats the children keeps one copy", () => {

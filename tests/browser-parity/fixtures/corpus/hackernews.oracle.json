@@ -1,0 +1,871 @@
+{
+ "url": "https://news.ycombinator.com/",
+ "interactive": [
+  {
+   "role": "link",
+   "name": ""
+  },
+  {
+   "role": "link",
+   "name": "Hacker News"
+  },
+  {
+   "role": "link",
+   "name": "new"
+  },
+  {
+   "role": "link",
+   "name": "past"
+  },
+  {
+   "role": "link",
+   "name": "comments"
+  },
+  {
+   "role": "link",
+   "name": "ask"
+  },
+  {
+   "role": "link",
+   "name": "show"
+  },
+  {
+   "role": "link",
+   "name": "jobs"
+  },
+  {
+   "role": "link",
+   "name": "submit"
+  },
+  {
+   "role": "link",
+   "name": "login"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "github.com/ninjahawk"
+  },
+  {
+   "role": "link",
+   "name": "bryan0"
+  },
+  {
+   "role": "link",
+   "name": "5 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "143 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "U.S. postal inspectors shut down website selling counterfeit postage labels"
+  },
+  {
+   "role": "link",
+   "name": "postalemployeenetwork.com"
+  },
+  {
+   "role": "link",
+   "name": "ilamont"
+  },
+  {
+   "role": "link",
+   "name": "8 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "113 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "America.gov"
+  },
+  {
+   "role": "link",
+   "name": "america.gov"
+  },
+  {
+   "role": "link",
+   "name": "plesiv"
+  },
+  {
+   "role": "link",
+   "name": "13 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "347 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "bl2.net"
+  },
+  {
+   "role": "link",
+   "name": "wanick"
+  },
+  {
+   "role": "link",
+   "name": "8 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "35 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Strange Parodies of Atari 2600 Video Game Box Cover Art (2008)"
+  },
+  {
+   "role": "link",
+   "name": "mightygodking.com"
+  },
+  {
+   "role": "link",
+   "name": "peter_d_sherman"
+  },
+  {
+   "role": "link",
+   "name": "2 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "3 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "github.com/sparticle62ops"
+  },
+  {
+   "role": "link",
+   "name": "sparticle62"
+  },
+  {
+   "role": "link",
+   "name": "28 minutes ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "discuss"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "openai.com"
+  },
+  {
+   "role": "link",
+   "name": "crorella"
+  },
+  {
+   "role": "link",
+   "name": "10 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "756 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "How Delhi cut electricity loss from 50 to 5 percent"
+  },
+  {
+   "role": "link",
+   "name": "ieee.org"
+  },
+  {
+   "role": "link",
+   "name": "rbanffy"
+  },
+  {
+   "role": "link",
+   "name": "15 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "268 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "PS5 Relapse Exploit"
+  },
+  {
+   "role": "link",
+   "name": "github.com/ntfargo"
+  },
+  {
+   "role": "link",
+   "name": "therepanic"
+  },
+  {
+   "role": "link",
+   "name": "12 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "139 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "sebastianraschka.com"
+  },
+  {
+   "role": "link",
+   "name": "Anon84"
+  },
+  {
+   "role": "link",
+   "name": "6 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "1 comment"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Backblaze drive stats for Q2 2026"
+  },
+  {
+   "role": "link",
+   "name": "backblaze.com"
+  },
+  {
+   "role": "link",
+   "name": "HieronymusBosch"
+  },
+  {
+   "role": "link",
+   "name": "11 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "22 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "jagi.studio"
+  },
+  {
+   "role": "link",
+   "name": "evakhoury"
+  },
+  {
+   "role": "link",
+   "name": "1 day ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "45 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Needed 1+1, built a functional programming language"
+  },
+  {
+   "role": "link",
+   "name": "hereticpleb.vercel.app"
+  },
+  {
+   "role": "link",
+   "name": "birdculture"
+  },
+  {
+   "role": "link",
+   "name": "5 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "14 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Remembering the Chicago Pile, the First Nuclear Reactor"
+  },
+  {
+   "role": "link",
+   "name": "newyorker.com"
+  },
+  {
+   "role": "link",
+   "name": "conorcleary"
+  },
+  {
+   "role": "link",
+   "name": "2 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "1 comment"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "somethingbig.ai"
+  },
+  {
+   "role": "link",
+   "name": "rossant"
+  },
+  {
+   "role": "link",
+   "name": "10 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "62 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "We’re forgetting what darkness feels like"
+  },
+  {
+   "role": "link",
+   "name": "theguardian.com"
+  },
+  {
+   "role": "link",
+   "name": "pseudolus"
+  },
+  {
+   "role": "link",
+   "name": "5 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "54 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "enigma.design"
+  },
+  {
+   "role": "link",
+   "name": "primitivesuave"
+  },
+  {
+   "role": "link",
+   "name": "6 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "12 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "gamesexplained.com"
+  },
+  {
+   "role": "link",
+   "name": "a1r"
+  },
+  {
+   "role": "link",
+   "name": "7 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "6 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "frostyard.github.io"
+  },
+  {
+   "role": "link",
+   "name": "bketelsen"
+  },
+  {
+   "role": "link",
+   "name": "12 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "70 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "A Staff Engineer's Guide to Inventing Work"
+  },
+  {
+   "role": "link",
+   "name": "sujithjay.com"
+  },
+  {
+   "role": "link",
+   "name": "amortize"
+  },
+  {
+   "role": "link",
+   "name": "15 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "44 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "pocoo.org"
+  },
+  {
+   "role": "link",
+   "name": "tosh"
+  },
+  {
+   "role": "link",
+   "name": "6 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "6 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "dan-bailey"
+  },
+  {
+   "role": "link",
+   "name": "12 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "422 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Tcl/Tk 9.1"
+  },
+  {
+   "role": "link",
+   "name": "tcl-lang.org"
+  },
+  {
+   "role": "link",
+   "name": "dmux"
+  },
+  {
+   "role": "link",
+   "name": "10 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "91 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Stuck in the Suez Canal – the short version (2021)"
+  },
+  {
+   "role": "link",
+   "name": "cathsenker.co.uk"
+  },
+  {
+   "role": "link",
+   "name": "joebig"
+  },
+  {
+   "role": "link",
+   "name": "8 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "5 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Vermont replacing power plants with home batteries"
+  },
+  {
+   "role": "link",
+   "name": "bbc.com"
+  },
+  {
+   "role": "link",
+   "name": "devonnull"
+  },
+  {
+   "role": "link",
+   "name": "6 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "104 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Everybody’s home. No one’s coming over"
+  },
+  {
+   "role": "link",
+   "name": "derekthompson.org"
+  },
+  {
+   "role": "link",
+   "name": "barry-cotter"
+  },
+  {
+   "role": "link",
+   "name": "16 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "684 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "openai.com"
+  },
+  {
+   "role": "link",
+   "name": "alvis"
+  },
+  {
+   "role": "link",
+   "name": "10 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "360 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Sustainable energy without the hot air (2008)"
+  },
+  {
+   "role": "link",
+   "name": "withouthotair.com"
+  },
+  {
+   "role": "link",
+   "name": "0sake_rs"
+  },
+  {
+   "role": "link",
+   "name": "15 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "80 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "Building a certificate authority for the whole Internet"
+  },
+  {
+   "role": "link",
+   "name": "cloudflare.com"
+  },
+  {
+   "role": "link",
+   "name": "ewpratten"
+  },
+  {
+   "role": "link",
+   "name": "9 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "21 comments"
+  },
+  {
+   "role": "link",
+   "name": "upvote"
+  },
+  {
+   "role": "link",
+   "name": "How our vibe coded website looks like a designer made it"
+  },
+  {
+   "role": "link",
+   "name": "railcode.dev"
+  },
+  {
+   "role": "link",
+   "name": "yakkomajuri"
+  },
+  {
+   "role": "link",
+   "name": "4 hours ago"
+  },
+  {
+   "role": "link",
+   "name": "hide"
+  },
+  {
+   "role": "link",
+   "name": "50 comments"
+  },
+  {
+   "role": "link",
+   "name": "More"
+  },
+  {
+   "role": "link",
+   "name": "Guidelines"
+  },
+  {
+   "role": "link",
+   "name": "FAQ"
+  },
+  {
+   "role": "link",
+   "name": "Lists"
+  },
+  {
+   "role": "link",
+   "name": "API"
+  },
+  {
+   "role": "link",
+   "name": "Security"
+  },
+  {
+   "role": "link",
+   "name": "Legal"
+  },
+  {
+   "role": "link",
+   "name": "Apply to YC"
+  },
+  {
+   "role": "link",
+   "name": "Contact"
+  },
+  {
+   "role": "textbox",
+   "name": ""
+  }
+ ],
+ "hidden": [],
+ "chromeAiSnapshotBytes": 62999
+}

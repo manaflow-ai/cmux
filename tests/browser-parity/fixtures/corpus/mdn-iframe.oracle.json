@@ -1,0 +1,1822 @@
+{
+ "url": "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe",
+ "interactive": [
+  {
+   "role": "link",
+   "name": "Skip to main content"
+  },
+  {
+   "role": "link",
+   "name": "Skip to search"
+  },
+  {
+   "role": "link",
+   "name": "MDN"
+  },
+  {
+   "role": "button",
+   "name": "HTML"
+  },
+  {
+   "role": "link",
+   "name": "Elements"
+  },
+  {
+   "role": "link",
+   "name": "Global attributes"
+  },
+  {
+   "role": "link",
+   "name": "Attributes"
+  },
+  {
+   "role": "link",
+   "name": "See all HTML references"
+  },
+  {
+   "role": "link",
+   "name": "Responsive images"
+  },
+  {
+   "role": "link",
+   "name": "HTML cheatsheet"
+  },
+  {
+   "role": "link",
+   "name": "Date & time formats"
+  },
+  {
+   "role": "link",
+   "name": "See all HTML guides"
+  },
+  {
+   "role": "link",
+   "name": "SVG"
+  },
+  {
+   "role": "link",
+   "name": "MathML"
+  },
+  {
+   "role": "link",
+   "name": "XML"
+  },
+  {
+   "role": "button",
+   "name": "CSS"
+  },
+  {
+   "role": "link",
+   "name": "Properties"
+  },
+  {
+   "role": "link",
+   "name": "Selectors"
+  },
+  {
+   "role": "link",
+   "name": "At-rules"
+  },
+  {
+   "role": "link",
+   "name": "Values"
+  },
+  {
+   "role": "link",
+   "name": "See all CSS references"
+  },
+  {
+   "role": "link",
+   "name": "Box model"
+  },
+  {
+   "role": "link",
+   "name": "Animations"
+  },
+  {
+   "role": "link",
+   "name": "Flexbox"
+  },
+  {
+   "role": "link",
+   "name": "Colors"
+  },
+  {
+   "role": "link",
+   "name": "See all CSS guides"
+  },
+  {
+   "role": "link",
+   "name": "Column layouts"
+  },
+  {
+   "role": "link",
+   "name": "Centering an element"
+  },
+  {
+   "role": "link",
+   "name": "Card component"
+  },
+  {
+   "role": "link",
+   "name": "See all…"
+  },
+  {
+   "role": "button",
+   "name": "JavaScript"
+  },
+  {
+   "role": "link",
+   "name": "Standard built-in objects"
+  },
+  {
+   "role": "link",
+   "name": "Expressions & operators"
+  },
+  {
+   "role": "link",
+   "name": "Statements & declarations"
+  },
+  {
+   "role": "link",
+   "name": "Functions"
+  },
+  {
+   "role": "link",
+   "name": "See all JavaScript references"
+  },
+  {
+   "role": "link",
+   "name": "Control flow & error handling"
+  },
+  {
+   "role": "link",
+   "name": "Loops and iteration"
+  },
+  {
+   "role": "link",
+   "name": "Working with objects"
+  },
+  {
+   "role": "link",
+   "name": "Using classes"
+  },
+  {
+   "role": "link",
+   "name": "See all JavaScript guides"
+  },
+  {
+   "role": "button",
+   "name": "Web APIs"
+  },
+  {
+   "role": "link",
+   "name": "File system API"
+  },
+  {
+   "role": "link",
+   "name": "Fetch API"
+  },
+  {
+   "role": "link",
+   "name": "Geolocation API"
+  },
+  {
+   "role": "link",
+   "name": "HTML DOM API"
+  },
+  {
+   "role": "link",
+   "name": "Push API"
+  },
+  {
+   "role": "link",
+   "name": "Service worker API"
+  },
+  {
+   "role": "link",
+   "name": "See all Web API guides"
+  },
+  {
+   "role": "link",
+   "name": "Using the Web animation API"
+  },
+  {
+   "role": "link",
+   "name": "Using the Fetch API"
+  },
+  {
+   "role": "link",
+   "name": "Working with the History API"
+  },
+  {
+   "role": "link",
+   "name": "Using the Web speech API"
+  },
+  {
+   "role": "link",
+   "name": "Using web workers"
+  },
+  {
+   "role": "button",
+   "name": "All"
+  },
+  {
+   "role": "link",
+   "name": "All web technology"
+  },
+  {
+   "role": "link",
+   "name": "Accessibility"
+  },
+  {
+   "role": "link",
+   "name": "HTTP"
+  },
+  {
+   "role": "link",
+   "name": "URI"
+  },
+  {
+   "role": "link",
+   "name": "Web extensions"
+  },
+  {
+   "role": "link",
+   "name": "WebAssembly"
+  },
+  {
+   "role": "link",
+   "name": "WebDriver"
+  },
+  {
+   "role": "link",
+   "name": "See all web technology references"
+  },
+  {
+   "role": "link",
+   "name": "Media"
+  },
+  {
+   "role": "link",
+   "name": "Performance"
+  },
+  {
+   "role": "link",
+   "name": "Privacy"
+  },
+  {
+   "role": "link",
+   "name": "Security"
+  },
+  {
+   "role": "link",
+   "name": "Progressive web apps"
+  },
+  {
+   "role": "button",
+   "name": "Learn"
+  },
+  {
+   "role": "link",
+   "name": "Learn web development"
+  },
+  {
+   "role": "link",
+   "name": "Getting started modules"
+  },
+  {
+   "role": "link",
+   "name": "Core modules"
+  },
+  {
+   "role": "link",
+   "name": "MDN Curriculum"
+  },
+  {
+   "role": "link",
+   "name": "Check out the video course from Scrimba, our partner (external)"
+  },
+  {
+   "role": "link",
+   "name": "Structuring content with HTML module"
+  },
+  {
+   "role": "link",
+   "name": "CSS styling basics module"
+  },
+  {
+   "role": "link",
+   "name": "CSS layout module"
+  },
+  {
+   "role": "link",
+   "name": "Dynamic scripting with JavaScript module"
+  },
+  {
+   "role": "button",
+   "name": "Tools"
+  },
+  {
+   "role": "link",
+   "name": "Playground"
+  },
+  {
+   "role": "link",
+   "name": "HTTP Observatory"
+  },
+  {
+   "role": "link",
+   "name": "Border-image generator"
+  },
+  {
+   "role": "link",
+   "name": "Border-radius generator"
+  },
+  {
+   "role": "link",
+   "name": "Box-shadow generator"
+  },
+  {
+   "role": "link",
+   "name": "Color format converter"
+  },
+  {
+   "role": "link",
+   "name": "Color mixer"
+  },
+  {
+   "role": "link",
+   "name": "Shape generator"
+  },
+  {
+   "role": "button",
+   "name": "About"
+  },
+  {
+   "role": "link",
+   "name": "About MDN"
+  },
+  {
+   "role": "link",
+   "name": "Advertise with us"
+  },
+  {
+   "role": "link",
+   "name": "Community"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub (external)"
+  },
+  {
+   "role": "link",
+   "name": "Blog"
+  },
+  {
+   "role": "link",
+   "name": "Web"
+  },
+  {
+   "role": "link",
+   "name": "HTML"
+  },
+  {
+   "role": "link",
+   "name": "Reference"
+  },
+  {
+   "role": "link",
+   "name": "Elements"
+  },
+  {
+   "role": "link",
+   "name": "<iframe>"
+  },
+  {
+   "role": "link",
+   "name": "HTML"
+  },
+  {
+   "role": "link",
+   "name": "browsing context"
+  },
+  {
+   "role": "link",
+   "name": "Try it"
+  },
+  {
+   "role": "link",
+   "name": "Attributes"
+  },
+  {
+   "role": "link",
+   "name": "Usage notes"
+  },
+  {
+   "role": "link",
+   "name": "Accessibility"
+  },
+  {
+   "role": "link",
+   "name": "Examples"
+  },
+  {
+   "role": "link",
+   "name": "Technical summary"
+  },
+  {
+   "role": "link",
+   "name": "Specifications"
+  },
+  {
+   "role": "link",
+   "name": "Browser compatibility"
+  },
+  {
+   "role": "link",
+   "name": "See also"
+  },
+  {
+   "role": "link",
+   "name": "Try it"
+  },
+  {
+   "role": "link",
+   "name": "document"
+  },
+  {
+   "role": "link",
+   "name": "session history"
+  },
+  {
+   "role": "link",
+   "name": "Window"
+  },
+  {
+   "role": "link",
+   "name": "Attributes"
+  },
+  {
+   "role": "link",
+   "name": "global attributes"
+  },
+  {
+   "role": "link",
+   "name": "allow"
+  },
+  {
+   "role": "link",
+   "name": "Permissions Policy"
+  },
+  {
+   "role": "link",
+   "name": "iframes"
+  },
+  {
+   "role": "link",
+   "name": "Permissions-Policy"
+  },
+  {
+   "role": "link",
+   "name": "allowfullscreen"
+  },
+  {
+   "role": "link",
+   "name": "requestFullscreen()"
+  },
+  {
+   "role": "link",
+   "name": "allowpaymentrequest Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "Payment Request API"
+  },
+  {
+   "role": "link",
+   "name": "browsingtopics Non-standard Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "credentialless Experimental"
+  },
+  {
+   "role": "link",
+   "name": "Cross-Origin-Embedder-Policy"
+  },
+  {
+   "role": "link",
+   "name": "IFrame credentialless"
+  },
+  {
+   "role": "link",
+   "name": "csp Experimental"
+  },
+  {
+   "role": "link",
+   "name": "Content Security Policy"
+  },
+  {
+   "role": "link",
+   "name": "HTMLIFrameElement.csp"
+  },
+  {
+   "role": "link",
+   "name": "height"
+  },
+  {
+   "role": "link",
+   "name": "loading"
+  },
+  {
+   "role": "link",
+   "name": "eager"
+  },
+  {
+   "role": "link",
+   "name": "lazy"
+  },
+  {
+   "role": "link",
+   "name": "visual viewport"
+  },
+  {
+   "role": "link",
+   "name": "name"
+  },
+  {
+   "role": "link",
+   "name": "<a>"
+  },
+  {
+   "role": "link",
+   "name": "<form>"
+  },
+  {
+   "role": "link",
+   "name": "<base>"
+  },
+  {
+   "role": "link",
+   "name": "<input>"
+  },
+  {
+   "role": "link",
+   "name": "<button>"
+  },
+  {
+   "role": "link",
+   "name": "window.open()"
+  },
+  {
+   "role": "link",
+   "name": "Window"
+  },
+  {
+   "role": "link",
+   "name": "Document"
+  },
+  {
+   "role": "link",
+   "name": "privateToken Experimental"
+  },
+  {
+   "role": "link",
+   "name": "private state token"
+  },
+  {
+   "role": "link",
+   "name": "privateToken"
+  },
+  {
+   "role": "link",
+   "name": "referrerpolicy"
+  },
+  {
+   "role": "link",
+   "name": "referrer"
+  },
+  {
+   "role": "link",
+   "name": "no-referrer"
+  },
+  {
+   "role": "link",
+   "name": "Referer"
+  },
+  {
+   "role": "link",
+   "name": "no-referrer-when-downgrade"
+  },
+  {
+   "role": "link",
+   "name": "Referer"
+  },
+  {
+   "role": "link",
+   "name": "origin"
+  },
+  {
+   "role": "link",
+   "name": "TLS"
+  },
+  {
+   "role": "link",
+   "name": "HTTPS"
+  },
+  {
+   "role": "link",
+   "name": "origin"
+  },
+  {
+   "role": "link",
+   "name": "scheme"
+  },
+  {
+   "role": "link",
+   "name": "host"
+  },
+  {
+   "role": "link",
+   "name": "port"
+  },
+  {
+   "role": "link",
+   "name": "origin-when-cross-origin"
+  },
+  {
+   "role": "link",
+   "name": "same-origin"
+  },
+  {
+   "role": "link",
+   "name": "same origin"
+  },
+  {
+   "role": "link",
+   "name": "strict-origin"
+  },
+  {
+   "role": "link",
+   "name": "strict-origin-when-cross-origin (default)"
+  },
+  {
+   "role": "link",
+   "name": "unsafe-url"
+  },
+  {
+   "role": "link",
+   "name": "fragment"
+  },
+  {
+   "role": "link",
+   "name": "password"
+  },
+  {
+   "role": "link",
+   "name": "username"
+  },
+  {
+   "role": "link",
+   "name": "sandbox"
+  },
+  {
+   "role": "link",
+   "name": "allow-downloads"
+  },
+  {
+   "role": "link",
+   "name": "<a>"
+  },
+  {
+   "role": "link",
+   "name": "<area>"
+  },
+  {
+   "role": "link",
+   "name": "download"
+  },
+  {
+   "role": "link",
+   "name": "allow-forms"
+  },
+  {
+   "role": "link",
+   "name": "allow-modals"
+  },
+  {
+   "role": "link",
+   "name": "Window.alert()"
+  },
+  {
+   "role": "link",
+   "name": "Window.confirm()"
+  },
+  {
+   "role": "link",
+   "name": "Window.print()"
+  },
+  {
+   "role": "link",
+   "name": "Window.prompt()"
+  },
+  {
+   "role": "link",
+   "name": "<dialog>"
+  },
+  {
+   "role": "link",
+   "name": "BeforeUnloadEvent"
+  },
+  {
+   "role": "link",
+   "name": "allow-orientation-lock"
+  },
+  {
+   "role": "link",
+   "name": "lock the screen orientation"
+  },
+  {
+   "role": "link",
+   "name": "allow-pointer-lock"
+  },
+  {
+   "role": "link",
+   "name": "Pointer Lock API"
+  },
+  {
+   "role": "link",
+   "name": "allow-popups"
+  },
+  {
+   "role": "link",
+   "name": "Window.open()"
+  },
+  {
+   "role": "link",
+   "name": "allow-popups-to-escape-sandbox"
+  },
+  {
+   "role": "link",
+   "name": "allow-presentation"
+  },
+  {
+   "role": "link",
+   "name": "presentation session"
+  },
+  {
+   "role": "link",
+   "name": "allow-same-origin"
+  },
+  {
+   "role": "link",
+   "name": "same-origin policy"
+  },
+  {
+   "role": "link",
+   "name": "data storage/cookies"
+  },
+  {
+   "role": "link",
+   "name": "allow-scripts"
+  },
+  {
+   "role": "link",
+   "name": "allow-storage-access-by-user-activation Experimental"
+  },
+  {
+   "role": "link",
+   "name": "Storage Access API"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation-by-user-activation"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation-to-custom-protocols"
+  },
+  {
+   "role": "link",
+   "name": "registered by a website"
+  },
+  {
+   "role": "link",
+   "name": "Embedding PDFs"
+  },
+  {
+   "role": "link",
+   "name": "src"
+  },
+  {
+   "role": "link",
+   "name": "same-origin policy"
+  },
+  {
+   "role": "link",
+   "name": "Element.removeAttribute()"
+  },
+  {
+   "role": "link",
+   "name": "srcdoc"
+  },
+  {
+   "role": "link",
+   "name": "width"
+  },
+  {
+   "role": "link",
+   "name": "Deprecated attributes"
+  },
+  {
+   "role": "link",
+   "name": "align Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "frameborder Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "border"
+  },
+  {
+   "role": "link",
+   "name": "longdesc Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "marginheight Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "marginwidth Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "scrolling Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "auto"
+  },
+  {
+   "role": "link",
+   "name": "yes"
+  },
+  {
+   "role": "link",
+   "name": "no"
+  },
+  {
+   "role": "link",
+   "name": "Usage notes"
+  },
+  {
+   "role": "link",
+   "name": "Scripting"
+  },
+  {
+   "role": "link",
+   "name": "<frame>"
+  },
+  {
+   "role": "link",
+   "name": "window.frames"
+  },
+  {
+   "role": "link",
+   "name": "HTMLIFrameElement"
+  },
+  {
+   "role": "link",
+   "name": "window"
+  },
+  {
+   "role": "link",
+   "name": "contentWindow"
+  },
+  {
+   "role": "link",
+   "name": "contentDocument"
+  },
+  {
+   "role": "link",
+   "name": "window.parent"
+  },
+  {
+   "role": "link",
+   "name": "same-origin policy"
+  },
+  {
+   "role": "link",
+   "name": "Window.postMessage()"
+  },
+  {
+   "role": "link",
+   "name": "Window.top"
+  },
+  {
+   "role": "link",
+   "name": "window.top.location"
+  },
+  {
+   "role": "link",
+   "name": "sticky activation"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation-by-user-activation"
+  },
+  {
+   "role": "link",
+   "name": "Embedding PDFs"
+  },
+  {
+   "role": "link",
+   "name": "<object>"
+  },
+  {
+   "role": "link",
+   "name": "sandbox"
+  },
+  {
+   "role": "link",
+   "name": "Positioning and scaling"
+  },
+  {
+   "role": "link",
+   "name": "replaced element"
+  },
+  {
+   "role": "link",
+   "name": "object-position"
+  },
+  {
+   "role": "link",
+   "name": "object-fit"
+  },
+  {
+   "role": "link",
+   "name": "error and load event behavior"
+  },
+  {
+   "role": "link",
+   "name": "error"
+  },
+  {
+   "role": "link",
+   "name": "load"
+  },
+  {
+   "role": "link",
+   "name": "Responsive <iframe> sizing"
+  },
+  {
+   "role": "link",
+   "name": "<meta name=\"responsive-embedded-sizing\">"
+  },
+  {
+   "role": "link",
+   "name": "frame-sizing"
+  },
+  {
+   "role": "link",
+   "name": "Window.requestResize()"
+  },
+  {
+   "role": "link",
+   "name": "Accessibility"
+  },
+  {
+   "role": "link",
+   "name": "title attribute"
+  },
+  {
+   "role": "link",
+   "name": "Examples"
+  },
+  {
+   "role": "link",
+   "name": "A basic <iframe>"
+  },
+  {
+   "role": "link",
+   "name": "https://example.org (external)"
+  },
+  {
+   "role": "link",
+   "name": "try it"
+  },
+  {
+   "role": "link",
+   "name": "Embedding source code in an <iframe>"
+  },
+  {
+   "role": "link",
+   "name": "Technical summary"
+  },
+  {
+   "role": "link",
+   "name": "Content categories"
+  },
+  {
+   "role": "link",
+   "name": "Flow content"
+  },
+  {
+   "role": "link",
+   "name": "phrasing content"
+  },
+  {
+   "role": "link",
+   "name": "No corresponding role (external)"
+  },
+  {
+   "role": "link",
+   "name": "application"
+  },
+  {
+   "role": "link",
+   "name": "document"
+  },
+  {
+   "role": "link",
+   "name": "img"
+  },
+  {
+   "role": "link",
+   "name": "none"
+  },
+  {
+   "role": "link",
+   "name": "presentation"
+  },
+  {
+   "role": "link",
+   "name": "HTMLIFrameElement"
+  },
+  {
+   "role": "link",
+   "name": "Specifications"
+  },
+  {
+   "role": "link",
+   "name": "Browser compatibility"
+  },
+  {
+   "role": "link",
+   "name": "See also"
+  },
+  {
+   "role": "link",
+   "name": "Privacy, permissions, and information security"
+  },
+  {
+   "role": "link",
+   "name": "Local network access"
+  },
+  {
+   "role": "link",
+   "name": "Learn how to contribute"
+  },
+  {
+   "role": "link",
+   "name": "MDN contributors"
+  },
+  {
+   "role": "link",
+   "name": "View this page on GitHub (external)"
+  },
+  {
+   "role": "link",
+   "name": "Report a problem with this content (external)"
+  },
+  {
+   "role": "link",
+   "name": "HTML"
+  },
+  {
+   "role": "link",
+   "name": "Guides"
+  },
+  {
+   "role": "link",
+   "name": "How to"
+  },
+  {
+   "role": "link",
+   "name": "Define terms with HTML"
+  },
+  {
+   "role": "link",
+   "name": "Use data attributes"
+  },
+  {
+   "role": "link",
+   "name": "Use cross-origin images"
+  },
+  {
+   "role": "link",
+   "name": "Add a hitmap on top of an image"
+  },
+  {
+   "role": "link",
+   "name": "Author fast-loading HTML pages"
+  },
+  {
+   "role": "link",
+   "name": "Add JavaScript"
+  },
+  {
+   "role": "link",
+   "name": "Reference"
+  },
+  {
+   "role": "link",
+   "name": "Elements"
+  },
+  {
+   "role": "link",
+   "name": "<a>"
+  },
+  {
+   "role": "link",
+   "name": "<abbr>"
+  },
+  {
+   "role": "link",
+   "name": "<acronym> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<address>"
+  },
+  {
+   "role": "link",
+   "name": "<area>"
+  },
+  {
+   "role": "link",
+   "name": "<article>"
+  },
+  {
+   "role": "link",
+   "name": "<aside>"
+  },
+  {
+   "role": "link",
+   "name": "<audio>"
+  },
+  {
+   "role": "link",
+   "name": "<b>"
+  },
+  {
+   "role": "link",
+   "name": "<base>"
+  },
+  {
+   "role": "link",
+   "name": "<bdi>"
+  },
+  {
+   "role": "link",
+   "name": "<bdo>"
+  },
+  {
+   "role": "link",
+   "name": "<big> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<blockquote>"
+  },
+  {
+   "role": "link",
+   "name": "<body>"
+  },
+  {
+   "role": "link",
+   "name": "<br>"
+  },
+  {
+   "role": "link",
+   "name": "<button>"
+  },
+  {
+   "role": "link",
+   "name": "<canvas>"
+  },
+  {
+   "role": "link",
+   "name": "<caption>"
+  },
+  {
+   "role": "link",
+   "name": "<center> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<cite>"
+  },
+  {
+   "role": "link",
+   "name": "<code>"
+  },
+  {
+   "role": "link",
+   "name": "<col>"
+  },
+  {
+   "role": "link",
+   "name": "<colgroup>"
+  },
+  {
+   "role": "link",
+   "name": "<data>"
+  },
+  {
+   "role": "link",
+   "name": "<datalist>"
+  },
+  {
+   "role": "link",
+   "name": "<dd>"
+  },
+  {
+   "role": "link",
+   "name": "<del>"
+  },
+  {
+   "role": "link",
+   "name": "<details>"
+  },
+  {
+   "role": "link",
+   "name": "<dfn>"
+  },
+  {
+   "role": "link",
+   "name": "<dialog>"
+  },
+  {
+   "role": "link",
+   "name": "<dir> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<div>"
+  },
+  {
+   "role": "link",
+   "name": "<dl>"
+  },
+  {
+   "role": "link",
+   "name": "<dt>"
+  },
+  {
+   "role": "link",
+   "name": "<em>"
+  },
+  {
+   "role": "link",
+   "name": "<embed>"
+  },
+  {
+   "role": "link",
+   "name": "<fencedframe> Deprecated, pending removal"
+  },
+  {
+   "role": "link",
+   "name": "<fieldset>"
+  },
+  {
+   "role": "link",
+   "name": "<figcaption>"
+  },
+  {
+   "role": "link",
+   "name": "<figure>"
+  },
+  {
+   "role": "link",
+   "name": "<font> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<footer>"
+  },
+  {
+   "role": "link",
+   "name": "<form>"
+  },
+  {
+   "role": "link",
+   "name": "<frame> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<frameset> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<geolocation> Experimental"
+  },
+  {
+   "role": "link",
+   "name": "<h1>–<h6>"
+  },
+  {
+   "role": "link",
+   "name": "<head>"
+  },
+  {
+   "role": "link",
+   "name": "<header>"
+  },
+  {
+   "role": "link",
+   "name": "<hgroup>"
+  },
+  {
+   "role": "link",
+   "name": "<hr>"
+  },
+  {
+   "role": "link",
+   "name": "<html>"
+  },
+  {
+   "role": "link",
+   "name": "<i>"
+  },
+  {
+   "role": "link",
+   "name": "<iframe>"
+  },
+  {
+   "role": "link",
+   "name": "<img>"
+  },
+  {
+   "role": "link",
+   "name": "<input>"
+  },
+  {
+   "role": "link",
+   "name": "<ins>"
+  },
+  {
+   "role": "link",
+   "name": "<kbd>"
+  },
+  {
+   "role": "link",
+   "name": "<label>"
+  },
+  {
+   "role": "link",
+   "name": "<legend>"
+  },
+  {
+   "role": "link",
+   "name": "<li>"
+  },
+  {
+   "role": "link",
+   "name": "<link>"
+  },
+  {
+   "role": "link",
+   "name": "<main>"
+  },
+  {
+   "role": "link",
+   "name": "<map>"
+  },
+  {
+   "role": "link",
+   "name": "<mark>"
+  },
+  {
+   "role": "link",
+   "name": "<marquee> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<menu>"
+  },
+  {
+   "role": "link",
+   "name": "<meta>"
+  },
+  {
+   "role": "link",
+   "name": "<meter>"
+  },
+  {
+   "role": "link",
+   "name": "<nav>"
+  },
+  {
+   "role": "link",
+   "name": "<nobr> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<noembed> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<noframes> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<noscript>"
+  },
+  {
+   "role": "link",
+   "name": "<object>"
+  },
+  {
+   "role": "link",
+   "name": "<ol>"
+  },
+  {
+   "role": "link",
+   "name": "<optgroup>"
+  },
+  {
+   "role": "link",
+   "name": "<option>"
+  },
+  {
+   "role": "link",
+   "name": "<output>"
+  },
+  {
+   "role": "link",
+   "name": "<p>"
+  },
+  {
+   "role": "link",
+   "name": "<param> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<picture>"
+  },
+  {
+   "role": "link",
+   "name": "<plaintext> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<pre>"
+  },
+  {
+   "role": "link",
+   "name": "<progress>"
+  },
+  {
+   "role": "link",
+   "name": "<q>"
+  },
+  {
+   "role": "link",
+   "name": "<rb> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<rp>"
+  },
+  {
+   "role": "link",
+   "name": "<rt>"
+  },
+  {
+   "role": "link",
+   "name": "<rtc> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<ruby>"
+  },
+  {
+   "role": "link",
+   "name": "<s>"
+  },
+  {
+   "role": "link",
+   "name": "<samp>"
+  },
+  {
+   "role": "link",
+   "name": "<script>"
+  },
+  {
+   "role": "link",
+   "name": "<search>"
+  },
+  {
+   "role": "link",
+   "name": "<section>"
+  },
+  {
+   "role": "link",
+   "name": "<select>"
+  },
+  {
+   "role": "link",
+   "name": "<selectedcontent>"
+  },
+  {
+   "role": "link",
+   "name": "<slot>"
+  },
+  {
+   "role": "link",
+   "name": "<small>"
+  },
+  {
+   "role": "link",
+   "name": "<source>"
+  },
+  {
+   "role": "link",
+   "name": "<span>"
+  },
+  {
+   "role": "link",
+   "name": "<strike> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<strong>"
+  },
+  {
+   "role": "link",
+   "name": "<style>"
+  },
+  {
+   "role": "link",
+   "name": "<sub>"
+  },
+  {
+   "role": "link",
+   "name": "<summary>"
+  },
+  {
+   "role": "link",
+   "name": "<sup>"
+  },
+  {
+   "role": "link",
+   "name": "<table>"
+  },
+  {
+   "role": "link",
+   "name": "<tbody>"
+  },
+  {
+   "role": "link",
+   "name": "<td>"
+  },
+  {
+   "role": "link",
+   "name": "<template>"
+  },
+  {
+   "role": "link",
+   "name": "<textarea>"
+  },
+  {
+   "role": "link",
+   "name": "<tfoot>"
+  },
+  {
+   "role": "link",
+   "name": "<th>"
+  },
+  {
+   "role": "link",
+   "name": "<thead>"
+  },
+  {
+   "role": "link",
+   "name": "<time>"
+  },
+  {
+   "role": "link",
+   "name": "<title>"
+  },
+  {
+   "role": "link",
+   "name": "<tr>"
+  },
+  {
+   "role": "link",
+   "name": "<track>"
+  },
+  {
+   "role": "link",
+   "name": "<tt> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "<u>"
+  },
+  {
+   "role": "link",
+   "name": "<ul>"
+  },
+  {
+   "role": "link",
+   "name": "<var>"
+  },
+  {
+   "role": "link",
+   "name": "<video>"
+  },
+  {
+   "role": "link",
+   "name": "<wbr>"
+  },
+  {
+   "role": "link",
+   "name": "<xmp> Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "Attributes"
+  },
+  {
+   "role": "link",
+   "name": "Global attributes"
+  },
+  {
+   "role": "link",
+   "name": "MDN logo"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub"
+  },
+  {
+   "role": "link",
+   "name": "MDN on Bluesky"
+  },
+  {
+   "role": "link",
+   "name": "MDN on X"
+  },
+  {
+   "role": "link",
+   "name": "MDN on Mastodon"
+  },
+  {
+   "role": "link",
+   "name": "MDN blog RSS feed"
+  },
+  {
+   "role": "link",
+   "name": "About"
+  },
+  {
+   "role": "link",
+   "name": "Blog"
+  },
+  {
+   "role": "link",
+   "name": "Mozilla careers (external)"
+  },
+  {
+   "role": "link",
+   "name": "Advertise with us"
+  },
+  {
+   "role": "link",
+   "name": "MDN Plus"
+  },
+  {
+   "role": "link",
+   "name": "Product help (external)"
+  },
+  {
+   "role": "link",
+   "name": "MDN Community"
+  },
+  {
+   "role": "link",
+   "name": "Community resources"
+  },
+  {
+   "role": "link",
+   "name": "Writing guidelines"
+  },
+  {
+   "role": "link",
+   "name": "MDN Discord (external)"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub (external)"
+  },
+  {
+   "role": "link",
+   "name": "Web technologies"
+  },
+  {
+   "role": "link",
+   "name": "Learn web development"
+  },
+  {
+   "role": "link",
+   "name": "Guides"
+  },
+  {
+   "role": "link",
+   "name": "Tutorials"
+  },
+  {
+   "role": "link",
+   "name": "Glossary"
+  },
+  {
+   "role": "link",
+   "name": "Hacks blog (external)"
+  },
+  {
+   "role": "link",
+   "name": "Mozilla logo"
+  },
+  {
+   "role": "link",
+   "name": "Website Privacy Notice (external)"
+  },
+  {
+   "role": "link",
+   "name": "Telemetry Settings (external)"
+  },
+  {
+   "role": "link",
+   "name": "Legal (external)"
+  },
+  {
+   "role": "link",
+   "name": "Community Participation Guidelines (external)"
+  },
+  {
+   "role": "link",
+   "name": "a Creative Commons license"
+  }
+ ],
+ "hidden": [
+  "This feature is well established and works across many devices and browser versions. It’s been available across browsers since July 2015.",
+  "* Some parts of this feature may have varying levels of support.",
+  "See full compatibility",
+  "Constraint validation",
+  "Date and time formats",
+  "Quirks and standards modes",
+  "virtualkeyboardpolicy",
+  "writingsuggestions",
+  "<input type=\"button\">",
+  "<input type=\"checkbox\">",
+  "<input type=\"color\">",
+  "<input type=\"date\">",
+  "<input type=\"datetime-local\">",
+  "<input type=\"email\">",
+  "<input type=\"file\">",
+  "<input type=\"hidden\">",
+  "<input type=\"image\">",
+  "<input type=\"month\">",
+  "<input type=\"number\">",
+  "<input type=\"password\">",
+  "<input type=\"radio\">",
+  "<input type=\"range\">",
+  "<input type=\"reset\">",
+  "<input type=\"search\">",
+  "<input type=\"submit\">",
+  "<input type=\"tel\">",
+  "<input type=\"text\">",
+  "<input type=\"time\">",
+  "<input type=\"url\">",
+  "<input type=\"week\">",
+  "speculationrules",
+  "<meta http-equiv>",
+  "alternate stylesheet",
+  "compression-dictionary"
+ ],
+ "chromeAiSnapshotBytes": 146590
+}

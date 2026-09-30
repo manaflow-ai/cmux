@@ -1,0 +1,79 @@
+// Real-site corpus (fixtures/corpus, frozen by lib/corpus.mjs): on each page
+// the snapshot must hold every interactive element of Chrome's Playwright AI
+// snapshot with the same role and name (recall), print no text Chrome does
+// not render (leaks), and stay within 10% of the size of Aside's snapshot of
+// the same page (Aside drops some visible text cmux keeps, such as card
+// descriptions). Exact byte counts are printed, not compared.
+// oracle: skip (compares cmux snapshots against Chrome records made by lib/corpus.mjs)
+const squash = (s) => String(s).replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "").toLowerCase();
+const aside = await (await fetch(`${PRIMARY}/corpus/aside-sizes.json`)).json();
+globalThis.corpusCheck = async (name) => {
+  const oracle = await (await fetch(`${PRIMARY}/corpus/${name}.oracle.json`)).json();
+  await page.goto(`${PRIMARY}/corpus/${name}.html`);
+  const tree = (await snapshot()).tree;
+  const entries = [];
+  const texts = [];
+  for (const line of tree.split("\n")) {
+    const head = /^(\s*)- ([\w-]+)(?: "((?:[^"\\]|\\.)*)")?/.exec(line);
+    if (!head) continue;
+    const value = /: "((?:[^"\\]|\\.)*)"$/.exec(line);
+    const name = head[3] ? JSON.parse(`"${head[3]}"`) : "";
+    const text = value ? JSON.parse(`"${value[1]}"`) : "";
+    entries.push({ depth: head[1].length, role: head[2], name: squash(name), own: squash(name || text), text: squash(text), used: false });
+    texts.push(name, text);
+  }
+  // An unnamed element is known by its content: its text and its descendants'.
+  entries.forEach((e, i) => {
+    let content = e.text;
+    for (let j = i + 1; j < entries.length && entries[j].depth > e.depth; j++) content += entries[j].own;
+    e.content = content;
+  });
+  // Printed names longer than the limit end in "…"; the rest must follow in order.
+  const sameText = (printed, full) => {
+    if (printed === full) return true;
+    if (!printed.includes("…")) return false;
+    const pieces = printed.split("…");
+    if (!full.startsWith(pieces[0])) return false;
+    let at = pieces[0].length;
+    for (const piece of pieces.slice(1)) {
+      const i = full.indexOf(piece, at);
+      if (i < 0) return false;
+      at = i + piece.length;
+    }
+    return !pieces[pieces.length - 1] || full.endsWith(pieces[pieces.length - 1]);
+  };
+  const missing = [];
+  for (const want of oracle.interactive) {
+    const n = squash(want.name);
+    const hit = entries.find((e) => !e.used && e.role === want.role &&
+      (sameText(e.name, n) || (!e.name && sameText(e.content, n))));
+    if (hit) hit.used = true;
+    else missing.push(`${want.role} "${want.name}"`);
+  }
+  const shown = squash(texts.join("\n"));
+  const leaks = oracle.hidden.filter((t) => shown.includes(squash(t)));
+  const bytes = Buffer.byteLength(tree);
+  console.log(`${name}: cmux ${bytes} bytes, Aside ${aside[name]} bytes, Chrome AI snapshot ${oracle.chromeAiSnapshotBytes} bytes; ${oracle.interactive.length} interactive`);
+  return { missing, leaks, withinAside: bytes <= 1.1 * aside[name] };
+};
+// ---- cell
+for (const name of ["wikipedia", "hackernews", "github"]) {
+  const r = await corpusCheck(name);
+  emitCmux(`${name}:missing`, r.missing);
+  emitCmux(`${name}:leaks`, r.leaks);
+  emitCmux(`${name}:within-aside-10pct`, r.withinAside);
+}
+// ---- cell
+for (const name of ["mdn", "mdn-iframe", "npr"]) {
+  const r = await corpusCheck(name);
+  emitCmux(`${name}:missing`, r.missing);
+  emitCmux(`${name}:leaks`, r.leaks);
+  emitCmux(`${name}:within-aside-10pct`, r.withinAside);
+}
+// ---- cell
+for (const name of ["bbc", "books", "vercel"]) {
+  const r = await corpusCheck(name);
+  emitCmux(`${name}:missing`, r.missing);
+  emitCmux(`${name}:leaks`, r.leaks);
+  emitCmux(`${name}:within-aside-10pct`, r.withinAside);
+}

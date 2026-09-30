@@ -1,0 +1,956 @@
+{
+ "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map",
+ "interactive": [
+  {
+   "role": "link",
+   "name": "Skip to main content"
+  },
+  {
+   "role": "link",
+   "name": "Skip to search"
+  },
+  {
+   "role": "link",
+   "name": "MDN"
+  },
+  {
+   "role": "button",
+   "name": "HTML"
+  },
+  {
+   "role": "link",
+   "name": "Elements"
+  },
+  {
+   "role": "link",
+   "name": "Global attributes"
+  },
+  {
+   "role": "link",
+   "name": "Attributes"
+  },
+  {
+   "role": "link",
+   "name": "See all HTML references"
+  },
+  {
+   "role": "link",
+   "name": "Responsive images"
+  },
+  {
+   "role": "link",
+   "name": "HTML cheatsheet"
+  },
+  {
+   "role": "link",
+   "name": "Date & time formats"
+  },
+  {
+   "role": "link",
+   "name": "See all HTML guides"
+  },
+  {
+   "role": "link",
+   "name": "SVG"
+  },
+  {
+   "role": "link",
+   "name": "MathML"
+  },
+  {
+   "role": "link",
+   "name": "XML"
+  },
+  {
+   "role": "button",
+   "name": "CSS"
+  },
+  {
+   "role": "link",
+   "name": "Properties"
+  },
+  {
+   "role": "link",
+   "name": "Selectors"
+  },
+  {
+   "role": "link",
+   "name": "At-rules"
+  },
+  {
+   "role": "link",
+   "name": "Values"
+  },
+  {
+   "role": "link",
+   "name": "See all CSS references"
+  },
+  {
+   "role": "link",
+   "name": "Box model"
+  },
+  {
+   "role": "link",
+   "name": "Animations"
+  },
+  {
+   "role": "link",
+   "name": "Flexbox"
+  },
+  {
+   "role": "link",
+   "name": "Colors"
+  },
+  {
+   "role": "link",
+   "name": "See all CSS guides"
+  },
+  {
+   "role": "link",
+   "name": "Column layouts"
+  },
+  {
+   "role": "link",
+   "name": "Centering an element"
+  },
+  {
+   "role": "link",
+   "name": "Card component"
+  },
+  {
+   "role": "link",
+   "name": "See all…"
+  },
+  {
+   "role": "button",
+   "name": "JavaScript"
+  },
+  {
+   "role": "link",
+   "name": "Standard built-in objects"
+  },
+  {
+   "role": "link",
+   "name": "Expressions & operators"
+  },
+  {
+   "role": "link",
+   "name": "Statements & declarations"
+  },
+  {
+   "role": "link",
+   "name": "Functions"
+  },
+  {
+   "role": "link",
+   "name": "See all JavaScript references"
+  },
+  {
+   "role": "link",
+   "name": "Control flow & error handling"
+  },
+  {
+   "role": "link",
+   "name": "Loops and iteration"
+  },
+  {
+   "role": "link",
+   "name": "Working with objects"
+  },
+  {
+   "role": "link",
+   "name": "Using classes"
+  },
+  {
+   "role": "link",
+   "name": "See all JavaScript guides"
+  },
+  {
+   "role": "button",
+   "name": "Web APIs"
+  },
+  {
+   "role": "link",
+   "name": "File system API"
+  },
+  {
+   "role": "link",
+   "name": "Fetch API"
+  },
+  {
+   "role": "link",
+   "name": "Geolocation API"
+  },
+  {
+   "role": "link",
+   "name": "HTML DOM API"
+  },
+  {
+   "role": "link",
+   "name": "Push API"
+  },
+  {
+   "role": "link",
+   "name": "Service worker API"
+  },
+  {
+   "role": "link",
+   "name": "See all Web API guides"
+  },
+  {
+   "role": "link",
+   "name": "Using the Web animation API"
+  },
+  {
+   "role": "link",
+   "name": "Using the Fetch API"
+  },
+  {
+   "role": "link",
+   "name": "Working with the History API"
+  },
+  {
+   "role": "link",
+   "name": "Using the Web speech API"
+  },
+  {
+   "role": "link",
+   "name": "Using web workers"
+  },
+  {
+   "role": "button",
+   "name": "All"
+  },
+  {
+   "role": "link",
+   "name": "All web technology"
+  },
+  {
+   "role": "link",
+   "name": "Accessibility"
+  },
+  {
+   "role": "link",
+   "name": "HTTP"
+  },
+  {
+   "role": "link",
+   "name": "URI"
+  },
+  {
+   "role": "link",
+   "name": "Web extensions"
+  },
+  {
+   "role": "link",
+   "name": "WebAssembly"
+  },
+  {
+   "role": "link",
+   "name": "WebDriver"
+  },
+  {
+   "role": "link",
+   "name": "See all web technology references"
+  },
+  {
+   "role": "link",
+   "name": "Media"
+  },
+  {
+   "role": "link",
+   "name": "Performance"
+  },
+  {
+   "role": "link",
+   "name": "Privacy"
+  },
+  {
+   "role": "link",
+   "name": "Security"
+  },
+  {
+   "role": "link",
+   "name": "Progressive web apps"
+  },
+  {
+   "role": "button",
+   "name": "Learn"
+  },
+  {
+   "role": "link",
+   "name": "Learn web development"
+  },
+  {
+   "role": "link",
+   "name": "Getting started modules"
+  },
+  {
+   "role": "link",
+   "name": "Core modules"
+  },
+  {
+   "role": "link",
+   "name": "MDN Curriculum"
+  },
+  {
+   "role": "link",
+   "name": "Check out the video course from Scrimba, our partner (external)"
+  },
+  {
+   "role": "link",
+   "name": "Structuring content with HTML module"
+  },
+  {
+   "role": "link",
+   "name": "CSS styling basics module"
+  },
+  {
+   "role": "link",
+   "name": "CSS layout module"
+  },
+  {
+   "role": "link",
+   "name": "Dynamic scripting with JavaScript module"
+  },
+  {
+   "role": "button",
+   "name": "Tools"
+  },
+  {
+   "role": "link",
+   "name": "Playground"
+  },
+  {
+   "role": "link",
+   "name": "HTTP Observatory"
+  },
+  {
+   "role": "link",
+   "name": "Border-image generator"
+  },
+  {
+   "role": "link",
+   "name": "Border-radius generator"
+  },
+  {
+   "role": "link",
+   "name": "Box-shadow generator"
+  },
+  {
+   "role": "link",
+   "name": "Color format converter"
+  },
+  {
+   "role": "link",
+   "name": "Color mixer"
+  },
+  {
+   "role": "link",
+   "name": "Shape generator"
+  },
+  {
+   "role": "button",
+   "name": "About"
+  },
+  {
+   "role": "link",
+   "name": "About MDN"
+  },
+  {
+   "role": "link",
+   "name": "Advertise with us"
+  },
+  {
+   "role": "link",
+   "name": "Community"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub (external)"
+  },
+  {
+   "role": "link",
+   "name": "Blog"
+  },
+  {
+   "role": "link",
+   "name": "Web"
+  },
+  {
+   "role": "link",
+   "name": "JavaScript"
+  },
+  {
+   "role": "link",
+   "name": "Reference"
+  },
+  {
+   "role": "link",
+   "name": "Standard built-in objects"
+  },
+  {
+   "role": "link",
+   "name": "Array"
+  },
+  {
+   "role": "link",
+   "name": "map()"
+  },
+  {
+   "role": "link",
+   "name": "Array"
+  },
+  {
+   "role": "link",
+   "name": "Try it"
+  },
+  {
+   "role": "link",
+   "name": "Syntax"
+  },
+  {
+   "role": "link",
+   "name": "Description"
+  },
+  {
+   "role": "link",
+   "name": "Examples"
+  },
+  {
+   "role": "link",
+   "name": "Specifications"
+  },
+  {
+   "role": "link",
+   "name": "Browser compatibility"
+  },
+  {
+   "role": "link",
+   "name": "See also"
+  },
+  {
+   "role": "link",
+   "name": "Try it"
+  },
+  {
+   "role": "link",
+   "name": "Syntax"
+  },
+  {
+   "role": "link",
+   "name": "Parameters"
+  },
+  {
+   "role": "link",
+   "name": "callbackFn"
+  },
+  {
+   "role": "link",
+   "name": "element"
+  },
+  {
+   "role": "link",
+   "name": "index"
+  },
+  {
+   "role": "link",
+   "name": "array"
+  },
+  {
+   "role": "link",
+   "name": "thisArg Optional"
+  },
+  {
+   "role": "link",
+   "name": "iterative methods"
+  },
+  {
+   "role": "link",
+   "name": "Return value"
+  },
+  {
+   "role": "link",
+   "name": "Description"
+  },
+  {
+   "role": "link",
+   "name": "iterative method"
+  },
+  {
+   "role": "link",
+   "name": "iterative methods"
+  },
+  {
+   "role": "link",
+   "name": "sparse arrays"
+  },
+  {
+   "role": "link",
+   "name": "generic"
+  },
+  {
+   "role": "link",
+   "name": "forEach"
+  },
+  {
+   "role": "link",
+   "name": "for...of"
+  },
+  {
+   "role": "link",
+   "name": "Examples"
+  },
+  {
+   "role": "link",
+   "name": "Mapping an array of numbers to an array of square roots"
+  },
+  {
+   "role": "link",
+   "name": "Using map to reformat objects in an array"
+  },
+  {
+   "role": "link",
+   "name": "Using parseInt() with map()"
+  },
+  {
+   "role": "link",
+   "name": "parseInt"
+  },
+  {
+   "role": "link",
+   "name": "parseInt"
+  },
+  {
+   "role": "link",
+   "name": "Number"
+  },
+  {
+   "role": "link",
+   "name": "A JavaScript optional argument hazard (external)"
+  },
+  {
+   "role": "link",
+   "name": "Mapped array contains undefined"
+  },
+  {
+   "role": "link",
+   "name": "undefined"
+  },
+  {
+   "role": "link",
+   "name": "filter()"
+  },
+  {
+   "role": "link",
+   "name": "flatMap()"
+  },
+  {
+   "role": "link",
+   "name": "Side-effectful mapping"
+  },
+  {
+   "role": "link",
+   "name": "Using the third argument of callbackFn"
+  },
+  {
+   "role": "link",
+   "name": "Using map() on sparse arrays"
+  },
+  {
+   "role": "link",
+   "name": "Calling map() on non-array objects"
+  },
+  {
+   "role": "link",
+   "name": "Array.from()"
+  },
+  {
+   "role": "link",
+   "name": "Specifications"
+  },
+  {
+   "role": "link",
+   "name": "Browser compatibility"
+  },
+  {
+   "role": "link",
+   "name": "See also"
+  },
+  {
+   "role": "link",
+   "name": "Polyfill of Array.prototype.map in core-js (external)"
+  },
+  {
+   "role": "link",
+   "name": "es-shims polyfill of Array.prototype.map (external)"
+  },
+  {
+   "role": "link",
+   "name": "Indexed collections"
+  },
+  {
+   "role": "link",
+   "name": "Array"
+  },
+  {
+   "role": "link",
+   "name": "Array.prototype.forEach()"
+  },
+  {
+   "role": "link",
+   "name": "Array.from()"
+  },
+  {
+   "role": "link",
+   "name": "TypedArray.prototype.map()"
+  },
+  {
+   "role": "link",
+   "name": "Map"
+  },
+  {
+   "role": "link",
+   "name": "Learn how to contribute"
+  },
+  {
+   "role": "link",
+   "name": "MDN contributors"
+  },
+  {
+   "role": "link",
+   "name": "View this page on GitHub (external)"
+  },
+  {
+   "role": "link",
+   "name": "Report a problem with this content (external)"
+  },
+  {
+   "role": "link",
+   "name": "Standard built-in objects"
+  },
+  {
+   "role": "link",
+   "name": "Array"
+  },
+  {
+   "role": "link",
+   "name": "Array()"
+  },
+  {
+   "role": "link",
+   "name": "from()"
+  },
+  {
+   "role": "link",
+   "name": "fromAsync()"
+  },
+  {
+   "role": "link",
+   "name": "isArray()"
+  },
+  {
+   "role": "link",
+   "name": "of()"
+  },
+  {
+   "role": "link",
+   "name": "[Symbol.species]"
+  },
+  {
+   "role": "link",
+   "name": "at()"
+  },
+  {
+   "role": "link",
+   "name": "concat()"
+  },
+  {
+   "role": "link",
+   "name": "copyWithin()"
+  },
+  {
+   "role": "link",
+   "name": "entries()"
+  },
+  {
+   "role": "link",
+   "name": "every()"
+  },
+  {
+   "role": "link",
+   "name": "fill()"
+  },
+  {
+   "role": "link",
+   "name": "filter()"
+  },
+  {
+   "role": "link",
+   "name": "find()"
+  },
+  {
+   "role": "link",
+   "name": "findIndex()"
+  },
+  {
+   "role": "link",
+   "name": "findLast()"
+  },
+  {
+   "role": "link",
+   "name": "findLastIndex()"
+  },
+  {
+   "role": "link",
+   "name": "flat()"
+  },
+  {
+   "role": "link",
+   "name": "flatMap()"
+  },
+  {
+   "role": "link",
+   "name": "forEach()"
+  },
+  {
+   "role": "link",
+   "name": "includes()"
+  },
+  {
+   "role": "link",
+   "name": "indexOf()"
+  },
+  {
+   "role": "link",
+   "name": "join()"
+  },
+  {
+   "role": "link",
+   "name": "keys()"
+  },
+  {
+   "role": "link",
+   "name": "lastIndexOf()"
+  },
+  {
+   "role": "link",
+   "name": "map()"
+  },
+  {
+   "role": "link",
+   "name": "pop()"
+  },
+  {
+   "role": "link",
+   "name": "push()"
+  },
+  {
+   "role": "link",
+   "name": "reduce()"
+  },
+  {
+   "role": "link",
+   "name": "reduceRight()"
+  },
+  {
+   "role": "link",
+   "name": "reverse()"
+  },
+  {
+   "role": "link",
+   "name": "shift()"
+  },
+  {
+   "role": "link",
+   "name": "slice()"
+  },
+  {
+   "role": "link",
+   "name": "some()"
+  },
+  {
+   "role": "link",
+   "name": "sort()"
+  },
+  {
+   "role": "link",
+   "name": "splice()"
+  },
+  {
+   "role": "link",
+   "name": "toLocaleString()"
+  },
+  {
+   "role": "link",
+   "name": "toReversed()"
+  },
+  {
+   "role": "link",
+   "name": "toSorted()"
+  },
+  {
+   "role": "link",
+   "name": "toSpliced()"
+  },
+  {
+   "role": "link",
+   "name": "toString()"
+  },
+  {
+   "role": "link",
+   "name": "unshift()"
+  },
+  {
+   "role": "link",
+   "name": "values()"
+  },
+  {
+   "role": "link",
+   "name": "with()"
+  },
+  {
+   "role": "link",
+   "name": "[Symbol.iterator]()"
+  },
+  {
+   "role": "link",
+   "name": "length"
+  },
+  {
+   "role": "link",
+   "name": "[Symbol.unscopables] Deprecated"
+  },
+  {
+   "role": "link",
+   "name": "Object/Function"
+  },
+  {
+   "role": "link",
+   "name": "MDN logo"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub"
+  },
+  {
+   "role": "link",
+   "name": "MDN on Bluesky"
+  },
+  {
+   "role": "link",
+   "name": "MDN on X"
+  },
+  {
+   "role": "link",
+   "name": "MDN on Mastodon"
+  },
+  {
+   "role": "link",
+   "name": "MDN blog RSS feed"
+  },
+  {
+   "role": "link",
+   "name": "About"
+  },
+  {
+   "role": "link",
+   "name": "Blog"
+  },
+  {
+   "role": "link",
+   "name": "Mozilla careers (external)"
+  },
+  {
+   "role": "link",
+   "name": "Advertise with us"
+  },
+  {
+   "role": "link",
+   "name": "MDN Plus"
+  },
+  {
+   "role": "link",
+   "name": "Product help (external)"
+  },
+  {
+   "role": "link",
+   "name": "MDN Community"
+  },
+  {
+   "role": "link",
+   "name": "Community resources"
+  },
+  {
+   "role": "link",
+   "name": "Writing guidelines"
+  },
+  {
+   "role": "link",
+   "name": "MDN Discord (external)"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub (external)"
+  },
+  {
+   "role": "link",
+   "name": "Web technologies"
+  },
+  {
+   "role": "link",
+   "name": "Learn web development"
+  },
+  {
+   "role": "link",
+   "name": "Guides"
+  },
+  {
+   "role": "link",
+   "name": "Tutorials"
+  },
+  {
+   "role": "link",
+   "name": "Glossary"
+  },
+  {
+   "role": "link",
+   "name": "Hacks blog (external)"
+  },
+  {
+   "role": "link",
+   "name": "Mozilla logo"
+  },
+  {
+   "role": "link",
+   "name": "Website Privacy Notice (external)"
+  },
+  {
+   "role": "link",
+   "name": "Telemetry Settings (external)"
+  },
+  {
+   "role": "link",
+   "name": "Legal (external)"
+  },
+  {
+   "role": "link",
+   "name": "Community Participation Guidelines (external)"
+  },
+  {
+   "role": "link",
+   "name": "a Creative Commons license"
+  }
+ ],
+ "hidden": [
+  "This feature is well established and works across many devices and browser versions. It’s been available across browsers since July 2015.",
+  "See full compatibility",
+  "__defineGetter__()",
+  "__defineSetter__()",
+  "__lookupGetter__()",
+  "__lookupSetter__()",
+  "hasOwnProperty()",
+  "propertyIsEnumerable()"
+ ],
+ "chromeAiSnapshotBytes": 73141
+}

@@ -1,0 +1,2115 @@
+{
+ "url": "https://github.com/manaflow-ai/cmux",
+ "interactive": [
+  {
+   "role": "link",
+   "name": "Skip to content"
+  },
+  {
+   "role": "link",
+   "name": "Homepage"
+  },
+  {
+   "role": "button",
+   "name": "Platform"
+  },
+  {
+   "role": "button",
+   "name": "Solutions"
+  },
+  {
+   "role": "button",
+   "name": "Resources"
+  },
+  {
+   "role": "button",
+   "name": "Open Source"
+  },
+  {
+   "role": "button",
+   "name": "Enterprise"
+  },
+  {
+   "role": "link",
+   "name": "Pricing"
+  },
+  {
+   "role": "button",
+   "name": "Search or jump to, type / to search"
+  },
+  {
+   "role": "link",
+   "name": "Sign in"
+  },
+  {
+   "role": "link",
+   "name": "Sign up"
+  },
+  {
+   "role": "button",
+   "name": "Appearance settings"
+  },
+  {
+   "role": "link",
+   "name": "manaflow-ai"
+  },
+  {
+   "role": "link",
+   "name": "cmux"
+  },
+  {
+   "role": "button",
+   "name": "Sponsor manaflow-ai/cmux"
+  },
+  {
+   "role": "link",
+   "name": "You must be signed in to change notification settings"
+  },
+  {
+   "role": "link",
+   "name": "Fork 2.4k"
+  },
+  {
+   "role": "link",
+   "name": "You must be signed in to star a repository"
+  },
+  {
+   "role": "link",
+   "name": "Code"
+  },
+  {
+   "role": "link",
+   "name": "Issues 1.8k"
+  },
+  {
+   "role": "link",
+   "name": "Pull requests 1.6k"
+  },
+  {
+   "role": "link",
+   "name": "Discussions"
+  },
+  {
+   "role": "link",
+   "name": "Actions"
+  },
+  {
+   "role": "link",
+   "name": "Projects"
+  },
+  {
+   "role": "link",
+   "name": "Security and quality"
+  },
+  {
+   "role": "link",
+   "name": "Insights"
+  },
+  {
+   "role": "button",
+   "name": "main branch"
+  },
+  {
+   "role": "link",
+   "name": "9074 Branches"
+  },
+  {
+   "role": "link",
+   "name": "191 Tags"
+  },
+  {
+   "role": "combobox",
+   "name": "Go to file"
+  },
+  {
+   "role": "button",
+   "name": "Code"
+  },
+  {
+   "role": "link",
+   "name": "commits by lawrencecchen"
+  },
+  {
+   "role": "link",
+   "name": "commits by claude"
+  },
+  {
+   "role": "link",
+   "name": "#15506"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "button",
+   "name": "Open commit details"
+  },
+  {
+   "role": "button",
+   "name": "pending"
+  },
+  {
+   "role": "link",
+   "name": "Commit 31014dc"
+  },
+  {
+   "role": "link",
+   "name": "18,487 Commits"
+  },
+  {
+   "role": "link",
+   "name": ".agents, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "[codex] Add more cmux agent skills ("
+  },
+  {
+   "role": "link",
+   "name": "#5614"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": ".asc, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Add iOS App Store production lane ("
+  },
+  {
+   "role": "link",
+   "name": "#7644"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": ".claude, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Backfill Unreleased changelog and draft next release cards ("
+  },
+  {
+   "role": "link",
+   "name": "#14999"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": ".github, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles ("
+  },
+  {
+   "role": "link",
+   "name": ".greptile, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#13277"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "AppIcon.icon, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Regenerate app icons from Icon Composer ("
+  },
+  {
+   "role": "link",
+   "name": "#1005"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "Assets.xcassets, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#…"
+  },
+  {
+   "role": "link",
+   "name": "CLI, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Examples, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#…"
+  },
+  {
+   "role": "link",
+   "name": "KeyboardPinningLab, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Keep the iOS terminal dock pinned during keyboard reversals ("
+  },
+  {
+   "role": "link",
+   "name": "#9836"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "Native, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Packages, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Merge pull request"
+  },
+  {
+   "role": "link",
+   "name": "#15789"
+  },
+  {
+   "role": "link",
+   "name": "from manaflow-ai/feat-ios-browser-update-wa…"
+  },
+  {
+   "role": "link",
+   "name": "Prototypes/SettingsShellLab, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Add settings sidebar shell ("
+  },
+  {
+   "role": "link",
+   "name": "#3244"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "Resources, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Sources, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "TunnelExtension, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Fix Cloud VPN cancellation ordering and stale tunnel device selection ("
+  },
+  {
+   "role": "link",
+   "name": "…"
+  },
+  {
+   "role": "link",
+   "name": "agent-chat, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Keep the mail broker from orphaning a reply to an unknown parent ("
+  },
+  {
+   "role": "link",
+   "name": "#15330"
+  },
+  {
+   "role": "link",
+   "name": "cmux-browser, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#15231"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "cmux-tui, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Consolidate SSH security, shim hardening, and restored terminal repla…"
+  },
+  {
+   "role": "link",
+   "name": "cmux.xcodeproj, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "cmux.xcworkspace, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#14301"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "cmuxCLITestSupport, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Add resize-window CLI and socket command, plus a scrollback resize gu…"
+  },
+  {
+   "role": "link",
+   "name": "cmuxCLITests, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Show Claude sessions that stop on an API error instead of leaving the…"
+  },
+  {
+   "role": "link",
+   "name": "cmuxTests, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "cmuxUITests, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Open the Cloud team picker as an anchored dropdown ("
+  },
+  {
+   "role": "link",
+   "name": "#15078"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "config, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "daemon/remote, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Consolidate SSH security, shim hardening, and restored terminal repla…"
+  },
+  {
+   "role": "link",
+   "name": "design, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Regenerate app icons from Icon Composer ("
+  },
+  {
+   "role": "link",
+   "name": "#1005"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "docs, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#15763"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "dogfood, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#15118"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "examples/cmux-pack-template, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#13356"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "experiments, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#5735"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "ghostty, (Submodule)"
+  },
+  {
+   "role": "link",
+   "name": "#15146"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "homebrew-cmux, (Submodule)"
+  },
+  {
+   "role": "link",
+   "name": "ios, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "plans, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "schemas/control-plane, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Device-list authorization + DO-first control plane (listauth) ("
+  },
+  {
+   "role": "link",
+   "name": "#11220"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "scripts, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles ("
+  },
+  {
+   "role": "link",
+   "name": "services/iroh-relay-minter, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "skills, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "tests, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Install updates automatically at a quiet moment and resume agents ("
+  },
+  {
+   "role": "link",
+   "name": "#1…"
+  },
+  {
+   "role": "link",
+   "name": "tests_v2, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Consolidate SSH security, shim hardening, and restored terminal repla…"
+  },
+  {
+   "role": "link",
+   "name": "vault, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Fix Codex Security scan findings ("
+  },
+  {
+   "role": "link",
+   "name": "#7437"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "vendor, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "Keep split-divider-color on the split divider only ("
+  },
+  {
+   "role": "link",
+   "name": "#15093"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "web, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "#15506"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "webviews, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": "workers, (Directory)"
+  },
+  {
+   "role": "link",
+   "name": ".coderabbit.yaml, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#13277"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": ".gitattributes, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles ("
+  },
+  {
+   "role": "link",
+   "name": ".gitignore, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#13383"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": ".gitkeep, (File)"
+  },
+  {
+   "role": "link",
+   "name": ".gitmodules, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Fix frozen terminals after split churn ("
+  },
+  {
+   "role": "link",
+   "name": "#12"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": ".vercelignore, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#13947"
+  },
+  {
+   "role": "link",
+   "name": ".xcode-version, (File)"
+  },
+  {
+   "role": "link",
+   "name": "AGENTS.md, (Symlink to file)"
+  },
+  {
+   "role": "link",
+   "name": "agents"
+  },
+  {
+   "role": "link",
+   "name": "CHANGELOG.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Graduate Dock from Beta Features ("
+  },
+  {
+   "role": "link",
+   "name": "#15456"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "CLA.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#11430"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "CLAUDE.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#15638"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "CODE_OF_CONDUCT.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#15263"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "CONTRIBUTING.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#15263"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "LICENSE, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "PR-10599-AUDIT.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "PROJECTS.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Reversion all 1.x.x to 0.x.x for pre-launch versioning"
+  },
+  {
+   "role": "link",
+   "name": "README.ar.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.bs.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.da.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.de.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.es.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.fr.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.it.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.ja.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.km.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.ko.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#15263"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.no.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.pl.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.pt-BR.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.ru.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.th.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.tr.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.uk.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.vi.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.zh-CN.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README.zh-TW.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Use founders@cmux.com as the contact address everywhere ("
+  },
+  {
+   "role": "link",
+   "name": "#15219"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "SECURITY.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#15263"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "STYLE.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Clarify writing guidance for issue and PR descriptions ("
+  },
+  {
+   "role": "link",
+   "name": "#13275"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "THIRD_PARTY_LICENSES.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Load diff viewer grammars lazily and drop dead vendored Pierre bundles ("
+  },
+  {
+   "role": "link",
+   "name": "TODO.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "biome.json, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Scope Biome checks to maintained JS sources ("
+  },
+  {
+   "role": "link",
+   "name": "#6008"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "bun.lock, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Scope Biome checks to maintained JS sources ("
+  },
+  {
+   "role": "link",
+   "name": "#6008"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "cmux-Bridging-Header.h, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Bound app termination with a force-exit watchdog ("
+  },
+  {
+   "role": "link",
+   "name": "#6758"
+  },
+  {
+   "role": "link",
+   "name": ") ("
+  },
+  {
+   "role": "link",
+   "name": "#6837"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "cmux-helper.entitlements, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Inside-out signing with per-binary entitlements to restore passkeys ("
+  },
+  {
+   "role": "link",
+   "name": "#…"
+  },
+  {
+   "role": "link",
+   "name": "cmux.entitlements, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Add personal-information entitlements for Calendar, Contacts, Locatio…"
+  },
+  {
+   "role": "link",
+   "name": "cmux.nightly.entitlements, (File)"
+  },
+  {
+   "role": "link",
+   "name": "cmux.rc.entitlements, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Add the cmux RC release channel (com.cmuxterm.app.rc) ("
+  },
+  {
+   "role": "link",
+   "name": "#12777"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "cmux.release.entitlements, (File)"
+  },
+  {
+   "role": "link",
+   "name": "ghostty.h, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Fix ghostty bridge header drift"
+  },
+  {
+   "role": "link",
+   "name": "glaeda.apple.json, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#13383"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "package.json, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Fix Iroh relay policy Vercel deployment ("
+  },
+  {
+   "role": "link",
+   "name": "#8118"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "reports.md, (File)"
+  },
+  {
+   "role": "link",
+   "name": "Add global font magnification ("
+  },
+  {
+   "role": "link",
+   "name": "#6554"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "skills.sh, (File)"
+  },
+  {
+   "role": "link",
+   "name": "#4301"
+  },
+  {
+   "role": "link",
+   "name": ")\" ("
+  },
+  {
+   "role": "link",
+   "name": "#4305"
+  },
+  {
+   "role": "link",
+   "name": ")"
+  },
+  {
+   "role": "link",
+   "name": "README"
+  },
+  {
+   "role": "link",
+   "name": "Code of conduct"
+  },
+  {
+   "role": "link",
+   "name": "Contributing"
+  },
+  {
+   "role": "link",
+   "name": "License"
+  },
+  {
+   "role": "link",
+   "name": "Security"
+  },
+  {
+   "role": "button",
+   "name": "Outline"
+  },
+  {
+   "role": "link",
+   "name": "Download cmux for macOS"
+  },
+  {
+   "role": "link",
+   "name": "日本語"
+  },
+  {
+   "role": "link",
+   "name": "Tiếng Việt"
+  },
+  {
+   "role": "link",
+   "name": "简体中文"
+  },
+  {
+   "role": "link",
+   "name": "繁體中文"
+  },
+  {
+   "role": "link",
+   "name": "한국어"
+  },
+  {
+   "role": "link",
+   "name": "Deutsch"
+  },
+  {
+   "role": "link",
+   "name": "Español"
+  },
+  {
+   "role": "link",
+   "name": "Français"
+  },
+  {
+   "role": "link",
+   "name": "Italiano"
+  },
+  {
+   "role": "link",
+   "name": "Dansk"
+  },
+  {
+   "role": "link",
+   "name": "Polski"
+  },
+  {
+   "role": "link",
+   "name": "Русский"
+  },
+  {
+   "role": "link",
+   "name": "Bosanski"
+  },
+  {
+   "role": "link",
+   "name": "العربية"
+  },
+  {
+   "role": "link",
+   "name": "Norsk"
+  },
+  {
+   "role": "link",
+   "name": "Português (Brasil)"
+  },
+  {
+   "role": "link",
+   "name": "ไทย"
+  },
+  {
+   "role": "link",
+   "name": "Türkçe"
+  },
+  {
+   "role": "link",
+   "name": "ភាសាខ្មែរ"
+  },
+  {
+   "role": "link",
+   "name": "Українська"
+  },
+  {
+   "role": "link",
+   "name": "X / Twitter"
+  },
+  {
+   "role": "link",
+   "name": "Discord"
+  },
+  {
+   "role": "link",
+   "name": "GitHub stars"
+  },
+  {
+   "role": "link",
+   "name": "cmux screenshot"
+  },
+  {
+   "role": "link",
+   "name": "▶ Demo video"
+  },
+  {
+   "role": "link",
+   "name": "The Zen of cmux"
+  },
+  {
+   "role": "link",
+   "name": "Docs"
+  },
+  {
+   "role": "link",
+   "name": "Blog"
+  },
+  {
+   "role": "link",
+   "name": "Changelog"
+  },
+  {
+   "role": "link",
+   "name": "Community"
+  },
+  {
+   "role": "link",
+   "name": "Notification rings"
+  },
+  {
+   "role": "link",
+   "name": "Sidebar notification badge"
+  },
+  {
+   "role": "link",
+   "name": "agent-browser"
+  },
+  {
+   "role": "link",
+   "name": "Built-in browser"
+  },
+  {
+   "role": "link",
+   "name": "Vertical tabs and split panes"
+  },
+  {
+   "role": "link",
+   "name": "cmux SSH"
+  },
+  {
+   "role": "link",
+   "name": "Claude Code Teams"
+  },
+  {
+   "role": "link",
+   "name": "cmux.json"
+  },
+  {
+   "role": "link",
+   "name": "Extensive shortcuts"
+  },
+  {
+   "role": "link",
+   "name": "Download cmux for macOS"
+  },
+  {
+   "role": "button",
+   "name": "Copy code to clipboard"
+  },
+  {
+   "role": "button",
+   "name": "Copy code to clipboard"
+  },
+  {
+   "role": "link",
+   "name": "agent-browser"
+  },
+  {
+   "role": "link",
+   "name": "head over to our docs"
+  },
+  {
+   "role": "link",
+   "name": "Customizing cmux's look"
+  },
+  {
+   "role": "link",
+   "name": "CMUX_NO_GIT_WATCH=1 mitigation"
+  },
+  {
+   "role": "link",
+   "name": "Download cmux NIGHTLY"
+  },
+  {
+   "role": "link",
+   "name": "GitHub Issues"
+  },
+  {
+   "role": "link",
+   "name": "#nightly-bugs on Discord"
+  },
+  {
+   "role": "link",
+   "name": "docs/local-tmux.md"
+  },
+  {
+   "role": "button",
+   "name": "Copy code to clipboard"
+  },
+  {
+   "role": "button",
+   "name": "Copy code to clipboard"
+  },
+  {
+   "role": "button",
+   "name": "Copy code to clipboard"
+  },
+  {
+   "role": "button",
+   "name": "Copy code to clipboard"
+  },
+  {
+   "role": "link",
+   "name": "https://cmux.com/docs/session-restore"
+  },
+  {
+   "role": "link",
+   "name": "libghostty"
+  },
+  {
+   "role": "link",
+   "name": "cmux Founders Edition"
+  },
+  {
+   "role": "link",
+   "name": "iOS docs"
+  },
+  {
+   "role": "link",
+   "name": "Claude Code teams"
+  },
+  {
+   "role": "link",
+   "name": "oh-my-opencode"
+  },
+  {
+   "role": "link",
+   "name": "SSH and remote"
+  },
+  {
+   "role": "link",
+   "name": "cmux CLI"
+  },
+  {
+   "role": "link",
+   "name": "agent hooks"
+  },
+  {
+   "role": "link",
+   "name": "CLI reference"
+  },
+  {
+   "role": "link",
+   "name": "browser automation"
+  },
+  {
+   "role": "link",
+   "name": "browser automation"
+  },
+  {
+   "role": "link",
+   "name": "cmux-skills"
+  },
+  {
+   "role": "link",
+   "name": "skills docs"
+  },
+  {
+   "role": "link",
+   "name": "action mapping, precedence, and limitations"
+  },
+  {
+   "role": "link",
+   "name": "default shortcuts"
+  },
+  {
+   "role": "link",
+   "name": "keyboard shortcut"
+  },
+  {
+   "role": "link",
+   "name": "configuration"
+  },
+  {
+   "role": "link",
+   "name": "session restore"
+  },
+  {
+   "role": "link",
+   "name": "docs/local-tmux.md"
+  },
+  {
+   "role": "link",
+   "name": "beta"
+  },
+  {
+   "role": "link",
+   "name": "GitHub"
+  },
+  {
+   "role": "link",
+   "name": "cmux Founders Edition"
+  },
+  {
+   "role": "link",
+   "name": "issue"
+  },
+  {
+   "role": "link",
+   "name": "pull request"
+  },
+  {
+   "role": "link",
+   "name": "email us"
+  },
+  {
+   "role": "link",
+   "name": "Star History Chart"
+  },
+  {
+   "role": "link",
+   "name": "Start here"
+  },
+  {
+   "role": "link",
+   "name": "contributor guide"
+  },
+  {
+   "role": "link",
+   "name": "fast local checks"
+  },
+  {
+   "role": "link",
+   "name": "@manaflowai"
+  },
+  {
+   "role": "link",
+   "name": "@lawrencecchen"
+  },
+  {
+   "role": "link",
+   "name": "@austinywang"
+  },
+  {
+   "role": "link",
+   "name": "Discord"
+  },
+  {
+   "role": "link",
+   "name": "GitHub issues"
+  },
+  {
+   "role": "link",
+   "name": "discussions"
+  },
+  {
+   "role": "link",
+   "name": "Discord"
+  },
+  {
+   "role": "link",
+   "name": "WhatsApp"
+  },
+  {
+   "role": "link",
+   "name": "GitHub"
+  },
+  {
+   "role": "link",
+   "name": "X / Twitter"
+  },
+  {
+   "role": "link",
+   "name": "YouTube"
+  },
+  {
+   "role": "link",
+   "name": "LinkedIn"
+  },
+  {
+   "role": "link",
+   "name": "Reddit"
+  },
+  {
+   "role": "link",
+   "name": "WeChat QR code to join the cmux community"
+  },
+  {
+   "role": "link",
+   "name": "Get Founder's Edition"
+  },
+  {
+   "role": "link",
+   "name": "Download cmux for macOS"
+  },
+  {
+   "role": "button",
+   "name": "Copy code to clipboard"
+  },
+  {
+   "role": "button",
+   "name": "Copy code to clipboard"
+  },
+  {
+   "role": "link",
+   "name": "GPL-3.0-or-later"
+  },
+  {
+   "role": "link",
+   "name": "LICENSE"
+  },
+  {
+   "role": "link",
+   "name": "Business Source License 1.1"
+  },
+  {
+   "role": "link",
+   "name": "LICENSE"
+  },
+  {
+   "role": "link",
+   "name": "founders@cmux.com"
+  },
+  {
+   "role": "link",
+   "name": "cmux.com"
+  },
+  {
+   "role": "link",
+   "name": "amp"
+  },
+  {
+   "role": "link",
+   "name": "claude-code"
+  },
+  {
+   "role": "link",
+   "name": "cli"
+  },
+  {
+   "role": "link",
+   "name": "codex"
+  },
+  {
+   "role": "link",
+   "name": "coding-agents"
+  },
+  {
+   "role": "link",
+   "name": "gemini"
+  },
+  {
+   "role": "link",
+   "name": "ghostty"
+  },
+  {
+   "role": "link",
+   "name": "macos"
+  },
+  {
+   "role": "link",
+   "name": "multiplexer"
+  },
+  {
+   "role": "link",
+   "name": "multitasking"
+  },
+  {
+   "role": "link",
+   "name": "opencode"
+  },
+  {
+   "role": "link",
+   "name": "organization"
+  },
+  {
+   "role": "link",
+   "name": "parallel-agents"
+  },
+  {
+   "role": "link",
+   "name": "programmability"
+  },
+  {
+   "role": "link",
+   "name": "terminal"
+  },
+  {
+   "role": "link",
+   "name": "terminal-multiplexer"
+  },
+  {
+   "role": "link",
+   "name": "tmux"
+  },
+  {
+   "role": "link",
+   "name": "workspace-manager"
+  },
+  {
+   "role": "link",
+   "name": "Readme"
+  },
+  {
+   "role": "link",
+   "name": "License"
+  },
+  {
+   "role": "link",
+   "name": "Code of conduct"
+  },
+  {
+   "role": "link",
+   "name": "Contributing"
+  },
+  {
+   "role": "link",
+   "name": "Security policy"
+  },
+  {
+   "role": "link",
+   "name": "Activity"
+  },
+  {
+   "role": "link",
+   "name": "Custom properties"
+  },
+  {
+   "role": "link",
+   "name": "2.4k forks"
+  },
+  {
+   "role": "link",
+   "name": "Report repository"
+  },
+  {
+   "role": "link",
+   "name": "Releases"
+  },
+  {
+   "role": "link",
+   "name": "v0.64.25 Latest Sep 17, 2026"
+  },
+  {
+   "role": "link",
+   "name": "+ 58 releases"
+  },
+  {
+   "role": "link",
+   "name": "https://github.com/manaflow-ai/cmux#founders-edition"
+  },
+  {
+   "role": "link",
+   "name": "Contributors"
+  },
+  {
+   "role": "link",
+   "name": "@lawrencecchen"
+  },
+  {
+   "role": "link",
+   "name": "@austinywang"
+  },
+  {
+   "role": "link",
+   "name": "@claude"
+  },
+  {
+   "role": "link",
+   "name": "@azooz2003-bit"
+  },
+  {
+   "role": "link",
+   "name": "@teamleaderleo"
+  },
+  {
+   "role": "link",
+   "name": "@ejc3"
+  },
+  {
+   "role": "link",
+   "name": "@smoreg"
+  },
+  {
+   "role": "link",
+   "name": "@lawrence703"
+  },
+  {
+   "role": "link",
+   "name": "@mykmelez"
+  },
+  {
+   "role": "link",
+   "name": "@mp-grind"
+  },
+  {
+   "role": "link",
+   "name": "@mxschmitt"
+  },
+  {
+   "role": "link",
+   "name": "@smorin"
+  },
+  {
+   "role": "link",
+   "name": "@haung921209"
+  },
+  {
+   "role": "link",
+   "name": "@talldan"
+  },
+  {
+   "role": "link",
+   "name": "+ 212 contributors"
+  },
+  {
+   "role": "link",
+   "name": "Swift 62.2%"
+  },
+  {
+   "role": "link",
+   "name": "Rust 12.4%"
+  },
+  {
+   "role": "link",
+   "name": "TypeScript 9.1%"
+  },
+  {
+   "role": "link",
+   "name": "Python 8.9%"
+  },
+  {
+   "role": "link",
+   "name": "Shell 1.8%"
+  },
+  {
+   "role": "link",
+   "name": "Java 1.3%"
+  },
+  {
+   "role": "link",
+   "name": "Other 4.3%"
+  },
+  {
+   "role": "link",
+   "name": "GitHub Homepage"
+  },
+  {
+   "role": "link",
+   "name": "Terms"
+  },
+  {
+   "role": "link",
+   "name": "Privacy"
+  },
+  {
+   "role": "link",
+   "name": "Security"
+  },
+  {
+   "role": "link",
+   "name": "Status"
+  },
+  {
+   "role": "link",
+   "name": "Community"
+  },
+  {
+   "role": "link",
+   "name": "Docs"
+  },
+  {
+   "role": "link",
+   "name": "Contact"
+  },
+  {
+   "role": "button",
+   "name": "Manage cookies"
+  },
+  {
+   "role": "button",
+   "name": "Do not share my personal information"
+  }
+ ],
+ "hidden": [
+  "AI CODE CREATION",
+  "Write better code with AI",
+  "GitHub Copilot app",
+  "Direct agents from issue to merge",
+  "Integrate external tools",
+  "DEVELOPER WORKFLOWS",
+  "Automate any workflow",
+  "Instant dev environments",
+  "Plan and track work",
+  "Manage code changes",
+  "Enforce quality at merge",
+  "APPLICATION SECURITY",
+  "GitHub Advanced Security",
+  "Find and fix vulnerabilities",
+  "Secure your code as you build",
+  "Secret protection",
+  "Stop leaks before they start",
+  "View all features",
+  "Small and medium teams",
+  "App Modernization",
+  "View all use cases",
+  "Financial services",
+  "View all industries",
+  "View all solutions",
+  "EXPLORE BY TOPIC",
+  "Software Development",
+  "Customer stories",
+  "Events & webinars",
+  "Ebooks & reports",
+  "Business insights",
+  "SUPPORT & SERVICES",
+  "Customer support",
+  "View all resources",
+  "Fund open source developers",
+  "Maintainer Community",
+  "ENTERPRISE SOLUTIONS",
+  "Enterprise platform",
+  "AI-powered developer platform",
+  "AVAILABLE ADD-ONS",
+  "Enterprise-grade security features",
+  "Copilot for Business",
+  "Enterprise-grade AI features",
+  "Enterprise-grade 24/7 support",
+  "You signed in with another tab or window.",
+  "to refresh your session.",
+  "You signed out in another tab or window.",
+  "You switched accounts on another tab or window.",
+  "Learn more about funding links in repositories",
+  "Additional navigation options",
+  "Open more actions menu",
+  "You can’t perform that action at this time."
+ ],
+ "chromeAiSnapshotBytes": 227801
+}

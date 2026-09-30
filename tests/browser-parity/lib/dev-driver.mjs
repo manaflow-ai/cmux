@@ -88,6 +88,28 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   const installSource = agentInstallSource();
   const browser = await webkit.launch({ headless });
   const context = await browser.newContext({ viewport, acceptDownloads: true });
+  // The app's agent world sees closed shadow roots (WebKit's
+  // allowAccessToClosedShadowRoots world option). Playwright cannot configure
+  // a world, and this driver's agent shares the main world, so closed roots
+  // are exposed through `shadowRoot` in the main world. Pages here therefore
+  // see their own closed roots too; no fixture depends on the difference.
+  await context.addInitScript(() => {
+    const attach = Element.prototype.attachShadow;
+    const getter = Object.getOwnPropertyDescriptor(Element.prototype, "shadowRoot").get;
+    const closed = new WeakMap();
+    Element.prototype.attachShadow = function (init) {
+      const root = attach.call(this, init);
+      if (init && init.mode === "closed") closed.set(this, root);
+      return root;
+    };
+    Object.defineProperty(Element.prototype, "shadowRoot", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return getter.call(this) || closed.get(this) || null;
+      },
+    });
+  });
   const drivers = new Set();
   const tabs = new Map(); // targetId -> tab record
   const tabOf = new WeakMap(); // page -> tab record
