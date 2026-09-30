@@ -6412,6 +6412,7 @@ impl Mux {
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty());
         let is_session_start = ingress.kind == "agent.session.started";
+        let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
         let previous_fence = fences.get(&terminal_id).cloned();
         let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
             previous_fence.as_ref(),
@@ -6419,9 +6420,17 @@ impl Mux {
             explicit_session_id,
             is_session_start,
             sequence,
+            observed_at_ms,
         ) else {
             return Ok(());
         };
+        let next_fence = HookFence::next(
+            previous_fence.as_ref(),
+            agent_session_id.clone(),
+            sequence,
+            state == AgentState::Done,
+            observed_at_ms,
+        );
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
@@ -6446,9 +6455,10 @@ impl Mux {
             format!("cmux-hook-sequence:{sequence}")
         };
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
-            agent_session_id: agent_session_id.clone(),
+            agent_session_id,
             applied_sequence: sequence,
             ended: state == AgentState::Done,
+            ended_at_ms: next_fence.ended_at_ms,
         };
         self.report_agent_with_sequence_lock(
             surface,
@@ -6461,10 +6471,7 @@ impl Mux {
             AgentReportOrigin::RosterFold,
             agent_provider_identity(ingress),
         )?;
-        fences.insert(
-            terminal_id.clone(),
-            HookFence { session_id: agent_session_id, sequence, ended: state == AgentState::Done },
-        );
+        fences.insert(terminal_id.clone(), next_fence);
         // Projection ordering is complete. Do not carry the fence guard into
         // cleanup or any retry/reentrant path.
         drop(fences);
@@ -10796,10 +10803,13 @@ impl Mux {
             {
                 DirectHookTransition::Continue => {}
                 DirectHookTransition::Restart(agent_session_id) => {
+                    let restarted =
+                        HookFence::next(Some(fence), agent_session_id, fence.sequence, false, None);
                     direct_hook_state = Some(crate::workspace_registry::AgentHookProjectionState {
-                        agent_session_id,
-                        applied_sequence: fence.sequence,
+                        agent_session_id: restarted.session_id,
+                        applied_sequence: restarted.sequence,
                         ended: false,
+                        ended_at_ms: restarted.ended_at_ms,
                     });
                 }
             }
@@ -10964,6 +10974,7 @@ impl Mux {
                     session_id: direct_state.agent_session_id.clone(),
                     sequence: direct_state.applied_sequence,
                     ended: false,
+                    ended_at_ms: direct_state.ended_at_ms,
                 },
             );
         }
@@ -25970,6 +25981,7 @@ mod tests {
                 None,
                 false,
                 2,
+                None,
             ),
             JournalHookTransition::Apply(session_id) if session_id == first_session_id
         ));
@@ -26161,24 +26173,27 @@ mod tests {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().unwrap();
-        let ingress = |event: &str, session_id: &str| {
-            crate::agent_hooks::agent_hook_journal_ingress(
+        let ingress = |event: &str, session_id: &str, observed_at_ms: u64| {
+            let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
                 "claude",
                 event,
                 Some(&terminal_id.to_string()),
                 serde_json::json!({"session_id": session_id}),
             )
-            .unwrap()
+            .unwrap();
+            crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+            ingress
         };
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 1).unwrap();
-        mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 2).unwrap();
-        // The old session can arrive after its end marker. Matching the ended
-        // identity is still a stale event, not permission to reopen it.
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 3).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart", "old", 1_000), 1).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionEnd", "old", 2_000), 2).unwrap();
+        // The old session's start can arrive after its end marker. It was
+        // observed before that end, so it is a stale event of the ended
+        // incarnation, not a resume.
+        mux.apply_agent_hook_record(&ingress("SessionStart", "old", 1_000), 3).unwrap();
         assert!(hook_projected_agents(&mux).is_empty());
         assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
-        mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 4).unwrap();
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 5).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart", "new", 3_000), 4).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart", "old", 3_500), 5).unwrap();
         assert_eq!(hook_projected_agents(&mux)[0]["state"], "idle");
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
     }
@@ -26415,6 +26430,7 @@ mod tests {
                     session_id,
                     false,
                     sequence,
+                    None,
                 ),
                 JournalHookTransition::Ignore
             ));
@@ -26810,6 +26826,10 @@ mod tests {
         // Both fences restore the incarnation boundary: the projector's from
         // the registry, the roster's from its snapshot.
         let reopened = open_persistent_test_mux(session, &root);
+        let fence = reopened.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
+        assert_eq!(fence.session_id, "a");
+        assert!(!fence.ended);
+        assert_eq!(fence.ended_at_ms, Some(1_200));
         assert_eq!(roster_agent_state(&reopened, &terminal_id).as_deref(), Some("idle"));
         append_journal_hook_at(&reopened, &terminal_id, "UserPromptSubmit", "a", 1_150);
         assert_eq!(roster_agent_state(&reopened, &terminal_id).as_deref(), Some("idle"));

@@ -66,6 +66,7 @@ pub(crate) struct RegistryAgentHookState {
     pub agent_session_id: String,
     pub applied_sequence: u64,
     pub ended: bool,
+    pub ended_at_ms: Option<u64>,
 }
 
 impl RegistryAgentProjection {
@@ -473,7 +474,7 @@ impl WorkspaceRegistry {
 
     fn durable_agent_hook_states(&self) -> anyhow::Result<Vec<RegistryAgentHookState>> {
         let mut statement = self.connection.prepare(
-            "SELECT terminal_id, agent_session_id, applied_sequence, ended
+            "SELECT terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms
              FROM resource_agent_hook_state
              ORDER BY terminal_id ASC",
         )?;
@@ -484,16 +485,21 @@ impl WorkspaceRegistry {
                     row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, bool>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
                 ))
             })?
             .map(|row| {
-                let (terminal_id, agent_session_id, applied_sequence, ended) = row?;
+                let (terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms) = row?;
                 Ok(RegistryAgentHookState {
                     terminal_id: TerminalPublicId::parse(terminal_id)?,
                     agent_session_id,
                     applied_sequence: u64::try_from(applied_sequence)
                         .context("agent hook sequence is negative")?,
                     ended,
+                    ended_at_ms: ended_at_ms
+                        .map(u64::try_from)
+                        .transpose()
+                        .context("agent hook end time is negative")?,
                 })
             })
             .collect()

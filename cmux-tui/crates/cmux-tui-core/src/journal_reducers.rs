@@ -304,17 +304,37 @@ pub(crate) fn legacy_hook_session_id(terminal_id: &str, sequence: u64) -> String
     format!("legacy:{terminal_id}:{sequence}")
 }
 
+/// When the hook helper observed a hook event (`normalized.observed_at_ms`,
+/// a decimal string stamped at invocation). Journal order says when an event
+/// arrived; this says when the agent emitted it, which is the only evidence
+/// that separates a late event of an ended incarnation from an event of a
+/// resumed incarnation that reuses the same session id. Events from older
+/// helpers and direct reports carry no stamp.
+pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
+    let value = payload.get("normalized")?.get("observed_at_ms")?;
+    decimal_string_u64(value)
+}
+
 /// Per-terminal hook session fence: the agent session that owns the
-/// terminal's hook state, the last journal sequence applied for it, and
-/// whether that session ended. The hook projector (public agent rows) and the
-/// roster reducer (`list_agents`, the TUI, raw `agents`) both decide hook
-/// events with [`HookFence::journal_transition`], so the two views accept and
-/// reject exactly the same events when they fold the journal in order.
+/// terminal's hook state, the last journal sequence applied for it, whether
+/// that session ended, and when its latest incarnation ended. The hook
+/// projector (public agent rows) and the roster reducer (`list_agents`, the
+/// TUI, raw `agents`) both decide hook events with
+/// [`HookFence::journal_transition`] and build the next fence with
+/// [`HookFence::next`], so the two views accept and reject exactly the same
+/// events when they fold the journal in order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct HookFence {
     pub(crate) session_id: String,
     pub(crate) sequence: u64,
     pub(crate) ended: bool,
+    /// Observed time of the latest end of `session_id` on this terminal. It
+    /// is the incarnation boundary: an event of this session observed at or
+    /// before it belongs to an ended incarnation, and a `SessionStart`
+    /// observed after it resumes the id as a new incarnation. It survives the
+    /// resume and resets when another session takes the terminal.
+    #[serde(default)]
+    pub(crate) ended_at_ms: Option<u64>,
 }
 
 pub(crate) enum JournalHookTransition {
@@ -349,16 +369,15 @@ impl DirectHookRejection {
 impl HookFence {
     /// Decide one journal hook event. `explicit_session_id` is the adapter's
     /// native session id; a session-less event continues the live legacy
-    /// generation or starts a new one keyed by its sequence. An event is
-    /// ignored when it is not newer than the fence, belongs to an ended
-    /// session, or belongs to a different session without being a start
-    /// that follows an ended one.
+    /// generation or starts a new one keyed by its sequence.
+    /// `observed_at_ms` is [`hook_observed_at_ms`] of the event.
     pub(crate) fn journal_transition(
         current: Option<&Self>,
         terminal_id: &str,
         explicit_session_id: Option<&str>,
         is_session_start: bool,
         sequence: u64,
+        observed_at_ms: Option<u64>,
     ) -> JournalHookTransition {
         if explicit_session_id.is_none()
             && current.is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
@@ -374,14 +393,59 @@ impl HookFence {
                     .map(|fence| fence.session_id.clone())
             })
             .unwrap_or_else(|| legacy_hook_session_id(terminal_id, sequence));
-        if let Some(fence) = current
-            && (sequence <= fence.sequence
-                || (fence.session_id == session_id && fence.ended)
-                || (fence.session_id != session_id && (!is_session_start || !fence.ended)))
-        {
+        let Some(fence) = current else { return JournalHookTransition::Apply(session_id) };
+        if sequence <= fence.sequence {
             return JournalHookTransition::Ignore;
         }
-        JournalHookTransition::Apply(session_id)
+        // Compare the event's observation with the fence's incarnation
+        // boundary. Unknown on either side proves nothing.
+        let after_end =
+            observed_at_ms.zip(fence.ended_at_ms).map(|(observed, ended)| observed > ended);
+        let observed_before_end = after_end == Some(false);
+        let observed_after_end = after_end == Some(true);
+        let accepted = if fence.session_id == session_id {
+            if fence.ended {
+                // Only a start resumes an ended id (`claude --resume`), and
+                // not one observed before that end: that start belongs to the
+                // ended incarnation.
+                is_session_start && !observed_before_end
+            } else {
+                // A live resumed incarnation rejects events its ended
+                // predecessor emitted before it ended.
+                !observed_before_end
+            }
+        } else if fence.ended {
+            // After a session ends, a start takes the terminal. So does an
+            // event with a native session id observed after that end: its
+            // session started without a start event reaching this fence, for
+            // example after a direct hook report restarted the projector.
+            is_session_start || (explicit_session_id.is_some() && observed_after_end)
+        } else {
+            false
+        };
+        if accepted {
+            JournalHookTransition::Apply(session_id)
+        } else {
+            JournalHookTransition::Ignore
+        }
+    }
+
+    /// The fence after applying an event of `session_id` at `sequence`. The
+    /// incarnation boundary carries over while the session keeps the
+    /// terminal, moves to the observed end when the event ends it, and resets
+    /// when another session takes the terminal.
+    pub(crate) fn next(
+        current: Option<&Self>,
+        session_id: String,
+        sequence: u64,
+        ended: bool,
+        observed_at_ms: Option<u64>,
+    ) -> Self {
+        let carried = current
+            .filter(|fence| fence.session_id == session_id)
+            .and_then(|fence| fence.ended_at_ms);
+        let ended_at_ms = if ended { observed_at_ms.or(carried) } else { carried };
+        Self { session_id, sequence, ended, ended_at_ms }
     }
 
     /// Decide one direct hook-source report. Internal hook markers are not
@@ -599,11 +663,9 @@ impl AgentRoster {
                     Err(_) => return Vec::new(),
                     Ok(DirectHookTransition::Continue) => {}
                     Ok(DirectHookTransition::Restart(session_id)) => {
-                        let sequence = fence.sequence;
-                        self.hook_fences.insert(
-                            terminal_id.to_string(),
-                            HookFence { session_id, sequence, ended: false },
-                        );
+                        let restarted =
+                            HookFence::next(Some(fence), session_id, fence.sequence, false, None);
+                        self.hook_fences.insert(terminal_id.to_string(), restarted);
                     }
                 }
             }
@@ -625,23 +687,26 @@ impl AgentRoster {
             // keeps the existing entry, exactly like the projector.
             let explicit_session_id =
                 event.normalized("agent_session_id").filter(|session_id| !session_id.is_empty());
+            let observed_at_ms = hook_observed_at_ms(event.payload);
+            let current = self.hook_fences.get(terminal_id);
             let JournalHookTransition::Apply(session_id) = HookFence::journal_transition(
-                self.hook_fences.get(terminal_id),
+                current,
                 terminal_id,
                 explicit_session_id,
                 event.kind == "agent.session.started",
                 event.sequence,
+                observed_at_ms,
             ) else {
                 return Vec::new();
             };
-            self.hook_fences.insert(
-                terminal_id.to_string(),
-                HookFence {
-                    session_id,
-                    sequence: event.sequence,
-                    ended: state == AgentState::Done,
-                },
+            let next = HookFence::next(
+                current,
+                session_id,
+                event.sequence,
+                state == AgentState::Done,
+                observed_at_ms,
             );
+            self.hook_fences.insert(terminal_id.to_string(), next);
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
         };
@@ -974,7 +1039,7 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "idle");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 2, ended: false }
+            HookFence { session_id: "new".into(), sequence: 2, ended: false, ended_at_ms: None }
         );
 
         roster.apply(&hook_event(5, "agent.turn.started", &subjects, &new));
@@ -1007,7 +1072,7 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "working");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 1, ended: false }
+            HookFence { session_id: "new".into(), sequence: 1, ended: false, ended_at_ms: None }
         );
         let completed = session_payload("old");
         assert!(
@@ -1016,6 +1081,25 @@ mod tests {
         let completed = session_payload("new");
         roster.apply(&hook_event(5, "agent.turn.completed", &subjects, &completed));
         assert_eq!(roster.entries["term_a"].state, "idle");
+    }
+
+    #[test]
+    fn journal_roster_resume_without_observation_stamps_starts_a_new_incarnation() {
+        // Older hook helpers do not stamp observations. A same-id start after
+        // an end cannot be proven stale, so it resumes the session.
+        let subjects = terminal_subject("term_a");
+        let payload = session_payload("a");
+        let mut roster = AgentRoster::default();
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload));
+        roster.apply(&hook_event(2, "agent.session.ended", &subjects, &payload));
+        assert!(roster.entries.is_empty());
+        assert!(roster.apply(&hook_event(3, "agent.turn.started", &subjects, &payload)).is_empty());
+        roster.apply(&hook_event(4, "agent.session.started", &subjects, &payload));
+        assert_eq!(roster.entries["term_a"].state, "idle");
+        assert_eq!(
+            roster.hook_fences["term_a"],
+            HookFence { session_id: "a".into(), sequence: 4, ended: false, ended_at_ms: None }
+        );
     }
 
     #[test]
