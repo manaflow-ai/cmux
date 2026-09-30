@@ -155,7 +155,10 @@ final class FeedCoordinator: @unchecked Sendable {
         guard let store else { return nil }
         guard let item = store.ingestReturningItem(event) else { return nil }
         observeSemanticLifecycle(event)
-        retirePendingDecisionsSuperseded(by: event)
+        let retiredDecision = retirePendingDecisionsSuperseded(by: event)
+        if !retiredDecision {
+            clearAgentPromptNotificationsSuperseded(by: event)
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -463,7 +466,13 @@ final class FeedCoordinator: @unchecked Sendable {
                         agentKey: Self.lifecycleStatusKey(forSource: event.source),
                         requestID: requestId, resolvesRequest: true))
                 }
-                FeedCoordinator.shared.clearSemanticFeedNotification(requestId: requestId)
+                FeedCoordinator.shared.clearSemanticFeedNotification(
+                    requestId: requestId,
+                    source: reply?.event.source,
+                    sessionId: reply?.event.sessionId,
+                    workspaceId: reply?.event.workspaceId.flatMap(UUID.init(uuidString:)),
+                    surfaceId: reply?.event.surfaceId.flatMap(UUID.init(uuidString:))
+                )
                 if let store = FeedCoordinator.shared.store,
                    let itemId = Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(itemId, decision: decision)
@@ -496,7 +505,10 @@ final class FeedCoordinator: @unchecked Sendable {
     /// prompt, or stop hook can only follow the decision. AskUserQuestion and
     /// ExitPlanMode PreToolUse hooks announce a blocking prompt of their own.
     static func supersedesPendingDecisions(_ event: WorkstreamEvent) -> Bool {
-        guard event.source == "claude", event.feedHookSentAtMs != nil else { return false }
+        guard event.feedHookSentAtMs != nil,
+              event.source == "claude" || (event.source == "codex" && event.feedHookIsOrdered) else {
+            return false
+        }
         switch event.hookEventName {
         case .preToolUse:
             return event.toolName != "AskUserQuestion" && event.toolName != "ExitPlanMode"
@@ -507,22 +519,56 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
+    /// Applies the same hook progression rule to terminal notifications even
+    /// when no Feed waiter exists, which is the normal Codex notify-hook path.
+    @MainActor
+    func clearAgentPromptNotificationsSuperseded(by event: WorkstreamEvent) {
+        guard Self.supersedesPendingDecisions(event),
+              let workspaceId = event.workspaceId.flatMap(UUID.init(uuidString:)),
+              let surfaceId = event.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
+        let canonicalSessionId = FeedWorkstreamIdentifier.canonicalizedRawValue(
+            agentID: event.source,
+            rawValue: event.sessionId
+        )
+        let sessionId = FeedWorkstreamIdentifier(rawValue: canonicalSessionId)?.sessionID ?? event.sessionId
+        let sentAt = event.feedHookSentAtMs.map {
+            Date(timeIntervalSince1970: TimeInterval($0) / 1_000)
+        }
+        _ = TerminalNotificationStore.shared.clearAgentAttentionNotification(
+            forTabId: workspaceId,
+            surfaceId: surfaceId,
+            agentKind: event.source,
+            sessionId: sessionId,
+            before: sentAt
+        )
+    }
+
     /// Retires blocking requests that `event` proves were decided outside cmux:
     /// the waiting hook returns no decision, the card expires, and the
     /// needs-input overlay and banner clear, as when the user replies in Feed.
     @MainActor
-    func retirePendingDecisionsSuperseded(by event: WorkstreamEvent) {
-        guard Self.supersedesPendingDecisions(event) else { return }
+    @discardableResult
+    func retirePendingDecisionsSuperseded(by event: WorkstreamEvent) -> Bool {
+        guard Self.supersedesPendingDecisions(event) else { return false }
+        var retiredDecision = false
         for (reply, itemID) in waiterRegistry.supersede(by: event) {
+            retiredDecision = true
             cancelNotification(requestId: reply.requestID)
             concludeAttentionOnMain(reply.target)
             notificationJournal.observeFeed(AgentFeedSemanticInput(event: reply.event,
                 agentKey: Self.lifecycleStatusKey(forSource: reply.event.source),
                 requestID: reply.requestID, resolvesRequest: true))
-            clearSemanticFeedNotification(requestId: reply.requestID)
+            _ = clearSemanticFeedNotification(
+                requestId: reply.requestID,
+                source: reply.event.source,
+                sessionId: reply.event.sessionId,
+                workspaceId: reply.event.workspaceId.flatMap(UUID.init(uuidString:)),
+                surfaceId: reply.event.surfaceId.flatMap(UUID.init(uuidString:))
+            )
             expireTimedOutItem(itemID)
             waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
         }
+        return retiredDecision
     }
 
     private static func findItemId(
