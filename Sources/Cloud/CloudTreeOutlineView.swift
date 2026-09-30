@@ -459,10 +459,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         /// One place decides what "open" means per row. Every surface row is
         /// `SurfaceCatalog.project` (focusing an open pane first); machine and
-        /// group rows toggle. Persistent create rows use this same open path;
-        /// the hover "+" and context menu remain alternate entrypoints (an expired machine still prompts,
-        /// and the asleep placeholder still wakes, because those rows advertise
-        /// exactly that).
+        /// group rows toggle. A workspace row admits its local destination
+        /// through the shared optimistic open owner, while persistent create rows
+        /// use this same open path. The hover "+" and context menu remain alternate
+        /// entrypoints (an expired machine still prompts, and the asleep placeholder
+        /// still wakes, because those rows advertise exactly that).
         func open(_ node: CloudTreeNode) {
             switch node.kind {
             case .machine(let machine, _):
@@ -505,7 +506,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         nodeActions.project(openRow.resource.id, .tab, true)
                     }
                 } else if let group = node.dragGroup, !group.isEmpty {
-                    nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
+                    // A workspace-row activation owns the workspace itself. It
+                    // admits a local destination through the shared optimistic
+                    // creation coordinator; open-here/split and drag/drop keep
+                    // their explicit group destinations below.
+                    nodeActions.openWorkspace(machine, workspace, group)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)

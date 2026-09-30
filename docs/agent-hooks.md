@@ -79,7 +79,7 @@ Agent Hibernation kills idle background agent processes to free their RAM and CP
 
 For routine hibernation, a live terminal is only a candidate when all of these hold:
 
-- it has a saved restorable agent session, and the saved launch data can build a resume command
+- it has a saved restorable agent session, and the saved launch data can relaunch it the way it was started (a Claude session needs its captured launch arguments, so a `sr claude proxy` launch resumes through `sr`; a declared `agents.launchers` entry must still resolve)
 - the agent lifecycle is `idle` (not running, not waiting on input)
 - the terminal is in the background (its panel is not currently visible)
 - you have more live restorable agent terminals than the live-terminal limit (`maxLiveTerminals`, default `12`)
