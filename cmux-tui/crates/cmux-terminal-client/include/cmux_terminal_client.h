@@ -140,6 +140,14 @@ CmuxWireGuardNet *cmux_wireguard_net_start(
     const char *config,
     char *error_buffer,
     size_t error_capacity);
+// Validates a trusted-carrier route without dialing. The route must be a
+// literal ws:// or wss:// IP covered by this tunnel's AllowedIPs. Returns
+// false and writes the reason when the route is outside the tunnel or invalid.
+bool cmux_wireguard_net_route_is_allowed(
+    const CmuxWireGuardNet *net,
+    const char *route,
+    char *error_buffer,
+    size_t error_capacity);
 void cmux_wireguard_net_free(CmuxWireGuardNet *net);
 
 // Terminal catalog over the daemon's mux control service. Both return an owned

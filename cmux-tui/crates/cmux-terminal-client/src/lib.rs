@@ -2585,6 +2585,36 @@ pub unsafe extern "C" fn cmux_wireguard_net_start(
     }
 }
 
+/// Checks whether a trusted-carrier route is a literal WebSocket IP covered
+/// by the tunnel's AllowedIPs without opening a connection.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wireguard_net_route_is_allowed(
+    net: *const CmuxWireGuardNet,
+    route: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+) -> bool {
+    let fail = |error: String| {
+        copy_utf8(&error, error_buffer, error_capacity);
+        false
+    };
+    let Some(net) = (unsafe { net.as_ref() }) else {
+        return fail("wireguard tunnel is null".into());
+    };
+    let route = match unsafe { required_str_from_ffi(route, "route") } {
+        Ok(route) => route,
+        Err(error) => return fail(error),
+    };
+    let parsed = match Url::parse(route) {
+        Ok(parsed) => parsed,
+        Err(error) => return fail(format!("route: {error}")),
+    };
+    match validate_trusted_route(&parsed, Some(net.net.routes())) {
+        Ok(()) => true,
+        Err(error) => fail(error),
+    }
+}
+
 /// Stops the tunnel and frees the handle.
 ///
 /// # Safety

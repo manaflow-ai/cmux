@@ -1,5 +1,6 @@
-# Builds the cmux-terminal-client static library for iOS devices, the iOS
-# simulator, and macOS, bundles them as CmuxTerminalClient.xcframework, and
+# Builds the cmux-terminal-client static library for iOS devices, both iOS
+# simulator architectures, and both macOS architectures, bundles them as
+# CmuxTerminalClient.xcframework, and
 # attaches the zip plus its SwiftPM checksum to a GitHub release tagged
 # cmux-terminal-client-v<crate version>[+<short sha>]. The release publishes
 # only on manual dispatch. The Swift package at
@@ -72,7 +73,13 @@ jobs:
 
       - name: Install Apple targets
         shell: bash
-        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
+        run: |
+          rustup target add \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            aarch64-apple-darwin \
+            x86_64-apple-ios \
+            x86_64-apple-darwin
 
       - name: Resolve version
         id: version
@@ -116,7 +123,12 @@ jobs:
         run: |
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
-          for target in aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin; do
+          for target in \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            aarch64-apple-darwin \
+            x86_64-apple-ios \
+            x86_64-apple-darwin; do
             cargo build -p cmux-terminal-client --release --locked --target "$target"
             lib="target/$target/release/libcmux_terminal_client.a"
             test -f "$lib"
@@ -153,7 +165,7 @@ jobs:
           short_version="${VERSION%%+*}"
           entries=""
           add_slice() {
-            local target="$1" slice="$2" platform="$3" supported="$4" minos="$5" variant="$6"
+            local target="$1" slice="$2" platform="$3" supported="$4" minos="$5" variant="$6" architecture="$7"
             local fw="$xcf/$slice/CmuxTerminalClientFFI.framework"
             mkdir -p "$fw/Headers" "$fw/Modules"
             cp "$lib/$target/release/libcmux_terminal_client.a" "$fw/CmuxTerminalClientFFI"
@@ -186,11 +198,13 @@ jobs:
           </dict></plist>
           PLIST
             plutil -lint "$fw/Info.plist"
-            entries+="<dict><key>BinaryPath</key><string>CmuxTerminalClientFFI.framework/CmuxTerminalClientFFI</string><key>LibraryIdentifier</key><string>$slice</string><key>LibraryPath</key><string>CmuxTerminalClientFFI.framework</string><key>SupportedArchitectures</key><array><string>arm64</string></array><key>SupportedPlatform</key><string>$platform</string>$variant_key</dict>"
+            entries+="<dict><key>BinaryPath</key><string>CmuxTerminalClientFFI.framework/CmuxTerminalClientFFI</string><key>LibraryIdentifier</key><string>$slice</string><key>LibraryPath</key><string>CmuxTerminalClientFFI.framework</string><key>SupportedArchitectures</key><array><string>$architecture</string></array><key>SupportedPlatform</key><string>$platform</string>$variant_key</dict>"
           }
-          add_slice aarch64-apple-ios ios-arm64 ios iPhoneOS 17.0 ""
-          add_slice aarch64-apple-ios-sim ios-arm64-simulator ios iPhoneSimulator 17.0 simulator
-          add_slice aarch64-apple-darwin macos-arm64 macos MacOSX 14.0 ""
+          add_slice aarch64-apple-ios ios-arm64 ios iPhoneOS 17.0 "" arm64
+          add_slice aarch64-apple-ios-sim ios-arm64-simulator ios iPhoneSimulator 17.0 simulator arm64
+          add_slice x86_64-apple-ios ios-x86_64-simulator ios iPhoneSimulator 17.0 simulator x86_64
+          add_slice aarch64-apple-darwin macos-arm64 macos MacOSX 14.0 "" arm64
+          add_slice x86_64-apple-darwin macos-x86_64 macos MacOSX 14.0 "" x86_64
           cat > "$xcf/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -265,8 +279,12 @@ jobs:
             "$rel/aarch64-apple-ios/release/libcmux_terminal_client.a"
           smoke_link ios-arm64-simulator iphonesimulator arm64-apple-ios17.0-simulator \
             "$rel/aarch64-apple-ios-sim/release/libcmux_terminal_client.a"
+          smoke_link ios-x86_64-simulator iphonesimulator x86_64-apple-ios17.0-simulator \
+            "$rel/x86_64-apple-ios/release/libcmux_terminal_client.a"
           smoke_link macos-arm64 macosx arm64-apple-macos14.0 \
             "$rel/aarch64-apple-darwin/release/libcmux_terminal_client.a"
+          smoke_link macos-x86_64 macosx x86_64-apple-macos14.0 \
+            "$rel/x86_64-apple-darwin/release/libcmux_terminal_client.a"
           "$work/smoke-macos-arm64" >/dev/null
           echo "macos-arm64: smoke binary ran"
 
@@ -305,7 +323,7 @@ jobs:
         run: |
           set -euo pipefail
           checksum="$(cat assets/CmuxTerminalClient.xcframework.zip.sha256)"
-          notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (static frameworks: iOS arm64, iOS simulator arm64, macOS arm64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
+          notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (static frameworks: iOS arm64, iOS simulator arm64/x86_64, macOS arm64/x86_64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             existing="$(mktemp -d)"
             gh release download "$TAG" \

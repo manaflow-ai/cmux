@@ -76,6 +76,11 @@ public final class TerminalClient: @unchecked Sendable {
             guard let wireGuard else {
                 throw TerminalClientError.failed("Trusted Cloud access requires a WireGuard tunnel")
             }
+            guard cmux_wireguard_net_route_is_allowed(
+                wireGuard.raw, route, &error, error.count)
+            else {
+                throw TerminalClientError.failed(String(cString: error))
+            }
             raw = cmux_terminal_client_connect_trusted_route(
                 route, stateDirectory.path, deviceName, wireGuard.raw,
                 &error, error.count, timeout.milliseconds)
