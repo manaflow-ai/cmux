@@ -192,6 +192,30 @@ final class AgentHibernationController {
         self.timer = timer
     }
 
+    /// Keeps the opt-in settled-session cleanup on the same main-thread owner
+    /// as the hibernation controller. The cleanup coordinator performs its own
+    /// safety checks immediately before closing each panel, so a timer tick can
+    /// race with input or process changes without widening the close policy.
+    private func updateSettledAutoCloseTimer() {
+        guard AgentHibernationSettings.settledAutoCloseEnabled() else {
+            settledAutoCloseTimer?.cancel()
+            settledAutoCloseTimer = nil
+            return
+        }
+        guard settledAutoCloseTimer == nil else { return }
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 60, repeating: 60)
+        timer.setEventHandler {
+            Task { @MainActor in
+                guard AgentHibernationSettings.settledAutoCloseEnabled() else { return }
+                _ = AppDelegate.shared?.closeSettledSessions(automatic: true)
+            }
+        }
+        timer.resume()
+        settledAutoCloseTimer = timer
+    }
+
     @discardableResult
     func evaluate(
         index: RestorableAgentSessionIndex,
