@@ -28,8 +28,11 @@ let package = Package(
     dependencies: [
         .package(path: "../CMUXMobileCore"),
         .package(
+            // sentry-cocoa 9.29.0 removed PrivateSentrySDKOnly, which the cmux
+            // CLI uses to store envelopes (CLI/CLISocketSentryTelemetry.swift).
+            // Keep the cap until that call moves to a public API.
             url: "https://github.com/getsentry/sentry-cocoa.git",
-            .upToNextMajor(from: "9.3.0")
+            "9.3.0"..<"9.29.0"
         ),
     ],
     targets: [
