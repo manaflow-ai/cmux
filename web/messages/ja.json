@@ -350,10 +350,10 @@
       "brand": "cmux",
       "cloudGroup": "クラウド",
       "cloudDevices": "Macアクセス",
-      "vaultGroup": "vault",
+      "vaultGroup": "Vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "概要",
       "remoteControlGroup": "Remote control",
       "accountGroup": "アカウント",
@@ -370,12 +370,12 @@
       "cloudName": "Cloud Macアクセス",
       "cloudDescription": "プライベートCloud VMネットワークに接続できるMacを確認し、アクセスを取り消します。",
       "cloudLink": "Macアクセスを管理",
-      "vaultName": "vault",
+      "vaultName": "Vault",
       "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
-      "vaultLink": "vaultを開く",
-      "coderouterName": "coderouter",
+      "vaultLink": "Vaultを開く",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
-      "coderouterLink": "coderouterを開く",
+      "coderouterLink": "Coderouterを開く",
       "iosAppName": "iOSアプリ",
       "iosAppDescription": "TestFlight（ベータ版）で cmux iOS アプリをインストール。",
       "iosLink": "iOSアプリを開く"
@@ -407,10 +407,10 @@
       "emptyBody": "Mac 上の cmux が初めて Cloud VM に接続すると、その Mac がここに表示されます。"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
-      "title": "coderouter",
-      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "title": "Coderouter",
+      "description": "Coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
       "machines": {
         "title": "マシン",
         "description": "{team} のマシン別 coderouter 使用状況（過去{days}日間）。",
@@ -553,7 +553,9 @@
       "apiKeyUsageDetail": "過去30日間: {completions} 回の完了 · {tokens} トークン ({input} 入力 / {output} 出力) · API換算 {value}",
       "apiKeyUsageUnavailable": "使用状況を取得できません",
       "apiKeysEmptyTitle": "API キーはまだありません",
-      "apiKeysEmptyHint": "CodeRouter クライアントを認証するためのキーを作成してください。"
+      "apiKeysEmptyHint": "CodeRouter クライアントを認証するためのキーを作成してください。",
+      "unavailableTitle": "共有アカウントは利用できません",
+      "unavailableBody": "現在、共有アカウントサービスに接続できません。cr add で追加したアカウントと、Anthropic および Bedrock のアカウントは引き続き使えます。"
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -564,7 +566,8 @@
       "signOut": "サインアウト",
       "signingOut": "サインアウト中…",
       "signOutError": "サインアウトできませんでした。もう一度お試しください。",
-      "signIn": "サインイン"
+      "signIn": "サインイン",
+      "upgrade": "アップグレード"
     },
     "teamSwitcher": {
       "label": "チーム",
@@ -572,7 +575,7 @@
     },
     "billing": {
       "eyebrow": "アカウント",
-      "title": "請求",
+      "title": "プランと請求",
       "description": "cmuxプランを確認し、サブスクリプション請求を管理します。",
       "banners": {
         "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
@@ -673,6 +676,98 @@
           "max": "Max",
           "founders": "Founders"
         }
+      },
+      "picker": {
+        "current": "現在のプラン",
+        "upgradeTo": "{plan} にアップグレード",
+        "switchTo": "{plan} に切り替え",
+        "cancelPlan": "プランを解約",
+        "resume": "{plan} を再開",
+        "renewsOn": "{date} に更新",
+        "endsOn": "{date} に終了",
+        "perMonth": "月額",
+        "perSeatMonth": "1 シートあたり月額",
+        "paymentMethod": "支払い方法を管理",
+        "invoices": "請求書",
+        "heading": "プラン",
+        "actionError": "プランを変更できませんでした。もう一度お試しください。",
+        "unavailable": {
+          "cancelScheduled": "変更するには、まずプランを再開してください。",
+          "granted": "cmux から付与されたプランです。変更できる項目はありません。",
+          "adminOnly": "プランを変更できるのはチーム管理者だけです。"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "macOS 用の cmux ターミナルのすべての機能",
+            "自分のキーで任意の CLI エージェントを実行",
+            "ローカルのセッション履歴"
+          ],
+          "go": [
+            "稼働中の Cloud VM 1 台",
+            "毎月 40 VM 時間",
+            "保存できる VM 2 台"
+          ],
+          "pro": [
+            "Cloud VM 上のクラウドエージェント",
+            "VM 全体で共有する 24 GB RAM と 6 vCPU",
+            "cmux iOS アプリ"
+          ],
+          "max": [
+            "VM 全体で共有する 64 GB RAM と 16 vCPU",
+            "より大きなマシンサイズ",
+            "Pro のすべての機能"
+          ],
+          "team": [
+            "全メンバーに Pro のすべての機能",
+            "チーム全体で 1 つの請求書",
+            "優先サポート"
+          ]
+        },
+        "billedAnnually": "年払い"
+      },
+      "change": {
+        "title": "{plan} に切り替えますか？",
+        "upgradeBody": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは月額 {price} です。",
+        "downgradeBody": "{plan} はすぐに開始します。現在のプランの未使用分 {credit} は、次回以降の請求に充当されます。{date} の次回請求額は {amount} です。",
+        "confirm": "{plan} に切り替え",
+        "keep": "現在のプランを続ける",
+        "switching": "切り替え中…",
+        "previewError": "料金を計算できませんでした。もう一度お試しください。",
+        "paymentFailed": "カードが拒否されました。支払い方法を更新してから、もう一度お試しください。",
+        "error": "プランを切り替えられませんでした。もう一度お試しください。"
+      },
+      "cancelDialog": {
+        "title": "{plan} を解約しますか？",
+        "body": "{date} まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "bodyNoDate": "今回の請求期間の終了まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "reasonLabel": "解約の理由（任意）",
+        "otherPlaceholder": "詳しく教えてください（任意）",
+        "confirm": "プランを解約",
+        "keep": "{plan} を続ける",
+        "error": "プランを解約できませんでした。もう一度お試しください。",
+        "resumeError": "プランを再開できませんでした。もう一度お試しください。",
+        "reasons": {
+          "too_expensive": "料金が高い",
+          "missing_feature": "必要な機能がない",
+          "not_using": "あまり使っていない",
+          "other": "その他"
+        }
+      },
+      "welcome": {
+        "title": "{plan} へようこそ",
+        "body": "プランが有効になりました。まず試してみましょう:",
+        "ios": "iOS アプリをインストール",
+        "cloud": "Cloud を開く",
+        "team": "チームを作成",
+        "banner": "{plan} をご利用中です。",
+        "bannerLink": "プランと請求"
       }
     },
     "testflight": {
@@ -758,7 +853,10 @@
         "account": "アカウント",
         "billing": "請求",
         "teamsGroup": "チーム",
-        "createTeam": "チームを作成"
+        "createTeam": "チームを作成",
+        "accountGroup": "アカウント",
+        "billingGroup": "請求",
+        "planBilling": "プランと請求"
       },
       "ui": {
         "save": "保存",
@@ -1272,6 +1370,14 @@
       },
       "retry": "再試行",
       "retrying": "再試行中…"
+    },
+    "upgrade": {
+      "title": "Pro が必要です",
+      "cloud": "Cloud VM とクラウドエージェントは Pro に含まれます。",
+      "testflight": "cmux iOS アプリは Pro に含まれます。",
+      "mobileDevices": "スマートフォンやタブレットとの接続は Pro に含まれます。",
+      "action": "Pro にアップグレード",
+      "comparePlans": "プランを比較"
     }
   },
   "vault": {
@@ -3065,8 +3171,10 @@
         "automation": {
           "ampIntegration": "Amp 向けの cmux フックをオンまたはオフにします。オフにしても同梱のプラグインはインストールされたまま、何もしない状態になります。",
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",
+          "agentAutoResume": "再試行可能な上流エラー（モデルの容量不足、過負荷、接続切断）でターンが終了した cmux 起動のエージェントに、バックオフ付きで `continue` を送信します。人の入力を待っているターンは再開しません。",
           "workspaceAutoNaming": "エージェントの会話内容からワークスペースとタブの名前を自動生成するオプトイン機能です。有効にすると、cmux は対応エージェントの各バイナリを使ってセッションを短いタイトルに要約します。手動の名前変更が常に優先されます。",
-          "autoNamingAgent": "すべてのセッションの自動命名を行うエージェントを指定します。\"auto\"（既定）は各セッションをそのセッション自身のエージェントで命名します。任意のエージェントのスラッグ（claude、codex、grok、opencode、pi、omp など）を指定すると、他のエージェントのセッションも含めてすべての命名をそのエージェントが行います。実行できない、または未インストールのエージェントは各セッション自身のエージェントにフォールバックするため、命名が壊れることはありません。"
+          "autoNamingAgent": "すべてのセッションの自動命名を行うエージェントを指定します。\"auto\"（既定）は各セッションをそのセッション自身のエージェントで命名します。任意のエージェントのスラッグ（claude、codex、grok、opencode、pi、omp など）を指定すると、他のエージェントのセッションも含めてすべての命名をそのエージェントが行います。実行できない、または未インストールのエージェントは各セッション自身のエージェントにフォールバックするため、命名が壊れることはありません。",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
@@ -3137,7 +3245,12 @@
           "compactAgentStatus": "各ワークスペースを1行で表示します。タイトルの前の色付きアイコン1つがエージェント、未読、プルリクエストの状態を示し、エージェントの状態行（「実行中」や「入力待ち」など）、ブランチとディレクトリの行、プルリクエストの行を置き換えます。それらの詳細はアイコンのツールチップに移ります。その他のステータス項目は独自の行のまま表示されます。",
           "compactStatusIcons": "compactAgentStatus のグリフを状態ごとに置き換える SF Symbol 名です（例: {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}）。未設定の状態は組み込みのシンボルを使い、表示できない名前も組み込みのシンボルに戻ります。",
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
-          "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
+          "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。",
+          "beta": {
+            "conversations": {
+              "enabled": "サイドバーの選択メニューに、会話をまとめて表示するビューを追加します。"
+            }
+          }
         },
         "fileExplorer": {
           "description": "右サイドバーのファイルエクスプローラー（ファイルツリー）設定。",
@@ -3213,6 +3326,12 @@
       "actionTypeAgent": "コーディングエージェントを新しいターミナルタブで起動します。任意の CLI 名(claude、codex、opencode、独自バイナリなど)を指定でき、args も併用できます。",
       "actionTypeWorkspaceCommand": "commands から名前付きのワークスペース定義を実行します。複数ペインのレイアウト、カスタム作業ディレクトリ、起動コマンドに使います。",
       "actionTypeWorkspace": "アクション内に埋め込んだワークスペース定義から新しいワークスペースを作成します。restart の指定も可能で、新規ワークスペースのプラスボタンメニューに自動的に表示されます。",
+      "actionTypeSetting": "グローバルの cmux.json の設定を 1 つ変更します。たとえば true/false の設定を切り替えたり、値のリストを順に切り替えたりできます。詳しくは下の「設定アクション」を参照してください。",
+      "actionTypeSettingPreset": "settingPresets に登録した名前付きの設定グループをまとめて適用します。",
+      "settingActions": "設定アクション",
+      "settingActionsDesc": "設定アクションには設定の <path>path</path> と、次のうち 1 つだけを指定します: <set>set</set>(値を書き込む)、<toggle>toggle: true</toggle>(true/false の設定を切り替える)、<cycle>cycle</cycle>(リスト内の次の値に進み、最後まで来たら先頭に戻る)、<unset>unset: true</unset>(cmux.json からキーを削除し、設定ウインドウで選んだ値か既定値に戻す)。toggle と cycle は、設定ウインドウで変更した値を含め、cmux が現在使っている値から始まります。settingPreset アクションは <presets>settingPresets</presets> のエントリを適用します。エントリは部分的な cmux.json で、入れ子のオブジェクトはキーごとにマージされます。cmux は保存前にすべての変更をスキーマで検証し、コメントや他のキーはそのまま残して、変更をすぐに反映します。設定アクションとプリセットはグローバルの cmux.json と、そこから参照するパックからのみ実行でき、プロジェクトの設定では宣言できません。",
+      "settingActionsCli": "同じ変更はターミナルからも行えます: <set>cmux config set terminal.scrollSpeed 1.4</set>、<toggle>cmux config toggle fileEditor.wordWrap</toggle>、<preset>cmux config preset sidebar.quiet</preset>。",
+      "settingActionsLimits": "<confirm>confirm: true</confirm> を指定すると、cmux は保存前に確認し、同じ変更を行う cmux config コマンドを表示します。パスはすべての \".\" で分割されるため、キー自体に \".\" を含むもの(~/src/app.web 用の <byCwd>workspaceGroups.byCwd</byCwd> エントリなど)はこの方法では変更できません。cmux.json で直接編集してください。",
       "actionFields": "アクションのフィールド",
       "actionFieldTitle": "Command Palette の行タイトル、サーフェスボタンのラベル、メニュー項目タイトル、信頼確認のタイトルです。項目側で上書きできます。",
       "actionFieldSubtitle": "Command Palette の補助テキストです。description は subtitle の別名として使えます。",
@@ -3362,7 +3481,8 @@
         "wn-quit": "終了"
       },
       "metaTitle": "キーボードショートカット",
-      "paneResizeDescription": "Ctrl+Shift+H/J/K/L（左/下/上/右）でフォーカス中のペインをリサイズします。キーを押し続けると連続してリサイズできます。設定 → キーボードショートカットでキー割り当てとペインのリサイズ幅を変更できます。移動幅は cmux.json の app.paneResizeStepPixels でも設定でき、範囲は 1～200、既定値は 20 です。"
+      "paneResizeDescription": "Ctrl+Shift+H/J/K/L（左/下/上/右）でフォーカス中のペインをリサイズします。キーを押し続けると連続してリサイズできます。設定 → キーボードショートカットでキー割り当てとペインのリサイズ幅を変更できます。移動幅は cmux.json の app.paneResizeStepPixels でも設定でき、範囲は 1～200、既定値は 20 です。",
+      "fileEditorWordWrap": "ファイルエディタの行折り返しを切り替え (Option+Z)."
     },
     "api": {
       "title": "CLIリファレンス",
@@ -4013,7 +4133,8 @@
       "maxLinesSetting": "TextBox Max Lines は、内容がスクロールし始める前の TextBox の最大高さを制限します。",
       "configTitle": "cmux.json",
       "configDesc": "同じ既定値は ~/.config/cmux/cmux.json の terminal で設定できます：",
-      "focusNote": "復元されたセッションは保存済みの TextBox 表示状態とフォーカス状態を保ちます。これらの既定値は新しく作成されたターミナル面にのみ適用されます。"
+      "focusNote": "復元されたセッションは保存済みの TextBox 表示状態とフォーカス状態を保ちます。これらの既定値は新しく作成されたターミナル面にのみ適用されます。",
+      "betaCallout": "TextBox はベータ機能です。テスト中のため、既定値や動作が変わる場合があります。"
     },
     "ios": {
       "metaTitle": "iOSアプリ",
@@ -6803,6 +6924,22 @@
     "signedOutTitle": "サインインして coderouter を承認",
     "signedOutBody": "コマンドラインアプリケーションがサインインを待っています。cmux アカウントでサインインすると、このターミナルの接続が完了します。このリクエストに心当たりがない場合は、このページを閉じてください。",
     "signInButton": "サインイン"
+  },
+  "mobile": {
+    "agentFeed": {
+      "fullText": {
+        "seeMore": "さらに表示"
+      },
+      "search": {
+        "placeholder": "フィードを検索"
+      },
+      "openWorkspace": "ワークスペースを開く",
+      "openTab": "タブを開く",
+      "openFailed": {
+        "title": "イベントを開けませんでした",
+        "message": "このイベントのコンピュータ、ワークスペース、またはタブは利用できなくなりました。"
+      }
+    }
   },
   "MobileRelease106": {
     "title": "1.0.6 の新機能",

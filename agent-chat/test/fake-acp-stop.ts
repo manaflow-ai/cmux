@@ -26,6 +26,10 @@ const startupGate = argument("--startup-gate");
 const startupReady = argument("--startup-ready");
 const promptGate = argument("--prompt-gate");
 const promptLog = argument("--prompt-log");
+// Agents that answer session/new without a session id, and agents that die
+// during startup, both leave the client without anything to cancel.
+const emptySessionId = Bun.argv.includes("--empty-session-id");
+const exitOnNew = Bun.argv.includes("--exit-on-new");
 let promptCount = 0;
 
 for await (const line of createInterface({ input: process.stdin })) {
@@ -36,7 +40,8 @@ for await (const line of createInterface({ input: process.stdin })) {
   } else if (msg.method === "session/new") {
     if (startupReady) await appendFile(startupReady, "ready\n");
     await waitForFile(startupGate);
-    send({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "fake-stop" } });
+    if (exitOnNew) process.exit(1);
+    send({ jsonrpc: "2.0", id: msg.id, result: emptySessionId ? {} : { sessionId: "fake-stop" } });
   } else if (msg.method === "session/prompt") {
     promptCount += 1;
     if (promptLog) await appendFile(promptLog, `${msg.params?.prompt?.[0]?.text ?? ""}\n`);

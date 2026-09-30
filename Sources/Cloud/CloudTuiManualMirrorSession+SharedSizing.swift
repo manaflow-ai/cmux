@@ -90,14 +90,20 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
     }
 
     /// Routes a `detached` event. A phone's detach goes to that phone only and
-    /// keeps this Mac attached. This Mac's own `disconnected-by` (or
-    /// host-shutdown / superseded) stops automatic reconnection, shows the
-    /// detached card and forwards the same detach to every phone viewing the
-    /// terminal through this Mac; a network detach reconnects as before.
-    func handleSharingDetached(reason: TerminalDetachReason, view: String?) {
-        switch sizingRelay.routeDetached(reason: reason, view: view) {
+    /// keeps this Mac attached. A view-only detach of this Mac shows the
+    /// detached card and keeps the connection and every phone it relays.
+    /// This Mac's whole-connection `disconnected-by` (or host-shutdown /
+    /// superseded) stops automatic reconnection, shows the detached card and
+    /// forwards the same detach to every phone viewing the terminal through
+    /// this Mac; a network detach reconnects as before.
+    func handleSharingDetached(reason: TerminalDetachReason, view: String?, viewOnly: Bool = false) {
+        switch sizingRelay.routeDetached(reason: reason, view: view, viewOnly: viewOnly) {
         case nil:
             return
+        case let .ownView(reason):
+            sharingOwnViewDetached = true
+            sharingDetachment = TerminalSharingDetachment(reason: reason, at: Date())
+            publishSharingSnapshot()
         case let .phone(clientID, reason):
             guard let surfaceID = sharingSurfaceID else { return }
             TerminalController.shared.cloudPhoneDetached(
@@ -215,9 +221,16 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
         ))
     }
 
+    /// Disconnects a participant through the daemon. Asked for this Mac's
+    /// own view (by a phone behind it), a `sizing-view-detach-v1` daemon
+    /// detaches the view only; an older daemon would drop the relay and its
+    /// phones, so that request is refused.
     func sharingDisconnect(participantID: String, by actor: TerminalDetachActor?) -> Bool {
+        if participantID == sizingRelay.selfParticipantID, !sizingRelay.supportsViewDetach { return false }
         let actor = actor ?? TerminalController.shared.localSizingIdentity().detachActor
-        return sendSizing(commandBuilder.detachClient(participantID: participantID, by: actor, requestID: takeRequestID()))
+        return sendSizing(commandBuilder.detachClient(
+            participantID: participantID, surfaceID: remoteSurfaceID, by: actor, requestID: takeRequestID()
+        ))
     }
 
     func sharingNoteSelfActivity() {
@@ -226,6 +239,17 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
 
     func sharingReattach(asViewer: Bool) -> Bool {
         guard sharingDetachment != nil else { return false }
+        if sharingOwnViewDetached {
+            // The connection is alive: restore the view in place, keeping
+            // every relayed phone.
+            guard sendSizing(commandBuilder.reattachView(
+                surfaceID: remoteSurfaceID, asViewer: asViewer, requestID: takeRequestID()
+            )) else { return false }
+            sharingOwnViewDetached = false
+            sharingDetachment = nil
+            publishSharingSnapshot()
+            return true
+        }
         sharingReattachAsViewerPending = asViewer
         return retryConnection()
     }

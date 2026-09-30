@@ -17,12 +17,25 @@
 #   4. Prints the exact next command to build a signed-in, auto-attached build.
 #
 # Reuses scripts/lib/dev-secrets.sh for all parsing; it does not duplicate it.
+# Run with --refresh to replace an existing personal pair after verifying it.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+
+REFRESH_PERSONAL=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --refresh) REFRESH_PERSONAL=1; shift ;;
+    -h|--help)
+      echo "Usage: scripts/setup-team-dev.sh [--refresh]"
+      echo "--refresh prompts for and verifies a replacement personal account; preserves the agent profile."
+      exit 0 ;;
+    *) echo "error: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
 
 HOME_DIR="${HOME:-}"
 if [[ -z "$HOME_DIR" ]]; then
@@ -65,9 +78,9 @@ existing_email="$(
     && printf '%s' "${CMUX_DEV_AUTH_ACCOUNT:-}" \
     || true
 )"
-if [[ -n "$existing_email" ]]; then
+if [[ -n "$existing_email" && "$REFRESH_PERSONAL" -eq 0 ]]; then
   echo "==> already configured as ${existing_email}"
-  echo "    (creds resolve via scripts/lib/dev-secrets.sh; delete $DEV_ENV_FILE to reset)"
+  echo "    (run scripts/setup-team-dev.sh --refresh to update the personal account)"
   next_steps "$existing_email"
   exit 0
 fi
@@ -159,6 +172,10 @@ case "$verify_rc" in
     exit 1
     ;;
   *)
+    if [[ "$REFRESH_PERSONAL" -eq 1 ]]; then
+      echo "error: could not verify replacement credentials; existing profiles were not changed." >&2
+      exit 1
+    fi
     echo "==> could not verify non-interactively; writing the file as a best effort."
     echo "    Confirm by running scripts/dev-setup.sh --tag <x> and checking the build signs in."
     ;;

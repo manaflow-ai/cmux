@@ -56,7 +56,12 @@ final class DeviceLink {
 
     /// The host's notification history moved; `notification.feed.list` has the rows.
     static let notificationFeedTopic = "notification.feed.changed"
-    static let eventTopics: Set<String> = ["mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", notificationFeedTopic, DeviceTerminalGridPublisher.eventTopic, DeviceWorkspaceLayoutHost.eventTopic]
+    static let eventTopics: Set<String> = [
+        "mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", notificationFeedTopic,
+        DeviceTerminalGridPublisher.eventTopic, DeviceWorkspaceLayoutHost.eventTopic,
+        // Shared sizing: this Mac is a participant of the host's terminals.
+        DeviceTerminalEvent.sizeStateTopic, DeviceTerminalEvent.detachedTopic,
+    ]
 
     let instance: SurfaceDeviceInstanceID
     private(set) var record: DeviceDirectoryRecord
