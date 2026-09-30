@@ -31,13 +31,20 @@ final class EmptyPaneArtUITests: SettingsUITestCase {
         let terminal = app.textViews.firstMatch
         XCTAssertTrue(terminal.waitForExistence(timeout: 15), "Expected the launch terminal")
         XCTAssertTrue(poll(timeout: 10) { terminal.frame.height > 100 }, "Expected a laid-out terminal")
-        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
 
         // Exit the launch shell. A surface that closes on its own (not an
         // explicit Close) leaves an empty pane when the workspace is kept
         // open on its last surface; the Close shortcut would close the
         // workspace instead.
+        let shellReadyPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-empty-pane-art-shell-ready-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: shellReadyPath) }
         terminal.click()
+        app.typeText("printf '__CMUX_EMPTY_PANE_ART_READY__\\n'; touch \(shellReadyPath)\n")
+        XCTAssertTrue(
+            poll(timeout: 15) { FileManager.default.fileExists(atPath: shellReadyPath) },
+            "Expected the launch shell to accept input"
+        )
         app.typeText("exit\n")
 
         let art = app.descendants(matching: .any)["EmptyPanelArt"]
