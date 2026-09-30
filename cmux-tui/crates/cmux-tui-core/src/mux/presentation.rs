@@ -1329,6 +1329,50 @@ mod tests {
         assert_eq!(tab["favicon_url"], "https://example.com/favicon.ico");
     }
 
+    #[test]
+    fn cmux_next_remote_terminal_tabs_persist_across_restart() {
+        let session = PresentationTestSession::new("remote-terminal");
+        let mux = session.open();
+        let terminal = mux.new_workspace(None, None).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+        let record = RemoteTerminalRecord {
+            session_id: "0b7f2c1e-4d3a-4f6b-9c8d-1a2b3c4d5e6f".into(),
+            terminal_id: "5f0c3a9e2b7d4c1a8e6f0b3d2c1a9e8f".into(),
+            session_name: "build-box".into(),
+            title: Some("cargo build".into()),
+        };
+        let remote = mux.new_remote_terminal_tab(Some(pane), record, None).unwrap();
+        assert!(mux.is_frontend_rendered_surface(&remote));
+        assert!(mux.frontend_browser(&remote).is_none(), "a remote terminal is not a browser record");
+        mux.update_remote_terminal_tab(
+            remote.id,
+            RemoteTerminalUpdate { snapshot: Some(Some("$ cargo build\n".into())), ..Default::default() },
+        )
+        .unwrap();
+        let tab = tab_json(&mux, remote.id);
+        assert_eq!(tab["kind"], "remote-terminal");
+        assert_eq!(tab["title"], "cargo build");
+        let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&remote.id].clone());
+        drop(remote);
+        drop(mux);
+
+        let mux = session.open();
+        let restored = mux
+            .with_state(|state| state.resource_indexes.tabs.get(&tab_id).copied())
+            .and_then(|surface| mux.surface(surface))
+            .expect("remote-terminal tab restored");
+        assert!(mux.is_frontend_rendered_surface(&restored));
+        let tab = tab_json(&mux, restored.id);
+        assert_eq!(tab["kind"], "remote-terminal");
+        assert_eq!(tab["title"], "cargo build");
+        assert_eq!(tab["remote"]["session_name"], "build-box");
+        assert_eq!(tab["remote"]["terminal_id"], "5f0c3a9e2b7d4c1a8e6f0b3d2c1a9e8f");
+        assert_eq!(
+            mux.remote_terminal_snapshot(restored.id).unwrap().as_deref(),
+            Some("$ cargo build\n")
+        );
+    }
+
     fn durable_unread(mux: &Mux) -> Vec<bool> {
         let projections = mux.workspace_registry.lock().unwrap().public_projections().unwrap();
         projections.notifications.iter().map(|notification| notification.unread).collect()
