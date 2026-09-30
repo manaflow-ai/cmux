@@ -117,6 +117,22 @@ public final class GhosttyRuntime {
     /// visual checks can run a tagged build under another theme.
     static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
 
+    /// cmux's own theme (`appearance.theme` in cmux.json, a Ghostty theme
+    /// name or `light:A,dark:B`), loaded after the Ghostty config files so
+    /// it replaces their `theme`. Colors the config sets explicitly still
+    /// win, as in Ghostty. Nil keeps the config's theme. Set it, then call
+    /// `reloadConfig()`.
+    public static var themeOverride: String?
+
+    /// `theme = <value>` for a well-formed theme spec; nil for anything
+    /// that could inject another config line.
+    nonisolated static func themeOverrideLine(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty, value.count <= 200,
+              value.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && $0 != "#" && $0 != "=" && $0 != "\"" })
+        else { return nil }
+        return "theme = \(value)"
+    }
+
     private static func loadConfig(diagnostics: inout [String], opacity: inout Double) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
         if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
@@ -125,6 +141,9 @@ public final class GhosttyRuntime {
             ghostty_config_load_default_files(config)
         }
         ghostty_config_load_recursive_files(config)
+        if let line = themeOverrideLine(themeOverride) {
+            ghostty_config_load_string(config, line, UInt(line.utf8.count), "cmux.json")
+        }
         // In a translucent window the root view paints the one translucent
         // sheet; the surfaces draw cells over it with a transparent default
         // background (`GhosttyRuntimeSurfacePolicy`). The configured

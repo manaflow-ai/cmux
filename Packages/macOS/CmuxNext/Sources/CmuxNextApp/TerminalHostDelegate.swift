@@ -34,8 +34,12 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// default engine (`browser.defaultEngine`, Chromium). Other schemes, or
     /// no window, go to the system.
     func openLink(_ url: URL) -> Bool {
-        guard let pane = services?.windows.active?.focusedPane, url.scheme == "http" || url.scheme == "https" else {
-            return NSWorkspace.shared.open(url)
+        guard url.scheme == "http" || url.scheme == "https" else { return NSWorkspace.shared.open(url) }
+        guard let pane = services?.windows.active?.focusedPane else {
+            // No window: never hand a web link to the system, which may be
+            // cmux itself as the default browser (a loop). It waits for one.
+            services?.externalOpen.perform(.browserTab(url))
+            return true
         }
         pane.newBrowserTab(url: url)
         return true

@@ -137,6 +137,9 @@ final class AppControl {
                 await DebugExtensions.devTools(call.params, services)
             },
             .mainActor("debug.menu") { call in .value(DebugExtensions.menu(call.params)) },
+            .mainActor("debug.onboarding") { [weak services] call in
+                .value(services.map { DebugOnboarding.run(call.params, services: $0) } ?? .null)
+            },
             .mainActor("debug.extensions.toolbar") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.toolbar(call.params, $0) } ?? .null)
             },

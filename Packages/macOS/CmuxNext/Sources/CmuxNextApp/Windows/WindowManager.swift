@@ -68,6 +68,8 @@ final class WindowManager {
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
     var onFirstWindow: ((WindowController) -> Void)?
+    /// A window installed workspace content (links opened at launch wait for it).
+    var onContentDidAppear: ((WindowController) -> Void)?
 
     init(services: AppServices) {
         self.services = services
@@ -240,6 +242,7 @@ final class WindowManager {
     /// The window installed its first workspace content: a window kept off
     /// screen for it is ordered in now.
     func contentDidAppear(_ controller: WindowController) {
+        defer { onContentDidAppear?(controller) }
         guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
         present(controller)
         if front { bringToFront(controller) }

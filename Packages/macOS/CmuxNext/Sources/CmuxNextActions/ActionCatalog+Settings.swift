@@ -24,6 +24,12 @@ nonisolated extension ActionCatalog {
                 surfaces: [.palette, .menu], cliName: "settings open-ghostty-config", mainMenu: .app
             ),
             ActionDescriptor(
+                id: "palette.makeDefaultBrowser",
+                title: String(localized: "action.palette.makeDefaultBrowser", defaultValue: "Make cmux the Default Browser", bundle: .module),
+                keywords: ["default", "browser", "handler", "links"], category: .settings, symbol: "globe",
+                surfaces: [.palette, .menu], cliName: "settings make-default-browser", mainMenu: .app
+            ),
+            ActionDescriptor(
                 id: "palette.makeDefaultTerminal",
                 title: String(localized: "action.palette.makeDefaultTerminal", defaultValue: "Make cmux the Default Terminal", bundle: .module),
                 keywords: ["default", "handler"], category: .settings, symbol: "checkmark.seal",
@@ -99,9 +105,10 @@ nonisolated extension ActionCatalog {
             ),
             ActionDescriptor(
                 id: "palette.welcomeChecklist",
-                title: String(localized: "action.palette.welcomeChecklist", defaultValue: "Welcome Checklist", bundle: .module),
-                keywords: ["onboarding", "getting started"], category: .settings, symbol: "sparkles",
-                surfaces: [.palette, .menu], cliName: "settings welcome-checklist", mainMenu: .app
+                title: String(localized: "action.palette.onboarding", defaultValue: "Onboarding…", bundle: .module),
+                keywords: ["onboarding", "getting started", "welcome", "import", "theme", "default browser", "tour"],
+                category: .settings, symbol: "sparkles",
+                surfaces: [.palette, .menu], cliName: "settings onboarding", mainMenu: .app
             ),
             ActionDescriptor(
                 id: "sendFeedback",

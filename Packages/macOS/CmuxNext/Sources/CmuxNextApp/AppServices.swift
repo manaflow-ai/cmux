@@ -65,6 +65,11 @@ final class AppServices {
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) var keyRouter: KeyRouter!
     private(set) var chromiumWarmup: ChromiumWarmup!
+    /// First-run onboarding, browser import and default-app claims.
+    private(set) lazy var onboarding = OnboardingService(services: self)
+    /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
+    private(set) lazy var externalOpen = ExternalOpenController(services: self)
+    let terminalTheme = TerminalThemeSetting()
     var chromiumLikelyObservations: [Task<Void, Never>] = []
 
     init(environment: AppEnvironment) {

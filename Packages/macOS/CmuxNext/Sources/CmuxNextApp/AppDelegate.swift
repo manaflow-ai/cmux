@@ -71,6 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+        services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
+        NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
+        services.onboarding.seedHistory()
+        services.onboarding.showIfNeeded()
     }
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`).
@@ -95,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.cache.browserTabs.preference.follow(settings)
         services.notifications.follow(settings)
         services.startHibernation(settings: settings)
+        services.terminalTheme.follow(settings)
         Task {
             await settings.waitForLoad(atLeast: 1)
             do {
@@ -139,11 +144,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
-    /// `<scheme>://auth-callback` from the browser fallback of sign-in.
+    /// Web, `ssh:` and `x-man-page:` links (cmux as their handler) open as
+    /// tabs; `<scheme>://auth-callback` from the browser fallback of
+    /// sign-in goes to Cloud auth.
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URL(string: text) else { return }
+        if services?.externalOpen.open(url) == true { return }
         let cloud = services?.cloud
         Task { _ = await cloud?.auth.handleCallback(url) }
+    }
+
+    /// Files opened with cmux (scripts, folders, HTML) and URLs delivered
+    /// without an Apple event.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { services?.externalOpen.open(url) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

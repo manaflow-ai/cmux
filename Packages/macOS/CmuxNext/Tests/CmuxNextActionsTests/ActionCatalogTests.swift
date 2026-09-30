@@ -66,7 +66,7 @@ import Testing
     /// (`ActionCatalog+Screens.swift`, `ActionCatalog+ScreenGroups.swift`).
     /// Settings counts the pane border, padding and corner toggles and the
     /// two titlebar styles, the focus ring and border width toggles and the
-    /// border color reset. Window
+    /// border color reset, and Make cmux the Default Browser. Window
     /// counts Minimize (no inventory row; used by idle and visibility checks).
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 23,
@@ -81,7 +81,7 @@ import Testing
         .agents: 16,
         .cloud: 23,
         .remote: 6, // SSH machines (Connect to Machine…)
-        .settings: 46,
+        .settings: 47,
     ]
 
     @Test func everyKeyboardShortcutIDExists() {

@@ -53,6 +53,25 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
         }
     }
 
+    /// Adds entries from elsewhere (a browser import) without counting new
+    /// visits: an entry replaces the stored one only when it is newer, and
+    /// keeps the larger visit count.
+    public func merge(_ entries: [BrowserHistoryEntry]) {
+        for entry in entries where Self.isRecordable(entry.url) {
+            let key = BrowserHistoryRanker.dedupeKey(for: entry.url)
+            guard var existing = byKey[key] else {
+                byKey[key] = entry
+                continue
+            }
+            existing.visitCount = max(existing.visitCount, entry.visitCount)
+            if entry.lastVisit > existing.lastVisit {
+                existing.lastVisit = entry.lastVisit
+                existing.title = entry.title ?? existing.title
+            }
+            byKey[key] = existing
+        }
+    }
+
     public func updateTitle(_ title: String, for url: URL) {
         let key = BrowserHistoryRanker.dedupeKey(for: url)
         byKey[key]?.title = title
