@@ -69,3 +69,13 @@ replace_line="$(grep -n 'rm -rf "\$TAG_APP_FINAL_PATH"' "$RELOAD" | head -n1 | c
 [[ -n "$terminate_line" && -n "$replace_line" && "$terminate_line" -lt "$replace_line" ]] \
   || fail "normal tagged reload can replace the app bundle before terminating the prior process"
 echo "PASS: normal tagged reload terminates before replacing the final app bundle"
+
+# The E2E simulator build runs on Apple Silicon and the checked-in GhosttyKit
+# simulator framework is arm64-only. A generic simulator destination otherwise
+# asks Xcode for both arm64 and x86_64 and fails before producing the app.
+simulator_build="$(awk '/^reload_simulator\(\) \{/,/^  APP_PATH=/' "$ROOT_DIR/ios/scripts/reload.sh")"
+[[ "$simulator_build" == *$'ARCHS=arm64 \\'* ]] \
+  || fail "simulator build does not restrict Xcode to arm64"
+[[ "$simulator_build" == *$'ONLY_ACTIVE_ARCH=YES \\'* ]] \
+  || fail "simulator build does not use only the active arm64 architecture"
+echo "PASS: simulator build targets the arm64 architecture only"
