@@ -14,12 +14,12 @@ struct ControlCommandCoordinatorWorkspaceTests {
         semaphore.wait(timeout: timeout) == .success
     }
 
-    func coordinator() -> (ControlCommandCoordinator, FakeWorkspaceControlCommandContext) {
+    private func coordinator() -> (ControlCommandCoordinator, FakeWorkspaceControlCommandContext) {
         let context = FakeWorkspaceControlCommandContext()
         return (ControlCommandCoordinator(context: context), context)
     }
 
-    func request(_ method: String, _ params: [String: JSONValue] = [:]) -> ControlRequest {
+    private func request(_ method: String, _ params: [String: JSONValue] = [:]) -> ControlRequest {
         ControlRequest(id: .int(1), method: method, params: params)
     }
 
@@ -157,7 +157,6 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.addWorkspaceToGroupCall?.placement == .afterCurrent)
         #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == referenceWorkspaceID)
     }
-
     @Test func workspaceGroupAddAcceptsNullReferenceWorkspaceID() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()

@@ -1,6 +1,5 @@
 internal import CmuxSettings
 internal import Foundation
-
 /// The workspace-group control domain (`workspace.group.*`). Payloads use typed
 /// ``JSONValue`` dictionaries, and destructive or ambient-state behavior must
 /// be expressed explicitly at this boundary.
@@ -54,7 +53,6 @@ extension ControlCommandCoordinator {
             return nil
         }
     }
-
     // MARK: - Payload
     /// Builds one group's payload row (the legacy `v2WorkspaceGroupPayload`),
     /// minting the `workspace_group` / `workspace` refs from the snapshot ids.

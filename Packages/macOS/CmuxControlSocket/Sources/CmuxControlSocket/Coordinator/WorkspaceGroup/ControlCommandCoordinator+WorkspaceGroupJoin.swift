@@ -1,6 +1,5 @@
 internal import Foundation
 
-/// The atomic workspace-group join command.
 extension ControlCommandCoordinator {
     /// `workspace.group.join` — find a group by name (or create it) and add the
     /// workspace to it. Safe to repeat: a workspace already in the group is a
@@ -41,5 +40,4 @@ extension ControlCommandCoordinator {
             ]))
         }
     }
-
 }

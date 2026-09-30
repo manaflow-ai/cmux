@@ -1,9 +1,20 @@
 import Foundation
+import CmuxSettings
 import Testing
 @testable import CmuxControlSocket
 
 @MainActor
-extension ControlCommandCoordinatorWorkspaceTests {
+@Suite("ControlCommandCoordinator workspace-group join")
+struct ControlCommandCoordinatorWorkspaceGroupJoinTests {
+    private func coordinator() -> (ControlCommandCoordinator, FakeWorkspaceControlCommandContext) {
+        let context = FakeWorkspaceControlCommandContext()
+        return (ControlCommandCoordinator(context: context), context)
+    }
+
+    private func request(_ method: String, _ params: [String: JSONValue] = [:]) -> ControlRequest {
+        ControlRequest(id: .int(1), method: method, params: params)
+    }
+
     @Test func workspaceGroupJoinTrimsNameAndReportsCreation() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()
@@ -100,5 +111,4 @@ extension ControlCommandCoordinatorWorkspaceTests {
 
         #expect(code == "invalid_state")
     }
-
 }

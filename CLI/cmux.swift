@@ -132,21 +132,18 @@ struct ClaudeHookSessionRecord: Codable {
             self.createdAt = createdAt
             self.requiresToolUseId = requiresToolUseId
         }
-
         static func identity(for normalizedCommand: String) -> (fingerprint: String, length: Int) {
             (
                 fingerprint: fingerprint(for: normalizedCommand),
                 length: normalizedCommand.utf8.count
             )
         }
-
         private static func normalizedCommand(_ value: String) -> String {
             value
                 .replacingOccurrences(of: "\r\n", with: "\n")
                 .replacingOccurrences(of: "\r", with: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
         private static func fingerprint(for value: String) -> String {
             var encoded: [UInt8] = []
             encoded.reserveCapacity(64)
@@ -156,7 +153,6 @@ struct ClaudeHookSessionRecord: Codable {
             }
             return String(decoding: encoded, as: UTF8.self)
         }
-
         private static func redactedPreview(for value: String) -> String {
             _ = value
             return String(
@@ -164,7 +160,6 @@ struct ClaudeHookSessionRecord: Codable {
                 defaultValue: "Approval needed"
             )
         }
-
         private enum CodingKeys: String, CodingKey {
             case commandFingerprint
             case commandLength
@@ -175,7 +170,6 @@ struct ClaudeHookSessionRecord: Codable {
             case requiresToolUseId
             case legacyCommand = "command"
         }
-
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             if let fingerprint = try container.decodeIfPresent(String.self, forKey: .commandFingerprint),
@@ -198,7 +192,6 @@ struct ClaudeHookSessionRecord: Codable {
             createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
             requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
         }
-
         /// Encodes the persisted approval fields without emitting the
         /// decode-only legacy command. The legacy key is retained only for
         /// decoding stores written by older builds.
@@ -213,7 +206,6 @@ struct ClaudeHookSessionRecord: Codable {
             try container.encode(requiresToolUseId, forKey: .requiresToolUseId)
         }
     }
-
     var sessionId: String
     var workspaceId: String
     var surfaceId: String
@@ -283,16 +275,13 @@ struct ClaudeHookSessionRecord: Codable {
     /// eviction would let an old delayed callback consume a newer approval.
     var cursorShellCommandOnlyCorrelationDisabled: Bool? = nil
 }
-
 struct ClaudeHookActiveSessionRecord: Codable {
     var sessionId: String
     var turnId: String?
     var allowsNewSessionReplacement: Bool?
     var updatedAt: TimeInterval
 }
-
 typealias AgentHookLaunchCommandRecord = AgentLaunchCommand
-
 private struct CodexMonitorLeaseRecord: Codable {
     var leaseId: String
     var sessionId: String
@@ -302,7 +291,6 @@ private struct CodexMonitorLeaseRecord: Codable {
     var createdAt: TimeInterval
     var retiredAt: TimeInterval?
 }
-
 final class ClaudeHookSessionStore {
     private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
     typealias CursorShellApprovalResolution = (
@@ -323,18 +311,15 @@ final class ClaudeHookSessionStore {
         cleared: Bool,
         notificationCorrelationKeys: [String]
     )
-
     final class CursorShellApprovalReconciliationLease {
         private var fileDescriptor: Int32
         private let lockStart: off_t
         private let lockLength: off_t
-
         init(fileDescriptor: Int32, lockStart: off_t, lockLength: off_t) {
             self.fileDescriptor = fileDescriptor
             self.lockStart = lockStart
             self.lockLength = lockLength
         }
-
         func release() {
             guard fileDescriptor >= 0 else { return }
             var lock = flock(
@@ -348,7 +333,6 @@ final class ClaudeHookSessionStore {
             Darwin.close(fileDescriptor)
             fileDescriptor = -1
         }
-
         deinit {
             release()
         }
@@ -367,12 +351,10 @@ final class ClaudeHookSessionStore {
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
-
     private let statePath: String
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
-
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
@@ -391,7 +373,6 @@ final class ClaudeHookSessionStore {
         self.fileManager = fileManager
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
-
     func lookup(sessionId: String, deadline: Date? = nil) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
@@ -399,7 +380,6 @@ final class ClaudeHookSessionStore {
             state.sessions[normalized]
         }
     }
-
     /// Records one Cursor shell command for atomic completion correlation.
     /// Cursor's after/failure hook payloads do not expose the native approval
     /// decision or a stable tool id, so the normalized command is the durable
@@ -552,7 +532,6 @@ final class ClaudeHookSessionStore {
             )
         }
     }
-
     /// Resolves exactly one pending Cursor shell command, rejecting unrelated
     /// or sandboxed completions without touching visible notification state.
     /// The compare-and-remove happens under the store lock so overlapping hook
@@ -754,7 +733,6 @@ final class ClaudeHookSessionStore {
             )
         }
     }
-
     /// Drops all pending Cursor shell approvals when a session stops or starts
     /// a new turn, returning the exact notification identities that were
     /// visible for those approvals.
@@ -806,7 +784,6 @@ final class ClaudeHookSessionStore {
             return (cleared: true, notificationCorrelationKeys: notificationCorrelationKeys)
         }
     }
-
     /// Whether another Cursor approval remains pending on the same surface.
     /// Used to keep a late completion from clearing a newer session's wait.
     func hasPendingCursorShellApproval(
@@ -845,13 +822,11 @@ final class ClaudeHookSessionStore {
             return false
         }
     }
-
     /// Pending approval ownership follows the globally stable surface id;
     /// workspace ids are transient while panes move between windows.
     private func cursorPendingSurfaceKey(surfaceId: String) -> String {
         surfaceId
     }
-
     private func hasUnexpiredCursorShellApproval(
         _ record: ClaudeHookSessionRecord,
         now: TimeInterval
@@ -860,7 +835,6 @@ final class ClaudeHookSessionStore {
             now - $0.createdAt <= Self.maxPendingCursorShellApprovalAgeSeconds
         } == true
     }
-
     private func addCursorPendingIndex(
         _ state: inout ClaudeHookSessionStoreFile,
         sessionId: String,
@@ -11439,6 +11413,274 @@ struct CMUXCLI {
         )
     }
 
+    /// Emit a workspace-group mutation response, including removal impact.
+    private func printWorkspaceGroupResponse(
+        _ response: [String: Any],
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) {
+        if jsonOutput {
+            print(jsonString(formatIDs(response, mode: idFormat)))
+        } else if response["operation"] as? String == "dissolved",
+                  let count = (response["kept_workspace_count"] as? NSNumber)?.intValue {
+            let format = count == 1
+                ? String(localized: "cli.workspaceGroup.response.dissolved.one", defaultValue: "OK group dissolved (kept %lld workspace)")
+                : String(localized: "cli.workspaceGroup.response.dissolved.other", defaultValue: "OK group dissolved (kept %lld workspaces)")
+            print(String.localizedStringWithFormat(format, Int64(count)))
+        } else if response["operation"] as? String == "closed_workspaces",
+                  let count = (response["closed_workspace_count"] as? NSNumber)?.intValue {
+            let format = count == 1
+                ? String(localized: "cli.workspaceGroup.response.closed.one", defaultValue: "OK group deleted (closed %lld workspace)")
+                : String(localized: "cli.workspaceGroup.response.closed.other", defaultValue: "OK group deleted (closed %lld workspaces)")
+            print(String.localizedStringWithFormat(format, Int64(count)))
+        } else {
+            print("OK")
+        }
+    }
+
+    /// Print a one-time deprecation hint to stderr for a legacy CLI verb that
+    /// has a `cmux workspace <subcommand>` replacement. Honors CMUX_QUIET so
+    /// scripts can opt out.
+    private static let cliDeprecationNoticeShownKey = "CMUX_CLI_DEPRECATION_SHOWN"
+    static func warnLegacyVerbDeprecated(_ legacy: String, replacement: String) {
+        if ProcessInfo.processInfo.environment["CMUX_QUIET"] != nil { return }
+        if getenv(cliDeprecationNoticeShownKey) != nil { return }
+        cliWriteStderr("cmux: '\(legacy)' is now an alias for '\(replacement)'. The legacy form keeps working indefinitely; set CMUX_QUIET=1 to silence this notice.\n")
+        setenv(cliDeprecationNoticeShownKey, "1", 1)
+    }
+
+    private func runWorkspaceGroup(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, join, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
+        }
+        let rest = Array(commandArgs.dropFirst())
+        var params: [String: Any] = [:]
+        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+
+        func resolveGroupId(in rest: [String]) throws -> String {
+            let (gidOpt, rem0) = parseOption(rest, name: "--group")
+            if let gidOpt { return gidOpt }
+            // Strip --window before scanning for a positional so a `--window
+            // <value>` pair never gets parsed as the group id.
+            let (_, rem1) = parseOption(rem0, name: "--window")
+            for arg in rem1 where !arg.hasPrefix("--") {
+                return arg
+            }
+            throw CLIError(message: "workspace-group \(sub) requires a group id or --group <id>")
+        }
+
+        switch sub {
+        case "list":
+            let payload = try client.sendV2(method: "workspace.group.list", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let groups = payload["groups"] as? [[String: Any]] ?? []
+                if groups.isEmpty {
+                    print("No groups")
+                } else {
+                    for g in groups {
+                        let handle = textHandle(g, idFormat: idFormat)
+                        let name = (g["name"] as? String) ?? ""
+                        let count = (g["member_count"] as? Int) ?? 0
+                        let pin = (g["is_pinned"] as? Bool) == true ? " [pinned]" : ""
+                        let coll = (g["is_collapsed"] as? Bool) == true ? " [collapsed]" : ""
+                        print("\(handle)  \(name)  (\(count) members)\(pin)\(coll)")
+                    }
+                }
+            }
+
+        case "create":
+            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
+            let (fromOpt, rem2) = parseOption(rem1, name: "--from")
+            let (idempotencyOpt, rem3) = parseOption(rem2, name: "--idempotency-key")
+            let (externalIDOpt, rem4) = parseOption(rem3, name: "--external-id")
+            let (_, rem5) = parseOption(rem4, name: "--window")
+            // Use the remainder AFTER every named option is stripped so the
+            // positional name lookup can't pick up --from/--window values.
+            let resolvedName = nameOpt ?? rem5.first(where: { !$0.hasPrefix("--") }) ?? ""
+            params["name"] = resolvedName
+            if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
+            if let idempotencyOpt { params["idempotency_key"] = idempotencyOpt }
+            if let externalIDOpt { params["external_id"] = externalIDOpt }
+            let ids = fromOpt?.split(separator: ",").map {
+                String($0).trimmingCharacters(in: .whitespaces)
+            } ?? []
+            params["child_workspace_ids"] = ids
+            let response = try client.sendV2(method: "workspace.group.create", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else if let group = response["group"] as? [String: Any] {
+                print("OK \(textHandle(group, idFormat: idFormat))")
+            } else {
+                print("OK")
+            }
+
+        case "ungroup":
+            let optionTerminator = rest.firstIndex(of: "--") ?? rest.endIndex
+            let removeAnchor = rest[..<optionTerminator].contains("--remove-generated-anchor")
+            let routedArgs = rest.enumerated().compactMap { index, argument in
+                index < optionTerminator && argument == "--remove-generated-anchor" ? nil : argument
+            }
+            params["group_id"] = try resolveGroupId(in: routedArgs)
+            if removeAnchor { params["remove_generated_anchor"] = true }
+            let resp = try client.sendV2(method: "workspace.group.ungroup", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "delete":
+            let optionTerminator = rest.firstIndex(of: "--") ?? rest.endIndex
+            let closesWorkspaces = rest[..<optionTerminator].contains("--close-workspaces")
+            let routedArgs = rest.enumerated().compactMap { index, argument in
+                index < optionTerminator && (argument == "--close-workspaces" || argument == "--remove-generated-anchor") ? nil : argument
+            }
+            params["group_id"] = try resolveGroupId(in: routedArgs)
+            let method = closesWorkspaces ? "workspace.group.delete" : "workspace.group.ungroup"
+            if closesWorkspaces { params["close_workspaces"] = true }
+            if rest[..<optionTerminator].contains("--remove-generated-anchor") {
+                params["remove_generated_anchor"] = true
+            }
+            let resp = try client.sendV2(method: method, params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "rename":
+            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            let gid = try resolveGroupId(in: rem0)
+            params["group_id"] = gid
+            let positional = rem0.filter { !$0.hasPrefix("--") && $0 != gid }
+            guard let newName = nameOpt ?? positional.first else {
+                throw CLIError(message: "rename requires --name <name>")
+            }
+            params["name"] = newName
+            let resp = try client.sendV2(method: "workspace.group.rename", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "collapse", "expand":
+            params["group_id"] = try resolveGroupId(in: rest)
+            let resp = try client.sendV2(method: "workspace.group.\(sub)", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "pin", "unpin":
+            params["group_id"] = try resolveGroupId(in: rest)
+            let resp = try client.sendV2(method: "workspace.group.\(sub)", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "add":
+            let (groupOpt, rem0) = parseOption(rest, name: "--group")
+            let (wsOpt, _) = parseOption(rem0, name: "--workspace")
+            guard let gid = groupOpt, let wsId = wsOpt else {
+                throw CLIError(message: "add requires --group <id> --workspace <id>")
+            }
+            params["group_id"] = gid
+            params["workspace_id"] = wsId
+            let resp = try client.sendV2(method: "workspace.group.add", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "join":
+            try runWorkspaceGroupJoin(rest: rest, params: &params, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "remove":
+            let (wsOpt, rem0) = parseOption(rest, name: "--workspace")
+            // Strip --window before scanning for a positional so a `--window
+            // <value>` pair never gets parsed as the workspace id.
+            let (_, rem1) = parseOption(rem0, name: "--window")
+            guard let wsId = wsOpt ?? rem1.first(where: { !$0.hasPrefix("--") }) else {
+                throw CLIError(message: "remove requires --workspace <id>")
+            }
+            params["workspace_id"] = wsId
+            let resp = try client.sendV2(method: "workspace.group.remove", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "set-anchor":
+            let (groupOpt, rem0) = parseOption(rest, name: "--group")
+            let (wsOpt, _) = parseOption(rem0, name: "--workspace")
+            guard let gid = groupOpt, let wsId = wsOpt else {
+                throw CLIError(message: "set-anchor requires --group <id> --workspace <id>")
+            }
+            params["group_id"] = gid
+            params["workspace_id"] = wsId
+            let resp = try client.sendV2(method: "workspace.group.set_anchor", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "new-workspace":
+            let (placementOpt, rem0) = parseOption(rest, name: "--placement")
+            params["group_id"] = try resolveGroupId(in: rem0)
+            if let placementOpt {
+                params["placement"] = placementOpt
+            }
+            let response = try client.sendV2(method: "workspace.group.new_workspace", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else if let wsId = response["workspace_ref"] as? String {
+                print("OK \(wsId)")
+            } else {
+                print("OK")
+            }
+
+        case "set-color":
+            let (hexOpt, rem1) = parseOption(rest, name: "--hex")
+            // --color is an alias for --hex (mirrors the `custom_color`
+            // response field the RPC accepts under the `color` key).
+            // Always consume --color so it cannot be mistaken for the group id
+            // when both flags are passed; --hex wins.
+            let (colorOpt, rem0) = parseOption(rem1, name: "--color")
+            params["group_id"] = try resolveGroupId(in: rem0)
+            // Treat --hex/--color with no value (or `""`) as a clear.
+            params["hex"] = hexOpt ?? colorOpt ?? ""
+            let resp = try client.sendV2(method: "workspace.group.set_color", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "set-icon":
+            let (symbolOpt, rem1) = parseOption(rest, name: "--symbol")
+            // --icon is an alias for --symbol (mirrors the `icon_symbol`
+            // response field the RPC accepts under the `icon` key).
+            // Always consume --icon so it cannot be mistaken for the group id
+            // when both flags are passed; --symbol wins.
+            let (iconOpt, rem0) = parseOption(rem1, name: "--icon")
+            params["group_id"] = try resolveGroupId(in: rem0)
+            params["symbol"] = symbolOpt ?? iconOpt ?? ""
+            let resp = try client.sendV2(method: "workspace.group.set_icon", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "move":
+            let (toIndexOpt, rem0) = parseOption(rest, name: "--to-index")
+            let (beforeOpt, rem1) = parseOption(rem0, name: "--before")
+            let (afterOpt, rem2) = parseOption(rem1, name: "--after")
+            // Resolve the source group from rem2, which has every
+            // move-position flag stripped — otherwise the positional scan
+            // could pick up the value of --to-index/--before/--after.
+            params["group_id"] = try resolveGroupId(in: rem2)
+            if let toIndexOpt {
+                guard let n = Int(toIndexOpt) else {
+                    throw CLIError(message: "move --to-index must be an integer")
+                }
+                params["to_index"] = n
+            } else if let beforeOpt {
+                params["before_group_id"] = beforeOpt
+            } else if let afterOpt {
+                params["after_group_id"] = afterOpt
+            } else {
+                throw CLIError(message: "move requires --to-index <n>, --before <group>, or --after <group>")
+            }
+            let resp = try client.sendV2(method: "workspace.group.move", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "focus":
+            params["group_id"] = try resolveGroupId(in: rest)
+            let resp = try client.sendV2(method: "workspace.group.focus", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        default:
+            throw CLIError(message: "Unknown workspace-group subcommand: \(sub)")
+        }
+    }
+
     private func runRenameTab(
         commandArgs: [String],
         client: SocketClient,
@@ -11958,8 +12200,7 @@ struct CMUXCLI {
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 localCommandScript: combinedLocalCommandScript,
-                sshFallbackCommand: initialSSHStartupCommand,
-                sshFallbackLauncherPaths: launchScripts.unlaunchedPaths
+                sshFallbackCommand: initialSSHStartupCommand
             )
             remoteTerminalSSHStartupCommand = buildMoshTerminalStartupCommand(
                 options: sshOptions,
@@ -19460,10 +19701,7 @@ struct CMUXCLI {
                 localized: "cli.workspaceGroup.help.destructiveDelete",
                 defaultValue: "Delete the group AND close every member workspace. Explicitly destructive."
             )
-            let joinHelp = String(
-                localized: "cli.workspaceGroup.help.join",
-                defaultValue: "Move a workspace (default: this terminal's) into the group with this name, creating the group if none exists. Names match ignoring case. Safe to repeat."
-            )
+            let joinHelp = String(localized: "cli.workspaceGroup.help.join", defaultValue: "Move a workspace (default: this terminal's) into the group with this name, creating the group if none exists. Names match ignoring case. Safe to repeat.")
             let overview = String(
                 localized: "cli.workspaceGroup.help.overview",
                 defaultValue: "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
@@ -19491,8 +19729,7 @@ struct CMUXCLI {
               pin <group>
               unpin <group>
               add --group <group> --workspace <ws>
-              join <name> [--workspace <ws>]
-                                        \(joinHelp)
+              join <name> [--workspace <ws>] \(joinHelp)
               remove --workspace <ws>
               set-anchor --group <group> --workspace <ws>
               new-workspace <group> [--placement afterCurrent|top|end]
@@ -20925,7 +21162,7 @@ struct CMUXCLI {
         return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
     }
 
-    func windowFromArgsOrOverride(_ args: [String], windowOverride: String? = nil) -> String? {
+    private func windowFromArgsOrOverride(_ args: [String], windowOverride: String? = nil) -> String? {
         optionValue(args, name: "--window") ?? windowOverride
     }
 
