@@ -42,8 +42,10 @@ import Testing
         defer { harness.tearDown() }
 
         let panelsBefore = harness.workspace.panels.count
+        let window = try #require(harness.appDelegate.windowForMainWindowId(harness.windowId))
 
-        let panel = harness.workspace.newTerminalSplit(
+        let panel = harness.workspace.newTerminalSplitInRealisticWindowForTesting(
+            window: window,
             from: harness.sourcePanelId,
             orientation: .horizontal,
             focus: false
