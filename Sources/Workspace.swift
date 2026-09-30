@@ -137,6 +137,8 @@ extension Workspace {
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
         )
         let statusSnapshots = statusEntries.values
+            // A failed wake is runtime state; it must not come back after a relaunch.
+            .filter { $0.key != Self.agentWakeFailedStatusKey }
             .sorted { lhs, rhs in lhs.key < rhs.key }
             .map { entry in
                 SessionStatusEntrySnapshot(
@@ -596,89 +598,15 @@ extension Workspace {
                 ?? (effectiveRestorableAgent == nil
                     ? sessionRestorePolicy.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                     : nil)
-            let agentWasRunning: Bool? = {
-                // A queued cmux-authored selector is durable intent before any
-                // process can exist. Once shell activity starts, the ordinary
-                // binding and process evidence below becomes authoritative.
-                if restoredAgentLifecycle.hasQueuedRestoreIntent(
-                    panelId: panelId,
-                    matching: effectiveRestorableAgent
-                ) {
-                    return true
-                }
-                if let resumeBinding, resumeBinding.isAgentHookBinding {
-                    guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding.kind),
-                          let bindingKind = RestorableAgentKind(
-                              persistedRawValue: bindingKindValue,
-                              registration: effectiveRestorableAgent?.registration
-                                  ?? restorableAgentObservation?.snapshot.registration
-                          ),
-                          let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding.checkpointId) else {
-                        return false
-                    }
-                    if restoredAgentLifecycleConfirmsRunning(resumeBinding, panelId: panelId) {
-                        return true
-                    }
-                    let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
-                        kind: bindingKind,
-                        sessionId: bindingSessionId,
-                        panelId: panelId,
-                        currentProcessIdentity: currentAgentProcessIdentity
-                    )
-                    if !confirmedRuntimeProcessIdentities.isEmpty {
-                        return true
-                    }
-                    let matchingObservation = restorableAgentObservation?.matchingAgentSession(
-                        kind: bindingKind.rawValue,
-                        sessionId: bindingSessionId
-                    )
-                    guard let effectiveRestorableAgent,
-                          effectiveRestorableAgent.kind.rawValue == bindingKind.rawValue,
-                          ManagedAgentSessionIdentity.sessionIDsMatch(
-                              kind: bindingKind.rawValue,
-                              lhs: effectiveRestorableAgent.sessionId,
-                              rhs: bindingSessionId
-                          ),
-                          let matchingObservation else {
-                        return false
-                    }
-                    return matchingObservation.wasRunningForSnapshot(
-                        effectiveRestorableAgent, binding: resumeBinding,
-                        fallingBackTo: panelShellActivityStates[panelId],
-                        confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
-                        currentProcessIdentity: currentAgentProcessIdentity,
-                        processPresence: agentProcessPresence
-                    )
-                }
-                guard let effectiveRestorableAgent else { return nil }
-                let matchingObservation = restorableAgentObservation?.matchingAgentSession(
-                    kind: effectiveRestorableAgent.kind.rawValue,
-                    sessionId: effectiveRestorableAgent.sessionId
-                )
-                if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(
-                    snapshot: effectiveRestorableAgent,
-                    binding: resumeBinding,
-                    processLiveness: matchingObservation?.processLiveness
-                ) {
-                    return true
-                }
-                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
-                    for: effectiveRestorableAgent,
-                    panelId: panelId,
-                    currentProcessIdentity: currentAgentProcessIdentity
-                )
-                // Unknown liveness stays nil so the shell state and the caller's
-                // default (`agentWasRunning ?? true`) decide. The Computer Use
-                // merge (#13055) had turned it into false.
-                return (matchingObservation?.processLiveness ?? .unknown)
-                    .wasRunning(
-                        fallingBackTo: panelShellActivityStates[panelId],
-                        recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
-                        confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
-                        currentProcessIdentity: currentAgentProcessIdentity,
-                        processPresence: agentProcessPresence
-                    )
-            }()
+            let agentWasRunning = sessionAgentWasRunning(
+                panelId: panelId,
+                restorableAgent: effectiveRestorableAgent,
+                resumeBinding: resumeBinding,
+                terminal: terminalPanel,
+                observation: restorableAgentObservation,
+                currentAgentProcessIdentity: currentAgentProcessIdentity,
+                agentProcessPresence: agentProcessPresence
+            )
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(
                     resumeBinding,
@@ -2603,6 +2531,97 @@ extension Workspace {
         }
     }
 
+    func sessionAgentWasRunning(
+        panelId: UUID,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        terminal: TerminalPanel,
+        observation: RestorableAgentSessionIndex.Entry?,
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        agentProcessPresence: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
+    ) -> Bool? {
+        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+            panelId: panelId,
+            matching: restorableAgent
+        ) {
+            return true
+        }
+        if let resumeBinding, resumeBinding.isAgentHookBinding {
+            guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding.kind),
+                  let bindingKind = RestorableAgentKind(
+                      persistedRawValue: bindingKindValue,
+                      registration: restorableAgent?.registration ?? observation?.snapshot.registration
+                  ),
+                  let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding.checkpointId) else {
+                return false
+            }
+            if restoredAgentLifecycleConfirmsRunning(resumeBinding, panelId: panelId) {
+                return true
+            }
+            let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                kind: bindingKind,
+                sessionId: bindingSessionId,
+                panelId: panelId,
+                currentProcessIdentity: currentAgentProcessIdentity
+            )
+            if !confirmedRuntimeProcessIdentities.isEmpty {
+                return true
+            }
+            let matchingObservation = observation?.matchingAgentSession(
+                kind: bindingKind.rawValue,
+                sessionId: bindingSessionId
+            )
+            guard let restorableAgent,
+                  restorableAgent.kind.rawValue == bindingKind.rawValue,
+                  ManagedAgentSessionIdentity.sessionIDsMatch(
+                      kind: bindingKind.rawValue,
+                      lhs: restorableAgent.sessionId,
+                      rhs: bindingSessionId
+                  ),
+                  let matchingObservation else {
+                return false
+            }
+            return matchingObservation.wasRunningForSnapshot(
+                restorableAgent,
+                binding: resumeBinding,
+                fallingBackTo: panelShellActivityStates[panelId],
+                confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                currentProcessIdentity: currentAgentProcessIdentity,
+                processPresence: agentProcessPresence
+            )
+        }
+        guard let restorableAgent else { return nil }
+        let matchingObservation = observation?.matchingAgentSession(
+            kind: restorableAgent.kind.rawValue,
+            sessionId: restorableAgent.sessionId
+        )
+        if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(
+            snapshot: restorableAgent,
+            binding: resumeBinding,
+            processLiveness: matchingObservation?.processLiveness
+        ) {
+            return true
+        }
+        let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+            for: restorableAgent,
+            panelId: panelId,
+            currentProcessIdentity: currentAgentProcessIdentity
+        )
+        return (matchingObservation?.processLiveness ?? .unknown).wasRunning(
+            fallingBackTo: panelShellActivityStates[panelId],
+            recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
+            confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+            currentProcessIdentity: currentAgentProcessIdentity,
+            processPresence: agentProcessPresence
+        )
+    }
+
 }
 /// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
@@ -3276,6 +3295,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    /// Wake checks for agents resumed from hibernation; see
+    /// `Workspace+AgentWakeVerification.swift`.
+    var agentWakeVerificationsByPanelId: [UUID: AgentWakeVerification] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
@@ -6163,6 +6185,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.setSnapshot(agent, panelId: panelId)
         restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        discardAgentWakeVerification(panelId: panelId)
         if !isRemoteWorkspace {
             // Hibernation destroys the local PTY. Clear its derived badge and
             // reject any queued publication captured before that teardown.
@@ -6186,6 +6209,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               terminalPanel.isAgentHibernated else {
             return false
         }
+        let hibernatedAgent = terminalPanel.agentHibernationState?.agent
         let preparation = terminalPanel.prepareAgentHibernationResume()
         guard preparation.didResume else { return false }
         if restoredAgentSnapshotsByPanelId[panelId] != nil {
@@ -6198,6 +6222,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         clearAgentLifecycleStates(panelId: panelId)
+        if preparation.queuedStartupInput, let hibernatedAgent {
+            beginAgentWakeVerification(panelId: panelId, agent: hibernatedAgent)
+        } else {
+            discardAgentWakeVerification(panelId: panelId)
+        }
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
         if focus {
             focusPanel(panelId)
@@ -6564,6 +6593,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
         agentStatusEntriesByPanelId.removeAll()
+        // The failed-wake row mirrors banners that are still up.
+        refreshAgentWakeFailureStatusEntry()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -6727,8 +6758,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let paneTabs: [String: [UUID]] = Dictionary(
             uniqueKeysWithValues: orderedPaneIds.map { paneId in
                 let panelIds = bonsplitController
-                    .tabs(inPane: paneId)
-                    .compactMap { panelIdFromSurfaceId($0.id) }
+                    .tabIds(inPane: paneId)
+                    .compactMap { panelIdFromSurfaceId($0) }
                 return (paneId.id.uuidString, panelIds)
             }
         )
