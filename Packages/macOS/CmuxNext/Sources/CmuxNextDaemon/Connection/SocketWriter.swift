@@ -66,6 +66,7 @@ final class SocketWriter: Sendable {
     // MARK: - Private (serial queue)
 
     private func drain() {
+        // wakeup-allow: drains queued bytes and stops when the queue is empty, closed, or a write fails or makes no progress
         while true {
             let chunk = state.withLock { state -> Data? in
                 guard !state.closed, !state.pending.isEmpty else {
@@ -98,6 +99,9 @@ final class SocketWriter: Sendable {
                     if errno == EINTR { continue }
                     return "write: \(String(cString: strerror(errno)))"
                 }
+                // A blocking write returns 0 only when it cannot progress;
+                // retrying would loop without writing anything.
+                if written == 0 { return "write: no progress" }
                 remaining -= written
                 pointer += written
             }

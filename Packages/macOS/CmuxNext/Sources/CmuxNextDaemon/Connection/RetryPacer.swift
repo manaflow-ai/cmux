@@ -141,7 +141,7 @@ public final class RetryWake: Sendable {
 
     /// Waits for an event, or for `delay` when given. A pending event
     /// returns at once.
-    public func wait(delay: Duration?, clock: any Clock<Duration>) async -> Cause {
+    public func awaitWake(delay: Duration?, clock: any Clock<Duration>) async -> Cause {
         await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Cause, Never>) in
                 let immediate = state.withLock { state -> Cause? in
@@ -207,6 +207,6 @@ extension RetryPacer {
     public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>) async -> Bool {
         wake.rebaseline()
         let delay = failed()
-        return await wake.wait(delay: delay, clock: clock) != .cancelled
+        return await wake.awaitWake(delay: delay, clock: clock) != .cancelled
     }
 }

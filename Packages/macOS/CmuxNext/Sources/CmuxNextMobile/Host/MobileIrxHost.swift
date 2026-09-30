@@ -1,4 +1,6 @@
 public import CmuxIrxTransport
+import CmuxNextDaemon
+import CmuxNextWakeups
 public import Foundation
 
 /// The cmux-next Mac's phone listener: one irx (Iroh, ALPN `cmux/irx/1`)
@@ -42,7 +44,15 @@ public actor MobileIrxHost {
     var endpointTask: Task<Void, Never>?
     var endpointRefreshPending = false
     var acceptTask: Task<Void, Never>?
-    var expiryTask: Task<Void, Never>?
+    var expiryTimer: DemandTimer?
+    /// Spacing of endpoint activation attempts; reset once the endpoint is ready.
+    var endpointPacer = RetryPacer(MobileIrxHost.endpointRetry)
+    /// Spacing of endpoint cycles whose accept loop ended without accepting
+    /// anything; reset when a connection is accepted.
+    var acceptPacer = RetryPacer(MobileIrxHost.acceptRetry)
+    /// A relay-state change cuts the activation backoff short.
+    let endpointWake = RetryWake(owner: "MobileIrxHost.endpoint")
+    var acceptRestart: DemandTimer?
     /// Bumped by every `start()` and `stop()`. A provisioning run checks it
     /// after each await and abandons itself once stale, so a stop that lands
     /// mid-provisioning cannot be undone by the start resuming afterwards.
@@ -207,7 +217,10 @@ public actor MobileIrxHost {
         controlTask?.cancel(); controlTask = nil
         endpointTask?.cancel(); endpointTask = nil
         acceptTask?.cancel(); acceptTask = nil
-        expiryTask?.cancel(); expiryTask = nil
+        expiryTimer?.cancel(); expiryTimer = nil
+        acceptRestart?.cancel(); acceptRestart = nil
+        endpointPacer.reset()
+        acceptPacer.reset()
         admission?.invalidate()
         await registry?.closeAll(code: .hostShutdown)
         await supervisor?.deactivate()

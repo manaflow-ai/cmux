@@ -1,27 +1,7 @@
+import CmuxNextWakeups
 import Darwin
 public import Foundation
 import Synchronization
-
-/// Holds one request's deadline task so the request cancels it on return.
-final class DeadlineTimer: Sendable {
-    private let task = Mutex<Task<Void, Never>?>(nil)
-    private let cancelled = Mutex(false)
-
-    func start(_ body: @escaping @Sendable () async -> Void) {
-        let started = Task { await body() }
-        let isCancelled = cancelled.withLock { $0 }
-        if isCancelled {
-            started.cancel()
-        } else {
-            task.withLock { $0 = started }
-        }
-    }
-
-    func cancel() {
-        cancelled.withLock { $0 = true }
-        task.withLock { $0?.cancel() }
-    }
-}
 
 /// Why a transport stopped.
 public enum TransportCloseReason: Sendable, Equatable {
@@ -156,14 +136,13 @@ final class LineTransport: Sendable {
     /// arrived in time fails the request with `DaemonError.timedOut`; the
     /// late reply is dropped when it comes (architecture.md 5a).
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
-        let timer = DeadlineTimer()
+        // A one-shot deadline, armed synchronously inside the continuation
+        // body, so the deferred cancel always runs after it.
+        let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
         return try await withCheckedThrowingContinuation { continuation in
             guard case .success(let id) = submit(.continuation(cmd: cmd, continuation), body), let timeout else { return }
-            timer.start { [weak self] in
-                do { try await Task.sleep(for: timeout) } catch { return }
-                self?.expire(id: id, after: timeout)
-            }
+            timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) }
         }
     }
 
@@ -305,6 +284,7 @@ final class LineTransport: Sendable {
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 256 * 1024)
         var closeDetail = "EOF"
+        // wakeup-allow: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
         reading: while true {
             let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
             if count == 0 { break }

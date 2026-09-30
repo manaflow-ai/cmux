@@ -28,6 +28,7 @@ public final class UnixSocketLane: MobileByteLane {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { try await lane.waitUntilReady(path: path) }
             group.addTask {
+                // wakeup-allow: one-shot deadline (unix socket connect)
                 try await Task.sleep(for: deadline)
                 throw Failure.connectTimedOut(path: path)
             }
@@ -74,10 +75,11 @@ public final class UnixSocketLane: MobileByteLane {
                     continuation.resume(returning: data)
                 } else if let error {
                     continuation.resume(throwing: error)
-                } else if isComplete {
-                    continuation.resume(returning: nil)
                 } else {
-                    continuation.resume(returning: Data())
+                    // Complete, or an empty delivery with no error: the
+                    // stream ended. Returning empty data made the splice
+                    // pumps call read again at once, a loop without progress.
+                    continuation.resume(returning: nil)
                 }
             }
         }

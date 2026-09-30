@@ -302,6 +302,7 @@ let package = Package(
             name: "CmuxNextMobile",
             dependencies: [
                 "CmuxNextDaemon",
+                "CmuxNextWakeups",
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxIrxTransport", package: "CmuxIrxTransport"),
             ],

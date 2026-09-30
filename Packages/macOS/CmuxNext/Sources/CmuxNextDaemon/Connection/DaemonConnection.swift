@@ -333,12 +333,13 @@ public actor DaemonConnection {
     }
 
     private func reconnectLoop() async {
+        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one, or wait for an
             // event once the timed budget is spent.
             wake.rebaseline()
             let delay = pacer.failed()
-            guard await wake.wait(delay: delay, clock: clock) != .cancelled else { break }
+            guard await wake.awaitWake(delay: delay, clock: clock) != .cancelled else { break }
             if isClosedPhase { break }
             do {
                 _ = try await connectOnce()

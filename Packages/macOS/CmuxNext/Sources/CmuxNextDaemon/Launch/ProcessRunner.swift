@@ -46,6 +46,7 @@ enum ProcessRunner {
                 }
             }
             group.addTask {
+                // wakeup-allow: one-shot deadline (child process timeout)
                 try await clock.sleep(for: timeout)
                 return Int32.min
             }

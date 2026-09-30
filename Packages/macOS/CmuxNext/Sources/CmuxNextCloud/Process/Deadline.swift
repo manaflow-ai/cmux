@@ -14,6 +14,7 @@ func withDeadline<T: Sendable>(_ duration: Duration, label: String,
     try await withThrowingTaskGroup(of: T.self) { group in
         group.addTask { try await operation() }
         group.addTask {
+            // wakeup-allow: one-shot deadline (cross-process call)
             try await Task.sleep(for: duration)
             throw DeadlineExceeded(label: label)
         }

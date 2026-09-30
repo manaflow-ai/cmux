@@ -36,6 +36,7 @@ public actor WindowStateStore {
     @discardableResult
     public func update(_ change: @Sendable (inout WindowStateDocument) -> Void) async throws -> WindowStateDocument {
         var attempts = 0
+        // wakeup-allow: bounded CAS retry (3 attempts), each reloads the document from the daemon
         while true {
             var next = document
             change(&next)

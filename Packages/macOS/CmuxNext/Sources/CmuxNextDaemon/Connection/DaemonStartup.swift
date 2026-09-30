@@ -53,6 +53,7 @@ public enum DaemonStartup {
         onFailure: @Sendable (DaemonError) async -> Void
     ) async -> (DaemonConnection, DaemonIdentity)? {
         var pacer = RetryPacer(policy)
+        // wakeup-allow: each iteration waits in RetryPacer (capped backoff, then events only)
         while !Task.isCancelled {
             let connection = makeConnection()
             do {

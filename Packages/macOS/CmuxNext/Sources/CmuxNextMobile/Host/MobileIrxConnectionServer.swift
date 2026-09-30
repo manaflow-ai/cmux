@@ -48,6 +48,7 @@ struct MobileIrxConnectionServer: Sendable {
     }
 
     private func serveLanes(transport: IrxControlByteTransport) async {
+        // wakeup-allow: awaits the next lane; ends when the connection closes (nil)
         while !Task.isCancelled, let lane = await connection.acceptLane() {
             switch lane.descriptor.lane {
             case .keepalive:

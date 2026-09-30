@@ -1,22 +1,35 @@
 import CmuxIrxTransport
+import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// Endpoint readiness, the accept loop, and permission enforcement.
 extension MobileIrxHost {
-    /// Longest wait between endpoint activation attempts.
-    static let maximumRetryDelay: Duration = .seconds(300)
+    /// Endpoint activation: 5 s growing to 300 s, 8 timed attempts; after
+    /// that the next relay-state change (`apply`) retries. No fixed period.
+    static let endpointRetry = RetryPolicy(initial: .seconds(5), maximum: .seconds(300), timedRetries: 8)
+    /// An accept loop that ended without accepting anything (the endpoint
+    /// closed at once, or every handshake failed): 250 ms growing to 60 s,
+    /// 10 timed cycles, then the next relay-state change.
+    static let acceptRetry = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(60), timedRetries: 10)
 
     /// Binds (or re-binds) the endpoint once a usable relay credential exists,
     /// then starts accepting. Coalesces concurrent requests into one task.
     func requestEndpointReady() {
-        guard endpointTask == nil else { endpointRefreshPending = true; return }
+        guard endpointTask == nil else {
+            endpointRefreshPending = true
+            endpointWake.fire()
+            return
+        }
         guard let supervisor, let cache = cachedState, !cache.authorityRevoked,
               Self.credentials(cache).contains(where: { $0.isUsable(at: Date()) }) else {
             journal.record("next-host", "endpoint-ready-skipped", [:])
             return
         }
+        let wake = endpointWake
+        let clock = clock
         endpointTask = Task { [weak self] in
-            var failures = 0
+            // wakeup-allow: each failed activation waits in RetryWake (capped backoff, then relay-state events only)
             while !Task.isCancelled {
                 guard let self, let cache = await self.cachedState else { return }
                 do {
@@ -27,25 +40,31 @@ extension MobileIrxHost {
                     await self.endpointBecameReady(supervisor)
                     return
                 } catch {
-                    await self.recordEndpointFailure(error)
-                    let delay = min(Duration.seconds(5) * (1 << min(failures, 6)), Self.maximumRetryDelay)
-                    failures += 1
-                    // Intentional bounded backoff on the injected clock, cancelled with the task.
-                    do { try await self.clock.sleep(for: delay) } catch { return }
+                    guard let delay = await self.recordEndpointFailure(error) else { return }
+                    wake.rebaseline()
+                    guard await wake.awaitWake(delay: delay, clock: clock) != .cancelled else { return }
                 }
             }
         }
     }
 
-    private func recordEndpointFailure(_ error: any Error) {
+    /// Notes a failed activation; returns the spacing before the next one,
+    /// or nil when the budget is spent (the next relay-state change retries).
+    private func recordEndpointFailure(_ error: any Error) -> Duration? {
         journal.record("next-host", "endpoint-failed", ["error": String(describing: type(of: error))])
-        guard supervisor != nil else { return }
-        phase = .failed("relay endpoint unavailable")
+        if supervisor != nil { phase = .failed("relay endpoint unavailable") }
+        let delay = endpointPacer.failed()
+        if delay == nil {
+            endpointTask = nil
+            journal.record("next-host", "endpoint-retries-spent", [:])
+        }
+        return delay
     }
 
     private func endpointBecameReady(_ supervisor: IrxEndpointSupervisor) async {
         guard self.supervisor === supervisor else { return }
         endpointTask = nil
+        endpointPacer.reset()
         let relay = await supervisor.homeRelayURL()
         phase = .listening(relayURL: relay)
         journal.record("next-host", "endpoint-ready", ["relay": relay ?? "-"])
@@ -75,11 +94,15 @@ extension MobileIrxHost {
         guard acceptTask == nil, let supervisor, let admission, let registry else { return }
         let judgment = admission.judgment()
         acceptTask = Task { [weak self] in
+            var accepted = false
+            // wakeup-allow: awaits the next inbound connection; nil ends the loop (restart is paced by acceptRetry)
             while !Task.isCancelled {
                 guard let inbound = await supervisor.acceptNextInbound() else {
-                    await self?.acceptLoopEnded()
+                    await self?.acceptLoopEnded(acceptedAny: accepted)
                     return
                 }
+                accepted = true
+                await self?.acceptedInbound()
                 switch inbound {
                 case .irx(let connection):
                     // task-owner: one per phone connection; ends when teardown closes the registry's sessions
@@ -94,8 +117,31 @@ extension MobileIrxHost {
         }
     }
 
-    private func acceptLoopEnded() {
+    private func acceptedInbound() {
+        acceptPacer.reset()
+    }
+
+    /// The endpoint closed or a handshake failed. Before, the endpoint was
+    /// re-readied at once with the activation backoff reset, so an endpoint
+    /// that closed right after binding (or a driver that kept returning nil)
+    /// cycled readyEndpoint/accept without pause. Now a cycle that accepted
+    /// nothing is spaced by `acceptRetry`, which spans cycles.
+    private func acceptLoopEnded(acceptedAny: Bool) {
         acceptTask = nil
+        if acceptedAny { acceptPacer.reset() }
+        guard let delay = acceptPacer.failed() else {
+            journal.record("next-host", "accept-retries-spent", [:])
+            phase = .failed("relay endpoint unavailable")
+            return
+        }
+        let timer = DemandTimer(owner: "MobileIrxHost.acceptRestart", clock: clock)
+        acceptRestart = timer
+        timer.schedule(after: delay) { [weak self] in await self?.restartAfterAcceptEnded(timer) }
+    }
+
+    private func restartAfterAcceptEnded(_ timer: DemandTimer) {
+        guard acceptRestart === timer else { return }
+        acceptRestart = nil
         requestEndpointReady()
     }
 
@@ -138,13 +184,16 @@ extension MobileIrxHost {
         })
     }
 
-    /// Re-enforces at the next permission expiry.
+    /// Re-enforces at the next permission expiry (a one-shot deadline,
+    /// re-armed for the following expiry only).
     func scheduleExpiry() {
-        expiryTask?.cancel()
+        expiryTimer?.cancel()
+        expiryTimer = nil
         guard let deadline = admission?.nextExpiration else { return }
-        expiryTask = Task { [weak self] in
+        let timer = DemandTimer(owner: "MobileIrxHost.expiry")
+        expiryTimer = timer
+        timer.schedule(after: max(.zero, ContinuousClock.now.duration(to: deadline))) { [weak self] in
             guard let self else { return }
-            do { try await ContinuousClock().sleep(until: deadline) } catch { return }
             await self.enforcePermissions()
             await self.scheduleExpiry()
         }
