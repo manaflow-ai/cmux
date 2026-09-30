@@ -73,6 +73,12 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var sourcePane: String
         var pane: String?
         var target: Target
+        /// The focused pane's selected tab when the drag began (chrome
+        /// targets belong to it).
+        var tab: String?
+        /// A keyboard, CLI or palette intent happened during the drag (mouse
+        /// events during it belong to the drag): it wins over the restore.
+        var overridden = false
     }
 
     /// The one keyboard target the state implies.

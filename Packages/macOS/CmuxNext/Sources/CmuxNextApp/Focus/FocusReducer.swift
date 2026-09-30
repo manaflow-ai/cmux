@@ -7,6 +7,7 @@ nonisolated enum FocusReducer {
         var effects: [FocusEffect] = []
         var forceResponder = false
         var forceContext = false
+        if next.drag != nil, overridesDrag(event) { next.drag?.overridden = true }
 
         switch event {
         case .topology(let topology):
@@ -22,10 +23,17 @@ nonisolated enum FocusReducer {
             }
         case .selectTab(let pane, let tab, let workspace, let source):
             if source.isUserIntent { bump(&next) }
-            effects.append(.select(pane: pane, tab: tab))
             if let workspace, workspace != next.topology.workspace {
+                effects.append(.select(pane: pane, tab: tab))
                 next.remembered[workspace] = pane
+            } else if !next.topology.contains(pane: pane) {
+                // A pane this window does not show: remembered selection only.
+                effects.append(.select(pane: pane, tab: tab))
             } else if next.topology.pane(pane)?.tab(tab) != nil {
+                // Only a tab the pane holds (a stale CLI or menu request
+                // named a tab that moved or closed: selecting it blanked
+                // the pane; input-spec.md bug B1).
+                effects.append(.select(pane: pane, tab: tab))
                 next.topology.select(tab, in: pane)
                 next.pane = pane
                 next.target = .content
@@ -62,15 +70,24 @@ nonisolated enum FocusReducer {
             next.expectation = FocusState.Expectation(key: key, target: target, generation: generation)
             land(&next, effects: &effects)
         case .dragBegan(let tabs, let pane):
-            next.drag = FocusState.DragRestore(tabs: tabs, sourcePane: pane, pane: next.pane, target: next.target)
+            next.drag = FocusState.DragRestore(tabs: tabs, sourcePane: pane, pane: next.pane, target: next.target,
+                                               tab: next.pane.flatMap { next.topology.pane($0)?.selected })
         case .dragEnded(let outcome):
             let restore = next.drag
             next.drag = nil
             switch outcome {
             case .cancelled:
-                if let pane = restore?.pane, next.topology.contains(pane: pane) {
+                // Put back what the drag changed, unless the user chose
+                // something newer meanwhile. Only a pane-scoped target can be
+                // re-applied (the applier cannot put the responder back into
+                // an arbitrary field), and chrome targets only on the same
+                // tab (input-spec.md bug B6).
+                if let restore, !restore.overridden, let pane = restore.pane, next.topology.contains(pane: pane) {
                     next.pane = pane
-                    next.target = restore?.target ?? .content
+                    if restore.target.isPaneScoped {
+                        let sameTab = next.topology.pane(pane)?.selected == restore.tab
+                        next.target = sameTab ? restore.target : .content
+                    }
                 }
                 forceResponder = true
             case .dropped(let tabs, let awayFrom):
@@ -86,7 +103,9 @@ nonisolated enum FocusReducer {
         case .contentPresented(let pane):
             forceResponder = pane == next.pane
         case .toggleBrowserFocusMode(let tab):
-            guard let tab = tab ?? browserTab(of: next) else { break }
+            // Only a tab this window shows (F6: focus mode never names a
+            // missing tab, not even until the next topology).
+            guard let tab = tab ?? browserTab(of: next), next.topology.allTabIDs.contains(tab) else { break }
             if next.browserFocusMode.remove(tab) == nil { next.browserFocusMode.insert(tab) }
             effects.append(.browserFocusMode(tab: tab, active: next.browserFocusMode.contains(tab)))
         case .sidebarVisibility(let hidden):
@@ -143,6 +162,18 @@ nonisolated enum FocusReducer {
     }
 
     // MARK: Helpers
+
+    /// A user intent that did not come from the drag's own mouse events.
+    private static func overridesDrag(_ event: FocusEvent) -> Bool {
+        switch event {
+        case .focusPane(_, _, let source), .selectTab(_, _, _, let source), .focusTarget(_, let source), .responder(_, let source):
+            source.isUserIntent && source != .mouse
+        case .beginIntent:
+            true
+        default:
+            false
+        }
+    }
 
     private static func bump(_ state: inout FocusState) {
         state.generation &+= 1
@@ -215,6 +246,12 @@ nonisolated enum FocusReducer {
     /// Diffs old and new state into the generic effects.
     private static func finish(from old: FocusState, to new: inout FocusState, effects: inout [FocusEffect],
                                forceResponder: Bool, forceContext: Bool) {
+        // A chrome target exists only on a browser tab (an expectation or a
+        // restore may name one on a tab that changed kind or closed; F4).
+        if new.target == .addressBar || new.target == .findBar,
+           new.pane.flatMap({ new.topology.pane($0)?.selectedTab?.kind }) != .browser {
+            new.target = .content
+        }
         if let workspace = new.topology.workspace, let pane = new.pane, new.topology.contains(pane: pane) {
             new.remembered[workspace] = pane
             if new.history.first != pane {

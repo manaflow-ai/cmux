@@ -54,10 +54,10 @@ Allowed transitions, by event (the reducer, `FocusReducer.swift`):
 | Event | May change |
 | --- | --- |
 | `topology` | workspace switch: remembered or first pane, target `content` (keyboard sidebar kept), drag dropped; focused pane removed: most recently focused survivor, else next, else previous; selection change on the focused pane: chrome target falls back to `content`; expectation lands |
-| `focusPane`, `selectTab`, `focusTarget` (user sources) | pane and target, bumping the generation |
+| `focusPane`, `selectTab`, `focusTarget` (user sources) | pane and target, bumping the generation; `selectTab` selects only a tab its pane holds (B1) |
 | `responder` | pane and target to what AppKit chose, unless an overlay is open; `windowOrNone` only re-applies |
 | `expect` | lands at once or when its surface/tab appears, only in its generation |
-| `dragBegan` / `dragEnded` | cancel restores pane and target; drop focuses the dropped tab away from its source pane |
+| `dragBegan` / `dragEnded` | cancel restores pane and pane-scoped target unless a keyboard, CLI or palette intent happened during the drag (B6); drop focuses the dropped tab away from its source pane |
 | `overlayOpened/Closed`, `windowKey`, `appActive`, `contentPresented` | nothing but re-applying effects |
 | `toggleBrowserFocusMode` | focus mode of a shown page |
 
