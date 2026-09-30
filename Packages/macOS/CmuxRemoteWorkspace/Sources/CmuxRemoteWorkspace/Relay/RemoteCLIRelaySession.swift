@@ -66,6 +66,10 @@ extension RemoteCLIRelayServer {
             case closed
         }
 
+        /// The challenge needs one round trip over SSH, and the CLI gives the
+        /// whole dial and handshake five seconds, so a connection that has
+        /// not authenticated by then only holds a pre-auth slot.
+        private static let preAuthTimeoutMilliseconds = 5_000
         private static let handshakeTimeoutMilliseconds = 10_000
 
         private let connection: NWConnection
@@ -74,6 +78,7 @@ extension RemoteCLIRelayServer {
         private let relayID: String
         private let relayToken: Data
         private let commandEvaluator: (Data) -> CommandDisposition
+        private let admitAuthenticated: () -> Bool
         private let queue: DispatchQueue
         private let clock: any RemoteProxyRetryClock
         private let onClose: () -> Void
@@ -99,6 +104,7 @@ extension RemoteCLIRelayServer {
             relayID: String,
             relayToken: Data,
             commandEvaluator: @escaping (Data) -> CommandDisposition,
+            admitAuthenticated: @escaping () -> Bool,
             queue: DispatchQueue,
             clock: any RemoteProxyRetryClock,
             onClose: @escaping () -> Void
@@ -109,6 +115,7 @@ extension RemoteCLIRelayServer {
             self.relayID = relayID
             self.relayToken = relayToken
             self.commandEvaluator = commandEvaluator
+            self.admitAuthenticated = admitAuthenticated
             self.queue = queue
             self.clock = clock
             self.onClose = onClose
@@ -248,6 +255,10 @@ extension RemoteCLIRelayServer {
                 success["relay_mac"] = proof.map { String(format: "%02x", $0) }.joined()
             }
 
+            guard admitAuthenticated() else {
+                sendFailureAndClose()
+                return
+            }
             phase = .awaitingCommand
             armPhaseTimeout(for: .awaitingCommand)
             sendJSONLine(success) { [weak self] _ in
@@ -374,9 +385,12 @@ extension RemoteCLIRelayServer {
 
         private func armPhaseTimeout(for expectedPhase: Phase) {
             phaseTimeoutTask?.cancel()
+            let timeoutMilliseconds = expectedPhase == .awaitingAuth
+                ? Self.preAuthTimeoutMilliseconds
+                : Self.handshakeTimeoutMilliseconds
             phaseTimeoutTask = Task { [weak self, clock] in
                 guard (try? await clock.sleep(
-                    forMilliseconds: Self.handshakeTimeoutMilliseconds
+                    forMilliseconds: timeoutMilliseconds
                 )) != nil else {
                     return
                 }

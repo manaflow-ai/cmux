@@ -222,8 +222,8 @@ private final class RelayTestClient: @unchecked Sendable {
 struct RemoteCLIRelayServerTests {
     private let tokenHex = "00112233445566778899aabbccddeeff"
 
-    @Test("relay sessions are capacity bounded")
-    func relaySessionsAreCapacityBounded() throws {
+    @Test("authenticated relay sessions are capacity bounded")
+    func authenticatedSessionsAreCapacityBounded() throws {
         let server = try RemoteCLIRelayServer(
             localSocketPath: "/tmp/unused.sock",
             relayID: "relay-1",
@@ -240,18 +240,60 @@ struct RemoteCLIRelayServerTests {
         }
 
         let expectedSessionCapacity = 16
+        #expect(RemoteCLIRelayServer.maximumConcurrentSessions == expectedSessionCapacity)
         for _ in 0..<expectedSessionCapacity {
             let client = RelayTestClient(port: port)
             clients.append(client)
-            #expect(client.wait { data, _ in data.contains(0x0A) })
+            try authenticate(client)
         }
 
         let excessClient = RelayTestClient(port: port)
         clients.append(excessClient)
-        #expect(
-            excessClient.wait { _, closed in closed },
-            "The relay must reject work above its fixed session capacity"
+        #expect(excessClient.wait { data, _ in data.contains(0x0A) })
+        let challenge = try #require(excessClient.receivedJSONLines().first)
+        let nonce = try #require(challenge["nonce"] as? String)
+        let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+        let mac = RemoteCLIRelayServer.Session.authMAC(
+            token: token,
+            message: Data("relay_id=relay-1\nnonce=\(nonce)\nversion=1".utf8)
         )
+        let auth: [String: Any] = ["relay_id": "relay-1", "mac": mac.map { String(format: "%02x", $0) }.joined()]
+        excessClient.send(try JSONSerialization.data(withJSONObject: auth) + Data([0x0A]))
+        #expect(
+            excessClient.wait { data, closed in
+                String(decoding: data, as: UTF8.self).contains("\"ok\":false") && closed
+            },
+            "The relay must reject authenticated work above its fixed session capacity"
+        )
+    }
+
+    @Test("a new connection evicts the oldest when the pre-auth budget is full")
+    func fullPreAuthBudgetEvictsOldestConnection() throws {
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        var clients: [RelayTestClient] = []
+        defer {
+            for client in clients {
+                client.cancel()
+            }
+        }
+
+        for _ in 0..<RemoteCLIRelayServer.maximumPendingAuthSessions {
+            let client = RelayTestClient(port: port)
+            clients.append(client)
+            #expect(client.wait { data, _ in data.contains(0x0A) })
+        }
+        let newest = RelayTestClient(port: port)
+        clients.append(newest)
+        #expect(newest.wait { data, _ in data.contains(0x0A) })
+        #expect(clients[0].wait { _, closed in closed }, "The oldest pre-auth connection must be evicted")
+        #expect(!clients[1].wait(timeout: 0.2) { _, closed in closed })
     }
 
     @Test("idle unauthenticated connections cannot lock out the relay's own client")

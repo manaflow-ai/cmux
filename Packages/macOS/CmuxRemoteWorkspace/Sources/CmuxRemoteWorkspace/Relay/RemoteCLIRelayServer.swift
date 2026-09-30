@@ -42,8 +42,13 @@ import Network
 /// argument. The actor/async migration is a deliberate later-phase item
 /// (plan: "Modernization hot-spots").
 public final class RemoteCLIRelayServer: @unchecked Sendable {
-    /// Bounds authenticated and pre-auth relay work, including local socket waits.
+    /// Bounds authenticated relay work, including local socket waits.
     static let maximumConcurrentSessions = 16
+    /// Bounds connections that have not authenticated yet. Anyone on the
+    /// remote host can open these, so they have their own budget and, when
+    /// it is full, a new connection evicts the oldest one. Idle connections
+    /// therefore cannot keep the workspace's own CLI from authenticating.
+    static let maximumPendingAuthSessions = 32
 
     private let localSocketPath: String
     private let relayID: String
@@ -55,6 +60,9 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
 
     private var listener: NWListener?
     private var sessions: [UUID: Session] = [:]
+    /// Unauthenticated session IDs, oldest first.
+    private var pendingAuthSessionIDs: [UUID] = []
+    private var authenticatedSessionIDs: Set<UUID> = []
     private var isStopped = false
     private var localPort: Int?
     private var workspaceAliases: [UUID: UUID] = [:]
@@ -180,6 +188,8 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
             localPort = nil
             let activeSessions = sessions.values
             sessions.removeAll()
+            pendingAuthSessionIDs.removeAll()
+            authenticatedSessionIDs.removeAll()
             for session in activeSessions {
                 session.stop()
             }
@@ -196,10 +206,13 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     }
 
     private func acceptConnectionLocked(_ connection: NWConnection) {
-        guard !isStopped,
-              sessions.count < Self.maximumConcurrentSessions else {
+        guard !isStopped else {
             connection.cancel()
             return
+        }
+        while pendingAuthSessionIDs.count >= Self.maximumPendingAuthSessions {
+            let oldestID = pendingAuthSessionIDs.removeFirst()
+            sessions.removeValue(forKey: oldestID)?.stop()
         }
         let sessionID = UUID()
         let session = Session(
@@ -211,13 +224,35 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
             commandEvaluator: { [weak self] commandLine in
                 self?.evaluateCommandLineLocked(commandLine) ?? .deny("relay authorization is unavailable")
             },
+            admitAuthenticated: { [weak self] in
+                self?.admitAuthenticatedSessionLocked(sessionID) ?? false
+            },
             queue: queue,
             clock: clock
         ) { [weak self] in
-            self?.sessions.removeValue(forKey: sessionID)
+            self?.forgetSessionLocked(sessionID)
         }
         sessions[sessionID] = session
+        pendingAuthSessionIDs.append(sessionID)
         session.start()
+    }
+
+    /// Moves a session that passed the handshake from the pre-auth budget
+    /// to the authenticated one, or refuses it when that budget is full.
+    private func admitAuthenticatedSessionLocked(_ sessionID: UUID) -> Bool {
+        guard sessions[sessionID] != nil,
+              authenticatedSessionIDs.count < Self.maximumConcurrentSessions else {
+            return false
+        }
+        pendingAuthSessionIDs.removeAll { $0 == sessionID }
+        authenticatedSessionIDs.insert(sessionID)
+        return true
+    }
+
+    private func forgetSessionLocked(_ sessionID: UUID) {
+        sessions.removeValue(forKey: sessionID)
+        pendingAuthSessionIDs.removeAll { $0 == sessionID }
+        authenticatedSessionIDs.remove(sessionID)
     }
 
     /// Applies the remote-relay authorization policy first; only allowed
