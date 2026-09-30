@@ -16,6 +16,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
+TERM_GRACE_SECONDS = 5.0
+KILL_REAP_SECONDS = 1.0
+
 
 def process_tree(root: int) -> list[tuple[int, str]]:
     """The root's descendants (and itself), by parent link.
@@ -75,7 +78,7 @@ def terminate(
     for pid in strays:
         signal_pid(pid, first_signal)
     try:
-        process.wait(timeout=5)
+        process.wait(timeout=TERM_GRACE_SECONDS)
     except subprocess.TimeoutExpired:
         pass
     try:
@@ -84,7 +87,12 @@ def terminate(
         pass
     for pid in strays:
         signal_pid(pid, signal.SIGKILL)
-    process.wait()
+    # A SIGKILL can still fail to become waitable immediately (for example
+    # while a runner is losing its parent). Never let cancellation hang here.
+    try:
+        process.wait(timeout=KILL_REAP_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def terminate_pid(
@@ -110,7 +118,7 @@ def terminate_pid(
         signal_pid(child_pid, first_signal)
 
     reaped = False
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + TERM_GRACE_SECONDS
     while time.monotonic() < deadline:
         try:
             finished, _ = os.waitpid(pid, os.WNOHANG)
@@ -131,7 +139,12 @@ def terminate_pid(
     for child_pid in strays:
         signal_pid(child_pid, signal.SIGKILL)
     if not reaped:
-        try:
-            os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
+        deadline = time.monotonic() + KILL_REAP_SECONDS
+        while time.monotonic() < deadline:
+            try:
+                finished, _ = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                break
+            if finished:
+                break
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
