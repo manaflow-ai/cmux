@@ -255,6 +255,7 @@ private struct CustomSidebarTemplateGallery: View {
     private let assets = CustomSidebarOnboardingAssets()
     @State private var previewingID: String?
     @State private var installedName: String?
+    @State private var operationMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -291,9 +292,13 @@ private struct CustomSidebarTemplateGallery: View {
                     .accessibilityIdentifier("SettingsCustomSidebarTemplateRevert")
                     .keyboardShortcut(.escape, modifiers: [])
                     Button(String(localized: "settings.customSidebars.gallery.keep", defaultValue: "Keep", bundle: .module)) {
-                        if case .created = hostActions.keepCustomSidebarPreview() {
+                        let result = hostActions.keepCustomSidebarPreview()
+                        if case .created = result {
                             previewingID = nil
                             onClose()
+                            operationMessage = nil
+                        } else {
+                            operationMessage = operationMessage(for: result)
                         }
                     }
                     .accessibilityIdentifier("SettingsCustomSidebarTemplateKeep")
@@ -311,6 +316,12 @@ private struct CustomSidebarTemplateGallery: View {
                         hostActions.openCustomSidebarInExternalEditor(named: installedName)
                     }
                 }
+            }
+
+            if let operationMessage {
+                Text(operationMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
         .padding(20)
@@ -351,16 +362,24 @@ private struct CustomSidebarTemplateGallery: View {
                 .foregroundStyle(.tertiary)
             HStack {
                 Button(String(localized: "settings.customSidebars.gallery.try", defaultValue: "Try", bundle: .module)) {
-                    if case .created = hostActions.previewCustomSidebarTemplate(id: template.id) {
+                    let result = hostActions.previewCustomSidebarTemplate(id: template.id)
+                    if case .created = result {
                         previewingID = template.id
+                        operationMessage = nil
+                    } else {
+                        operationMessage = operationMessage(for: result)
                     }
                 }
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("SettingsCustomSidebarTemplateTry-\(template.id)")
                 Button(String(localized: "settings.customSidebars.gallery.use", defaultValue: "Use", bundle: .module)) {
-                    if case let .created(name) = hostActions.useCustomSidebarTemplate(id: template.id) {
+                    let result = hostActions.useCustomSidebarTemplate(id: template.id)
+                    if case let .created(name) = result {
                         installedName = name
                         previewingID = nil
+                        operationMessage = nil
+                    } else {
+                        operationMessage = operationMessage(for: result)
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -369,6 +388,17 @@ private struct CustomSidebarTemplateGallery: View {
         }
         .padding(10)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func operationMessage(for result: CustomSidebarOnboardingResult) -> String {
+        switch result {
+        case .templateUnavailable:
+            return String(localized: "settings.customSidebars.templateUnavailable", defaultValue: "Could not load the sidebar template. Reinstall cmux and try again.", bundle: .module)
+        case .writeFailed:
+            return String(localized: "settings.customSidebars.writeFailed", defaultValue: "Could not create the sidebar. Check folder permissions and free disk space, then try again.", bundle: .module)
+        case .created:
+            return ""
+        }
     }
 
     private func placementLabel(for template: CustomSidebarTemplateDescriptor) -> String {

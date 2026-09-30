@@ -15,7 +15,8 @@ extension ContentView {
                 commandId: "palette.browseSidebarTemplates",
                 title: constant(String(localized: "command.browseSidebarTemplates.title", defaultValue: "Browse Sidebar Templates")),
                 subtitle: constant(String(localized: "command.browseSidebarTemplates.subtitle", defaultValue: "Custom Sidebars")),
-                keywords: ["sidebar", "template", "gallery", "custom", "try", "browse"]
+                keywords: ["sidebar", "template", "gallery", "custom", "try", "browse"],
+                when: { _ in CmuxExtensionSidebarSelection.customSidebarsEnabled }
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.triggerFlash",
