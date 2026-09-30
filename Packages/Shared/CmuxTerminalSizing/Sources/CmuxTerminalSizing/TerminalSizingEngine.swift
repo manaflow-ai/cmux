@@ -34,6 +34,9 @@ public struct TerminalSizingEngine: Sendable {
     @discardableResult
     public mutating func attach(_ participant: TerminalSizingParticipant) -> Bool {
         activityClock += 1
+        var participant = participant
+        // A decoded participant bypasses the clamping initializer.
+        participant.viewport = participant.viewport?.clamped
         if let i = index(participant.id) {
             entries[i] = Entry(participant: participant, activity: activityClock)
         } else {
