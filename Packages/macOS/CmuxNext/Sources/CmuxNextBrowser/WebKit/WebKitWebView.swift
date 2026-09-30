@@ -6,6 +6,41 @@ import WebKit
 /// content keys in its window, before any view (the page is in-window).
 final class WebKitWebView: WKWebView {
     weak var owner: WebKitTab?
+    /// The last mouse-down or key-down the user gave this view: a page may
+    /// enter pane fullscreen only shortly after one (transient activation).
+    private(set) var lastUserInput: ContinuousClock.Instant?
+
+    override func mouseDown(with event: NSEvent) {
+        lastUserInput = .now
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        lastUserInput = .now
+        super.rightMouseDown(with: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        lastUserInput = .now
+        super.otherMouseDown(with: event)
+    }
+
+    /// Escape always leaves pane fullscreen, whatever the page does with
+    /// the key (a page can swallow it before the shim sees it).
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53, let owner, owner.state.isContentFullscreen {
+            owner.leaveContentFullscreen()
+            return
+        }
+        lastUserInput = .now
+        super.keyDown(with: event)
+    }
+
+    /// Whether the user gave input within `window` (default: Chrome's
+    /// 5-second transient activation).
+    func hadRecentUserInput(within window: Duration = .seconds(5)) -> Bool {
+        lastUserInput.map { ContinuousClock.now - $0 <= window } ?? false
+    }
 
     /// "Open Link in New Window" opens a cmux tab (the request arrives at
     /// `createWebViewWith`), so it is renamed to match.

@@ -209,6 +209,13 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
     }
 
+    /// Leaves pane fullscreen now: the chrome returns at once, and the page
+    /// is told (its shim exits and fires fullscreenchange).
+    func leaveContentFullscreen() {
+        apply(.contentFullscreenChanged(false))
+        exitContentFullscreen()
+    }
+
     /// Opens Web Inspector through WebKit's private `_inspector` object.
     /// There is no public API for this; if WebKit removes it, the user can
     /// still use "Inspect Element" from the context menu.
