@@ -274,10 +274,7 @@ function inputErrorCopy(error: PublicationInputError, language?: string | null):
         action: "Pass the HTTP port listening inside the Cloud VM.",
       };
     case "reserved_port":
-      return {
-        message: "Port 1337 is the Cloud VM's cmux control daemon and cannot be published.",
-        action: "Publish the port your own server listens on instead.",
-      };
+      return publicationApiCopy("reserved_port", language);
     case "team_required":
       return {
         message: "Team access requires a team id.",

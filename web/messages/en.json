@@ -6314,6 +6314,10 @@
     "grant_body": {
       "message": "Publication email grant",
       "action": "Send email and optional expiresAt."
+    },
+    "reserved_port": {
+      "message": "Port 1337 is the Cloud VM's cmux-tui daemon and cannot be published.",
+      "action": "Publish the port your own server listens on instead."
     }
   },
   "cliAuthIdentity": {
