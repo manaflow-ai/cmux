@@ -19,14 +19,18 @@ enum PaneHandlers {
 
     // MARK: Geometry helpers
 
-    /// The pane next to `pane` in `direction` on its screen, by displayed frames.
+    /// The pane next to `pane` in `direction` on its screen, by displayed
+    /// frames and the window's focus history (the most recently focused of
+    /// several adjacent panes, and of a niri column; focus.md section 4a).
     static func neighbor(of pane: LayoutPaneID, direction: LayoutDirection, in content: WorkspaceContentController) -> LayoutPaneID? {
         guard let screen = content.layoutModel.screen(containing: pane) else { return nil }
         var frames: [LayoutPaneID: CGRect] = [:]
         for id in screen.layout.panes {
             if let frame = content.layoutView.frame(of: id) { frames[id] = frame }
         }
-        return FocusNavigation.neighbor(of: pane, direction: direction, frames: frames)
+        return FocusNavigation.neighbor(of: pane, direction: direction, frames: frames,
+                                        recency: content.recentPanes,
+                                        columns: screen.layout.columns.map(\.root.panes))
     }
 
     static func focus(_ pane: LayoutPaneID, in content: WorkspaceContentController) {

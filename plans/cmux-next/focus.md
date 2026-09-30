@@ -226,6 +226,63 @@ and the palette keeps the bits of the target below it, because its commands act 
 content. The registry context stays one process-wide value (the registry is shared); the
 state behind it is per window.
 
+## 4a. Directional focus with history
+
+Dogfood report (nxdog9): "left then right" must return to the pane you came from, as in
+zellij and tmux, not to the geometrically nearest pane.
+
+Reference rules, read from the sources on 2026-09-30:
+
+- tmux, `window.c`: `window_pane_find_up`, `window_pane_find_down`, `window_pane_find_left`
+  and `window_pane_find_right` collect every pane whose near edge touches the current pane's
+  edge (`yoff + sy + 1 == edge` and the like; at the window edge they wrap to the opposite
+  side) and that overlaps it on the other axis (spans it, or starts or ends inside it).
+  `window_pane_choose_best` returns the candidate with the highest `active_point`, the first
+  in pane order on a tie (`next->active_point > best->active_point`). `active_point` is
+  assigned only in `window_set_active_pane` (`w->active->active_point = next_active_point++`),
+  which every focus change goes through: a click, `select-pane`, a directional move, a
+  script. A pane that was never active has `active_point` 0, so pane order decides.
+- zellij, `zellij-server/src/panes/tiled_panes/tiled_pane_grid.rs`:
+  `next_selectable_pane_id_to_the_left` (and `_to_the_right`, `_above`, `_below`) filter the
+  selectable panes with `is_directly_left_of` plus `horizontally_overlaps_with` (and the
+  vertical pair), then take `max_by_key(|p| p.active_at())`. `active_at` starts at the pane's
+  creation time (`TerminalPane::new`: `active_at: Instant::now()`) and is set by
+  `set_pane_active_at` in `tiled_panes/mod.rs` (`move_focus_left` and the other moves,
+  `focus_next_pane`, `focus_last_pane`, stacked-pane focus). Ties fall to HashMap order.
+
+cmux-next matches tmux: history from every focus source, pane position on a tie.
+
+- History: `FocusState.history[workspace]`, newest first, at most 64 panes per workspace, per
+  window, in memory, never persisted. `FocusReducer.finish` records the focused pane after
+  every reduction, whatever the source (mouse, keyboard, CLI, palette, a responder report, a
+  landed expectation, app-driven repair); a `focusPane` or `selectTab` for a workspace the
+  window does not show records into that workspace. A topology for the shown workspace drops
+  panes it no longer holds (closed or moved away), after the closed-pane successor is chosen.
+- `FocusNavigation.neighbor` (CmuxNextLayout): candidates lie entirely past the current
+  pane's edge (1.5 pt tolerance). The adjacent ones overlap it on the other axis at the
+  smallest distance, which allows the gaps between panes. Among them the most recently
+  focused wins. Without history among them: the largest overlap, the nearest center, then
+  the top-left pane (tmux's first in pane order). When nothing overlaps, the nearest edge,
+  then the nearest center. History never skips a pane: in A | B | C, left from C is B even
+  if A was focused after B.
+- niri columns: a left or right move that lands in another column goes to that column's
+  most recently focused pane (niri keeps an active tile per column), else to the geometric
+  choice. `column.focusLeft` and `column.focusRight` pick the column's most recently focused
+  pane, else its first.
+- Screens: every screen switch (switcher click, `screen.next`, `screen.previous`,
+  `screen.select`) sends `LayoutIntent.selectScreen`; the window focuses that screen's most
+  recently focused pane, else its first (tmux: a window keeps its active pane).
+- Entry points: `focusLeft`/`focusRight`/`focusUp`/`focusDown` (Cmd-Opt-arrows, the palette,
+  the CLI, Ghostty `goto_split:*` keybinds such as Cmd-Ctrl-HJKL through
+  `TerminalHostActionRoute`) and the tab moves to a neighbor pane, all through
+  `PaneHandlers.neighbor`.
+- Differences from tmux: no wrap at the window edge (cmux refuses with "no pane left of the
+  focused pane"), and a pane never focused has no history (tmux's 0, not zellij's creation
+  time).
+
+Tests: `FocusHistoryNavigationTests` (reducer plus navigation in several split layouts,
+niri columns, screens, workspaces, closed panes, every source), `FocusNavigationTests`.
+
 ## 5. Keyboard routing (one router, `KeyRouter`)
 
 Every action has a key tier (`ActionKeyTier`), default from the catalog, overridable in

@@ -25,18 +25,31 @@ public nonisolated enum FocusNavigation {
         columns: [[PaneID]] = []
     ) -> PaneID? {
         guard let source = frames[pane] else { return nil }
-        var best: Candidate?
-        for (id, rect) in frames where id != pane {
-            guard let candidate = Candidate(id: id, rect: rect, source: source, direction: direction) else { continue }
-            if let current = best, !(candidate.legacyOrder < current.legacyOrder) { continue }
-            best = candidate
+        let candidates = frames.compactMap { id, rect in
+            id == pane ? nil : Candidate(id: id, rect: rect, source: source, direction: direction)
         }
-        return best?.id
+        let overlapping = candidates.filter { $0.overlap > 0 }
+        let chosen: PaneID?
+        if let nearest = overlapping.map(\.distance).min() {
+            let adjacent = overlapping.filter { $0.distance <= nearest + epsilon }
+            chosen = mostRecent(adjacent.map(\.id), recency: recency)
+                ?? adjacent.min { $0.adjacentOrder < $1.adjacentOrder }?.id
+        } else {
+            chosen = candidates.min { $0.fallbackOrder < $1.fallbackOrder }?.id
+        }
+        guard let chosen else { return nil }
+        if direction == .left || direction == .right,
+           let column = columns.first(where: { $0.contains(chosen) }), !column.contains(pane),
+           let remembered = mostRecent(column, recency: recency) {
+            return remembered
+        }
+        return chosen
     }
 
     /// The member of `panes` that comes first in `recency` (newest first).
     public static func mostRecent(_ panes: [PaneID], recency: [PaneID]) -> PaneID? {
-        nil
+        let members = Set(panes)
+        return recency.first { members.contains($0) }
     }
 
     static let epsilon: CGFloat = 1.5
@@ -81,8 +94,6 @@ public nonisolated enum FocusNavigation {
         var adjacentOrder: (CGFloat, CGFloat, CGFloat, CGFloat, String) {
             (-overlap.rounded(), centerOffset.rounded(), rect.minY, rect.minX, id.rawValue)
         }
-
-        var legacyOrder: (Int, CGFloat, CGFloat) { (overlap > 0 ? 0 : 1, distance.rounded(), centerOffset) }
 
         /// No overlapping pane: nearest edge, nearest center, top-left.
         var fallbackOrder: (CGFloat, CGFloat, CGFloat, CGFloat, String) {

@@ -142,6 +142,11 @@ nonisolated enum FocusReducer {
             // Focus follows the selection; the old tab's chrome is gone.
             state.target = .content
         }
+        // Closed (or moved away) panes leave the shown workspace's history.
+        if let workspace = topology.workspace, let recent = state.history[workspace] {
+            let kept = recent.filter(topology.contains(pane:))
+            if kept.count != recent.count { state.history[workspace] = kept.isEmpty ? nil : kept }
+        }
         let live = topology.allTabIDs
         for tab in state.browserFocusMode where !live.contains(tab) {
             state.browserFocusMode.remove(tab)

@@ -67,8 +67,9 @@ enum ColumnHandlers {
     private static func focusAdjacent(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
         guard let (content, column) = column(invocation, ctx), let anchor = column.root.panes.first,
               let screen = content.layoutModel.screen(containing: anchor) else { return }
+        // niri: the column's active (most recently focused) tile, else its first.
         guard let next = PaneResize.adjacentColumn(of: anchor, forward: forward, in: screen.layout),
-              let pane = next.root.panes.first else {
+              let pane = FocusNavigation.mostRecent(next.root.panes, recency: content.recentPanes) ?? next.root.panes.first else {
             return ctx.refuse(RefusalStrings.noColumnInDirection(RefusalStrings.direction(forward ? .right : .left)))
         }
         PaneHandlers.focus(pane, in: content)
