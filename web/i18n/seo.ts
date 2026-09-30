@@ -1,5 +1,6 @@
 import { locales } from "./routing";
 import { docsCanonicalOrigin } from "@/app/lib/docs-channel";
+import { resolveAgentPageVariant } from "@/app/lib/agent-page-paths";
 
 const BASE = "https://cmux.com";
 const DEFAULT_OG_IMAGE_PATH = "/opengraph-image";
@@ -427,8 +428,11 @@ export function buildAlternates(
   languages["x-default"] = urlFor("en");
 
   const canonical = urlFor(locale);
-  if (!isDocs) return { canonical, languages };
-  // Docs pages also serve an agent-readable Markdown copy at `<page>.md`.
+  // Docs pages the agent route serves also have a Markdown copy at `<page>.md`.
+  const markdownPath = `${new URL(canonical).pathname}.md`;
+  if (!isDocs || resolveAgentPageVariant(markdownPath)?.kind !== "page") {
+    return { canonical, languages };
+  }
   return { canonical, languages, types: { "text/markdown": `${canonical}.md` } };
 }
 

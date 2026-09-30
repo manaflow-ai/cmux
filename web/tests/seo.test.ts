@@ -1378,5 +1378,7 @@ describe("docs markdown alternate", () => {
       "text/markdown": "https://cmux.com/ja/docs/api.md",
     });
     expect("types" in buildAlternates("en", "/blog/cmux-omo")).toBe(false);
+    // /docs/base has no agent-readable copy, so it must not advertise one.
+    expect("types" in buildAlternates("en", "/docs/base")).toBe(false);
   });
 });
