@@ -40,7 +40,7 @@ struct RenderNodeMenuBuilderTests {
     }
 
     @Test("nested Menu becomes a submenu whose items dispatch")
-    func nestedMenu() {
+    func nestedMenu() throws {
         let box = MenuActionCapture()
         let red = ButtonAction(commands: [.cmux(method: "workspace.color", params: ["color": "red"])])
         let nodes = [
@@ -55,7 +55,7 @@ struct RenderNodeMenuBuilderTests {
 
         #expect(menu.items.count == 1)
         #expect(menu.items[0].title == "Color")
-        let submenu = try! #require(menu.items[0].submenu)
+        let submenu = try #require(menu.items[0].submenu)
         #expect(submenu.items.map(\.title) == ["Red", "Blue"])
 
         fire(submenu.items[0])
@@ -83,7 +83,7 @@ struct RenderNodeMenuBuilderTests {
     }
 
     @Test("a container's .disabled(true) propagates to descendants, matching SwiftUI")
-    func containerDisabledPropagates() {
+    func containerDisabledPropagates() throws {
         let action = ButtonAction(commands: [.log("x")])
         let nodes = [
             RenderNode(kind: .group,
@@ -109,7 +109,7 @@ struct RenderNodeMenuBuilderTests {
         #expect(menu.items[0].action == nil)
         #expect(!menu.items[1].isEnabled)
         #expect(!menu.items[2].isEnabled)
-        let submenu = try! #require(menu.items[2].submenu)
+        let submenu = try #require(menu.items[2].submenu)
         #expect(!submenu.items[0].isEnabled)
         #expect(menu.items[3].isEnabled)
     }
@@ -208,7 +208,7 @@ struct RenderNodeMenuBuilderTests {
     }
 
     @Test("overlay presents only when the IR yields actual items")
-    func overlayPresentationGate() {
+    func overlayPresentationGate() throws {
         let view = RenderNodeContextMenuView()
         view.dispatch = .noop
 
@@ -220,7 +220,7 @@ struct RenderNodeMenuBuilderTests {
 
         view.nodes = [RenderNode(kind: .button, text: "Focus",
                                  action: ButtonAction(commands: [.log("focus")]))]
-        let menu = try! #require(view.menuForPresentation())
+        let menu = try #require(view.menuForPresentation())
         #expect(menu.items.map(\.title) == ["Focus"])
 
         // A disabled row (SwiftUI `isEnabled` environment false) offers no
@@ -276,7 +276,7 @@ struct RenderNodeMenuBuilderTests {
     }
 
     @Test("interpreter .contextMenu IR round-trips into the expected NSMenu")
-    func interpreterEndToEnd() {
+    func interpreterEndToEnd() throws {
         let interp = SwiftViewInterpreter()
         let node = interp.evaluate("""
         Text("row").contextMenu {
@@ -287,7 +287,7 @@ struct RenderNodeMenuBuilderTests {
             }
         }
         """)
-        let children = try! #require(node?.modifiers.first { $0.name == "contextMenu" }?.children)
+        let children = try #require(node?.modifiers.first { $0.name == "contextMenu" }?.children)
 
         let box = MenuActionCapture()
         let menu = RenderNodeContextMenuBuilder(dispatch: capturingDispatch(box)).makeMenu(nodes: children)
