@@ -242,7 +242,8 @@ export function preconnectFreestyle(options: FreestylePreconnectOptions = {}): P
   const timeoutMs = options.timeoutMs ?? 3_000;
   const now = options.now ?? Date.now;
   const state = warmupStateFor(fetchImpl, baseUrl);
-  if (state.succeeded && state.succeededAtMs !== undefined && now() - state.succeededAtMs < FREESTYLE_WARMUP_REUSE_MS) {
+  const warmupAgeMs = state.succeededAtMs === undefined ? undefined : Math.max(0, now() - state.succeededAtMs);
+  if (state.succeeded && warmupAgeMs !== undefined && warmupAgeMs < FREESTYLE_WARMUP_REUSE_MS) {
     return Promise.resolve();
   }
   state.succeeded = undefined;
