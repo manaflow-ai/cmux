@@ -115,6 +115,9 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
         case .profile:
             [PaletteTargetOption(id: "default", title: "Default", symbol: "circle.fill"),
              PaletteTargetOption(id: "prof_work", title: "Work", symbol: "circle.fill")]
+        case .browserProfile:
+            [PaletteTargetOption(id: "default", title: "Default", symbol: "person.crop.circle"),
+             PaletteTargetOption(id: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", title: "Work", symbol: "person.crop.circle")]
         case .pane, .column, .screen, .screenGroup:
             [PaletteTargetOption(id: "\(kind.rawValue)1", title: "\(kind.rawValue.capitalized) 1")]
         }

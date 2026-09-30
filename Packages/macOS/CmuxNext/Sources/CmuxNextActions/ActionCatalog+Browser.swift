@@ -228,20 +228,6 @@ nonisolated extension ActionCatalog {
                 targets: [.pane], cliName: "browser theme"
             ),
             ActionDescriptor(
-                id: "browserNewProfile",
-                title: String(localized: "action.browserNewProfile", defaultValue: "New Browser Profile…", bundle: .module),
-                keywords: ["browser", "profile"], category: .browser, symbol: "person.crop.circle.badge.plus",
-                surfaces: [.contextMenu], arguments: [CatalogArgument.nameString], targets: [.pane],
-                cliName: "browser new-profile"
-            ),
-            ActionDescriptor(
-                id: "browserRenameProfile",
-                title: String(localized: "action.browserRenameProfile", defaultValue: "Rename Browser Profile…", bundle: .module),
-                keywords: ["browser", "profile"], category: .browser, symbol: "person.crop.circle",
-                surfaces: [.contextMenu], arguments: [CatalogArgument.nameString], targets: [.pane],
-                cliName: "browser rename-profile"
-            ),
-            ActionDescriptor(
                 id: "saveFilePreview",
                 title: String(localized: "action.saveFilePreview", defaultValue: "Save File", bundle: .module),
                 keywords: ["file", "editor"], defaultShortcut: Shortcut("s", modifiers: [.command]), category: .browser,

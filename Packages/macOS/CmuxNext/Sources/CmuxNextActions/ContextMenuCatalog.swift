@@ -32,6 +32,7 @@ public enum ContextMenuCatalog {
         case .sshMachine: sshMachine
         case .newTab: newTab
         case .profile: profile
+        case .browserProfile: browserProfile
         }
     }
 
@@ -59,11 +60,11 @@ public enum ContextMenuCatalog {
     /// The + button: one entry per tab kind. Chromium shows disabled, with
     /// its reason, when this build has no CEF runtime.
     static let newTab: [ContextMenuEntry] =
-        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium")
+        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "browserProfile.newTab")
 
     static let tab: [ContextMenuEntry] =
         actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "duplicateTab", "reloadTab") + [.separator]
-        + actions("browser.openInChromium", "browser.openInWebKit") + [.separator]
+        + actions("browser.openInChromium", "browser.openInWebKit", "browserProfile.moveTab", "browserProfile.duplicateTab") + [.separator]
         + actions("renameTab", "palette.clearTabName", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute")
         + [.choices("terminal.setTheme")] + actions("terminal.clearTheme")
         + [.separator] + actions("tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab") + [.separator]
@@ -122,6 +123,7 @@ public enum ContextMenuCatalog {
         + actions("moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom", "moveWorkspaceToWindow",
                   "moveWorkspaceToNewWindow", "moveWorkspaceToGroup", "workspace.moveToNewGroup", "removeWorkspaceFromGroup",
                   "workspace.moveToRoom", "workspace.duplicateToRoom", "workspace.mergeInto")
+        + [.separator] + actions("browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault")
         + [.separator]
         + actions("workspace.showResources", "reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "workspace.copyPath",
                   "palette.copyWorkspaceID", "palette.copyWorkspaceLink")
@@ -147,9 +149,18 @@ public enum ContextMenuCatalog {
         + actions("room.rename")
         + [.submenu("room.setColor", colors("room") + [.separator] + actions("room.clearColor"))]
         + actions("room.setIcon", "room.clearIcon")
-        + [.choices("room.setTheme")] + actions("room.clearTheme", "room.setDefaults") + [.separator]
+        + [.choices("room.setTheme")] + actions("room.clearTheme", "room.setDefaults", "browserProfile.setRoomDefault",
+                                                  "browserProfile.clearRoomDefault") + [.separator]
         + actions("room.moveLeft", "room.moveRight") + [.separator]
         + actions("room.new") + [.separator] + actions("room.delete")
+
+    /// A browser profile: the omnibar's profile badge or a Settings row.
+    static let browserProfile: [ContextMenuEntry] =
+        actions("browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace") + [.separator]
+        + actions("browserProfile.rename", "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon",
+                  "browserProfile.clearIcon") + [.separator]
+        + actions("browserProfile.manageExtensions") + [.separator]
+        + actions("browserProfile.new") + [.separator] + actions("browserProfile.delete")
 
     static let workspaceGroup: [ContextMenuEntry] =
         actions("workspaceGroup.newWorkspace", "workspaceGroup.rename")

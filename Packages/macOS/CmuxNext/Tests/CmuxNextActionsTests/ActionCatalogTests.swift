@@ -75,7 +75,7 @@ import Testing
         .screen: 62,
         .tab: 74,
         .terminal: 35, // + Set / Reset Terminal Theme
-        .browser: 78,
+        .browser: 94, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5)
         .sidebar: 30,
         .notifications: 18,
         .agents: 16,
