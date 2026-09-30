@@ -2,6 +2,7 @@ import React, { memo, useEffect, useLayoutEffect, useRef, useState } from "react
 import { lexer, type Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -16,12 +17,15 @@ declare global {
       applyCustomization(customization: { themeCSS?: string; registryJS?: string; layout?: Record<string, unknown> }): void;
     };
     cmuxAcpmuxRegistry?: { register(kind: string, renderer: MeasurableRenderer, options?: { measure?: (row: AcpmuxRow, width: number) => number }): void; configure(options: Record<string, unknown>): void };
-    cmuxAcpmuxDebug?: { startFling(seconds: number): void; flingStats(): Record<string, unknown> };
+    cmuxAcpmuxDebug?: { seedRows(count: number): void; startFling(seconds: number): void; flingStats(): Record<string, unknown> };
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
     React?: typeof React;
   }
 }
 
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  const direct = window.cmuxAcpmuxActions?.[method];
+  if (direct) return direct(params) as Promise<T>;
   const handler = window.webkit?.messageHandlers?.agentSession;
   if (!handler) return Promise.reject(new Error("Native bridge is unavailable"));
   return Promise.resolve(handler.postMessage({ id: crypto.randomUUID(), method, params }) as unknown as Reply<T>).then((reply) => {
@@ -130,6 +134,7 @@ export function AcpmuxApp() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [registryEpoch, setRegistryEpoch] = useState(0);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
+  const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   useEffect(() => {
     window.React = React;
     window.cmuxAcpmuxRegistry = { register(kind, renderer, options) { if (options?.measure) renderer.measure = options.measure; (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>)[kind] = renderer; }, configure() { setRegistryEpoch((value) => value + 1); } };
@@ -141,6 +146,11 @@ export function AcpmuxApp() {
     let flingFrames: number[] = [];
     let flingRunning = false;
     window.cmuxAcpmuxDebug = {
+      seedRows(count) {
+        const rows = Array.from({ length: count }, (_, index) => ({ id: `seed-${index}`, version: 1, at: index, kind: index % 9 === 0 ? "user" : index % 7 === 0 ? "activity" : "assistant", text: `Seed row ${index}: **markdown** content for the 5,000-row fling.` }));
+        rowsRef.current = new Map(rows.map((row) => [row.id, row]));
+        setSnapshot((current) => ({ ...current, rows, connection: "debug", isWorking: false }));
+      },
       startFling(seconds) {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         if (!scroller) return;
@@ -165,7 +175,39 @@ export function AcpmuxApp() {
         return { running: flingRunning, rows: rowsRef.current.size, frames: sorted.length, p50_ms: percentile(0.5), p95_ms: percentile(0.95), p99_ms: percentile(0.99), max_ms: sorted.at(-1) ?? 0 };
       },
     };
-    void callNative("ready");
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    const connectHost = async () => {
+      try {
+        const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string }>("ready");
+        if (cancelled || host.transport !== "acpmux-websocket" || !host.endpoint || !host.token) return;
+        const client = await AcpmuxDirectClient.connect(host as AcpmuxHostConfig, (next) => {
+          rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+          setSnapshot(next);
+        });
+        if (cancelled) { client.close(); return; }
+        directClient.current = client;
+        window.cmuxAcpmuxActions = {
+          "chat.send": ({ text }) => client.send(String(text ?? "")),
+          "chat.cancel": () => client.cancel(),
+          "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
+          "chat.model": ({ modelId }) => client.setModel(String(modelId)),
+          "chat.mode": ({ modeId }) => client.setMode(String(modeId)),
+          "chat.effort": ({ configId, value }) => client.setConfig(String(configId), String(value)),
+          "chat.select": ({ sessionId }) => client.select(String(sessionId)),
+          "chat.new": ({ harness }) => client.create(harness ? String(harness) : undefined),
+          "chat.history": () => client.loadOlder(),
+        };
+        client.snapshot();
+      } catch (error) {
+        if (!cancelled) {
+          setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
+          retryTimer = window.setTimeout(() => void connectHost(), 250);
+        }
+      }
+    };
+    void connectHost();
+    return () => { cancelled = true; if (retryTimer !== undefined) window.clearTimeout(retryTimer); directClient.current?.close(); directClient.current = undefined; delete window.cmuxAcpmuxActions; };
   }, []);
   void registryEpoch;
   const send = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; const textarea = form.elements.namedItem("prompt") as HTMLTextAreaElement; const text = textarea.value.trim(); if (!text) return; textarea.value = ""; void callNative("chat.send", { text }); };

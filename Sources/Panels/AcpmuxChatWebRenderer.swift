@@ -5,8 +5,8 @@ import Observation
 import SwiftUI
 import WebKit
 
-/// Hosts the optional TypeScript transcript renderer. The model remains the
-/// source of truth; this view only forwards bridge requests and snapshots.
+/// Hosts the optional TypeScript transcript renderer. Swift starts the daemon and
+/// hands the page an authenticated endpoint; the page is the acpmux client.
 struct AcpmuxChatWebRenderer: NSViewRepresentable {
     let panel: AgentSessionPanel
     let isFocused: Bool
@@ -75,15 +75,11 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
             FileWatcher(path: directory.appending(path: "layout.json").path, throttle: .milliseconds(150)),
         ]
         super.init()
-        model.onTranscriptChanged = { [weak self] in
-            self?.sendSnapshot()
-        }
 #if DEBUG
         panel.onWebRendererDebugAction = { [weak self] action, params in
             self?.performDebugAction(action, params: params)
         }
 #endif
-        observeProjectedState()
         for watcher in customizationWatchers {
             customizationTasks.append(Task { [weak self] in
                 for await _ in watcher.events {
@@ -92,26 +88,6 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
             })
         }
         sendCustomization()
-    }
-
-    private func observeProjectedState() {
-        withObservationTracking {
-            _ = model.connectionState
-            _ = model.sessions
-            _ = model.sessionId
-            _ = model.summary
-            _ = model.catalog
-            _ = model.queue
-            _ = model.pendingPermission
-            _ = model.isWorking
-            _ = model.canLoadOlder
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.sendSnapshot()
-                self.observeProjectedState()
-            }
-        }
     }
 
     func bind(theme: AgentSessionWebTheme, isFocused: Bool) {
@@ -153,7 +129,6 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
     func focus() { _ = webView?.window?.makeFirstResponder(webView) }
 
     func close() {
-        model.onTranscriptChanged = nil
 #if DEBUG
         panel.onWebRendererDebugAction = nil
 #endif
@@ -176,9 +151,8 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
         switch action {
         case "seed_rows":
             let count = (params["count"] as? Int) ?? 5_000
-            model.debugReplaceTranscript(with: AcpmuxSyntheticTranscript(rowCount: count).records())
-            sendSnapshot()
-            return ["rows": model.rows.count]
+            webView?.evaluateJavaScript("window.cmuxAcpmuxDebug?.seedRows(\(count)); true;") { _, _ in }
+            return ["rows": count]
         case "fling":
             let seconds = (params["seconds"] as? Double) ?? 3
             let script = "window.cmuxAcpmuxDebug?.startFling(\(seconds)); true;"
@@ -220,7 +194,6 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         applyTheme()
         sendCustomization()
-        sendSnapshot()
         if isFocused { focus() }
     }
 
@@ -236,69 +209,12 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
     private func handle(_ request: Request) async throws -> Any {
         switch request.method {
         case "ready":
-            sendSnapshot()
-            return ["protocolVersion": AcpmuxWebBridgeProtocol.version]
-        case "chat.send":
-            model.send(request.string("text") ?? "")
-        case "chat.cancel":
-            model.cancelTurn()
-        case "chat.permission":
-            guard let card = model.pendingPermission,
-                  request.string("permissionId") == card.permissionId,
-                  let optionId = request.string("optionId"),
-                  card.request.options.contains(where: { $0.optionId == optionId }) else { break }
-            model.respond(to: card, optionId: optionId)
-        case "chat.model":
-            if let value = request.string("modelId") { model.setModel(value) }
-        case "chat.mode":
-            if let value = request.string("modeId") { model.setMode(value) }
-        case "chat.effort":
-            if let id = request.string("configId"), let value = request.string("value") {
-                model.setConfigOption(id: id, value: .string(value))
-            }
-        case "chat.select":
-            if let id = request.string("sessionId") { await model.select(sessionId: id) }
-        case "chat.new":
-            _ = await model.createSession(harness: request.string("harness"))
-        case "chat.history":
-            await model.loadOlder()
+            let endpoint = try await model.webSocketEndpoint()
+            return Self.jsonObject(AcpmuxWebHostHandshake(endpoint: endpoint.endpoint, token: endpoint.token, sessionId: model.sessionId)) ?? [:]
         default:
             throw NSError(domain: "AcpmuxWebBridge", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported bridge request"])
         }
-        sendSnapshot()
         return NSNull()
-    }
-
-    private func sendSnapshot() {
-        guard let webView, loaded,
-              let data = try? JSONSerialization.data(withJSONObject: snapshot(), options: []),
-              let json = String(data: data, encoding: .utf8) else { return }
-        webView.evaluateJavaScript("window.cmuxAcpmuxBridge?.receive(\(json));") { _, _ in }
-    }
-
-    private func snapshot() -> [String: Any] {
-        let rows = model.rows.compactMap { Self.jsonObject(AcpmuxWebRow(row: $0)) }
-        let sessions = model.sessions.compactMap(Self.jsonObject)
-        let summary = model.summary.flatMap(Self.jsonObject)
-        let catalog: [[String: Any]] = model.catalog.harnesses.map { harness in
-            ["id": harness.name, "name": harness.name, "family": harness.family as Any,
-             "unavailableReason": harness.unavailableReason as Any,
-             "models": harness.models.map { ["id": $0.id, "name": $0.name as Any] }]
-        }
-        return [
-            "protocolVersion": AcpmuxWebBridgeProtocol.version,
-            "type": "snapshot",
-            "rows": rows,
-            "sessions": sessions,
-            "summary": summary as Any,
-            "connection": String(describing: model.connectionState),
-            "sessionId": model.sessionId as Any,
-            "isWorking": model.isWorking,
-            "queue": model.queue.map(AcpmuxWebQueueEntry.init).compactMap(Self.jsonObject),
-            "permission": model.pendingPermission.flatMap { Self.jsonObject(AcpmuxWebPermission(card: $0)) } as Any,
-            "catalog": catalog,
-            "canLoadOlder": model.canLoadOlder,
-        ]
     }
 
     private func applyTheme() {
