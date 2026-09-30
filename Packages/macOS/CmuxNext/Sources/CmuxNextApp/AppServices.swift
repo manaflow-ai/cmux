@@ -100,6 +100,8 @@ final class AppServices {
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
     /// them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
+    /// Browser tab favicons per profile, for tab strips.
+    let favicons = TabFaviconStore()
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
 

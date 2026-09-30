@@ -326,8 +326,9 @@ public final class WebKitTab: NSObject, BrowserTab {
             return
         }
         guard let loader = engine?.faviconLoader else { return }
+        let profile = profileID
         Task { [weak self] in
-            let image = await loader.favicon(at: url)
+            let image = await loader.favicon(at: url, profile: profile)
             guard let self, self.state.faviconURL == url else { return }
             self.favicon = image
         }

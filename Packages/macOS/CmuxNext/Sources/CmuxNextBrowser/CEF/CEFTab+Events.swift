@@ -88,8 +88,9 @@ extension CEFTab {
             favicon = nil
             return
         }
+        let profile = profileID
         faviconTask = Task { [weak self] in
-            let image = await BrowserFaviconLoader.shared.favicon(at: url)
+            let image = await BrowserFaviconLoader.shared.favicon(at: url, profile: profile)
             guard !Task.isCancelled else { return }
             self?.favicon = image
         }
