@@ -116,6 +116,13 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
     }
 
+    @Test func installUpdatesAutomaticallySharesTheUpdaterStorageKey() {
+        // The updater registers the per-channel default under this key (UpdateSettings).
+        let key = SettingCatalog().app.installUpdatesAutomatically
+        #expect(!key.defaultValue)
+        #expect(key.userDefaultsKey == "updateInstallAutomatically")
+    }
+
     @Test func focusHistoryDefaultsToWorkspacesOnly() {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
