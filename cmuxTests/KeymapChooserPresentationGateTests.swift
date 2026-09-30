@@ -119,8 +119,14 @@ struct KeymapChooserPresentationGateTests {
         let first = UUID()
         let second = UUID()
 
-        #expect(claim.claim(first))
-        #expect(!claim.claim(second))
+        // `#expect` expands its argument into a closure that takes the value
+        // immutably, so a mutating member cannot be called inside the macro.
+        // Binding first also puts the returned Bool in the failure message.
+        let firstWon = claim.claim(first)
+        let secondWon = claim.claim(second)
+
+        #expect(firstWon)
+        #expect(!secondWon)
         #expect(claim.owner == first)
     }
 
@@ -130,16 +136,20 @@ struct KeymapChooserPresentationGateTests {
         var claim = ContentView.KeymapChooserPresentationClaim()
         let presenting = UUID()
         let losing = UUID()
-        #expect(claim.claim(presenting))
-        #expect(!claim.claim(losing))
+        let presentingWon = claim.claim(presenting)
+        let losingWon = claim.claim(losing)
+        #expect(presentingWon)
+        #expect(!losingWon)
 
         // The losing window closes first. Its teardown must not hand the
         // claim to a third window while the chooser is still up elsewhere.
-        #expect(!claim.release(losing))
+        let losingReleased = claim.release(losing)
+        #expect(!losingReleased)
 
         #expect(claim.isClaimed)
         #expect(claim.owner == presenting)
-        #expect(!claim.claim(UUID()))
+        let thirdWon = claim.claim(UUID())
+        #expect(!thirdWon)
     }
 
     @Test("Closing the presenting window frees the chooser for another window")
@@ -147,14 +157,17 @@ struct KeymapChooserPresentationGateTests {
     func owningWindowReleasesTheClaim() {
         var claim = ContentView.KeymapChooserPresentationClaim()
         let presenting = UUID()
-        #expect(claim.claim(presenting))
+        let presentingWon = claim.claim(presenting)
+        #expect(presentingWon)
 
-        #expect(claim.release(presenting))
+        let released = claim.release(presenting)
+        #expect(released)
 
         #expect(!claim.isClaimed)
         #expect(claim.owner == nil)
         let next = UUID()
-        #expect(claim.claim(next))
+        let nextWon = claim.claim(next)
+        #expect(nextWon)
         #expect(claim.owner == next)
     }
 
@@ -163,7 +176,8 @@ struct KeymapChooserPresentationGateTests {
     func releaseWithoutAClaimIsANoOp() {
         var claim = ContentView.KeymapChooserPresentationClaim()
 
-        #expect(!claim.release(UUID()))
+        let released = claim.release(UUID())
+        #expect(!released)
 
         #expect(!claim.isClaimed)
     }
