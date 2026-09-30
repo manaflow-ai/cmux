@@ -42,3 +42,7 @@ The machine is shared by many agents, and leftovers filled the disk and the PTY 
 The user types in their own apps while agents test. Keys that reach the wrong app type into the user's work, and keys from the user must never reach a tagged app.
 - Never synthesize system keyboard or mouse input to open or drive tagged app UI: no CGEvent posts, no keys or clicks sent to the frontmost app, no AppleScript or Accessibility key presses. Use `debug.key`, `debug.mouse` and `action.run` on the tagged app's socket; they deliver to that app only and never move the user's pointer or keyboard focus.
 - A no-activate tagged app must never take the keyboard. Check `debug.focus` after you open a panel or palette: `app_active` must be false and `key_window` null. If either is set, or `debug.journal` shows key-down entries you did not send, stop the app at once, and report it as a bug.
+
+## Disk budget (added 2026-09-30, disk nearly full)
+
+Twenty agents share one disk that was down to about 20 GB free. Each agent may keep at most ONE tagged DerivedData folder (about 6 GB) and one SwiftPM `.build`. Delete a "before/baseline" comparison build as soon as you have its numbers. Reuse your tag instead of making new ones. Before a build, check `df -g /System/Volumes/Data`; below 40 GB free, do not start a new tagged build: finish with unit tests and report that the live check waits for disk.
