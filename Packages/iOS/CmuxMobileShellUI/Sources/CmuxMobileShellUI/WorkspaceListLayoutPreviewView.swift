@@ -128,6 +128,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
     @State private var refreshGeneration = 0
+    @State private var pickerStatusTransitionPhase = false
     @State private var model: WorkspaceListLayoutPreviewModel
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
@@ -603,6 +604,11 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     private var fixtureConnectionStatus: MobileMacConnectionStatus {
+        if ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_PICKER_STATUS_TRANSITIONS"
+        ] == "1" {
+            return pickerStatusTransitionPhase ? .connected : .reconnecting
+        }
         switch ProcessInfo.processInfo.environment[
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS"
         ] {
@@ -900,6 +906,16 @@ public struct WorkspaceListLayoutPreviewView: View {
             }
 
             await model.runLiveUpdates()
+        }
+        .task {
+            guard ProcessInfo.processInfo.environment[
+                "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_PICKER_STATUS_TRANSITIONS"
+            ] == "1" else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                pickerStatusTransitionPhase.toggle()
+            }
         }
     }
 

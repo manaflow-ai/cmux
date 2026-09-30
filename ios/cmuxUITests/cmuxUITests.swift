@@ -2326,6 +2326,43 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testComputerPickerStatusTransitionKeepsBothLayoutsVisible() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_PICKER_STATUS_TRANSITIONS": "1",
+        ])
+        defer { app.terminate() }
+
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 8))
+        let statusLine = app.descendants(matching: .any)[
+            "MobileWorkspaceConnectionStatusLine"
+        ]
+        XCTAssertTrue(statusLine.waitForExistence(timeout: 3))
+
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "computer-picker-status-before-transition"
+        before.lifetime = .keepAlways
+        add(before)
+
+        XCTAssertTrue(
+            statusLine.waitForNonExistence(timeout: 3),
+            "The preview must exercise the status-to-title transition."
+        )
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "computer-picker-status-after-transition"
+        after.lifetime = .keepAlways
+        add(after)
+
+        XCTAssertTrue(
+            statusLine.waitForExistence(timeout: 3),
+            "The preview must exercise the title-to-status transition."
+        )
+        XCTAssertGreaterThanOrEqual(statusLine.frame.minY, picker.frame.minY - 1)
+        XCTAssertLessThanOrEqual(statusLine.frame.maxY, picker.frame.maxY + 1)
+    }
+
+    @MainActor
     func testComputerOrderListsSiblingBuildsSeparately() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
