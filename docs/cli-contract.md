@@ -88,8 +88,8 @@ Environment:
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
 | `omx` | Launch Oh My Codex with cmux pane integration. |
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
-| `hooks` | Install, uninstall, and run agent hook integrations under one namespace. |
-| `setup-hooks`, `uninstall-hooks` | Compatibility aliases for `hooks install` and `hooks uninstall`, kept for hook setup docs and scripts written before `cmux hooks`. |
+| `hooks` | Agent hook integrations under one namespace: `setup` and `uninstall` (both take an optional agent name), `help`, and the per-agent hook actions the installed hooks call back into. |
+| `setup-hooks`, `uninstall-hooks` | Compatibility aliases for `hooks setup` and `hooks uninstall`, kept for hook setup docs and scripts written before `cmux hooks`. |
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
@@ -163,7 +163,7 @@ Environment:
 | `tab-action` | Run horizontal tab context-menu actions. |
 | `rename-tab` | Rename a tab. Compatibility wrapper for `tab-action rename`. |
 | `drag-surface-to-split` | Move a surface into a split direction. |
-| `canvas` | Canvas layout namespace: `info`, `mode`, `set-frame`, `align`, `reveal`, `overview`, `zoom`, `join`, `break`, `select-tab`, `set-viewport`, `new-pane`. Most take a required argument: `mode`, `align`, and `zoom` a direction or mode word, `set-frame` numeric `--x --y --width --height`, `set-viewport` numeric `--x --y`, `join` a target. `set-frame`, `align`, `reveal`, `join`, `break`, and `select-tab` also need a surface, positionally or with `--surface <id\|ref>`; `--workspace <ref>` scopes the whole namespace. |
+| `canvas` | Canvas layout namespace: `info`, `mode`, `set-frame`, `align`, `reveal`, `overview`, `zoom`, `join`, `break`, `select-tab`, `set-viewport`, `new-pane`. Most take a required argument: `mode`, `align`, and `zoom` a direction or mode word, `set-frame` numeric `--x --y --width --height`, `set-viewport` numeric `--x --y` and an optional numeric `--zoom`, `join` a target. `set-frame`, `join`, `break`, and `select-tab` need a surface, positionally or with `--surface <id\|ref>`; `reveal` takes one optionally, and `align` takes none, because its positional is the align command. `new-pane` takes an optional `--type terminal\|browser\|simulator`. `--workspace <ref>` scopes the whole namespace. |
 | `refresh-surfaces` | Ask the app to refresh terminal surfaces. |
 | `surface-resume` | Read or change a surface's agent resume binding: `show` (the default, alias `get`), `set`, `clear`. `set` requires the command to run, as `--shell <command>` or `-- <argv...>`; a bare word after `--shell` is rejected rather than appended. Also spelled `surface resume`. |
 | `reload-config` | Ask cmux to reload configuration. |
@@ -218,7 +218,7 @@ Environment:
 | `diff` | Open a diff in a viewer panel: a patch file (or `-` for stdin), or a git source via `--source`, `--repo`, `--base`, `--branch`, `--branch-base`, `--staged`, `--unstaged`, `--path`, `--cwd`, `--session`, `--last-turn`, or `--agent-session`. A patch file and a git source cannot be combined. `--title`, `--layout`, and `--font-size` control presentation; the panel opens in the background unless `--focus true`. Targets `--window`, `--workspace`, and `--surface`, defaulting to the caller's surface. Supports `--json`. |
 | `diff-viewer-server` | Start the local HTTP server that backs diff viewer panels for one `--root <path>`; the directory must pass the diff viewer permission checks. Runs in the foreground and needs no socket. |
 | `project` | `project open <path>` opens an `.xcodeproj` or `.xcworkspace` in the project pane. |
-| `simulator` | Drive the iOS Simulator behind a surface (`--surface <id\|ref\|index>`), waiting for each correlated Simulator-worker result: `type`, `tap`, `gesture`, `multitouch`, `swipe`, `button`, `rotate`, `ca`, `memory-warning`, `event-log`, `tools`, `camera`, `permissions`, `ui`, plus the Web Inspector set `targets`, `attach`, `send`, `highlight`, and `release`. |
+| `simulator` | Drive the iOS Simulator behind a surface (`--surface <id\|ref\|index>`), waiting for each correlated Simulator-worker result: `select` (alias `select-device`), `type`, `tap`, `gesture` (aliases `multitouch`, `multi-touch`), `swipe`, `button`, `rotate`, `ca`, `memory-warning` (alias `memory_warning`), `event-log` (alias `events`), `tools`, `camera`, `permissions`, `ui`, `accessibility` (alias `ax`), `foreground`, plus the Web Inspector set `targets`, `attach`, `send`, `highlight`, and `release`. |
 | `ios` | Accepts every `simulator` subcommand unchanged, plus `list` (iOS surfaces), `context` (the caller's iOS surface, `--udid` for the identifier alone), and `screenshot`. |
 | `vm-pty-attach` | Internal VM PTY attach command. |
 | `vm-ssh-attach` | Hidden compatibility alias for older VM workspaces. |
@@ -229,6 +229,8 @@ Environment:
 | `report_pwd`, `report_git_branch`, `report_pr_action` | Internal shell integration entrypoints that forward one piece of sidebar metadata from a terminal's shell hooks and print the app's reply. |
 | `simulate-sidebar-drag` | Internal test helper that replays a sidebar drag; requires `--window`, `--from`, and `--to`, with optional `--duration-ms` and `--steps`. |
 | `vm-tui-connect` | Internal helper that replaces itself with the cmux-tui client for one machine. Requires `--config <file>`, a one-shot JSON config it deletes as it reads. |
+| `__owned-process-supervisor` | Internal supervisor that spawns the executable named by its first argument with the rest of the line as that program's arguments, then terminates the target's process group when the process that launched the supervisor exits. Never run by hand. |
+| `__codex-teams-app-server-supervisor` | Internal supervisor for `codex-teams` app servers. Same target handling as `__owned-process-supervisor`, but the lease is the lifetime of its inherited descriptors rather than its parent process. Never run by hand. |
 | `__codex-teams-watch` | Internal watcher backing `codex-teams` panes. Requires `--workspace-id`, `--surface-id`, and `--app-server-url`; also takes `--codex-path`, `--launch-path`, `--max-auto-depth`, and `--owner-pid` (it exits with that process). |
 | `__sidebar_footer_icon_balance` | Internal debug verb that opens the sidebar footer icon balance window and prints `OK`. Present in debug builds only; a release build reports an unknown command. |
 | `__internal_flags` | Internal debug verb that opens the app's internal flags window and prints `OK`. It does not print the flag state to stdout. |
@@ -241,6 +243,8 @@ Environment:
 | `__diff-viewer-refs` | Internal diff viewer helper listing candidate base refs for `--repo <path>`, with `--base`, `--token`, and `--suggested-only`. The repository must be in the diff viewer allow-list. |
 | `__diff-viewer-branch` | Internal diff viewer helper regenerating one branch comparison; requires `--group`, `--repo`, and `--base`, with an optional `--token`. |
 | `__debug-tmux-compat-env` | Internal debug probe printing the environment a tmux compatibility agent would be launched with, resolved against the socket this command was pointed at. |
+| `__cmux-sudo-runner` | Internal sudo broker entrypoint that runs one approved sudo manifest under its own process-tree deadline. Takes a request id and a base64 manifest, and checks that its parent is the enclosing app; exits 2 on any other argument shape. Only the broker invokes it. |
+| `__cmux-sudo-privileged-executor` | Internal sudo broker entrypoint re-entered as root after sudo authenticates. Takes exactly four arguments (reviewed byte count, absolute deadline, display name, control token) and exits 126 unless it is running as root. Only the broker invokes it. |
 
 
 ## Glaeda execution exchange and current-work ownership
