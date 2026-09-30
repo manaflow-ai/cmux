@@ -6443,6 +6443,9 @@ struct CMUXCLI {
             case "env":
                 try runVMEnvCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
+            case "auth":
+                try runVMAuthCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "tab":
                 try runVMTabCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
@@ -6526,7 +6529,7 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+                    Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|auth|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
                     Common commands:
                       cmux vm ls
@@ -18838,7 +18841,7 @@ struct CMUXCLI {
                 defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|auth|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             `cmux vm <verb> --help` prints that verb's own usage.
 
@@ -18904,6 +18907,9 @@ struct CMUXCLI {
                                         its ~/.config/cmux/env; names only are echoed back).
               env ls <machine> [--show]  List them (names; --show adds values).
               env rm <machine> KEY…      Remove them.
+              auth setup <machine> [--git-identity] [--github]
+                                        Explicitly carry selected git identity and/or
+                                        GitHub auth from this Mac into one machine.
               tab rename <machine> <tab-id> <name>
                                         Rename one daemon tab placement.
               prompt [--open <agent>]   Install the cmux-cloud skill file and print the

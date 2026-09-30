@@ -1977,6 +1977,181 @@ extension CMUXCLI {
         }
     }
 
+    // MARK: - vm auth
+
+    static let vmAuthUsage = """
+        Usage:
+          cmux vm auth setup <machine> [--git-identity] [--github]
+
+        Carry selected credentials from this Mac into one Cloud machine.
+
+        --git-identity copies only the global git user.name and user.email.
+        --github copies the active github.com token from `gh auth` over the
+        authenticated Cloud link, logs the machine into GitHub, and configures
+        git to use `gh` for HTTPS operations.
+
+        Nothing is copied unless its scope is named explicitly. GitHub tokens
+        are delivered through the link, never put in a command line or terminal,
+        and the temporary remote file is removed after setup.
+        """
+
+    struct VMAuthInputs: Equatable {
+        let machine: String
+        let gitIdentity: Bool
+        let github: Bool
+    }
+
+    static func parseVMAuthInputs(_ rest: [String]) throws -> VMAuthInputs {
+        guard rest.first == "setup" else { throw CLIError(message: vmAuthUsage) }
+        var machine: String?
+        var gitIdentity = false
+        var github = false
+        for arg in rest.dropFirst() {
+            switch arg {
+            case "--git-identity": gitIdentity = true
+            case "--github": github = true
+            case "--help", "-h": throw CLIError(message: vmAuthUsage)
+            default:
+                guard !arg.hasPrefix("-"), machine == nil else {
+                    throw CLIError(message: "vm auth setup: unknown or duplicate argument '\(arg)'\n\n\(vmAuthUsage)")
+                }
+                machine = arg
+            }
+        }
+        guard let machine, !machine.isEmpty, gitIdentity || github else {
+            throw CLIError(message: "vm auth setup requires at least one explicit scope: --git-identity or --github\n\n\(vmAuthUsage)")
+        }
+        return VMAuthInputs(machine: machine, gitIdentity: gitIdentity, github: github)
+    }
+
+    static func vmAuthGitConfigCommand(name: String, email: String) -> String {
+        "git config --global user.name \(name.posixShellWord) && git config --global user.email \(email.posixShellWord)"
+    }
+
+    static func vmAuthGitHubSetupCommand(tokenPath: String) -> String {
+        let path = tokenPath.posixShellWord
+        return "set -eu; token_path=\(path); trap 'rm -f -- \"$token_path\"' EXIT; gh auth login --hostname github.com --git-protocol https --with-token < \"$token_path\" >/dev/null; gh auth setup-git >/dev/null"
+    }
+
+    func runVMAuthCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
+            print(Self.vmAuthUsage)
+            return
+        }
+        let inputs = try Self.parseVMAuthInputs(rest)
+        var scopes: [String] = []
+        var result: [String: Any] = ["machine": inputs.machine]
+
+        if inputs.gitIdentity {
+            let name = try Self.localGitConfigValue("user.name")
+            let email = try Self.localGitConfigValue("user.email")
+            let response = try client.sendV2(
+                method: "vm.exec",
+                params: [
+                    "id": inputs.machine,
+                    "command": Self.vmAuthGitConfigCommand(name: name, email: email),
+                    "timeout_ms": 30_000,
+                ],
+                responseTimeout: 35
+            )
+            try Self.requireVMAuthSuccess(response, scope: "git identity")
+            scopes.append("git-identity")
+            result["git_identity"] = ["name": name, "email": email]
+        }
+
+        if inputs.github {
+            let token = try Self.localGitHubToken()
+            let tokenPath = ".cmux-github-token-\(UUID().uuidString)"
+            try Self.deliverVMAuthSecret(token, machine: inputs.machine, path: tokenPath, client: client)
+            defer {
+                // The remote command has its own trap. This best-effort cleanup
+                // covers a link failure between delivery and the setup command.
+                _ = try? client.sendV2(
+                    method: "vm.exec",
+                    params: [
+                        "id": inputs.machine,
+                        "command": "rm -f -- \(tokenPath.posixShellWord)",
+                        "timeout_ms": 30_000,
+                    ],
+                    responseTimeout: 35
+                )
+            }
+            let response = try client.sendV2(
+                method: "vm.exec",
+                params: [
+                    "id": inputs.machine,
+                    "command": Self.vmAuthGitHubSetupCommand(tokenPath: tokenPath),
+                    "timeout_ms": 30_000,
+                ],
+                responseTimeout: 35
+            )
+            try Self.requireVMAuthSuccess(response, scope: "GitHub auth")
+            scopes.append("github")
+            result["github"] = true
+        }
+
+        result["scopes"] = scopes
+        if jsonOutput {
+            print(jsonString(result))
+        } else {
+            print("OK configured \(scopes.joined(separator: ", ")) on \(inputs.machine)")
+        }
+    }
+
+    private static func localGitConfigValue(_ key: String) throws -> String {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/git",
+            arguments: ["config", "--global", "--get", key],
+            timeout: 10
+        )
+        let value = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard result.status == 0, !value.isEmpty else {
+            throw CLIError(message: "vm auth setup: this Mac has no global git \(key). Set it with `git config --global \(key) …` and retry.")
+        }
+        return value
+    }
+
+    private static func localGitHubToken() throws -> Data {
+        let candidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
+        guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            throw CLIError(message: "vm auth setup: GitHub CLI (`gh`) is not installed on this Mac.")
+        }
+        let result = CLIProcessRunner.runProcess(
+            executablePath: executable,
+            arguments: ["auth", "token", "--hostname", "github.com"],
+            timeout: 15
+        )
+        let token = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard result.status == 0, !token.isEmpty else {
+            throw CLIError(message: "vm auth setup: this Mac is not logged into GitHub. Run `gh auth login` and retry.")
+        }
+        return Data(token.utf8)
+    }
+
+    private static func deliverVMAuthSecret(_ data: Data, machine: String, path: String, client: SocketClient) throws {
+        let response = try client.sendV2(
+            method: "vm.file_put",
+            params: [
+                "id": machine,
+                "path": path,
+                "mode": "600",
+                "data_base64": data.base64EncodedString(),
+            ],
+            responseTimeout: 200
+        )
+        guard (response["bytes"] as? Int) == data.count else {
+            throw CLIError(message: "vm auth setup: Cloud did not confirm the GitHub token delivery.")
+        }
+    }
+
+    private static func requireVMAuthSuccess(_ response: [String: Any], scope: String) throws {
+        guard (response["exit_code"] as? Int) == 0 else {
+            // Do not surface remote stderr: a credential helper must never turn
+            // an unexpected provider message into a token-bearing CLI error.
+            throw CLIError(message: "vm auth setup: \(scope) configuration failed on the Cloud machine.")
+        }
+    }
+
     /// The exit status to pass through for a `vm.terminal_wait_exit` result: the process's
     /// own code for a normal exit (clamped to 1…255 when out of range), 1 for a signal or
     /// an unknown outcome.
