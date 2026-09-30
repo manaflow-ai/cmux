@@ -52,7 +52,9 @@ final class AcpmuxTranscriptRowCellView: NSTableCellView {
         fatalError("init(coder:) is not supported")
     }
 
-    func configure(rowID: String, layout: AcpmuxRowLayout, theme: AcpmuxChatTheme, hidden: Bool) {
+    func configure(rowID: String, layout: AcpmuxRowLayout, theme: AcpmuxChatTheme, hidden: Bool, reduceMotion: Bool = false) {
+        let sameRow = self.rowID == rowID
+        let previousPath = surfaceLayer.presentation()?.path ?? surfaceLayer.path
         self.rowID = rowID
         handlesToggle = layout.isToggleable
         CATransaction.begin()
@@ -64,6 +66,18 @@ final class AcpmuxTranscriptRowCellView: NSTableCellView {
         case .none: break
         }
         surfaceLayer.path = layout.surfacePath
+        if sameRow, !reduceMotion, let previousPath, let newPath = layout.surfacePath, previousPath != newPath {
+            // The same bubble changed shape (streaming growth, or growing out of the typing
+            // bubble): tween from what is on screen now, replacing any older shape animation
+            // so a stale target never pins the bubble to an old size.
+            surfaceLayer.removeAnimation(forKey: "acpmuxChat.fromTyping")
+            let grow = CABasicAnimation(keyPath: "path")
+            grow.fromValue = previousPath
+            grow.toValue = newPath
+            grow.duration = 0.12
+            grow.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            surfaceLayer.add(grow, forKey: "acpmuxChat.grow")
+        }
         surfaceLayer.frame = bounds
         CATransaction.commit()
         textView.apply(layout.text, frame: layout.textFrame)

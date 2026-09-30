@@ -261,11 +261,15 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
             transcript.jumpToLatest()
             return
         }
-        // Lay the new row out and scroll it into its final slot before measuring the target,
-        // so the morph lands exactly where the cell will be.
+        // One transaction: insert the hidden row, scroll it into its final slot, measure,
+        // and add the overlay, so no frame shows the cell before the overlay covers it.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         transcript.setRowHidden(rowID, hidden: true)
-        transcript.flush()
+        transcript.flush(animateScroll: false)
         transcript.jumpToLatest(animated: false)
+        transcript.layoutSubtreeIfNeeded()
         guard let target = transcript.bubbleFrame(of: rowID).map({ convert($0, from: transcript) }) else {
             transcript.setRowHidden(rowID, hidden: false)
             return

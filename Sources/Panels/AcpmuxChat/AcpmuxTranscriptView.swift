@@ -177,7 +177,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     }
 
     /// Applies the model's current rows now.
-    func flush() {
+    func flush(animateScroll: Bool = true) {
         let start = CACurrentMediaTime()
         let newRows = model.rows
         let newPositions = AcpmuxRowGroupPosition.compute(newRows)
@@ -233,7 +233,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             measureWindow = 0..<0
         }
         if isPinnedToBottom {
-            scrollToBottom(animated: !isInitial && !reduceMotion && appendedAtEnd)
+            scrollToBottom(animated: animateScroll && !isInitial && !reduceMotion && appendedAtEnd)
         } else if let anchor {
             restore(anchor)
             if appendedAtEnd {
@@ -312,6 +312,12 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
                 }
             }
         } else {
+            // A zero-duration animator write replaces any scroll animation still in flight;
+            // a plain scroll(to:) would let that animation drag the view back afterwards.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                clip.animator().setBoundsOrigin(target)
+            }
             clip.scroll(to: target)
             scrollView.reflectScrolledClipView(clip)
         }
@@ -442,7 +448,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         let layout = layout(for: row)
         if let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? AcpmuxTranscriptRowCellView {
             cell.frame.size.height = layout.height
-            cell.configure(rowID: rows[row].id, layout: layout, theme: engine.theme, hidden: hiddenRowIDs.contains(rows[row].id))
+            cell.configure(rowID: rows[row].id, layout: layout, theme: engine.theme, hidden: hiddenRowIDs.contains(rows[row].id), reduceMotion: reduceMotion)
         } else if let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? AcpmuxTypingIndicatorCellView {
             cell.configure(layout: layout, theme: engine.theme, reduceMotion: reduceMotion)
         }
