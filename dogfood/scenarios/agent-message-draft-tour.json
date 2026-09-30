@@ -1,0 +1,85 @@
+{
+  "paths": [
+    "Sources/*AgentMessage*",
+    "Sources/TerminalController+AgentMessages.swift",
+    "CLI/*AgentMessage*",
+    "cmuxCLITests/CLIAgentMessage*",
+    "Packages/macOS/CmuxAgentJournal/*"
+  ],
+  "steps": [
+    {
+      "socket": "workspace.current",
+      "save": "workspace"
+    },
+    {
+      "socket": "surface.current",
+      "save": "surface"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "type": "draft message stays in the terminal"
+    },
+    {
+      "shot": "draft-before-message"
+    },
+    {
+      "socket": "agent.message.send",
+      "params": {
+        "target": "${surface.surface_id}",
+        "body": "Agent message waiting safely while the draft stays unsent.",
+        "from": "Coordinator"
+      },
+      "save": "message"
+    },
+    {
+      "wait": 3
+    },
+    {
+      "socket": "surface.split",
+      "params": {
+        "workspace_id": "${workspace.workspace_id}",
+        "surface_id": "${surface.surface_id}",
+        "direction": "right",
+        "initial_input": "\"$CMUX_BUNDLED_CLI_PATH\" agent inbox --state queued --limit 1\n",
+        "focus": false
+      },
+      "save": "inbox"
+    },
+    {
+      "wait": 2
+    },
+    {
+      "socket": "agent.message.list",
+      "params": {
+        "surface": "${surface.surface_id}",
+        "state": "queued"
+      }
+    },
+    {
+      "socket": "surface.read_text",
+      "params": {
+        "workspace_id": "${workspace.workspace_id}",
+        "surface_id": "${surface.surface_id}"
+      }
+    },
+    {
+      "socket": "surface.read_text",
+      "params": {
+        "workspace_id": "${workspace.workspace_id}",
+        "surface_id": "${inbox.surface_id}"
+      }
+    },
+    {
+      "shot": "draft-intact-message-queued"
+    },
+    {
+      "tree": "draft-intact-message-queued"
+    },
+    {
+      "shot": "end",
+      "screen": true
+    }
+  ]
+}

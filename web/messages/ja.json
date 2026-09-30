@@ -6913,6 +6913,10 @@
     "grant_body": {
       "message": "公開ポートのメールアクセス許可",
       "action": "emailと、必要に応じてexpiresAtを送信してください。"
+    },
+    "reserved_port": {
+      "message": "ポート1337はCloud VMのcmux接続用に予約されているため、公開できません。",
+      "action": "代わりに、ご自身のサーバーが待ち受けているポートを公開してください。"
     }
   },
   "cliAuthIdentity": {
