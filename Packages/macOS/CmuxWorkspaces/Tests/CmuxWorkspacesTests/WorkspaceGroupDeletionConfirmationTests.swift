@@ -69,7 +69,7 @@ struct WorkspaceGroupDeletionConfirmationTests {
     }
 
     @Test
-    func deleteAfterRemovingAllChildrenSeesEmptyGroupAndClosesHeaderOnly() throws {
+    func removingAllChildrenRemovesUntouchedGeneratedHeader() throws {
         let (model, host, groups) = makeWorld()
         let first = CoordinatorStubTab()
         let second = CoordinatorStubTab()
@@ -83,17 +83,10 @@ struct WorkspaceGroupDeletionConfirmationTests {
         groups.removeWorkspaceFromGroup(workspaceId: first.id)
         groups.removeWorkspaceFromGroup(workspaceId: second.id)
 
-        let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))
-        #expect(confirmation.memberWorkspaceIds == [anchorId])
-        #expect(confirmation.containedWorkspaceCount == 0)
-
-        let closed = groups.deleteWorkspaceGroup(confirmed: confirmation)
-
-        #expect(closed == 1)
+        #expect(!model.workspaceGroups.contains { $0.id == groupId })
         #expect(host.closedWorkspaceIds == [anchorId])
         #expect(model.tabs.contains { $0.id == first.id && $0.groupId == nil })
         #expect(model.tabs.contains { $0.id == second.id && $0.groupId == nil })
-        #expect(!model.workspaceGroups.contains { $0.id == groupId })
     }
 
     @Test

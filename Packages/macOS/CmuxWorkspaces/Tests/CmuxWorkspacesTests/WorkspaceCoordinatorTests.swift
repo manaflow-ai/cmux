@@ -172,10 +172,9 @@ struct WorkspaceCoordinatorTests {
         let child2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [child1, child2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
-            child1.id,
-            child2.id,
-        ]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
         let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
 
         #expect(reorder.isAtTopOfUnpinnedTier(group.anchorWorkspaceId))
@@ -382,14 +381,12 @@ struct WorkspaceCoordinatorTests {
         let targetChild2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [dragged, sourcePeer, targetChild1, targetChild2, outside]
-        _ = try #require(groups.createWorkspaceGroup(name: "Source", childWorkspaceIds: [
-            dragged.id,
-            sourcePeer.id,
-        ]))
-        let targetGroupId = try #require(groups.createWorkspaceGroup(name: "Target", childWorkspaceIds: [
-            targetChild1.id,
-            targetChild2.id,
-        ]))
+        let sourceGroupId = try #require(groups.createWorkspaceGroup(name: "Source"))
+        groups.addWorkspaceToGroup(workspaceId: dragged.id, groupId: sourceGroupId)
+        groups.addWorkspaceToGroup(workspaceId: sourcePeer.id, groupId: sourceGroupId)
+        let targetGroupId = try #require(groups.createWorkspaceGroup(name: "Target"))
+        groups.addWorkspaceToGroup(workspaceId: targetChild1.id, groupId: targetGroupId)
+        groups.addWorkspaceToGroup(workspaceId: targetChild2.id, groupId: targetGroupId)
         let targetGroup = try #require(model.workspaceGroups.first { $0.id == targetGroupId })
         let targetLastIndex = try #require(model.tabs.indices.last { model.tabs[$0].groupId == targetGroupId })
 
@@ -418,10 +415,9 @@ struct WorkspaceCoordinatorTests {
         let child2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [dragged, child1, child2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
-            child1.id,
-            child2.id,
-        ]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
         let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
 
         let moved = reorder.reorderSidebarWorkspace(
@@ -449,10 +445,9 @@ struct WorkspaceCoordinatorTests {
         let child2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [dragged, child1, child2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
-            child1.id,
-            child2.id,
-        ]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
         let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
 
         let moved = reorder.reorderSidebarWorkspace(
@@ -639,10 +634,9 @@ struct WorkspaceCoordinatorTests {
         let target2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [moving1, moving2, target1, target2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(
-            name: "G",
-            childWorkspaceIds: [target1.id, target2.id]
-        ))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: target1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: target2.id, groupId: groupId)
         let group = try #require(model.workspaceGroups.first { $0.id == groupId })
         // Grabbed moving1; the gap above target2 indexes the order without
         // the grab row, so the raw position shifts down by one.
@@ -1021,13 +1015,13 @@ struct WorkspaceCoordinatorTests {
         model.tabs = [child, other]
         guard let groupID = groups.createWorkspaceGroup(
             name: "Guarded",
-            childWorkspaceIds: [child.id],
             selectAnchor: false,
             collapseSidebarSelection: false
         ) else {
             Issue.record("guarded group create failed")
             return
         }
+        groups.addWorkspaceToGroup(workspaceId: child.id, groupId: groupID)
 
         #expect(groups.ungroupWorkspaceGroup(
             groupId: groupID,
@@ -1089,7 +1083,8 @@ struct WorkspaceCoordinatorTests {
         _ = host
         let a = CoordinatorStubTab()
         model.tabs = [a]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
         let orderBefore = model.tabs.map(\.id)
 
         groups.ungroupWorkspaceGroup(groupId: groupId)
@@ -1103,7 +1098,8 @@ struct WorkspaceCoordinatorTests {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
         model.tabs = [a]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
         let anchorId = model.workspaceGroups[0].anchorWorkspaceId
         model.selectedTabId = a.id
         host.sidebarSelectedWorkspaceIds = [a.id]
