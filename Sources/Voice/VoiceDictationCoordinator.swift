@@ -34,6 +34,7 @@ final class VoiceDictationCoordinator {
     private let sessionEngine: VoiceDictationAuthorizer.SessionEngine
     private let apiKeyStore: VoiceDictationAPIKeyStore
     private let fixtureScript: String?
+    private let insertionRouter: VoiceDictationInsertionRouter
     private lazy var hud = VoiceDictationHUDController(
         controller: controller,
         levelMeter: levelMeter,
@@ -84,6 +85,7 @@ final class VoiceDictationCoordinator {
                 cleanupKey.value(in: defaults) && dictationLocale().supportsDictationFillerCleanup
             }
         )
+        insertionRouter = router
         let transcriberProvider = SystemSpeechTranscriberProvider()
         let modelKey = catalog.voice.openAIModel
         let controller = DictationController(
@@ -193,6 +195,18 @@ final class VoiceDictationCoordinator {
         return true
     }
 
+    /// Handles a UI action that already resolved the pane it was clicked in.
+    @discardableResult
+    func toggleFromUI(target: VoiceDictationTerminalTarget) -> Bool {
+        if controller.isActiveOrStarting {
+            controller.stop()
+            return true
+        }
+        guard catalog.voice.dictationEnabled.value(in: defaults) else { return false }
+        startSession(explicitTerminalTarget: target)
+        return true
+    }
+
     /// Stops an active session from the HUD through the same coordinator-owned
     /// action path used by the keyboard shortcut.
     func stopFromHUD() {
@@ -205,7 +219,9 @@ final class VoiceDictationCoordinator {
     ///
     /// - Returns: Whether a session is starting.
     @discardableResult
-    private func startSession() -> Bool {
+    private func startSession(
+        explicitTerminalTarget: VoiceDictationTerminalTarget? = nil
+    ) -> Bool {
         let engine = catalog.voice.engine.value(in: defaults)
         if fixtureScript != nil {
             sessionEngine.kind = .fixture
@@ -221,6 +237,9 @@ final class VoiceDictationCoordinator {
         guard fixtureScript != nil || catalog.voice.dictationSetupCompleted.value(in: defaults) else {
             presentSetupDialog()
             return false
+        }
+        if let explicitTerminalTarget {
+            insertionRouter.setNextExplicitTerminalTarget(explicitTerminalTarget)
         }
         controller.start()
         return true

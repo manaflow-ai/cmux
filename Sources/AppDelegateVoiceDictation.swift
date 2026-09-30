@@ -13,6 +13,12 @@ extension AppDelegate {
         voiceDictationRuntime?.toggleFromUI() ?? false
     }
 
+    /// Toggles dictation into a target resolved by the clicked UI control.
+    @discardableResult
+    func toggleVoiceDictationFromUI(target: VoiceDictationTerminalTarget) -> Bool {
+        voiceDictationRuntime?.toggleFromUI(target: target) ?? false
+    }
+
     /// Resolves the focused terminal for the key window, mirroring the
     /// multi-window resolution used by other text-insertion features, and
     /// whether a coding agent is running in it.
@@ -70,6 +76,15 @@ extension AppDelegate {
 }
 
 extension Workspace {
+    func voiceDictationTerminalTarget(inPane pane: PaneID) -> VoiceDictationTerminalTarget? {
+        guard let (_, panel) = controlDefaultTerminalTarget(paneID: pane.id) else { return nil }
+        let agentContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: self)
+        return VoiceDictationTerminalTarget(
+            panel: panel,
+            isAgentPrompt: TextBoxAgentDetection.supportsActiveAgentPrefixes(context: agentContext)
+        )
+    }
+
     /// The surface tab bar's mic button: focus the pane it was clicked in,
     /// then toggle dictation into that pane.
     func toggleVoiceDictationFromTabBar(inPane pane: PaneID) {
@@ -77,11 +92,9 @@ extension Workspace {
         if let selectedTab = bonsplitController.selectedTab(inPane: pane) {
             applyTabSelection(tabId: selectedTab.id, inPane: pane)
         }
-        // Let the focus change land before the session pins its target.
-        Task { @MainActor in
-            if AppDelegate.shared?.toggleVoiceDictationFromUI() != true {
-                NSSound.beep()
-            }
+        guard let target = voiceDictationTerminalTarget(inPane: pane),
+              AppDelegate.shared?.toggleVoiceDictationFromUI(target: target) == true else {
+            NSSound.beep()
         }
     }
 }

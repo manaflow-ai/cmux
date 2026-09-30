@@ -3,9 +3,10 @@ public import Foundation
 /// A speech-to-text engine driving one dictation session.
 ///
 /// Production conformances are ``SpeechAnalyzerDictationTranscriber``
-/// (macOS 26+) and ``SFSpeechDictationTranscriber`` (macOS 14–25), both
-/// fully on device. Tests inject a fake that yields scripted
-/// ``DictationTranscriptionEvent`` values.
+/// (macOS 26+), ``SFSpeechDictationTranscriber`` (macOS 14–25), and the
+/// opt-in ``CloudDictationTranscriber`` that sends the recorded audio to
+/// OpenAI. Tests inject ``FixtureDictationTranscriber`` or another fake that
+/// yields scripted ``DictationTranscriptionEvent`` values.
 ///
 /// A transcriber instance runs at most one session: ``transcribe(locale:)``
 /// starts audio capture plus recognition and returns the event stream;

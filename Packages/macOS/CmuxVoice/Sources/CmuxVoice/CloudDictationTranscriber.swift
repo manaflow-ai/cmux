@@ -20,6 +20,7 @@ public actor CloudDictationTranscriber: SpeechTranscribing {
         private let lock = OSAllocatedUnfairLock()
         // Guarded by `lock`.
         private var samples = Data()
+        private var capReached = false
         private var converter: AVAudioConverter?
         private let outputFormat: AVAudioFormat
         private let maxBytes: Int
@@ -29,17 +30,23 @@ public actor CloudDictationTranscriber: SpeechTranscribing {
             self.maxBytes = maxBytes
         }
 
-        func append(_ buffer: AVAudioPCMBuffer) {
+        /// Returns `true` exactly once when this append fills the recording cap.
+        @discardableResult
+        func append(_ buffer: AVAudioPCMBuffer) -> Bool {
             lock.lock()
             defer { lock.unlock() }
-            guard samples.count < maxBytes else { return }
+            guard !capReached else { return false }
+            guard samples.count < maxBytes else {
+                capReached = true
+                return true
+            }
             if converter?.inputFormat != buffer.format {
                 converter = AVAudioConverter(from: buffer.format, to: outputFormat)
             }
-            guard let converter else { return }
+            guard let converter else { return false }
             let ratio = outputFormat.sampleRate / buffer.format.sampleRate
             let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 32
-            guard let output = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { return }
+            guard let output = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { return false }
             nonisolated(unsafe) var consumed = false
             var error: NSError?
             converter.convert(to: output, error: &error) { _, status in
@@ -51,9 +58,14 @@ public actor CloudDictationTranscriber: SpeechTranscribing {
                 status.pointee = .haveData
                 return buffer
             }
-            guard error == nil, output.frameLength > 0, let channel = output.int16ChannelData else { return }
+            guard error == nil, output.frameLength > 0, let channel = output.int16ChannelData else { return false }
             let byteCount = Int(output.frameLength) * MemoryLayout<Int16>.size
             samples.append(Data(bytes: channel[0], count: min(byteCount, maxBytes - samples.count)))
+            if samples.count >= maxBytes {
+                capReached = true
+                return true
+            }
+            return false
         }
 
         /// Bytes recorded so far.
@@ -122,9 +134,13 @@ public actor CloudDictationTranscriber: SpeechTranscribing {
             throw DictationFailure.audioCaptureFailed("no audio input device")
         }
         let meter = levelMeter
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             meter?.record(buffer)
-            recorder.append(buffer)
+            if recorder.append(buffer) {
+                Task { [weak self] in
+                    await self?.finishTranscribing()
+                }
+            }
         }
         engine.prepare()
         do {

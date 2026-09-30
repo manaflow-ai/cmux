@@ -26,6 +26,7 @@ private final class FinishBarrierTranscriber: SpeechTranscribing, @unchecked Sen
     private let finishGate: AsyncStream<Void>
     private let finishGateContinuation: AsyncStream<Void>.Continuation
     private(set) var finishStarted = false
+    private(set) var finishCompleted = false
     private(set) var transcribeCount = 0
 
     init() {
@@ -48,6 +49,7 @@ private final class FinishBarrierTranscriber: SpeechTranscribing, @unchecked Sen
         for await _ in finishGate {}
         eventContinuation?.finish()
         eventContinuation = nil
+        finishCompleted = true
     }
 
     func endStream() {
@@ -93,10 +95,10 @@ struct DictationControllerFinishBarrierTests {
         first.endStream()
         #expect(await finishBarrierWaitUntil { controller.phase == .idle })
         controller.start()
-        await Task.yield()
         #expect(second.transcribeCount == 0)
 
         first.releaseFinish()
+        #expect(await finishBarrierWaitUntil { first.finishCompleted })
         #expect(await finishBarrierWaitUntil { second.transcribeCount == 1 })
         #expect(await finishBarrierWaitUntil { controller.phase == .listening })
         controller.stop()
@@ -135,7 +137,8 @@ struct DictationControllerFinishBarrierTests {
         #expect(!controller.isActiveOrStarting)
 
         first.releaseFinish()
-        for _ in 0..<1_000 { await Task.yield() }
+        #expect(await finishBarrierWaitUntil { first.finishCompleted })
+        #expect(await finishBarrierWaitUntil { !controller.isActiveOrStarting })
         #expect(second.transcribeCount == 0)
         #expect(controller.phase == .idle)
     }

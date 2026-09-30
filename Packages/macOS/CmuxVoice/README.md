@@ -1,6 +1,6 @@
 # CmuxVoice
 
-On-device voice dictation for cmux: the dictation session state machine,
+Voice dictation for cmux: the dictation session state machine,
 streaming transcript model, and the speech engines behind the
 "Toggle Voice Dictation" shortcut.
 
@@ -21,7 +21,12 @@ streaming transcript model, and the speech engines behind the
     with `requiresOnDeviceRecognition`; recognition cycles are chained so
     the caller sees one continuous stream.
 
-  Both are on-device only; no audio or transcripts leave the machine.
+  The Apple engines are on-device only; no audio or transcripts leave the
+  machine.
+  - `CloudDictationTranscriber` is opt-in and uploads the recorded clip to
+    OpenAI with the user's API key when dictation stops.
+  - `FixtureDictationTranscriber` is a deterministic scripted engine used by
+    UI tests.
 - `DictationTextInserting` is the app-side insertion seam; the app pins
   the focused target (terminal PTY, native text responder, or editable
   web content) per session. `DictationInsertionRouteResolver` holds the

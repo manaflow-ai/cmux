@@ -29,6 +29,7 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
     private let cleanUpAgentPrompts: () -> Bool
     private let resolver = DictationInsertionRouteResolver()
     private var cleansText = false
+    private var nextExplicitTerminalTarget: VoiceDictationTerminalTarget?
 
     private weak var pinnedTextView: NSTextView?
     private weak var pinnedTextField: NSTextField?
@@ -69,6 +70,13 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         self.cleanUpAgentPrompts = cleanUpAgentPrompts
     }
 
+    /// Supplies the pane selected by a UI action before the asynchronous
+    /// controller startup begins. This avoids resolving global focus again
+    /// after a scheduler hop.
+    func setNextExplicitTerminalTarget(_ target: VoiceDictationTerminalTarget) {
+        nextExplicitTerminalTarget = target
+    }
+
     func beginSession() async -> Bool {
         let responder = NSApp.keyWindow?.firstResponder
         let textView = responder as? NSTextView
@@ -79,7 +87,8 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         let isSecureNativeInput = responder is NSSecureTextField
             || fieldEditorOwner is NSSecureTextField
         let webView = (responder as? NSView).flatMap(Self.enclosingWebView(of:))
-        let terminalTarget = focusedTerminalTarget()
+        let terminalTarget = nextExplicitTerminalTarget ?? focusedTerminalTarget()
+        nextExplicitTerminalTarget = nil
         let terminalPanel = terminalTarget?.panel
         let nativeTextView = textView ?? directTextField?.currentEditor() as? NSTextView
         let nativeTextInputIsEditable = webView == nil

@@ -36,4 +36,10 @@ final class VoiceDictationRuntime {
     func toggleFromUI() -> Bool {
         coordinator.toggleFromUI()
     }
+
+    /// Handles a tab-bar action with its pane target resolved synchronously.
+    @discardableResult
+    func toggleFromUI(target: VoiceDictationTerminalTarget) -> Bool {
+        coordinator.toggleFromUI(target: target)
+    }
 }

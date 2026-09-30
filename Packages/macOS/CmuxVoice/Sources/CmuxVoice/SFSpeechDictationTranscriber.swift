@@ -54,6 +54,8 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     private var isFinishing = false
     private var consecutiveErrorCycles = 0
     private var recognitionCycleGeneration = 0
+    /// Latest partial for the current cycle, promoted before a live retry.
+    private var cyclePartial = ""
     private let retryClock: any Clock<Duration>
     private let retryDelay: Duration
     private let levelMeter: DictationAudioLevelMeter?
@@ -183,6 +185,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
         guard let recognizer, !isFinishing else { return }
         recognitionCycleGeneration += 1
         let cycleID = recognitionCycleGeneration
+        cyclePartial = ""
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
@@ -214,6 +217,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     ) {
         guard cycleID == recognitionCycleGeneration else { return }
         if let text, !isFinal {
+            cyclePartial = text
             yield(.partial(text))
             // Apple may deliver a last partial hypothesis together with an
             // error. Preserve the hypothesis, then apply the same terminal or
@@ -223,6 +227,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
             }
         }
         if let text, isFinal {
+            cyclePartial = ""
             consecutiveErrorCycles = 0
             retryTask?.cancel()
             retryTask = nil
@@ -237,6 +242,11 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
         }
         if let errorDescription {
             recognitionTask = nil
+            if !cyclePartial.isEmpty {
+                let trailingPartial = cyclePartial
+                cyclePartial = ""
+                yield(.final(trailingPartial))
+            }
             if isFinishing {
                 // Cancellation/no-speech at shutdown is expected; the
                 // session already captured everything it will get.

@@ -39,12 +39,11 @@ public struct VoiceSection: View {
                 enabledRow
                 SettingsCardDivider()
                 engineRow
+                SettingsCardDivider()
+                languageRow
                 if engine.current == .openAI {
                     SettingsCardDivider()
                     apiKeyRow
-                } else {
-                    SettingsCardDivider()
-                    languageRow
                 }
                 SettingsCardDivider()
                 hotkeyModeRow
@@ -103,6 +102,15 @@ public struct VoiceSection: View {
             .frame(maxWidth: 220)
             .accessibilityIdentifier("SettingsVoiceDictationLanguagePicker")
         }
+        .disabled(!Self.languageRowIsEnabled(for: engine.current))
+    }
+}
+
+extension VoiceSection {
+    /// The language row remains indexed for both engines, but OpenAI does not
+    /// use the on-device language model.
+    static func languageRowIsEnabled(for engine: VoiceDictationEngine) -> Bool {
+        engine != .openAI
     }
 }
 

@@ -117,7 +117,7 @@
 	<key>NSMainStoryboardFile</key>
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>A program running within cmux would like to use your microphone. Voice dictation also uses the microphone to transcribe your speech on this Mac.</string>
+	<string>A program running within cmux would like to use your microphone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A program running within cmux would like to use your camera.</string>
 	<key>NSCalendarsUsageDescription</key>
