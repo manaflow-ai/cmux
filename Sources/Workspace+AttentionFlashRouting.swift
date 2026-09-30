@@ -3,17 +3,33 @@ import Foundation
 
 @MainActor
 extension Workspace {
+    /// Clears one agent attention prompt when terminal input is accepted on
+    /// its owning surface. The terminal callback and tests share this seam.
+    @discardableResult
+    func clearAgentAttentionNotificationOnTerminalInput(panelId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.clearAgentAttentionNotification(
+            forTabId: id,
+            surfaceId: panelId,
+            suppressFutureSupersession: true
+        ) ?? false
+    }
+
     /// Installs visual-BEL routing at the terminal's authoritative owner.
     /// Ownership changes replace this callback during surface transfer, so a
     /// background bell never needs an app-wide surface or focus scan.
     func installTerminalVisualBellRouting(for terminalPanel: TerminalPanel) {
         terminalPanel.surface.onExplicitInput = { [weak self, weak terminalPanel] in
             guard let self, let terminalPanel else { return }
+            terminalPanel.recordExplicitInput()
             // Explicit input is shared-sizing activity for this Mac pane.
             TerminalController.shared.noteLocalTerminalSizingActivity(surfaceID: terminalPanel.id)
             // The user (or a socket client) took over the pane: never replay a
             // lost restore selector into a line they are typing.
             self.restoredAgentLifecycle.clearStartupInput(panelId: terminalPanel.id)
+            // Terminal input is the shared answer path for agent prompts. Clear
+            // only the oldest matching agent attention record here so an
+            // unrelated notification on the same surface keeps its ring.
+            _ = self.clearAgentAttentionNotificationOnTerminalInput(panelId: terminalPanel.id)
             self.owningTabManager?.dismissNotificationOnTerminalInteraction(
                 tabId: self.id,
                 surfaceId: terminalPanel.id

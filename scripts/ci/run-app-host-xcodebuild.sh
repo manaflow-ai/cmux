@@ -153,13 +153,21 @@ fi
 
 app_host_xcodebuild_arguments=("$@")
 caller_has_result_bundle=0
+caller_result_bundle_path=""
+caller_result_bundle_path_normalized=""
 caller_has_test_timeouts_enabled=0
 caller_has_default_test_timeout=0
 caller_has_maximum_test_timeout=0
-for app_host_argument in "${app_host_xcodebuild_arguments[@]}"; do
+for ((app_host_argument_index = 0; app_host_argument_index < ${#app_host_xcodebuild_arguments[@]}; app_host_argument_index++)); do
+  app_host_argument="${app_host_xcodebuild_arguments[$app_host_argument_index]}"
   case "$app_host_argument" in
     -resultBundlePath)
       caller_has_result_bundle=1
+      # Keep the path separate so every retry starts with a fresh result
+      # bundle. Xcode refuses to write into an existing .xcresult directory,
+      # and a stale first-attempt bundle would otherwise turn a safe retry
+      # into a deterministic failure.
+      caller_result_bundle_path="${app_host_xcodebuild_arguments[$((app_host_argument_index + 1))]:-}"
       ;;
     -test-timeouts-enabled)
       caller_has_test_timeouts_enabled=1
@@ -172,6 +180,38 @@ for app_host_argument in "${app_host_xcodebuild_arguments[@]}"; do
       ;;
   esac
 done
+if [ "$caller_has_result_bundle" -eq 1 ]; then
+  if [ -z "$caller_result_bundle_path" ]; then
+    echo "FAIL: -resultBundlePath requires a path" >&2
+    exit 2
+  fi
+  if ! caller_result_bundle_path_normalized="$(python3 - "$caller_result_bundle_path" "${RUNNER_TEMP:-/tmp}" <<'PY'
+import os
+import sys
+
+candidate = os.path.realpath(os.path.abspath(sys.argv[1]))
+runner_temp = os.path.realpath(os.path.abspath(sys.argv[2]))
+try:
+    inside = os.path.commonpath((candidate, runner_temp)) == runner_temp
+except ValueError:
+    inside = False
+if not inside or candidate == runner_temp:
+    raise SystemExit("result bundle must be below RUNNER_TEMP")
+
+for owned_path in (runner_temp, os.path.dirname(candidate)):
+    try:
+        owner = os.stat(owned_path).st_uid
+    except OSError as error:
+        raise SystemExit(f"cannot inspect result bundle owner: {error}")
+    if owner != os.getuid():
+        raise SystemExit(f"result bundle path is not owned by uid {os.getuid()}: {owned_path}")
+print(candidate)
+PY
+)"; then
+    echo "FAIL: caller result bundle path is outside the owned RUNNER_TEMP tree" >&2
+    exit 2
+  fi
+fi
 if [ "$caller_has_test_timeouts_enabled" -eq 0 ]; then
   app_host_xcodebuild_arguments+=("-test-timeouts-enabled" "YES")
 fi
@@ -324,6 +364,29 @@ while [ "$attempt" -le "$max_attempts" ]; do
     result_bundle_path="${result_bundle_root%/}/$(basename "$log_stem")-attempt-${attempt}.xcresult"
     rm -rf -- "$result_bundle_path"
     attempt_xcodebuild_arguments+=("-resultBundlePath" "$result_bundle_path")
+  fi
+  if [ "$caller_has_result_bundle" -eq 1 ]; then
+    # A caller-owned path is intentionally reused in the log/summary. Preserve
+    # any existing bundle before the first launch (it may belong to an earlier
+    # invocation), and preserve each failed attempt before a retry. Xcode then
+    # receives a fresh path while every attempt remains available for triage.
+    if [ -e "$caller_result_bundle_path_normalized" ] || [ -L "$caller_result_bundle_path_normalized" ]; then
+      if [ "$attempt" -eq 1 ]; then
+        preserved_result_label="previous"
+      else
+        preserved_result_label="attempt-$((attempt - 1))"
+      fi
+      preserved_result_bundle_path="${caller_result_bundle_path_normalized}.${preserved_result_label}"
+      if [ -e "$preserved_result_bundle_path" ] || [ -L "$preserved_result_bundle_path" ]; then
+        preserved_result_bundle_path="${preserved_result_bundle_path}-${invocation_id}"
+      fi
+      if [ -e "$preserved_result_bundle_path" ] || [ -L "$preserved_result_bundle_path" ]; then
+        echo "FAIL: result bundle preservation path already exists: $preserved_result_bundle_path" >&2
+        exit 2
+      fi
+      mv -- "$caller_result_bundle_path_normalized" "$preserved_result_bundle_path"
+      echo "Preserved caller result bundle: $preserved_result_bundle_path"
+    fi
   fi
   {
     echo "shard=${CMUX_APP_HOST_SHARD:-unknown}"

@@ -353,25 +353,25 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "visão geral",
-      "team": "equipe",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Visão geral",
+      "team": "Equipe",
       "mobileDevices": "Dispositivos móveis",
-      "settings": "configurações",
-      "teams": "equipes"
+      "settings": "Configurações",
+      "teams": "Equipes"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Distribua solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
-      "coderouterLink": "abrir coderouter",
-      "iosAppName": "app iOS",
+      "coderouterLink": "Abrir coderouter",
+      "iosAppName": "App iOS",
       "iosAppDescription": "Instale o aplicativo iOS do cmux via TestFlight (acesso beta).",
       "iosLink": "Abrir app iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Gerencie contas de IA compartilhadas e distribua solicitações com o coderouter.",
-      "title": "coderouter",
+      "title": "Coderouter",
       "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
       "machines": {
         "title": "Máquinas",
@@ -407,7 +407,8 @@
       "signingOut": "Saindo…",
       "signOutError": "Não foi possível sair. Tente novamente.",
       "organizationSwitchError": "Não foi possível trocar de organização. Tente novamente.",
-      "signIn": "Entrar"
+      "signIn": "Entrar",
+      "upgrade": "Fazer upgrade"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "Criar uma equipe"
+      },
+      "title": "Plano e cobrança",
+      "picker": {
+        "current": "Plano atual",
+        "upgradeTo": "Fazer upgrade para {plan}",
+        "switchTo": "Mudar para {plan}",
+        "cancelPlan": "Cancelar plano",
+        "resume": "Retomar {plan}",
+        "renewsOn": "Renova em {date}",
+        "endsOn": "Termina em {date}",
+        "perMonth": "por mês",
+        "perSeatMonth": "por assento por mês",
+        "paymentMethod": "Gerenciar forma de pagamento",
+        "invoices": "Faturas",
+        "heading": "Planos",
+        "actionError": "Não foi possível alterar o plano. Tente de novo.",
+        "unavailable": {
+          "cancelScheduled": "Retome o plano para alterá-lo.",
+          "granted": "Concedido pela cmux. Não há nada a alterar.",
+          "adminOnly": "Só administradores da equipe podem alterar o plano."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "O terminal cmux completo para macOS",
+            "Qualquer agente CLI com suas próprias chaves",
+            "Histórico de sessões local"
+          ],
+          "go": [
+            "1 Cloud VM ativa",
+            "40 horas de VM por mês",
+            "2 VMs salvas"
+          ],
+          "pro": [
+            "Agentes na nuvem em Cloud VMs",
+            "24 GB de RAM e 6 vCPUs compartilhados entre VMs",
+            "O app cmux para iOS"
+          ],
+          "max": [
+            "64 GB de RAM e 16 vCPUs compartilhados entre VMs",
+            "Máquinas maiores",
+            "Tudo do Pro"
+          ],
+          "team": [
+            "Tudo do Pro para cada membro",
+            "Uma fatura para a equipe toda",
+            "Suporte prioritário"
+          ]
+        },
+        "billedAnnually": "cobrado anualmente"
+      },
+      "change": {
+        "title": "Mudar para {plan}?",
+        "upgradeBody": "O {plan} começa agora. Você paga {amount} hoje pelo restante deste período de cobrança. A partir de {date}, você paga {price} por mês.",
+        "downgradeBody": "O {plan} começa agora. A parte não usada do plano atual, {credit}, vira crédito nas próximas faturas. Sua próxima fatura, em {date}, é de {amount}.",
+        "confirm": "Mudar para {plan}",
+        "keep": "Manter o plano atual",
+        "switching": "Mudando…",
+        "previewError": "Não foi possível calcular o preço. Tente de novo.",
+        "paymentFailed": "Seu cartão foi recusado. Atualize a forma de pagamento e tente de novo.",
+        "error": "Não foi possível mudar o plano. Tente de novo."
+      },
+      "cancelDialog": {
+        "title": "Cancelar {plan}?",
+        "body": "Você mantém o {plan} até {date}. Depois disso, você perde:",
+        "bodyNoDate": "Você mantém o {plan} até o fim deste período de cobrança. Depois disso, você perde:",
+        "reasonLabel": "Por que você está cancelando? (opcional)",
+        "otherPlaceholder": "Conte mais (opcional)",
+        "confirm": "Cancelar plano",
+        "keep": "Manter {plan}",
+        "error": "Não foi possível cancelar o plano. Tente de novo.",
+        "resumeError": "Não foi possível retomar o plano. Tente de novo.",
+        "reasons": {
+          "too_expensive": "Caro demais",
+          "missing_feature": "Falta um recurso de que preciso",
+          "not_using": "Não uso o suficiente",
+          "other": "Outro"
+        }
+      },
+      "welcome": {
+        "title": "Boas-vindas ao {plan}",
+        "body": "Seu plano está ativo. Experimente primeiro:",
+        "ios": "Instalar o app para iOS",
+        "cloud": "Abrir o Cloud",
+        "team": "Criar uma equipe",
+        "banner": "Agora você está no {plan}.",
+        "bannerLink": "Plano e cobrança"
       }
     },
     "mobileDevices": {
@@ -467,7 +561,7 @@
       "relaySettings": "Configurações de relay",
       "relaySettingsDescription": "Escolha os servidores de relay usados por esta equipe. Insira uma URL por linha.",
       "saveRelaySettings": "Salvar configurações de relay",
-      "eyebrow": "nuvem / dispositivos",
+      "eyebrow": "Nuvem / dispositivos",
       "scopeActive": "Exibindo esta equipe",
       "emptyTitle": "Nenhum dispositivo conectado ainda",
       "emptyDescription": "Quando um dispositivo cmux for pareado com esta equipe, ele aparecerá aqui com plataforma, versão e controles de acesso.",
@@ -488,7 +582,10 @@
         "account": "Conta",
         "billing": "Cobrança",
         "teamsGroup": "Equipes",
-        "createTeam": "Criar equipe"
+        "createTeam": "Criar equipe",
+        "accountGroup": "Conta",
+        "billingGroup": "Cobrança",
+        "planBilling": "Plano e cobrança"
       },
       "ui": {
         "save": "Salvar",
@@ -1015,8 +1112,8 @@
       "apiKeySecretBody": "Este segredo não será exibido novamente.",
       "apiKeyCopy": "Copiar chave de API",
       "apiKeyCopied": "Copiado",
-      "apiKeyCreatedAt": "criada {at}",
-      "apiKeyLastUsed": "último uso {at}",
+      "apiKeyCreatedAt": "Criada {at}",
+      "apiKeyLastUsed": "Último uso {at}",
       "apiKeyRevoked": "Revogada",
       "apiKeyLabelPlaceholder": "Por exemplo, CI ou produção",
       "createApiKeyAction": "Criar chave de API",
@@ -1026,11 +1123,13 @@
       "revokingApiKeyAction": "Revogando",
       "apiKeyRevokeError": "Não foi possível revogar a chave de API.",
       "revokeApiKeyConfirmTitle": "Revogar esta chave de API?",
-      "apiKeyUsageDetail": "últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
+      "apiKeyUsageDetail": "Últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
       "apiKeyUsageUnavailable": "Uso indisponível",
       "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente.",
       "apiKeysEmptyTitle": "Nenhuma chave de API ainda",
-      "apiKeysEmptyHint": "Crie uma para autenticar um cliente do CodeRouter."
+      "apiKeysEmptyHint": "Crie uma para autenticar um cliente do CodeRouter.",
+      "unavailableTitle": "Contas compartilhadas indisponíveis",
+      "unavailableBody": "O cmux não consegue acessar o serviço de contas compartilhadas agora. Contas adicionadas com cr add e contas Anthropic e Bedrock continuam funcionando."
     },
     "notFound": {
       "title": "Página não encontrada",
@@ -1050,6 +1149,14 @@
       },
       "retry": "Tentar novamente",
       "retrying": "Tentando novamente…"
+    },
+    "upgrade": {
+      "title": "Requer Pro",
+      "cloud": "Cloud VMs e agentes na nuvem fazem parte do Pro.",
+      "testflight": "O app cmux para iOS faz parte do Pro.",
+      "mobileDevices": "Conectar seu celular e tablet faz parte do Pro.",
+      "action": "Fazer upgrade para Pro",
+      "comparePlans": "Comparar planos"
     }
   },
   "community": {
@@ -1926,7 +2033,8 @@
           "ampIntegration": "Liga ou desliga os hooks do cmux para o Amp. Quando desligados, o plugin incluído continua instalado, mas inativo.",
           "suppressSubagentNotifications": "Suprime notificações visíveis de conclusão e alterações de status de agentes filhos aninhados do Codex ou Claude, mantendo seus eventos na telemetria do Feed.",
           "workspaceAutoNaming": "Nomeação automática opcional de espaços de trabalho e abas por IA a partir do conteúdo das conversas do agente. Quando ativada, o cmux resume as sessões de agentes compatíveis em títulos curtos usando o binário próprio de cada agente; renomeações manuais sempre prevalecem.",
-          "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha."
+          "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Controla quando o cmux pede confirmação antes de sair. Builds DEV sempre saem imediatamente, independentemente desta configuração. O app.warnBeforeQuit legado ainda é aceito como fallback booleano.",
@@ -2046,6 +2154,12 @@
       "actionTypeCommand": "Executa texto shell em um terminal. Use target para escolher o terminal atual ou uma nova aba no painel atual.",
       "actionTypeAgent": "Inicia um agente de programação compatível. Hoje oferece suporte a codex e claude, com argumentos opcionais.",
       "actionTypeWorkspaceCommand": "Executa uma definição de workspace nomeada em commands. Use para layouts com vários painéis, diretórios de trabalho personalizados e comandos de inicialização.",
+      "actionTypeSetting": "Altera uma configuração no seu cmux.json global, por exemplo para alternar uma configuração true/false ou percorrer uma lista de valores. Veja Ações de configuração abaixo.",
+      "actionTypeSettingPreset": "Aplica de uma vez um grupo nomeado de configurações definido em settingPresets.",
+      "settingActions": "Ações de configuração",
+      "settingActionsDesc": "Uma ação de configuração indica o <path>path</path> de uma configuração e exatamente um entre <set>set</set> (grava um valor), <toggle>toggle: true</toggle> (alterna uma configuração true/false), <cycle>cycle</cycle> (avança para o próximo valor de uma lista, voltando ao primeiro depois do último) ou <unset>unset: true</unset> (remove a chave do cmux.json, para que valha o valor da janela Configurações ou o padrão). toggle e cycle partem do valor que o cmux está usando, inclusive um definido na janela Configurações. Uma ação settingPreset aplica uma entrada de <presets>settingPresets</presets>, um cmux.json parcial cujos objetos aninhados são mesclados chave por chave. O cmux valida cada alteração com o esquema antes de salvar, mantém seus comentários e as demais chaves e aplica a alteração na hora. Ações de configuração e presets só rodam a partir do seu cmux.json global e dos pacotes que ele referencia; configurações de projeto não podem declará-los.",
+      "settingActionsCli": "As mesmas alterações funcionam a partir de um terminal: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> e <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Com <confirm>confirm: true</confirm>, o cmux pergunta antes de salvar e mostra o comando cmux config equivalente. Os caminhos são divididos em cada \".\", então uma chave que contém \".\" (como uma entrada de <byCwd>workspaceGroups.byCwd</byCwd> para ~/src/app.web) não pode ser alterada dessa forma. Edite-a diretamente no cmux.json.",
       "actionFields": "Campos da ação",
       "actionFieldTitle": "Título da linha na Command Palette, rótulo do botão, título do item de menu e título do prompt de confiança, a menos que uma entrada substitua.",
       "actionFieldSubtitle": "Texto secundário na Command Palette. description é aceito como alias de subtitle.",
