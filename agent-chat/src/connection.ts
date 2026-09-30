@@ -6,7 +6,7 @@ interface SessionConnection {
 }
 
 const RETRY_DELAY_MS = 800;
-const CONNECT_TIMEOUT_MS = 15_000;
+const RESPONSE_TIMEOUT_MS = 15_000;
 
 function detachSocket(ws: WebSocket): void {
   ws.onopen = null;
@@ -19,10 +19,10 @@ export function openSessionConnection(callbacks: SessionConnection): () => void 
   let closed = false;
   let socket: WebSocket | null = null;
   let retry: ReturnType<typeof setTimeout> | null = null;
-  let opening: ReturnType<typeof setTimeout> | null = null;
-  const clearOpeningTimeout = () => {
-    if (opening !== null) clearTimeout(opening);
-    opening = null;
+  let deadline: ReturnType<typeof setTimeout> | null = null;
+  const clearDeadline = () => {
+    if (deadline !== null) clearTimeout(deadline);
+    deadline = null;
   };
   const connect = () => {
     if (closed) return;
@@ -41,38 +41,49 @@ export function openSessionConnection(callbacks: SessionConnection): () => void 
     socket = ws;
     callbacks.onSocket(ws);
     const isCurrent = () => !closed && socket === ws;
+    const armDeadline = () => {
+      clearDeadline();
+      const timer = setTimeout(() => {
+        // Opening and waiting for the first message are separate phases. A
+        // canceled callback may already be queued, even for this same socket.
+        if (!isCurrent() || deadline !== timer) return;
+        clearDeadline();
+        socket = null;
+        detachSocket(ws);
+        callbacks.onSocket(null);
+        // Recovery must not depend on the browser delivering a close event.
+        retry = setTimeout(connect, RETRY_DELAY_MS);
+        ws.close();
+      }, RESPONSE_TIMEOUT_MS);
+      deadline = timer;
+    };
     ws.onopen = () => {
       if (!isCurrent()) return;
-      clearOpeningTimeout();
+      // The upgrade alone doesn't prove the application is responsive. Give
+      // it a fresh deadline to send its greeting before leaving the view idle.
+      armDeadline();
       callbacks.onOpen();
     };
-    ws.onmessage = (event) => { if (isCurrent()) callbacks.onMessage(event); };
+    ws.onmessage = (event) => {
+      if (!isCurrent()) return;
+      clearDeadline();
+      callbacks.onMessage(event);
+    };
     ws.onclose = () => {
       if (!isCurrent()) return;
-      clearOpeningTimeout();
+      clearDeadline();
       socket = null;
       callbacks.onSocket(null);
       retry = setTimeout(connect, RETRY_DELAY_MS);
     };
-    opening = setTimeout(() => {
-      // A cancelled deadline may already be queued. Never retire a socket
-      // that has opened, been replaced, or belongs to an unmounted view.
-      if (!isCurrent() || opening === null) return;
-      clearOpeningTimeout();
-      socket = null;
-      detachSocket(ws);
-      callbacks.onSocket(null);
-      // Re-arm before closing; recovery must not depend on a close event.
-      retry = setTimeout(connect, RETRY_DELAY_MS);
-      ws.close();
-    }, CONNECT_TIMEOUT_MS);
+    armDeadline();
   };
   connect();
   return () => {
     closed = true;
     if (retry !== null) clearTimeout(retry);
     retry = null;
-    clearOpeningTimeout();
+    clearDeadline();
     const ws = socket;
     socket = null;
     callbacks.onSocket(null);
