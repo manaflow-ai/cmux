@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextSettings
+import CmuxNextTabs
 import CmuxNextTerminal
 
 /// One pane's surface state for `debug.surfaces` and the blank-pane invariant.
@@ -15,6 +16,8 @@ struct PaneSurfaceStatus {
     var contentInWindow: Bool
     var contentSize: CGSize
     var terminal: TerminalSurfaceDiagnostics?
+    /// Hover in the pane's tab strip (trailing buttons, tab x).
+    var strip: TabStripHoverState?
 
     /// The layout gave the pane no room below its tab strip (a split tree
     /// deeper than the window allows). A layout sizing problem, not a
@@ -57,6 +60,13 @@ struct PaneSurfaceStatus {
             "blank": .bool(isBlank),
             "collapsed": .bool(isCollapsed),
         ]
+        if let strip {
+            object["strip"] = [
+                "buttons_revealed": .bool(strip.buttonsRevealed),
+                "hovered_tab": strip.hoveredTab.map(JSONValue.string) ?? .null,
+                "close_shown": .array(strip.closeShown.map(JSONValue.string)),
+            ]
+        }
         if let terminal {
             object["surface"] = [
                 "exists": .bool(terminal.hasSurface),
@@ -107,7 +117,8 @@ extension PaneController {
             contentInstalled: installed,
             contentInWindow: view?.window != nil,
             contentSize: view?.bounds.size ?? .zero,
-            terminal: terminal
+            terminal: terminal,
+            strip: self.view.stripView.hoverState
         )
     }
 }
