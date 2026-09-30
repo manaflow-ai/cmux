@@ -48,8 +48,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// `sidebar_collapsed` (icons-only or hidden), which decodes as hidden:
     /// there is no icons-only sidebar anymore.
     public var sidebarHidden: Bool
-    /// The window's screen switcher is shown.
-    public var showsScreenSwitcher: Bool
     /// Selected tab per pane (pane resource id -> tab resource id).
     public var selectedTabs: [String: String]
     /// Front-to-back order key; lower is further front.
@@ -63,7 +61,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
-                sidebarWidth: Double? = nil, sidebarHidden: Bool = false, showsScreenSwitcher: Bool = false,
+                sidebarWidth: Double? = nil, sidebarHidden: Bool = false,
                 selectedTabs: [String: String] = [:], order: Int = 0, profile: ProfileID? = nil,
                 profileWorkspaces: [String: WorkspaceKey] = [:]) {
         self.id = id
@@ -76,7 +74,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         self.isFullScreen = isFullScreen
         self.sidebarWidth = sidebarWidth
         self.sidebarHidden = sidebarHidden
-        self.showsScreenSwitcher = showsScreenSwitcher
         self.selectedTabs = selectedTabs
         self.order = order
         self.profile = profile
@@ -88,7 +85,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case profileWorkspaces = "profile_workspaces"
         case workspaceKey = "workspace_key"
         case workspaceKeys = "workspace_keys"
-        case showsScreenSwitcher = "shows_screen_switcher"
         case screenID = "screen_id"
         case isFullScreen = "full_screen"
         case sidebarWidth = "sidebar_width"
@@ -107,7 +103,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         workspaceKey = try c.decodeIfPresent(WorkspaceKey.self, forKey: .workspaceKey)
         workspaceKeys = try c.decodeIfPresent([WorkspaceKey].self, forKey: .workspaceKeys) ?? []
         display = try c.decodeIfPresent(String.self, forKey: .display)
-        showsScreenSwitcher = try c.decodeIfPresent(Bool.self, forKey: .showsScreenSwitcher) ?? false
         machine = try c.decodeIfPresent(String.self, forKey: .machine)
         screenID = try c.decodeIfPresent(ResourceID.self, forKey: .screenID)
         frame = try c.decodeIfPresent(WindowFrame.self, forKey: .frame)

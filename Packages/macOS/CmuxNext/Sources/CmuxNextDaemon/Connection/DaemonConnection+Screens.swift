@@ -16,8 +16,18 @@ extension DaemonConnection {
     }
 
     @discardableResult
-    public func moveScreen(_ screen: ScreenID, to index: Int?, workspace: WorkspaceHandle? = nil) async throws -> MoveScreenRequest.Response {
-        try await requestNew(MoveScreenRequest(screen: screen, index: index, workspace: workspace))
+    public func moveScreen(_ screen: ScreenID, to index: Int?, workspace: WorkspaceHandle? = nil,
+                           newWorkspace: Bool = false) async throws -> MoveScreenRequest.Response {
+        try await requestNew(MoveScreenRequest(screen: screen, index: index, workspace: workspace, newWorkspace: newWorkspace ? true : nil))
+    }
+
+    /// New screen in `workspace` with `spec` applied in the same commit. The
+    /// terminal gets the placement environment like `newTab`.
+    @discardableResult
+    public func newScreen(in workspace: WorkspaceHandle?, spec: ScreenSpec,
+                          options: SpawnOptions = SpawnOptions()) async throws -> NewScreenWithSpecRequest.Response {
+        let options = supportsPlacementEnv ? await placed(options) : served(options)
+        return try await requestNew(NewScreenWithSpecRequest(workspace: workspace, spec: spec, options: options))
     }
 
     @discardableResult
@@ -42,8 +52,9 @@ extension DaemonConnection {
     }
 
     @discardableResult
-    public func moveScreenGroup(_ group: ScreenGroupID, to index: Int?, workspace: WorkspaceHandle? = nil) async throws -> ScreenGroupResult {
-        try await requestNew(MoveScreenGroupRequest(group: group, index: index, workspace: workspace))
+    public func moveScreenGroup(_ group: ScreenGroupID, to index: Int?, workspace: WorkspaceHandle? = nil,
+                                newWorkspace: Bool = false) async throws -> ScreenGroupResult {
+        try await requestNew(MoveScreenGroupRequest(group: group, index: index, workspace: workspace, newWorkspace: newWorkspace ? true : nil))
     }
 
     @discardableResult

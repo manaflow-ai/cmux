@@ -182,15 +182,13 @@ import Testing
 
     @Test func windowRecordCarriesWindowMembership() throws {
         var document = WindowStateDocument()
-        document.upsert(WindowRecord(id: "w1", workspaceKey: "k2", workspaceKeys: ["k1", "k2", "gone"], display: "D",
-                                     showsScreenSwitcher: true))
+        document.upsert(WindowRecord(id: "w1", workspaceKey: "k2", workspaceKeys: ["k1", "k2", "gone"], display: "D"))
         document.prune(liveWorkspaces: ["k1", "k2"])
         let value = try document.jsonValue()
         let restored = try WindowStateDocument(jsonValue: value)
         #expect(restored == document)
         #expect(restored.windows[0].workspaceKeys == ["k1", "k2"])
         #expect(restored.windows[0].display == "D")
-        #expect(restored.windows[0].showsScreenSwitcher)
         // Records from older builds have no membership list.
         let legacy = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"old","workspace_key":"k1"}"#.utf8))
         #expect(legacy.workspaceKeys.isEmpty)

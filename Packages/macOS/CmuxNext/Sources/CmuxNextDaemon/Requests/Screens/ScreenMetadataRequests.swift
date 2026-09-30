@@ -1,8 +1,8 @@
 import Foundation
 
 // Screen metadata and order (`screen-metadata-v1`, cmux-tui/spec/commands.md
-// `set-screen-metadata`, `set-screen-pinned`, `move-screen`). Each change
-// emits `screen-changed` with the full screen and its index.
+// `set-screen-metadata`, `set-screen-pinned`, `move-screen`, `new-screen`).
+// Each change emits `screen-changed` with the full screen and its index.
 
 public struct ScreenMetadataResult: Decodable, Sendable, Equatable {
     public var screen: ScreenID
@@ -51,25 +51,5 @@ public struct SetScreenPinnedRequest: DaemonRequest {
     public init(screen: ScreenID, pinned: Bool) {
         self.screen = screen
         self.pinned = pinned
-    }
-}
-
-/// Moves a screen to `index` in its workspace, or into `workspace` at
-/// `index` (the screen keeps its panes, tabs, and terminals). A move that
-/// would break pinned-first order or split a group is clamped by the daemon.
-public struct MoveScreenRequest: DaemonRequest {
-    public struct Response: Decodable, Sendable, Equatable {
-        public var screen: ScreenID
-        public var workspace: WorkspaceHandle
-        public var index: Int
-    }
-    public static let command = "move-screen"
-    public var screen: ScreenID
-    public var index: Int?
-    public var workspace: WorkspaceHandle?
-    public init(screen: ScreenID, index: Int? = nil, workspace: WorkspaceHandle? = nil) {
-        self.screen = screen
-        self.index = index
-        self.workspace = workspace
     }
 }

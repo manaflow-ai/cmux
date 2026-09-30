@@ -82,6 +82,22 @@ import Testing
         #expect(moveGroup["index"] == .number(0))
     }
 
+    @Test func newScreenWithSpecKeepsScreenNameApartFromTheTabName() throws {
+        let json = try object(NewScreenWithSpecRequest(workspace: 3, spec: ScreenSpec(name: "Logs", color: "green", index: 1, group: "sgrp_1"),
+                                                       options: SpawnOptions(cwd: "/tmp", name: "tail")))
+        #expect(json["cmd"] == .string("new-screen"))
+        #expect(json["workspace"] == .number(3))
+        #expect(json["screen_name"] == .string("Logs"))
+        #expect(json["name"] == .string("tail"))
+        #expect(json["color"] == .string("green"))
+        #expect(json["index"] == .number(1))
+        #expect(json["group"] == .string("sgrp_1"))
+        #expect(json["cwd"] == .string("/tmp"))
+        let moved = try object(MoveScreenRequest(screen: 4, newWorkspace: true))
+        #expect(moved["new_workspace"] == .bool(true))
+        #expect(moved["index"] == nil)
+    }
+
     @Test func screenChangedDeltaUpdatesMetadataAndReorders() throws {
         let store = try loadedStore()
         let workspace = try #require(store.workspaces.first)
