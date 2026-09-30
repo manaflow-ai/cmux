@@ -62,8 +62,14 @@ struct AgentChatChildRunTests {
             event: event(.postToolUse, tool: "Task", requestId: "r1", at: 40)
         )
         #expect(rec.children.count == 1)
+        #expect(rec.children[0].isRunning)
+
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec,
+            event: event(.subagentStop, requestId: "r1", at: 50)
+        )
         #expect(!rec.children[0].isRunning)
-        #expect(rec.children[0].endedAt == Date(timeIntervalSince1970: 40))
+        #expect(rec.children[0].endedAt == Date(timeIntervalSince1970: 50))
     }
 
     @Test func nonTaskToolsDoNotCreateChildren() {
@@ -88,21 +94,26 @@ struct AgentChatChildRunTests {
             &rec,
             event: event(.postToolUse, tool: "Agent", requestId: "r9", at: 30)
         )
+        #expect(rec.children[0].isRunning)
+        AgentChatSessionRegistry.applyChildRunEvent(
+            &rec,
+            event: event(.subagentStop, at: 40)
+        )
         #expect(!rec.children[0].isRunning)
     }
 
     @Test func missingRequestIdClosesOldestOpenChild() {
         var rec = record()
         AgentChatSessionRegistry.applyChildRunEvent(
-            &rec, event: event(.preToolUse, tool: "Task", at: 10)
+            &rec, event: event(.preToolUse, tool: "Task", source: "codex", at: 10)
         )
         AgentChatSessionRegistry.applyChildRunEvent(
-            &rec, event: event(.preToolUse, tool: "Task", at: 20)
+            &rec, event: event(.preToolUse, tool: "Task", source: "codex", at: 20)
         )
         #expect(rec.children.filter(\.isRunning).count == 2)
 
         AgentChatSessionRegistry.applyChildRunEvent(
-            &rec, event: event(.postToolUse, tool: "Task", at: 30)
+            &rec, event: event(.postToolUse, tool: "Task", source: "codex", at: 30)
         )
         #expect(rec.children.filter(\.isRunning).count == 1)
         #expect(rec.children[0].endedAt != nil)
@@ -121,7 +132,7 @@ struct AgentChatChildRunTests {
         #expect(rec.children[0].endedAt == Date(timeIntervalSince1970: 25))
     }
 
-    @Test func claudeSubagentStopDoesNotCloseSiblingAfterSpawnTool() {
+    @Test func claudeSubagentStopClosesFirstChildWithoutClosingSibling() {
         var rec = record()
         AgentChatSessionRegistry.applyChildRunEvent(
             &rec, event: event(.preToolUse, tool: "Task", at: 10)
@@ -133,12 +144,13 @@ struct AgentChatChildRunTests {
         AgentChatSessionRegistry.applyChildRunEvent(
             &rec, event: event(.postToolUse, tool: "Task", at: 30)
         )
-        #expect(rec.children[0].endedAt == Date(timeIntervalSince1970: 30))
+        #expect(rec.children[0].isRunning)
         #expect(rec.children[1].isRunning)
 
         AgentChatSessionRegistry.applyChildRunEvent(
             &rec, event: event(.subagentStop, at: 31)
         )
+        #expect(rec.children[0].endedAt == Date(timeIntervalSince1970: 31))
         #expect(rec.children[1].isRunning)
     }
 
@@ -175,10 +187,10 @@ struct AgentChatChildRunTests {
     @Test func settledChildrenPruneAfterRetention() {
         var rec = record()
         AgentChatSessionRegistry.applyChildRunEvent(
-            &rec, event: event(.preToolUse, tool: "Task", requestId: "a", at: 0)
+            &rec, event: event(.preToolUse, tool: "Task", requestId: "a", source: "codex", at: 0)
         )
         AgentChatSessionRegistry.applyChildRunEvent(
-            &rec, event: event(.postToolUse, tool: "Task", requestId: "a", at: 10)
+            &rec, event: event(.postToolUse, tool: "Task", requestId: "a", source: "codex", at: 10)
         )
         #expect(rec.children.count == 1)
         // Any later event past the retention window prunes it.
