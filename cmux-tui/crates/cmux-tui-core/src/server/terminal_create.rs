@@ -157,7 +157,7 @@ impl ConnectionSurfaceScheduler {
         let pending = slot.request.lock().unwrap().take();
         let keep_open = match pending {
             // A closed connection drops its queued requests unexecuted.
-            Some(_) if self.cancelled.load(Ordering::Acquire) => true,
+            Some(_) if self.cancelled.is_cancelled() => true,
             Some(mut pending) => {
                 if let (Some(terminal_hex), Command::NewTab { terminal_id, .. }) =
                     (launched.as_ref(), &mut pending.request.cmd)

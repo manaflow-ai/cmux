@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+pub mod backoff;
 mod browser;
 mod browser_provider;
 pub mod diagnostics;
@@ -45,6 +46,7 @@ mod resource_selector;
 mod resource_tab;
 mod short_id;
 mod sidebar_resource;
+mod stream_interrupt;
 mod surface;
 mod terminal_metadata;
 mod workspace_registry;

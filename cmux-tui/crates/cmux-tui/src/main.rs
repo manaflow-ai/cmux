@@ -213,6 +213,49 @@ pub(crate) fn wait_for_shutdown_signal() {
     }
 }
 
+/// Blocks until a termination signal arrives, without consuming the wake
+/// byte, so every other shutdown waiter still sees it. Returns at once when
+/// no signal handler is installed.
+#[cfg(unix)]
+pub(crate) fn wait_for_shutdown_signal_peek() {
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    while reader >= 0 && !shutdown_requested() {
+        let mut pollfd = libc::pollfd { fd: reader, events: libc::POLLIN, revents: 0 };
+        // SAFETY: `reader` is the process-lifetime wake descriptor.
+        let polled = unsafe { libc::poll(&mut pollfd, 1, -1) };
+        if polled > 0 {
+            return;
+        }
+        if polled < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            return;
+        }
+    }
+}
+
+/// Async `wait_for_shutdown_signal_peek`: waits for the wake descriptor to
+/// become readable without reading it.
+#[cfg(unix)]
+pub(crate) async fn wait_for_shutdown_signal_peek_async() -> io::Result<()> {
+    if shutdown_requested() {
+        return Ok(());
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::NotConnected,
+            "shutdown wake reader unavailable",
+        ));
+    }
+    let duplicate = unsafe { libc::dup(reader) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
+    let stream = tokio::net::UnixStream::from_std(stream)?;
+    stream.readable().await?;
+    Ok(())
+}
+
 #[cfg(unix)]
 pub(crate) async fn wait_for_shutdown_signal_async() -> io::Result<()> {
     if shutdown_requested() {
@@ -3031,23 +3074,38 @@ where
         socket_path.display()
     );
     // Keep the process alive; the control socket drives everything and
-    // the mux reaps exited surfaces itself.
-    let events = mux.subscribe();
-    loop {
-        if shutdown_requested() || mux.daemon_shutdown_requested() {
-            break;
-        }
-        if remote_runtime_finished() {
-            break;
-        }
-        match events.recv_timeout(std::time::Duration::from_millis(250)) {
-            Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                std::thread::park_timeout(std::time::Duration::from_millis(250));
-            }
-        }
+    // the mux reaps exited surfaces itself. The loop blocks until a signal,
+    // a daemon shutdown request or the end of the remote runtime wakes it;
+    // it used to wake every 250 ms (and on every terminal output event) to
+    // re-check these flags.
+    mux.set_daemon_shutdown_waker(wake_headless);
+    #[cfg(unix)]
+    {
+        // Peek, not read: other shutdown waiters (remote runtime, browser
+        // proxy) consume the same wake byte.
+        let _ = std::thread::Builder::new().name("headless-signal-wait".into()).spawn(|| {
+            wait_for_shutdown_signal_peek();
+            wake_headless();
+        });
+    }
+    let (lock, wake) = &HEADLESS_WAKE;
+    let mut generation = lock.lock().unwrap();
+    while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
+        generation = wake.wait(generation).unwrap();
     }
     Ok(())
+}
+
+/// Wakes `run_headless`. Callers set their flag first; the wait re-checks
+/// every flag under this lock, so no wake is lost.
+static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+pub(crate) fn wake_headless() {
+    let (lock, wake) = &HEADLESS_WAKE;
+    let mut generation = lock.lock().unwrap();
+    *generation = generation.wrapping_add(1);
+    wake.notify_all();
 }
 
 fn usage_exit(msg: &str) -> ! {

@@ -43,13 +43,33 @@ pub(crate) enum ReapOutcome {
 #[derive(Debug, Default)]
 pub(crate) struct ReapSchedule {
     deadlines: HashMap<String, Instant>,
+    /// Consecutive failed reapable-set scans (retry spacing).
+    scan_failures: u32,
 }
 
 impl ReapSchedule {
+    /// A scan of the reapable set failed: push every due deadline out by a
+    /// capped, growing delay. A past-due deadline left in place made the
+    /// reaper thread wait zero time and re-scan in a hot loop for as long as
+    /// the scan kept failing.
+    pub(crate) fn defer_due_after_failed_scan(&mut self, now: Instant) {
+        let delay = SCAN_RETRY_INITIAL
+            .saturating_mul(1_u32 << self.scan_failures.min(10))
+            .min(SCAN_RETRY_MAX);
+        self.scan_failures = self.scan_failures.saturating_add(1);
+        let until = now + delay;
+        for deadline in self.deadlines.values_mut() {
+            if *deadline <= now {
+                *deadline = until;
+            }
+        }
+    }
+
     /// Reconcile with the current set of reapable terminals. A terminal that
     /// becomes reapable gets `now + grace`; a terminal that is no longer
     /// reapable (placed again, kept, or closed) loses its deadline.
     pub(crate) fn observe(&mut self, now: Instant, grace: Duration, reapable: &HashSet<String>) {
+        self.scan_failures = 0;
         self.deadlines.retain(|terminal_id, _| reapable.contains(terminal_id));
         let deadline = deadline_after(now, grace);
         for terminal_id in reapable {
@@ -238,6 +258,7 @@ impl Mux {
             Ok(reapable) => schedule.observe(now, grace, &reapable),
             Err(error) => {
                 self.report_internal_diagnostic(format!("terminal reap scan failed: {error}"));
+                schedule.defer_due_after_failed_scan(now);
                 return Vec::new();
             }
         }
@@ -389,6 +410,9 @@ fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
 
 /// Retry delay for an attached or failed reap when the grace period is zero.
 const MIN_RETRY: Duration = Duration::from_secs(1);
+/// Retry spacing after a failed reapable-set scan.
+const SCAN_RETRY_INITIAL: Duration = Duration::from_secs(1);
+const SCAN_RETRY_MAX: Duration = Duration::from_secs(60);
 
 /// Owner-side reaper thread. `stop` wakes and joins it; dropping the handle
 /// wakes it without joining.

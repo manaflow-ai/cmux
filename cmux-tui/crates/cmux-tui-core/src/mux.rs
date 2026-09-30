@@ -2620,8 +2620,13 @@ pub struct Mux {
     template_completion_failures: AtomicU64,
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
+    /// Called after `request_daemon_shutdown`, so the owner loop that waits
+    /// for it blocks instead of polling the flag.
+    daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
+    /// Wakes the idle-close reaper when a policy changes.
+    idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
@@ -3044,8 +3049,10 @@ impl Mux {
             ),
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
+            daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
+            idle_close_waker: Mutex::new(None),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
             terminal_reap_grace_ms: AtomicU64::new(
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
@@ -6146,6 +6153,7 @@ impl Mux {
         *self.journal_event_epoch.lock().unwrap()
     }
 
+    #[cfg(test)]
     pub(crate) fn wait_for_journal_event(&self, epoch: u64, timeout: Duration) -> u64 {
         let current = self.journal_event_epoch.lock().unwrap();
         if *current != epoch {
@@ -6155,10 +6163,53 @@ impl Mux {
         *current
     }
 
+    /// Like `wait_for_journal_event`, with no timeout: returns the new
+    /// epoch, or `epoch` once `interrupt` has fired.
+    pub(crate) fn wait_for_journal_event_until_interrupted(
+        &self,
+        epoch: u64,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> u64 {
+        let mut current = self.journal_event_epoch.lock().unwrap();
+        while *current == epoch && !interrupt.is_fired() {
+            current = self.journal_event_changed.wait(current).unwrap();
+        }
+        *current
+    }
+
+    /// Like `wait_for_shared_journal`, with no timeout.
+    pub(crate) fn wait_for_shared_journal_until_interrupted(
+        &self,
+        epoch: u64,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> u64 {
+        self.journal_kernel.wait_until_interrupted(epoch, interrupt)
+    }
+
+    /// Wakes this mux's journal waiters when `interrupt` fires, so a
+    /// session stream blocks until an event or its own close.
+    pub(crate) fn wake_journal_waiters_on(
+        self: &Arc<Self>,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) {
+        let mux = Arc::downgrade(self);
+        interrupt.on_fire(move || {
+            if let Some(mux) = mux.upgrade() {
+                {
+                    let _epoch =
+                        mux.journal_event_epoch.lock().unwrap_or_else(|error| error.into_inner());
+                    mux.journal_event_changed.notify_all();
+                }
+                mux.journal_kernel.notify_waiters();
+            }
+        });
+    }
+
     pub(crate) fn resource_event_epoch(&self) -> u64 {
         self.journal_event_epoch()
     }
 
+    #[cfg(test)]
     pub(crate) fn wait_for_resource_event(&self, epoch: u64, timeout: Duration) -> u64 {
         self.wait_for_journal_event(epoch, timeout)
     }
@@ -6200,6 +6251,7 @@ impl Mux {
         self.journal_kernel.clone()
     }
 
+    #[cfg(test)]
     pub(crate) fn wait_for_shared_journal(&self, epoch: u64, timeout: Duration) -> u64 {
         self.journal_kernel.wait(epoch, timeout)
     }
@@ -6805,6 +6857,13 @@ impl Mux {
         scans: &[crate::workspace_registry::JournalHookScan],
     ) -> anyhow::Result<Vec<bool>> {
         self.workspace_registry.lock().unwrap().schedule_journal_hook_deliveries(scans)
+    }
+
+    /// When the next scheduled hook retry is due, if any.
+    pub(crate) fn next_journal_hook_attempt_deadline(&self) -> anyhow::Result<Option<Instant>> {
+        let now_ms = crate::workspace_registry::unix_epoch_ms()?;
+        let next = self.workspace_registry.lock().unwrap().next_journal_hook_attempt_at_ms()?;
+        Ok(next.map(|at| Instant::now() + Duration::from_millis(at.saturating_sub(now_ms))))
     }
 
     pub(crate) fn pending_journal_hook_deliveries(
@@ -11280,6 +11339,17 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        // The journal hook dispatcher waits on the shared journal.
+        self.journal_kernel.wake_waiters();
+        if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {
+            waker();
+        }
+    }
+
+    /// Install the callback that `request_daemon_shutdown` runs after it
+    /// sets the flag (the headless owner loop's wake).
+    pub fn set_daemon_shutdown_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
+        *self.daemon_shutdown_waker.lock().unwrap() = Some(Box::new(waker));
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
@@ -11988,6 +12058,11 @@ impl Mux {
     fn run_kitty_image_budget_worker(mux: Weak<Self>) {
         let mut failure_streak = 0_u32;
         let mut pending_operations = Vec::<PendingKittyImageBudgetOperation>::new();
+        // The last wave's (surface, limits). An identical next wave with no
+        // failure means an applied result did not stick (the surface was
+        // replaced): treat it as a failure so the retry is spaced instead of
+        // re-running the same wave in a hot loop.
+        let mut previous_wave = Vec::<(SurfaceId, KittyGraphicsLimits)>::new();
         loop {
             let Some(mux) = mux.upgrade() else { return };
             if mux.shutting_down.load(Ordering::Acquire) {
@@ -12188,6 +12263,11 @@ impl Mux {
                 }
             }
             mux.kitty_image_budget_changed.notify_all();
+            let wave = tasks.iter().map(|(id, _, limits, _)| (*id, *limits)).collect::<Vec<_>>();
+            if failures.is_empty() && !wave.is_empty() && wave == previous_wave {
+                failures.push("Kitty quota update did not converge".to_string());
+            }
+            previous_wave = wave;
             if failures.is_empty() {
                 failure_streak = 0;
                 continue;
