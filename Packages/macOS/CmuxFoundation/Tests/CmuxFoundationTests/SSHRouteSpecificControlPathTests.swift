@@ -65,6 +65,28 @@ struct SSHRouteSpecificControlPathTests {
         #expect(first != second)
     }
 
+    @Test("Aliases whose proxy expands the typed destination use different masters")
+    func aliasDependentProxyCommandsDoNotShare() throws {
+        // `ssh -G` prints `%n` unexpanded, so only the `host` line differs.
+        let proxy = "proxycommand ssh -W %h:%p %n.bastion"
+        let east = try #require(sharedControlPath(["host east", proxy]))
+        let west = try #require(sharedControlPath(["host west", proxy]))
+        #expect(east != west)
+
+        func explicitPath(_ alias: String) -> String? {
+            let output = resolvedConfiguration(["host \(alias)", proxy])
+            let merged = options.mergingDefaults(
+                into: ["ProxyCommand=ssh -W %h:%p %n.bastion"],
+                routeIdentifier: options.routeIdentifier(fromSSHConfigOutput: output)
+            )
+            return options.cmuxOwnedControlPath(in: merged)
+        }
+        let explicitEast = try #require(explicitPath("east"))
+        let explicitWest = try #require(explicitPath("west"))
+        #expect(explicitEast != explicitWest)
+        #expect(URL(fileURLWithPath: explicitEast).lastPathComponent.count == 40)
+    }
+
     @Test("Explicit route options use the route resolved by ssh -G", arguments: [
         ("ProxyCommand=/usr/local/bin/network-a %h %p", "ProxyCommand=/usr/local/bin/network-b %h %p"),
         ("IdentityFile=/Users/alice/.ssh/restricted", "IdentityFile=/Users/alice/.ssh/admin"),
