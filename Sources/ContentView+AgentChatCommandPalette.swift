@@ -19,9 +19,21 @@ extension ContentView {
             return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
         case "palette.terminalSplitDown":
             return CmuxSurfaceTabBarBuiltInAction.splitDown.configID
+        case Self.commandPaletteCopyActionCommandID(.copyWorkingDirectory):
+            return CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory.configID
+        case Self.commandPaletteCopyActionCommandID(.copyProjectRoot):
+            return CmuxSurfaceTabBarBuiltInAction.copyProjectRoot.configID
+        case Self.commandPaletteCopyActionCommandID(.copyScreen):
+            return CmuxSurfaceTabBarBuiltInAction.copyScreen.configID
         default:
             return nil
         }
+    }
+
+    /// Palette command id for a built-in copy action, e.g.
+    /// `palette.copyWorkingDirectory` for `cmux.copyWorkingDirectory`.
+    static func commandPaletteCopyActionCommandID(_ action: CmuxSurfaceTabBarBuiltInAction) -> String {
+        "palette." + action.configID.replacingOccurrences(of: "cmux.", with: "")
     }
 
     /// Returns the built-in Agent Chat palette contribution when its rollout is enabled.
@@ -33,6 +45,15 @@ extension ContentView {
             subtitle: { _ in String(localized: "command.newAgentChat.subtitle", defaultValue: "Agent Chat") },
             keywords: ["create", "new", "agent", "chat", "browser", "codex", "claude"],
             when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+        ), CommandPaletteCommandContribution(
+            commandId: "palette.openTerminalChatView",
+            title: { _ in String(localized: "command.openTerminalChatView.title", defaultValue: "Open terminal as chat") },
+            subtitle: { _ in String(localized: "command.newAgentChat.subtitle", defaultValue: "Agent Chat") },
+            keywords: ["terminal", "chat", "view", "transcript", "gui", "agent", "claude", "codex"],
+            when: {
+                $0.bool(CommandPaletteContextKeys.panelIsTerminal)
+                    && !$0.bool(CommandPaletteContextKeys.browserDisabled)
+            }
         )]
     }
 
@@ -54,6 +75,21 @@ extension ContentView {
             ) {
                 NSSound.beep()
             }
+        }
+        registerTerminalChatViewCommandPaletteHandler(&registry)
+    }
+
+    /// Registers the read-only chat view for the focused terminal's agent.
+    func registerTerminalChatViewCommandPaletteHandler(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: "palette.openTerminalChatView") {
+            guard let context = focusedPanelContext, context.panel.panelType == .terminal else {
+                NSSound.beep()
+                return
+            }
+            context.workspace.openTerminalChatView(
+                terminalPanelId: context.panelId,
+                presentingWindow: AppDelegate.shared?.mainWindow(for: windowId)
+            )
         }
     }
 

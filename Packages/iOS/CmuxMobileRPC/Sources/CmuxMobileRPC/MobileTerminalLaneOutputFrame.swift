@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Transport-neutral terminal-output frame delivered by an independent lane.
@@ -5,6 +6,8 @@ public struct MobileTerminalLaneOutputFrame: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case replay
         case chunk
+        /// The host's answer to an identified input unit; carries no output.
+        case inputAcknowledgement
     }
 
     public let kind: Kind
@@ -25,5 +28,22 @@ public struct MobileTerminalLaneOutputFrame: Equatable, Sendable {
         self.sequence = sequence
         self.currentSequence = currentSequence
         self.bytes = bytes
+    }
+
+    public static func inputAcknowledgement(
+        _ acknowledgement: MobileTerminalInputAcknowledgement
+    ) -> Self {
+        Self(
+            kind: .inputAcknowledgement,
+            retainedBaseSequence: 0,
+            sequence: 0,
+            currentSequence: 0,
+            bytes: acknowledgement.encoded()
+        )
+    }
+
+    public var inputAcknowledgement: MobileTerminalInputAcknowledgement? {
+        guard kind == .inputAcknowledgement else { return nil }
+        return MobileTerminalInputAcknowledgement(decoding: bytes)
     }
 }

@@ -1,10 +1,9 @@
 import Foundation
 
 /// Beta-feature toggles. Each key here gates an experimental code path
-/// in the running app. The id prefix is `rightSidebar.beta.*` for the
-/// existing right-sidebar Dock toggle; new betas should follow the
-/// pattern `<feature-domain>.beta.<flag-name>` so the cmux.json view
-/// groups them sensibly.
+/// in the running app. New beta keys should follow the pattern
+/// `<feature-domain>.beta.<flag-name>` so the cmux.json view groups them
+/// sensibly.
 public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     /// Right-sidebar Feed: an experimental mode that surfaces inline agent
     /// decisions (permission prompts, questions) in the right-sidebar mode
@@ -16,13 +15,12 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.feed.enabled"
     )
 
-    /// Right-sidebar Dock: an experimental terminal-controls dock that
-    /// replaces the per-pane action chrome with a unified right-side
-    /// rail. Defaults off; flagged as unstable in the Settings UI.
-    public let rightSidebarDock = DefaultsKey<Bool>(
-        id: "rightSidebar.beta.dock.enabled",
+    /// Conversations: opt-in unified coding-agent session navigation in the
+    /// left sidebar. Disabling it hides the provider while preserving sessions.
+    public let conversationSidebar = DefaultsKey<Bool>(
+        id: "sidebar.beta.conversations.enabled",
         defaultValue: false,
-        userDefaultsKey: "rightSidebar.beta.dock.enabled"
+        userDefaultsKey: "sidebar.beta.conversations.enabled"
     )
 
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
@@ -94,19 +92,6 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "remoteTmux.beta.enabled",
         defaultValue: false,
         userDefaultsKey: "remoteTmux.beta.enabled"
-    )
-
-    /// Predictive local echo: draw typed characters over a remote terminal
-    /// before the remote echoes them, and withdraw them if the remote
-    /// disagrees. Only engages at a shell prompt on a link slow enough to
-    /// notice, never in a full-screen application, and never until the remote
-    /// has been seen echoing -- so a password prompt displays nothing.
-    /// Defaults off; while off the terminal input and output paths are
-    /// unchanged.
-    public let predictedEcho = DefaultsKey<Bool>(
-        id: "terminal.beta.predictedEcho.enabled",
-        defaultValue: false,
-        userDefaultsKey: "terminal.beta.predictedEcho.enabled"
     )
 
     public init() {}

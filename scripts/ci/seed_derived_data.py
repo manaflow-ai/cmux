@@ -7,9 +7,10 @@
     seed_derived_data.py adopt SOURCE DERIVED_DATA PREFIX REVISION
     seed_derived_data.py scope PREFIX
     seed_derived_data.py prefetch STORE REVISION
-    seed_derived_data.py keep DERIVED_DATA KEY
+    seed_derived_data.py keep DERIVED_DATA KEY [PREFIX]
 
-nightly.yml `refresh-test-compilation-cache` already compiles main cold on the
+nightly.yml `refresh-test-compilation-cache` (scheduled while CI_PR_POOL_OWNED
+is not 1, or a seed_only dispatch) compiles main cold on the
 runner, Xcode and canonical paths that ci-macos.yml compile admission uses.
 `record` writes the content digest and modification time of every file in the
 canonical source tree into that DerivedData before the build, and `prune`
@@ -73,6 +74,7 @@ but never replace it.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -87,6 +89,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import apfs_clone  # noqa: E402
 import e2e_warm_derived_data as warm  # noqa: E402
 
 MANIFEST = "cmux-seed-input-mtimes.json"
@@ -113,14 +116,19 @@ USER_AGENT = "cmux-ci-seed-derived-data"
 # 8 commits per seed, so every seed within ANCESTOR_LIMIT commits of a job's
 # base can be its cheapest start. Keep up to LOCAL_KEEP per root, and drop the
 # oldest seeds on the whole Mac, whichever root holds them, while free space is
-# under LOCAL_KEEP_MIN_FREE_BYTES: the admission floor (25 + 25 GiB per slot,
-# 125 GiB at 4 slots) plus one cold compile (up to 36 GiB) and one seed
-# download (about 8 GB). That is also above glaeda-disk's pressure trigger
-# (15% of the disk, capped at 150 GiB). Each root keeps its newest
+# under LOCAL_KEEP_MIN_FREE_BYTES: glaeda's job admission floor (100 GiB free,
+# cmuxterm-hq build-fleet/mini-fleet.json disk.min_free_gib) plus the most one
+# mini's disk shrank within an hour, 50 GiB (glaeda-disk's 15-minute free-space
+# log on 12 owned minis, 2026-09-26; seed downloads included, since this prune
+# runs only when a seed lands, not while jobs grow the disk). So seeds fill the
+# disk down to where the busiest hour still leaves every new job admitted. At
+# the old 170 GiB most roots kept only their newest two seeds, while no mini
+# fell below 127 GiB free. glaeda-disk's pressure trigger (15% of the disk, 69
+# GiB on a mini) stays well below. Each root keeps its newest
 # LOCAL_KEEP_LOW_DISK whatever the disk says.
 LOCAL_KEEP = 48
 LOCAL_KEEP_LOW_DISK = 2
-LOCAL_KEEP_MIN_FREE_BYTES = 170 * 1024**3
+LOCAL_KEEP_MIN_FREE_BYTES = 150 * 1024**3
 # Seeds are APFS clones of DerivedData that jobs also clone, so deleting one
 # may free little. Under pressure, stop once a delete frees less than this.
 PRUNE_MIN_FREED_BYTES = 1024**3
@@ -247,13 +255,29 @@ def locate(prefix: str, revision: str) -> tuple[str, int | None]:
     the nearest of another width, whose extra module work is still far less
     than a cold build.
     """
-    revisions = lineage(revision)
+    found = nearest_of_any_width(prefix, lineage(revision))
+    if found:
+        return found
+    return scoped(prefix) + revision, None
+
+
+def nearest_of_any_width(prefix: str, revisions: list[str]) -> tuple[str, int] | None:
+    """The nearest seed of this width over REVISIONS, else the nearest of the
+    first SEEDED_JOB_WIDTHS width that has one. PREFIX is unscoped.
+
+    A probe may set CMUX_SEED_REQUIRE_OWN_WIDTH when its runner's seed chain
+    must match the width used by its Swift driver. That avoids silently
+    adopting a seed from another runner shape when the matching chain has not
+    been published yet; the caller then compiles from its own width or cold.
+    """
     own = swift_jobs()
+    if os.environ.get("CMUX_SEED_REQUIRE_OWN_WIDTH") == "1":
+        return nearest(scoped(prefix, own), revisions)
     for jobs in (own, *(width for width in SEEDED_JOB_WIDTHS if width != own)):
         found = nearest(scoped(prefix, jobs), revisions)
         if found:
             return found
-    return scoped(prefix, own) + revision, None
+    return None
 
 
 def beside(derived: Path, suffix: str) -> Path:
@@ -307,10 +331,23 @@ def cached(key: str) -> Path | None:
     return copy if (copy / MANIFEST).is_file() else None
 
 
+def clear_tree(path: Path) -> None:
+    """Remove PATH or fail. A leftover would make the clone fail and the `cp -cR`
+    fallback copy into PATH/<name>, or through PATH when it is a symlink."""
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+    if path.exists() or path.is_symlink():
+        raise OSError(errno.EEXIST, "could not clear", str(path))
+
+
 def clone_tree(source: Path, destination: Path) -> None:
     """An APFS clone of a directory tree, falling back to a copy."""
-    shutil.rmtree(destination, ignore_errors=True)
+    clear_tree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if apfs_clone.clone_directory(source, destination):
+        return
     if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
         shutil.rmtree(destination, ignore_errors=True)
         shutil.copytree(source, destination, symlinks=True)
@@ -405,8 +442,22 @@ def stash(derived: Path, key: str) -> None:
     keep_local(cache, incoming, key)
 
 
+def record_source(store: Path, prefix: str) -> None:
+    """Write STORE's SEED_SOURCE for `prefetch`: the unscoped seed prefix this root adopts. Best effort."""
+    if not prefix.startswith("admission-derived-data-v1-"):
+        return
+    source = {"prefix": prefix, "runner_os": os.environ.get("RUNNER_OS", ""),
+              "runner_arch": os.environ.get("RUNNER_ARCH", ""),
+              "public_url": os.environ.get("CI_CACHE_R2_PUBLIC_URL", "")}
+    with contextlib.suppress(OSError):
+        store.mkdir(parents=True, exist_ok=True)
+        incoming = store / f".{SEED_SOURCE}.{os.getpid()}"
+        incoming.write_text(json.dumps(source) + "\n")
+        incoming.rename(store / SEED_SOURCE)
+
+
 def prefetch(store: Path, revision: str) -> dict[str, object]:
-    """Download REVISION's nearest seed of this width into STORE/seeds, unless it is there."""
+    """Download the seed `adopt` would pick for REVISION into STORE/seeds, unless it is there."""
     try:
         source = json.loads((store / SEED_SOURCE).read_text())
     except (OSError, ValueError):
@@ -420,9 +471,11 @@ def prefetch(store: Path, revision: str) -> dict[str, object]:
             os.environ.setdefault(name, value)
     cache = store / "seeds"
     os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
-    found = nearest(scoped(prefix), lineage(revision))
+    # The key `adopt` would pick (locate): this width's nearest seed, else another width's. A Mac of a
+    # width nothing seeds at (the 10-core light minis) otherwise never prefetched at all.
+    found = nearest_of_any_width(prefix, lineage(revision))
     if found is None:
-        return {"fetched": "false", "reason": "no seed of this width in REVISION's history"}
+        return {"fetched": "false", "reason": "no seed of any seeded width in REVISION's history"}
     key, distance = found
     if cached(key):
         # Nothing new lands, but a job may have filled the disk since: prune.
@@ -626,13 +679,20 @@ def main(argv: list[str]) -> int:
         # The newest-pointer fallback stays within this width.
         start(Path(argv[2]), exact, scoped(prefix), revision, distance)
         return 0
-    if len(argv) == 4 and argv[1] == "keep":
+    if len(argv) in (4, 5) and argv[1] == "keep":
         # The seed this job just built and saved: the next seed job on this Mac clones it instead of
         # downloading it back (seed-derived-data.yml on the trusted pool). A no-op without a local cache.
         try:
             stash(Path(argv[2]), argv[3])
         except (OSError, shutil.Error) as error:
             print(f"Could not keep the seed on this Mac: {error}")
+        cache = local_cache()
+        if len(argv) == 5 and cache is not None:
+            # A seed the other trusted Mac builds in between is not kept here, and the next seed job
+            # downloaded it (73 to 102 s against 16 to 20 s for a kept one, 2026-09-25). With the prefix
+            # recorded, glaeda-seed-prefetch fetches main's newest seed into this cache between jobs,
+            # as it does for compile admission's roots.
+            record_source(cache.parent, argv[4])
         return 0
     if len(argv) == 4 and argv[1] == "prefetch":
         print(json.dumps(prefetch(Path(argv[2]), argv[3])))

@@ -29,7 +29,20 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Pending selection is shared by Settings, the menu and socket actions.
     /// Cloud requests keep using the confirmed coordinator scope until success.
     var pendingTeamSelection: (requestID: UUID, teamID: String?)?
-    var isSelectingTeam: Bool { pendingTeamSelection != nil }
+    var isSelectingTeam: Bool { coordinator.isSelectingTeam }
+    /// A team create still waiting on the server, shown as the active team
+    /// until the server answers. Switches and creates from every surface are
+    /// refused until it finishes, since a later change would fail it.
+    var pendingTeamCreate: PendingTeamCreate?
+    /// Owns the optimistic create projection so a later create cannot clear
+    /// it when the earlier coordinator request has already finished.
+    var pendingTeamCreateRequestID: UUID?
+    /// Invitations addressed to the signed-in user, refreshed on sign-in, by
+    /// the poll and after every invitation action. Empty while signed out.
+    var receivedInvitations: [CloudReceivedInvitation] = []
+    @ObservationIgnored var receivedInvitationsPoll: Task<Void, Never>?
+    @ObservationIgnored var receivedInvitationsLoaded = false
+    var isCreatingTeam: Bool { coordinator.isCreatingTeam }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator

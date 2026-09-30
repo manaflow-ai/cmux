@@ -17,6 +17,13 @@
 #      pool pin: a newer image Xcode costs a fork cache misses, never a failed
 #      job (docs/ci-runners.md, fork contract). The floor still applies.
 #
+# A pinned Xcode this runner does not have is the machine's fault, not the
+# code's: the error carries MACHINE_MARKER, which scripts/ci/classify_failures.py
+# and scripts/ci/machine_failure.py read as a machine failure, and the step is
+# named "Select Xcode", which scripts/ci/owned_pool_rescue.py treats as a
+# refusal on an owned Mac (re-run as github-actions[bot], so off the fleet).
+# scripts/ci/xcode_pin_audit.py finds such a Mac before a job does.
+#
 # Whatever is selected must be at least the Xcode major in .xcode-version, or
 # the script stops with one ::error:: naming the found and required versions
 # (CMUX_CI_XCODE_ALLOW_BELOW_FLOOR=1 lifts this too). Without the floor, a job
@@ -29,6 +36,8 @@ SELECT_XCODE_REPO_ROOT="$(dirname "$SELECT_XCODE_SCRIPT_DIR")"
 XCODE_VERSION_FILE="${CMUX_XCODE_VERSION_FILE:-$SELECT_XCODE_REPO_ROOT/.xcode-version}"
 XCODE_PINS_FILE="${CMUX_CI_XCODE_PINS_FILE:-$SELECT_XCODE_REPO_ROOT/scripts/ci/xcode-pins.txt}"
 ALLOW_BELOW_FLOOR="${CMUX_CI_XCODE_ALLOW_BELOW_FLOOR:-0}"
+# Keep in step with classify_failures.py's "xcode-pin-missing" signature.
+MACHINE_MARKER="[cmux-ci machine: xcode-pin-missing]"
 
 APPLICATIONS_DIR="${CMUX_XCODE_APPLICATIONS_DIR:-/Applications}"
 REQUIRED_SDK_MAJOR="${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}"
@@ -136,6 +145,10 @@ installed_xcodes() {
   printf '%s' "${listed# }"
 }
 
+this_runner() {
+  printf '%s' "${RUNNER_NAME:-$(hostname -s 2>/dev/null || echo unknown)}"
+}
+
 validate_sdk_constraints() {
   local selected_dir="$1" sdk_version="$2" actual_major
   [ -n "$REQUIRED_SDK_MAJOR$MAX_SDK_MAJOR" ] || return 0
@@ -199,12 +212,12 @@ fi
 
 if [ -n "$PINNED_DEVELOPER_DIR" ]; then
   if [ ! -d "$PINNED_DEVELOPER_DIR" ]; then
-    echo "Pinned Xcode developer dir does not exist: $PINNED_DEVELOPER_DIR" >&2
+    echo "::error::Pinned Xcode developer dir does not exist: $PINNED_DEVELOPER_DIR on runner $(this_runner). $MACHINE_MARKER Installed: $(installed_xcodes)" >&2
     exit 1
   fi
   PINNED_SDK_VER="$(DEVELOPER_DIR="$PINNED_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
   if [ -z "$PINNED_SDK_VER" ]; then
-    echo "Pinned Xcode developer dir has no usable macOS SDK: $PINNED_DEVELOPER_DIR" >&2
+    echo "::error::Pinned Xcode developer dir has no usable macOS SDK: $PINNED_DEVELOPER_DIR on runner $(this_runner). $MACHINE_MARKER Installed: $(installed_xcodes)" >&2
     exit 1
   fi
   select_developer_dir "$PINNED_DEVELOPER_DIR" "$PINNED_SDK_VER" "Selected pinned Xcode"
@@ -243,7 +256,7 @@ if [ "$ALLOW_BELOW_FLOOR" != "1" ]; then
     if runs_in_fork_repository; then
       echo "::warning::This macOS $POOL_MAJOR runner has no Xcode $POOL_VERSION, the version scripts/ci/xcode-pins.txt pins for its pool; this fork uses the newest stable Xcode on its image instead, so it cannot reuse main's compilation caches. Installed: $(installed_xcodes)"
     else
-      echo "::error::This macOS $POOL_MAJOR runner has no Xcode $POOL_VERSION, the version scripts/ci/xcode-pins.txt pins for its pool. Installed: $(installed_xcodes)" >&2
+      echo "::error::This macOS $POOL_MAJOR runner has no Xcode $POOL_VERSION, the version scripts/ci/xcode-pins.txt pins for its pool. Installed: $(installed_xcodes). Runner $(this_runner). $MACHINE_MARKER" >&2
       exit 1
     fi
   fi
@@ -252,7 +265,7 @@ fi
 if [ "$ALLOW_BELOW_FLOOR" != "1" ] && [ -n "$POOL_DEVELOPER_DIR" ]; then
   POOL_SDK_VER="$(DEVELOPER_DIR="$POOL_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
   if [ -z "$POOL_SDK_VER" ]; then
-    echo "::error::Pool Xcode developer dir has no usable macOS SDK: $POOL_DEVELOPER_DIR" >&2
+    echo "::error::Pool Xcode developer dir has no usable macOS SDK: $POOL_DEVELOPER_DIR on runner $(this_runner). $MACHINE_MARKER Installed: $(installed_xcodes)" >&2
     exit 1
   fi
   select_developer_dir "$POOL_DEVELOPER_DIR" "$POOL_SDK_VER" "Selected Xcode $POOL_VERSION pinned for macOS $POOL_MAJOR runners"

@@ -11,12 +11,15 @@ public struct AutomationSection: View {
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var codexModel: DefaultsValueModel<Bool>
+    @State private var piModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var autoNamingAgentModel: DefaultsValueModel<String>
     @State private var autoNamingStatusModel: DefaultsValueModel<String>
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
+    @State private var agentAutoResumeModel: DefaultsValueModel<Bool>
+    @State private var canonicalAgentScratchModel: DefaultsValueModel<Bool>
     @State private var ampModel: DefaultsValueModel<Bool>
     @State private var cursorModel: DefaultsValueModel<Bool>
     @State private var geminiModel: DefaultsValueModel<Bool>
@@ -34,7 +37,6 @@ public struct AutomationSection: View {
     @State private var automationRulesActionMessage: String?
     @State private var automationRulesActionIsError = false
     @State private var automationRulesRefreshID = 0
-
     private struct SocketPasswordStatus: Equatable {
         let message: String
         let isError: Bool
@@ -60,6 +62,7 @@ public struct AutomationSection: View {
         _modeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode))
         _claudeCodeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled))
         _codexModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.codexHooksEnabled))
+        _piModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.piHooksEnabled))
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
         _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
         _autoNamingAgentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingAgent))
@@ -73,6 +76,8 @@ public struct AutomationSection: View {
         ))
         _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
+        _agentAutoResumeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.agentAutoResume))
+        _canonicalAgentScratchModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.canonicalAgentScratch))
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
         _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
         _geminiModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled))
@@ -89,10 +94,13 @@ public struct AutomationSection: View {
             automationRulesCard
             claudeCodeCard
             codexCard
+            PiIntegrationCard(isEnabled: piModel.current, setEnabled: { piModel.set($0) })
             claudePathCard
             autoNamingCard
             ripgrepPathCard
             suppressSubagentCard
+            agentAutoResumeCard
+            canonicalAgentScratchCard
             ampCard
             cursorCard
             geminiCard
@@ -130,7 +138,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
@@ -141,7 +149,6 @@ public struct AutomationSection: View {
             }
         }
     }
-
     /// Thin native exposure of the existing JSON-backed automation engine.
     @ViewBuilder
     private var automationRulesCard: some View {
@@ -160,7 +167,6 @@ public struct AutomationSection: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsAutomationRulesEditButton")
-
                     Button(String(localized: "settings.automation.rules.reload", defaultValue: "Reload", bundle: .module)) {
                         let didRequestReload = hostActions.reloadAutomationRules()
                         automationRulesActionIsError = !didRequestReload
@@ -241,7 +247,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.socketControlMode"),
                 String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
-                subtitle: effectiveMode.description,
+                subtitle: String(localized: "settings.automation.socketMode.subtitle", defaultValue: "Choose which local processes can control cmux."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(
@@ -279,7 +285,7 @@ public struct AutomationSection: View {
                 )
                 SettingsCardNote(String.localizedStringWithFormat(format, effectiveMode.displayName))
             }
-            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model."))
+            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "“Off” turns control off. “cmux processes only” accepts only processes started in cmux terminals. “Automation mode” also accepts other apps running as this Mac user. “Password mode” requires a password. “Full open access” accepts any local process without a password and is unsafe."))
             if isPassword {
                 SettingsCardDivider()
                 SettingsCardRow(
@@ -340,9 +346,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.claudeCodeIntegration"),
                 String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
-                subtitle: claudeCodeModel.current
-                    ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
-                    : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.claudeCode.subtitle", defaultValue: "Shows Claude Code status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { claudeCodeModel.current }, set: { claudeCodeModel.set($0) }))
                     .labelsHidden()
@@ -359,9 +363,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.codexIntegration"),
                 String(localized: "settings.automation.codex", defaultValue: "Codex Integration"),
-                subtitle: codexModel.current
-                    ? String(localized: "settings.automation.codex.subtitleOn", defaultValue: "Sidebar shows Codex session status and notifications.")
-                    : String(localized: "settings.automation.codex.subtitleOff", defaultValue: "Codex runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.codex.subtitle", defaultValue: "Shows Codex status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { codexModel.current }, set: { codexModel.set($0) }))
                     .labelsHidden()
@@ -395,9 +397,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.workspaceAutoNaming"),
                 String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
-                subtitle: autoNamingModel.current
-                    ? String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations.")
-                    : String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated.")
+                subtitle: String(localized: "settings.automation.workspaceAutoNaming.subtitle", defaultValue: "Generates workspace and tab titles from agent conversations.")
             ) {
                 Toggle("", isOn: Binding(get: { autoNamingModel.current }, set: { autoNamingModel.set($0) }))
                     .labelsHidden()
@@ -480,9 +480,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.suppressSubagentNotifications"),
                 String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"),
-                subtitle: suppressSubagentModel.current
-                    ? String(localized: "settings.automation.suppressSubagentNotifications.subtitleOn", defaultValue: "Child agent completions stay in Feed without notifications.")
-                    : String(localized: "settings.automation.suppressSubagentNotifications.subtitleOff", defaultValue: "Child agent completions notify like top-level agents.")
+                subtitle: String(localized: "settings.automation.suppressSubagentNotifications.subtitle", defaultValue: "Lists subagent completions in Feed without sending notifications.")
             ) {
                 Toggle("", isOn: Binding(get: { suppressSubagentModel.current }, set: { suppressSubagentModel.set($0) }))
                     .labelsHidden()
@@ -493,15 +491,49 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.suppressSubagentNotifications.note", defaultValue: "Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."))
         }
     }
+
+    @ViewBuilder
+    private var canonicalAgentScratchCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.canonicalAgentScratch"),
+                String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"),
+                subtitle: canonicalAgentScratchModel.current
+                    ? String(localized: "settings.automation.canonicalAgentScratch.subtitleOn", defaultValue: "Native agent panels use a cmux-owned scratch directory per session.")
+                    : String(localized: "settings.automation.canonicalAgentScratch.subtitleOff", defaultValue: "Native agent panels use the system temporary directory."),
+                controlWidth: Self.columnWidth
+            ) {
+                Toggle("", isOn: Binding(get: { canonicalAgentScratchModel.current }, set: { canonicalAgentScratchModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsCanonicalAgentScratchToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardNote(String(localized: "settings.automation.canonicalAgentScratch.note", defaultValue: "Opt in to organize new Claude, Codex, and OpenCode panel scratch files under ~/.local/state/cmux/agent-artifacts. Provider transcripts and existing files are not moved."))
+        }
+    }
+    @ViewBuilder
+    private var agentAutoResumeCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.agentAutoResume"),
+                String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors"),
+                subtitle: String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentAutoResumeModel.current }, set: { agentAutoResumeModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentAutoResumeToggle")
+            }
+        }
+    }
     @ViewBuilder
     private var ampCard: some View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.ampIntegration"),
                 String(localized: "settings.automation.amp", defaultValue: "Amp Integration"),
-                subtitle: ampModel.current
-                    ? String(localized: "settings.automation.amp.subtitleOn", defaultValue: "Sidebar shows Amp agent status and notifications.")
-                    : String(localized: "settings.automation.amp.subtitleOff", defaultValue: "Amp runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.amp.subtitle", defaultValue: "Shows Amp status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { ampModel.current }, set: { ampModel.set($0) }))
                     .labelsHidden()
@@ -519,9 +551,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.cursorIntegration"),
                 String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"),
-                subtitle: cursorModel.current
-                    ? String(localized: "settings.automation.cursor.subtitleOn", defaultValue: "Sidebar shows Cursor agent status and notifications.")
-                    : String(localized: "settings.automation.cursor.subtitleOff", defaultValue: "Cursor runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.cursor.subtitle", defaultValue: "Shows Cursor status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { cursorModel.current }, set: { cursorModel.set($0) }))
                     .labelsHidden()
@@ -539,9 +569,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.geminiIntegration"),
                 String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"),
-                subtitle: geminiModel.current
-                    ? String(localized: "settings.automation.gemini.subtitleOn", defaultValue: "Sidebar shows Gemini session status and notifications.")
-                    : String(localized: "settings.automation.gemini.subtitleOff", defaultValue: "Gemini runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.gemini.subtitle", defaultValue: "Shows Gemini CLI status and notifications in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { geminiModel.current }, set: { geminiModel.set($0) }))
                     .labelsHidden()
@@ -559,9 +587,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.kiroIntegration"),
                 String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration"),
-                subtitle: kiroModel.current
-                    ? String(localized: "settings.automation.kiro.subtitleOn", defaultValue: "Sidebar shows Kiro session status, notifications, and Feed tool events.")
-                    : String(localized: "settings.automation.kiro.subtitleOff", defaultValue: "Kiro runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.kiro.subtitle", defaultValue: "Shows Kiro CLI status and notifications in the sidebar, and its tool events in Feed.")
             ) {
                 Toggle("", isOn: Binding(get: { kiroModel.current }, set: { kiroModel.set($0) }))
                     .labelsHidden()

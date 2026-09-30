@@ -10,6 +10,7 @@ from unittest import mock
 import shutil
 import sys
 import tarfile
+import tempfile
 import subprocess
 import unittest
 import zipfile
@@ -19,6 +20,7 @@ from urllib.parse import parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import reuse_app_host_products as reuse
 from test_app_host_test_products import TestProductHandoff
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 class ReuseProducts(TestProductHandoff):
@@ -752,6 +754,46 @@ class ReuseProducts(TestProductHandoff):
         """Re-seal the producer archive as a run that checked out `revision`."""
         self.identity = {**self.identity, "revision": revision}
         self.seal()
+
+    def test_a_receipt_sealed_under_another_contract_names_the_fields_that_moved(self):
+        """An artifact found by this job's key but sealed with another contract
+        says which contract fields differ, not only product_provenance_invalid.
+
+        On 2026-09-29 PR media tours of #14563 found CI's artifact by name six
+        times and refused it each time with that reason alone (e.g. run
+        36540512350): the producer named its artifact before sealing a
+        receipt whose contract hashes differently, and nothing said why.
+        """
+        sealed = {**self.contract, "tools": {**self.contract["tools"], "zig": "0.16.0"}}
+        root = self.producer / "Build/Products"
+        receipt = json.loads((root / reuse.RECEIPT).read_text())
+        (root / reuse.RECEIPT).write_text(json.dumps({**receipt, "contract": sealed}))
+        self.api.artifact["digest"] = self.package(self.producer, self.api.archive)
+        report = {}
+        output = io.StringIO()
+        with mock.patch("sys.stdout", output):
+            self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertIn("contract mismatch in tools.zig", output.getvalue())
+        self.assertIn(f"artifact {self.api.artifact['id']} of run {self.api.run['id']}", output.getvalue())
+
+    def test_contract_differences_names_nested_fields(self):
+        self.assertEqual(
+            reuse.contract_differences(
+                {"a": 1, "tools": {"zig": "1", "go": "absent"}, "only_sealed": 1},
+                {"a": 1, "tools": {"zig": "2", "go": "absent"}, "only_wanted": 2},
+            ),
+            ["only_sealed", "only_wanted", "tools.zig"],
+        )
+
+    def test_contract_differences_names_missing_field_when_other_value_is_none(self):
+        self.assertEqual(
+            reuse.contract_differences(
+                {"tools": {"zig": None}},
+                {"tools": {}},
+            ),
+            ["tools.zig"],
+        )
 
     def test_pull_request_producer_sealed_at_its_merge_commit_is_reusable(self):
         """A pull request producer seals the merge commit it checked out.
@@ -1820,6 +1862,40 @@ class ContractParity(unittest.TestCase):
         self.assertNotEqual(reuse.key(blacksmith), reuse.key(workspace))
         self.assertEqual(reuse.portable_contract(workspace), blacksmith)
 
+    def test_an_sdkroot_naming_the_selected_sdk_is_not_a_product_input(self):
+        """/usr/bin/python3 is an xcrun shim that exports SDKROOT to the
+        interpreter, so one Mac hashed the selected SDK's path and the rest
+        hashed nothing (8b593349 was 8f68380f on cmux7s, dd3ed8d1 on cmux10s)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sdks = Path(tmp)
+            real = sdks / "MacOSX26.5.sdk"
+            real.mkdir()
+            (sdks / "MacOSX.sdk").symlink_to(real.name)
+            other = sdks / "MacOSX15.sdk"
+            other.mkdir()
+            answers = {"xcodebuild": "Xcode 26.6\nBuild version 17F113",
+                       ("xcrun", "--sdk", "macosx", "--show-sdk-build-version"): "25F70",
+                       ("xcrun", "--sdk", "macosx", "--show-sdk-path"): str(real),
+                       ("sw_vers", "-productVersion"): "26.4"}
+
+            def contract(environ):
+                with mock.patch.dict(os.environ, environ, clear=True), \
+                        mock.patch.object(reuse, "read",
+                                          side_effect=lambda *args: answers.get(args, answers.get(args[0]))), \
+                        mock.patch.object(reuse.shutil, "which", return_value=None), \
+                        mock.patch.object(reuse.product_inputs, "local_identity", return_value={"source": "s"}):
+                    return reuse.contract(reuse.CANONICAL_DERIVED_DATA)
+            unset = contract({"CMUX_SKIP_ZIG_BUILD": "1"})
+            self.assertEqual(unset["environment"]["SDKROOT"], "")
+            for path in (real, sdks / "MacOSX.sdk"):
+                with self.subTest(sdkroot=path.name):
+                    self.assertEqual(reuse.key(contract({"CMUX_SKIP_ZIG_BUILD": "1", "SDKROOT": str(path)})),
+                                     reuse.key(unset))
+            # Another SDK still names another product.
+            elsewhere = contract({"CMUX_SKIP_ZIG_BUILD": "1", "SDKROOT": str(other)})
+            self.assertEqual(elsewhere["environment"]["SDKROOT"], str(other))
+            self.assertNotEqual(reuse.key(elsewhere), reuse.key(unset))
+
     def test_release_contract_still_names_the_runner_pool(self):
         # reuse_release_product.py calls contract() without a DerivedData path.
         small = self.contract_with({"CMUX_PRODUCT_RUNNER": "blacksmith-6vcpu-macos-26"})
@@ -1878,8 +1954,9 @@ class ContractParity(unittest.TestCase):
                           miss_reasons="" if hit else "no_matching_contract_artifact")
             return hit
 
-        def fake_switch(root):
+        def fake_switch(root, **kwargs):
             moves.append(root)
+            self.assertEqual(kwargs.get("wait_seconds"), 0)
             return root / "derived-data-compile-admission"
 
         output = tmp / "out"
@@ -1932,6 +2009,54 @@ class ContractParity(unittest.TestCase):
         outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
         self.assertEqual((outputs["hit"], outputs["product_key"]), ("false", ""))
 
+    def test_a_failure_after_a_move_never_cleans_the_root_the_job_left(self):
+        # Another job may hold the released root by now.
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        first, second = tmp / "cmux-ci", tmp / "cmux-ci-2"
+        derived = second / "derived-data-compile-admission"
+        (derived / "kept").mkdir(parents=True)
+        (first / "derived-data-compile-admission" / "partial").mkdir(parents=True)
+        own = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"}, derived=derived)
+
+        def restore_then_fail(api, value, target, run, identity, attempt, report, claim=None):
+            if claim is None:
+                report.update(reason="miss", miss_reasons="no_matching_contract_artifact")
+                return False
+            claim()
+            raise OSError("download failed")
+
+        output = tmp / "out"
+        env = {"GITHUB_OUTPUT": str(output), "GITHUB_EVENT_NAME": "workflow_dispatch",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "13",
+               "GITHUB_RUN_ATTEMPT": "1", "CMUX_REUSE_SWITCH_ROOTS": "1"}
+        helper = tmp / "glaeda-canonical-root"
+        helper.write_text("")
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(sys, "argv", ["reuse", "restore", str(derived)]), \
+                mock.patch.object(reuse, "ROOT_HELPER", helper), \
+                mock.patch.object(reuse, "canonical_roots", return_value=[first, second]), \
+                mock.patch.object(reuse, "switch_root", side_effect=lambda root, **_: root / "derived-data-compile-admission"), \
+                mock.patch.object(reuse, "contract", return_value=own), \
+                mock.patch.object(reuse.products, "identity", return_value={}), \
+                mock.patch.object(reuse, "restore", side_effect=restore_then_fail):
+            reuse.main()
+        self.assertTrue((derived / "kept").is_dir())
+        self.assertFalse((first / "derived-data-compile-admission").exists())
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual((outputs["hit"], outputs["reason"]), ("false", "fallback"))
+
+    def test_switch_root_reports_the_move_even_when_it_cannot_empty_the_new_root(self):
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        root, env_file = tmp / "cmux-ci-2", tmp / "env"
+        env_file.write_text("")
+        done = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.dict(os.environ, {"GITHUB_ENV": str(env_file)}), \
+                mock.patch.object(reuse.subprocess, "run", return_value=done), \
+                mock.patch.object(Path, "mkdir", side_effect=OSError("read-only")), \
+                mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(reuse.switch_root(root), root / "derived-data-compile-admission")
+        self.assertIn(f"CMUX_DERIVED_DATA_PATH={root / 'derived-data-compile-admission'}", env_file.read_text())
+
     def test_canonical_roots_are_root_one_then_numbered_roots(self):
         tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
         first = tmp / "cmux-ci"
@@ -1968,6 +2093,33 @@ class ContractParity(unittest.TestCase):
             f"CMUX_DERIVED_DATA_PATH={root / 'derived-data-compile-admission'}",
             f"CMUX_E2E_COMPILATION_CACHE={root / 'compile-admission-cas'}",
         ])
+
+    def test_contract_ignores_an_sdkroot_naming_the_default_sdk(self):
+        # Some owned Macs' runner services export SDKROOT, others do not.
+        with tempfile.TemporaryDirectory() as directory:
+            sdk = Path(directory) / "MacOSX26.5.sdk"
+            sdk.mkdir()
+            alias = Path(directory) / "MacOSX.sdk"
+            alias.symlink_to(sdk.name)
+            other = Path(directory) / "MacOSX15.5.sdk"
+            other.mkdir()
+            unset = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"})
+
+            def contract_at(sdkroot):
+                answers = {"xcodebuild": "Xcode 26.6\nBuild version 17F113",
+                           ("xcrun", "--sdk", "macosx", "--show-sdk-build-version"): "25F70",
+                           ("xcrun", "--sdk", "macosx", "--show-sdk-path"): str(sdk)}
+                with mock.patch.dict(os.environ, {"CMUX_SKIP_ZIG_BUILD": "1", "SDKROOT": sdkroot}, clear=True), \
+                        mock.patch.object(reuse, "read", side_effect=lambda *args: answers.get(args, answers.get(args[0]))), \
+                        mock.patch.object(reuse.shutil, "which", return_value=None), \
+                        mock.patch.object(reuse.product_inputs, "local_identity", return_value={"source": "s"}):
+                    return reuse.contract()
+
+            self.assertEqual(unset["environment"]["SDKROOT"], "")
+            for name in (str(alias), str(sdk)):
+                with self.subTest(sdkroot=name):
+                    self.assertEqual(contract_at(name)["environment"]["SDKROOT"], "")
+            self.assertEqual(contract_at(str(other))["environment"]["SDKROOT"], str(other))
 
     def test_contract_names_the_selected_xcode_not_its_selector(self):
         # Admission pins Xcode by path; an E2E dispatch picks the same Xcode by

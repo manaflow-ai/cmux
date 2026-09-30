@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import run_ci_guards  # noqa: E402
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
 
@@ -56,7 +57,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
                 s["name"]
                 for s in job["steps"]
                 if "run" in s
-                and s["name"] not in run_ci_guards.DEPENDENCY_STEPS
+                and s["name"] not in (run_ci_guards.DEPENDENCY_STEPS | run_ci_guards.EVENT_CONDITION_STEPS)
                 and (not s.get("if") or f"'{unit.group}'" in s["if"])
             ]
             self.assertEqual([s.name for s in unit.steps], expected, unit.label)
@@ -84,6 +85,19 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         ios = next(u for u in self.units if u.group == "release-ios")
         env = next(s.env for s in ios.steps if "BASE_SHA" in s.env)
         self.assertEqual(env["BASE_SHA"], "base")
+        preflight = next(u for u in self.units if u.group == "preflight")
+        registry = next(
+            s for s in preflight.steps if s.name == "Validate Python test execution registry"
+        )
+        self.assertEqual(registry.env["CMUX_TEST_REGISTRY_BASE_REF"], "base")
+
+    def test_registry_comparison_is_empty_without_a_local_base(self) -> None:
+        units = run_ci_guards.plan(self.workflow, "", "head")
+        preflight = next(u for u in units if u.group == "preflight")
+        registry = next(
+            s for s in preflight.steps if s.name == "Validate Python test execution registry"
+        )
+        self.assertEqual(registry.env["CMUX_TEST_REGISTRY_BASE_REF"], "")
 
     def test_groups_that_pass_state_between_steps_run_in_order(self) -> None:
         by_group = {unit.group or unit.job: unit for unit in self.units}

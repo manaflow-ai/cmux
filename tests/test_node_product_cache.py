@@ -15,6 +15,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts/ci/node_product_cache.py"
@@ -387,6 +388,16 @@ class NodeProductCacheTests(unittest.TestCase):
         materialized = destination / cache.ARCHIVE_NAME
         self.assertTrue(materialized.exists())
         self.assertEqual(hashlib.sha256(materialized.read_bytes()).hexdigest(), self.identity.archive_digest)
+
+    def test_materialized_archive_leaves_the_cached_object_single_linked(self):
+        self.publish()
+        destination = Path(self.temp.name) / "materialized"
+        result = cache.acquire(self.store, self.identity, destination, wait=0)
+        self.assertTrue(result["hit"])
+        key = self.identity.key()
+        obj = self.store.root / "objects" / key[:2] / key / cache.OBJECT_NAME
+        self.assertEqual(obj.stat().st_nlink, 1)
+        self.assertNotEqual(obj.stat().st_ino, (destination / cache.ARCHIVE_NAME).stat().st_ino)
 
     def test_disk_full_publication_is_acceleration_only(self):
         token, _ = self.reserve()
