@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTextActions
 
 struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     var action: CmuxSurfaceTabBarButtonAction?
@@ -36,6 +37,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         case confirm
         case target
         case newWorkspaceMenu
+        case text
+        case submit
     }
 
     init(
@@ -90,6 +93,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
             inferredType = "builtin"
         } else if container.contains(.workspace) {
             inferredType = "workspace"
+        } else if container.contains(.text) {
+            inferredType = "text"
         } else if container.contains(.command) {
             inferredType = "command"
         } else {
@@ -110,6 +115,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         case "command":
             let command = try Self.requiredTrimmedString(forKey: .command, in: container)
             action = .command(command)
+        case "text":
+            action = .text(try Self.decodeTextPayload(from: container))
         case "agent":
             let agent = try container.decode(CmuxConfigAgentKind.self, forKey: .agent)
             let args = try Self.trimmedString(forKey: .args, in: container, allowBlankAsNil: true)
@@ -170,6 +177,12 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         case .command(let command):
             try container.encode("command", forKey: .type)
             try container.encode(command, forKey: .command)
+        case .text(let payload):
+            try container.encode("text", forKey: .type)
+            try container.encode(payload.text, forKey: .text)
+            if payload.submit {
+                try container.encode(true, forKey: .submit)
+            }
         case .agent(let agent, let args):
             try container.encode("agent", forKey: .type)
             try container.encode(agent, forKey: .agent)
@@ -185,6 +198,32 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
             try container.encode("builtin", forKey: .type)
             try container.encode(identifier, forKey: .builtin)
         }
+    }
+
+    /// `type: "text"` decoding for action definitions: verbatim text minus
+    /// bidi and zero-width controls, blank rejected, `submit` default false.
+    private static func decodeTextPayload(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> CmuxTextActionPayload {
+        guard container.contains(.text) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.text,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "text actions require 'text'"
+                )
+            )
+        }
+        let raw = try container.decode(String.self, forKey: .text)
+        let submit = try container.decodeIfPresent(Bool.self, forKey: .submit) ?? false
+        guard let payload = CmuxTextActionPayload(text: raw, submit: submit) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .text,
+                in: container,
+                debugDescription: "text must not be blank"
+            )
+        }
+        return payload
     }
 
     private static func requiredTrimmedString(
