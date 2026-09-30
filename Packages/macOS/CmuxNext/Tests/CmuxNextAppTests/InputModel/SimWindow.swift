@@ -197,8 +197,10 @@ final class SimWindow: FocusEffectApplying {
         }
     }
 
+    /// `FocusEffectApplier.blurChildWindowPage`: blurs the page it focused,
+    /// and takes the keys back from any page window of this window
+    /// (`reclaimKeyFromPageWindow`).
     private func blurChildPage() {
-        guard childPage != nil else { return }
         childPage = nil
         if case .childPage(index, _) = world.key { world.setKey(.window(index)) }
     }

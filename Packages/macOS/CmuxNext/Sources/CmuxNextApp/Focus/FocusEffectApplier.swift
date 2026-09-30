@@ -172,12 +172,21 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func blurChildWindowPage() {
         blurDevTools()
-        guard let page = focusedChildWindowPage as? any BrowserTab else { return }
-        focusedChildWindowPage = nil
-        setPageFocus(page, false)
-        if let window = controller.window, let key = NSApp.keyWindow, key.parent === window, !(key is NSPanel) {
-            window.makeKey()
+        if let page = focusedChildWindowPage as? any BrowserTab {
+            focusedChildWindowPage = nil
+            setPageFocus(page, false)
         }
+        reclaimKeyFromPageWindow()
+    }
+
+    /// The target is in this window, but one of its Chromium page windows
+    /// has the keys (a page Chromium activated without a click, e.g. a new
+    /// tab's page window; input-spec.md B10): this window takes them back.
+    /// Never activates the app (no key window while it is inactive).
+    private func reclaimKeyFromPageWindow() {
+        guard let window = controller.window, let key = NSApp.keyWindow, key !== window, key.parent === window,
+              !(key is NSPanel) else { return }
+        window.makeKey()
     }
 
     private func setPageFocus(_ page: any BrowserTab, _ focused: Bool) {
@@ -218,8 +227,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         controller.focus.send(.overlayClosed(.groupEditor))
     }
 
-    /// A Chromium page window (a child of this window, not one of our
-    /// panels) became key: the user clicked into that page.
+    /// A child window of this window (not one of our panels) became key: a
+    /// Chromium page window, its docked DevTools, or a popup over a page.
+    /// Only a click into a page is the user's choice.
     private func childWindowDidBecomeKey(_ child: NSWindow) {
         guard let window = controller.window, child.parent === window, !(child is NSPanel) else { return }
         if let devTools = paneShowingDevTools(window: child) {
@@ -230,16 +240,37 @@ final class FocusEffectApplier: FocusEffectApplying {
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
             return
         }
-        guard let pane = paneShowingChildWindowPage(at: child.frame) else { return }
+        let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(NSApp.currentEvent?.type)
+        let pane = paneShowingChildWindowPage(at: child.frame)
+        if Self.isChromiumPageWindow(child), !clicked || pane == nil {
+            // A page window took the keys without a click: Chromium activated
+            // it (a new tab's page, a page script) or AppKit restored key
+            // after a panel or sheet. Not a choice: the model re-applies its
+            // target, which takes the keys back unless the target is this
+            // page (input-spec.md B7, B10). A new page window can also be
+            // key before the tracker places it over its pane (pane == nil).
+            InputJournal.shared.append(window: controller.state.id, .page(tab: pane?.page.id.rawValue ?? "", focused: false,
+                                                                          engine: "chromium-unchosen-key"))
+            controller.focus.responderDidChange(.windowOrNone, source: .programmatic)
+            return
+        }
+        guard let pane else { return }
         focusedDevTools = nil
         focusedChildWindowPage = pane.page
         InputJournal.shared.append(window: controller.state.id, .page(tab: pane.page.id.rawValue, focused: true, engine: "chromium-key"))
-        // A click chose the page. Anything else (AppKit restoring key after a
-        // panel or sheet) is not a choice: the model re-applies its target,
-        // which blurs the page when it is not the target (input-spec.md B7).
-        let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(NSApp.currentEvent?.type)
+        // A click chose the page. Another owned window over a pane (an
+        // extension popup) keeps the old rule: a key change that is not a
+        // click re-applies the model.
         controller.focus.responderDidChange(clicked ? .content(pane: pane.key) : .windowOrNone, source: clicked ? .mouse : .programmatic)
         if window.firstResponder !== window { window.makeFirstResponder(nil) }
+    }
+
+    /// Chromium's page windows (and docked DevTools) are CEF Views windows,
+    /// `CefNSWindow`; extension popups and other bubbles are plain
+    /// Chromium widget windows.
+    private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
+        guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
+        return window.isKind(of: pageClass)
     }
 
     private func paneShowingDevTools(window child: NSWindow) -> (key: String, tab: any BrowserDevToolsHosting)? {
