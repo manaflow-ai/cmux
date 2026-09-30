@@ -2744,6 +2744,7 @@ fn start_detached_owner_session(
         state: args.state.clone(),
         term: Some(owner_term),
         initial_host_colors: Some(host_colors),
+        terminal_reap_grace: args.terminal_reap_grace,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
