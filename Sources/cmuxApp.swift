@@ -524,6 +524,11 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
+                Button(AppDelegate.actionsAndLaunchersMenuTitle) {
+                    appDelegate.presentActionsAndLaunchersCustomization(
+                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                    )
+                }
                 Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux.json")) {
                     openCmuxSettingsFileInEditor()
                 }
@@ -1093,6 +1098,15 @@ struct cmuxApp: App {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
                     sidebarState.toggle()
                 }
+            }
+
+            splitCommandButton(
+                title: String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input"),
+                shortcut: menuShortcut(for: .focusTextBoxInput)
+            ) {
+                _ = AppDelegate.shared?.performFocusTextBoxInputShortcut(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                )
             }
 
             splitCommandButton(title: String(localized: "menu.view.toggleRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .toggleRightSidebar)) {

@@ -21,6 +21,8 @@ mock.module("next/navigation", () => ({
 mock.module("@/app/lib/stack", () => ({
   isStackConfigured: () => stackConfigured,
   getStackServerApp: () => ({}),
+  // Billing procedures import purchase code that names this export.
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
 }));
 
 mock.module("next-intl", () => ({

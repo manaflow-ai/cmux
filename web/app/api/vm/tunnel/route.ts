@@ -6,6 +6,7 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
+import { verifyCompleteTeamMembership } from "../../../../services/vms/auth";
 import {
   enrollVmTunnel,
   isWireGuardPublicKey,
@@ -80,6 +81,8 @@ export async function POST(request: Request): Promise<Response> {
 
       const login = stackSession(request);
       if (!login) return missingStackSession();
+      const membership = await tunnelTeamMembership(request, user);
+      setSpanAttributes(span, { "cmux.vm.tunnel.team_list_complete": membership.teamIdsComplete });
       const enrolled = await runVmRoute(enrollVmTunnel({
         userId: user.id,
         provider: provider.id,
@@ -96,7 +99,7 @@ export async function POST(request: Request): Promise<Response> {
         stackSessionId: login.id,
         sessionIssuedAt: login.issuedAt,
         clientPublicKey,
-        teamIds: user.teamIds,
+        ...membership,
       }), { request });
       if (!enrolled.ok) return enrolled.response;
       const tunnel = enrolled.value;
@@ -148,16 +151,18 @@ export async function GET(request: Request): Promise<Response> {
 
       const provider = providerFromRequest(request, {});
       if (!provider.ok) return provider.response;
+      const membership = await tunnelTeamMembership(request, user);
       setSpanAttributes(span, {
         "cmux.vm.provider": provider.id,
         "cmux.vm.tunnel.device": deviceFingerprint,
+        "cmux.vm.tunnel.team_list_complete": membership.teamIdsComplete,
       });
       const tunnel = await runVmRoute(readVmTunnel({
         userId: user.id,
         provider: provider.id,
         deviceFingerprint,
         tunnelPurpose: parseTunnelPurpose(url.searchParams.get("tunnelPurpose")) ?? "browser",
-        teamIds: user.teamIds,
+        ...membership,
       }), { request });
       if (!tunnel.ok) return tunnel.response;
       return jsonResponse(tunnelPayload(tunnel.value));
@@ -248,6 +253,27 @@ function roleRevocationFromRequest(
   const tunnelPurpose = parseTunnelPurpose(rawTunnelPurpose) ?? (rawTunnelPurpose == null ? "browser" : null);
   if (!tunnelPurpose) return { ok: false, response: invalidTunnelPurpose() };
   return { ok: true, value: { deviceFingerprint, tunnelPurpose } };
+}
+
+/**
+ * The teams whose networks this computer's tunnel should be on.
+ *
+ * One user can hold several teams' machines at once, so the tunnel joins every
+ * team network, not only the selected team's. The route's own verification
+ * resolves only the selected team (`X-Cmux-Team-Id`), so enrollment re-lists
+ * the complete membership from Stack. Enrollment is rare, so the extra Stack
+ * call is cheap. When that listing fails, the tunnel still joins the teams the
+ * route did verify, and nothing is detached, because the missing teams might
+ * be ones the caller still belongs to.
+ */
+async function tunnelTeamMembership(
+  request: Request,
+  user: { readonly id: string; readonly teamIds: readonly string[] },
+): Promise<{ readonly teamIds: readonly string[]; readonly teamIdsComplete: boolean }> {
+  const complete = await verifyCompleteTeamMembership(request, user.id);
+  return complete
+    ? { teamIds: complete, teamIdsComplete: true }
+    : { teamIds: user.teamIds, teamIdsComplete: false };
 }
 
 type ProviderResult =
