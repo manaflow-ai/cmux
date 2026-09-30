@@ -311,6 +311,7 @@ public final class TerminalSurfaceView: NSView {
         lastFocus = focused
         ghostty_surface_set_focus(surface, focused)
         session?.model.isFocused = focused
+        if focused { session?.surfaceDidGainFocus() }
     }
 
     // MARK: Binding actions

@@ -19,6 +19,11 @@ public import Foundation
 ///   sent, after the replay, followed by the geometry claim when visible.
 /// - Every link that was opened is detached exactly once: on overflow, on
 ///   close, or when its open completes after the machine moved on.
+/// - Geometry follows tmux "window-size latest": the most recently active
+///   client holds it. A visible view claims when it is shown, on every
+///   settled resize, and, after the stream announced a grid other than the
+///   one it reported (another client sized the terminal), on its next key
+///   press or focus. A hidden view never claims.
 ///
 /// `Link` identifies an open attachment; the driver owns the real object.
 /// Effects must be applied in the order returned, and batches in the order
@@ -74,8 +79,6 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         /// the daemon frees the view attachment explicitly.
         case open(attempt: Int, size: CellSize)
         case send(Link, Data)
-        /// Passive grid report on `link`.
-        case resize(Link, CellSize)
         /// Report `size` on `link`, then claim canonical geometry.
         case claim(Link, CellSize)
         case release(Link)
@@ -99,7 +102,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     public private(set) var visible: Bool
     /// Size last reported on the live link (nil after a release or a new link).
     public private(set) var reportedSize: CellSize?
-    /// True when the live link holds the geometry claim.
+    /// True while this view believes it holds geometry: it claimed, and the
+    /// stream has not announced another client's grid since.
     public private(set) var claimed = false
     private let initialSize: CellSize
     private var lastAttempt = 0
@@ -126,8 +130,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .input(let data): input(data)
         case .resize(let size): resize(size)
         case .visibility(let visible): setVisible(visible)
-        case .focused: []
-        case .gridAnnounced: []
+        case .focused: reclaim()
+        case .gridAnnounced(let link, let size): gridAnnounced(link, size: size)
         case .ended(let link, let reason): ended(link, reason: reason)
         case .close: close()
         }
@@ -174,7 +178,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         guard !data.isEmpty else { return [] }
         switch phase {
         case .live(let link):
-            return [.send(link, data)]
+            // Geometry first, so the program sees this view's width before the key.
+            return reclaim() + [.send(link, data)]
         case .closed:
             droppedInputBytes += data.count
             return []
@@ -191,9 +196,28 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
 
     private mutating func resize(_ size: CellSize) -> [Effect] {
         guard size.cols > 0, size.rows > 0 else { return [] }
+        let changed = desiredSize != size
         desiredSize = size
-        guard let link = liveLink else { return [] }
-        return syncGeometry(link)
+        guard let link = liveLink, visible else { return [] }
+        // A visible pane that resized takes geometry back, whoever held it.
+        guard changed || !claimed || reportedSize != size else { return [] }
+        return claim(link, size)
+    }
+
+    /// The stream announced `size`. Another client's grid means this view no
+    /// longer holds geometry; its next key press or focus claims again. A
+    /// grid from this view's earlier report (announced after a newer one)
+    /// costs at most one redundant claim.
+    private mutating func gridAnnounced(_ link: Link, size: CellSize) -> [Effect] {
+        guard liveLink == link, claimed, size != reportedSize else { return [] }
+        claimed = false
+        return []
+    }
+
+    /// Key press or focus: a visible view that lost geometry takes it back.
+    private mutating func reclaim() -> [Effect] {
+        guard let link = liveLink, visible, !claimed, let size = desiredSize else { return [] }
+        return claim(link, size)
     }
 
     private mutating func setVisible(_ visible: Bool) -> [Effect] {
@@ -270,15 +294,14 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// Brings the live link's geometry in line with the desired size and
     /// visibility: a visible view reports its latest grid and claims.
     private mutating func syncGeometry(_ link: Link) -> [Effect] {
-        guard visible, let size = desiredSize else { return [] }
-        if !claimed {
-            claimed = true
-            reportedSize = size
-            return [.claim(link, size)]
-        }
-        guard reportedSize != size else { return [] }
+        guard visible, let size = desiredSize, !claimed || reportedSize != size else { return [] }
+        return claim(link, size)
+    }
+
+    private mutating func claim(_ link: Link, _ size: CellSize) -> [Effect] {
+        claimed = true
         reportedSize = size
-        return [.resize(link, size)]
+        return [.claim(link, size)]
     }
 
     private mutating func terminate(detaching link: Link?) -> [Effect] {

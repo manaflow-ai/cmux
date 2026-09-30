@@ -79,6 +79,8 @@ public final class TerminalSession {
                     await io.write(data)
                 case .resize(let grid, let width, let height):
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
+                case .focusGained:
+                    await io.focusGained()
                 }
             }
         }
@@ -247,6 +249,10 @@ public final class TerminalSession {
     }
 
     // MARK: From the surface view
+
+    func surfaceDidGainFocus() {
+        input.focusGained()
+    }
 
     func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
         guard ownsGeometry else { return }

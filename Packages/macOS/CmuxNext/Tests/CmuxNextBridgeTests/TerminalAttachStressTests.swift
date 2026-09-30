@@ -51,7 +51,7 @@ struct TerminalAttachReducerStressTests {
                     #expect(links[link]?.replayed == true, "input before the replay")
                     #expect(links[link]?.detached == 0, "input to a detached link")
                     sent += tokens(in: data)
-                case .resize(let link, _), .claim(let link, _), .release(let link):
+                case .claim(let link, _), .release(let link):
                     #expect(links[link]?.replayed == true, "geometry before the replay")
                     #expect(links[link]?.detached == 0, "geometry on a detached link")
                 case .detach(let link):
@@ -232,7 +232,6 @@ nonisolated final class FakeLink: TerminalAttachLink, @unchecked Sendable {
             $0.input.append(data)
         }
     }
-    func sendResize(_ size: CellSize) { log.withLock { $0.commands.append("resize \(size.cols)x\(size.rows)") } }
     func sendClaim(reporting size: CellSize) { log.withLock { $0.commands.append("claim \(size.cols)x\(size.rows)") } }
     func sendReleaseGeometry() { log.withLock { $0.commands.append("release") } }
     func detachNow() {

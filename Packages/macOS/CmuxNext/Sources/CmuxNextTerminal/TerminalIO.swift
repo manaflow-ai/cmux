@@ -32,10 +32,16 @@ public nonisolated protocol TerminalIO: Sendable {
     /// replies are suppressed. A bare PTY does not, so the surface runs in
     /// `GHOSTTY_SURFACE_IO_MANUAL` and Ghostty replies (ghostty.h:552-559).
     var answersTerminalQueries: Bool { get }
+
+    /// The surface gained keyboard focus. Ordered with `write` and `resize`.
+    /// A daemon IO takes canonical geometry back if another client took it
+    /// (tmux "window-size latest").
+    func focusGained() async
 }
 
 public extension TerminalIO {
     var answersTerminalQueries: Bool { true }
+    func focusGained() async {}
 }
 
 /// One event from a ``TerminalIO``.

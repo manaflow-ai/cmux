@@ -20,6 +20,11 @@ actor MobileCompatTerminalStream {
     private(set) var nextSeq: UInt64
     private var pump: Task<Void, Never>?
     private var ended = false
+    /// The phone's grid, and whether the phone still holds geometry (tmux
+    /// "window-size latest"): false once the stream announced another
+    /// client's grid.
+    private var viewport: CellSize?
+    private var holdsGeometry = false
 
     init(surfaceID: String, channel: any MobileCompatTerminalChannel, startSeq: UInt64) {
         self.surfaceID = surfaceID
@@ -50,7 +55,17 @@ actor MobileCompatTerminalStream {
     }
 
     func resize(cols: Int, rows: Int) async {
+        viewport = CellSize(cols: cols, rows: rows)
+        holdsGeometry = true
         await channel.resize(cols: cols, rows: rows)
+        await channel.claimGeometry()
+    }
+
+    /// The phone typed into this terminal: take geometry back when another
+    /// client sized it since the phone's last claim.
+    func activate() async {
+        guard !holdsGeometry, viewport != nil, !ended else { return }
+        holdsGeometry = true
         await channel.claimGeometry()
     }
 
@@ -75,6 +90,7 @@ actor MobileCompatTerminalStream {
             nextSeq += UInt64(data.count)
             await emit(surfaceID, seq, data)
         case .resized(let snapshot):
+            if CellSize(cols: snapshot.cols, rows: snapshot.rows) != viewport { holdsGeometry = false }
             replay = snapshot
             let bytes = MobileCompatReplayBytes.replacement(snapshot)
             let seq = nextSeq

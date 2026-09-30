@@ -28,6 +28,7 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
 nonisolated enum TerminalOutgoing: Sendable {
     case bytes(Data)
     case resize(TerminalGridSize, pixelWidth: Int, pixelHeight: Int)
+    case focusGained
 }
 
 /// Ordered hand-off from Ghostty's IO thread to the async `TerminalIO.write`.
@@ -46,6 +47,10 @@ nonisolated struct TerminalInputSink: Sendable {
 
     func resize(_ grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
         continuation.yield(.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight))
+    }
+
+    func focusGained() {
+        continuation.yield(.focusGained)
     }
 
     func finish() {

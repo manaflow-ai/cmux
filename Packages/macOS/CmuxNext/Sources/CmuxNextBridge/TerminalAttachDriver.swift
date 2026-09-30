@@ -9,8 +9,6 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     /// `replay -> (output | resized | …)* -> closed`, finishing after `closed`.
     var events: AsyncStream<TerminalChannelEvent> { get }
     func sendInput(_ data: Data)
-    /// Passive grid report.
-    func sendResize(_ size: CellSize)
     /// Reports `size`, then claims canonical geometry.
     func sendClaim(reporting size: CellSize)
     func sendReleaseGeometry()
@@ -92,6 +90,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     public func input(_ data: Data) { send(.input(data)) }
     public func resize(_ size: CellSize) { send(.resize(size)) }
     public func setVisible(_ visible: Bool) { send(.visibility(visible)) }
+    /// The surface gained keyboard focus.
+    public func focused() { send(.focused) }
     public func close() { send(.close) }
 
     // MARK: Diagnostics
@@ -134,7 +134,6 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
                 }
             }
         case .send(let ref, let data): ref.link.sendInput(data)
-        case .resize(let ref, let size): ref.link.sendResize(size)
         case .claim(let ref, let size): ref.link.sendClaim(reporting: size)
         case .release(let ref): ref.link.sendReleaseGeometry()
         case .detach(let ref): ref.link.detachNow()
@@ -153,7 +152,11 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
             guard let queue = owner.value?.queue else { break stream }
             for step in TerminalStreamPlan.steps(for: event) {
                 await queue.push(step)
-                if case .replay = step { owner.value?.send(.replayDelivered(ref)) }
+                switch step {
+                case .replay: owner.value?.send(.replayDelivered(ref))
+                case .grid(let columns, let rows): owner.value?.send(.gridAnnounced(ref, CellSize(cols: columns, rows: rows)))
+                case .output, .exited: break
+                }
             }
             if case .closed(let reason) = event {
                 ended = reason

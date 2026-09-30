@@ -15,7 +15,7 @@ mark on its own line after Ctrl-C.
 The tagged app must be running (launched with CMUX_NEXT_SOCKET_MODE=automation).
 Exit 1 on any mismatch after an op has settled.
 """
-import argparse, glob, json, os, random, re, socket, subprocess, sys, time
+import argparse, glob, json, os, queue, random, re, socket, subprocess, sys, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -26,6 +26,7 @@ parser.add_argument("--settle", type=float, default=1.0, help="seconds to wait a
 parser.add_argument("--cli", help="cmux CLI inside the tagged app (default: found in DerivedData)")
 opts = parser.parse_args()
 random.seed(opts.seed)
+MARKERS = random.SystemRandom()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 CLI = opts.cli or next(iter(sorted(glob.glob(os.path.expanduser(
     f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app/Contents/Resources/bin/cmux")))), None)
@@ -54,28 +55,41 @@ def action(name):
 
 
 class Daemon:
-    """A second cmux-tui client on the tag's daemon socket (line JSON)."""
+    """A second cmux-tui client on the tag's daemon socket (line JSON). A
+    reader thread drains the socket, so attached-surface output never backs
+    up and gets the client disconnected while the checks run."""
 
     def __init__(self):
         self.sock = socket.socket(socket.AF_UNIX)
         self.sock.connect(DAEMON)
-        self.sock.settimeout(10)
         self.file = self.sock.makefile("rwb")
         self.next_id = 0
+        self.replies = queue.Queue()
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        try:
+            for line in self.file:
+                reply = json.loads(line)
+                if "id" in reply or reply.get("ok") is False:
+                    self.replies.put(reply)
+        except (OSError, ValueError):
+            pass
+        self.replies.put(None)
 
     def request(self, cmd, **fields):
         self.next_id += 1
         self.file.write((json.dumps({"id": self.next_id, "cmd": cmd, **fields}) + "\n").encode())
         self.file.flush()
         while True:
-            line = self.file.readline()
-            if not line:
+            reply = self.replies.get(timeout=10)
+            if reply is None:
                 raise RuntimeError("daemon closed the connection")
-            reply = json.loads(line)
             if reply.get("id") == self.next_id or reply.get("ok") is False:
                 return reply
 
     def close(self):
+        self.sock.shutdown(socket.SHUT_RDWR)
         self.sock.close()
 
 
@@ -103,7 +117,9 @@ def visible_terminals():
 
 def shell_size(surface):
     """(rows, cols, $COLUMNS) as the shell sees them."""
-    marker = random.randrange(1 << 16)
+    # Not from the seeded generator: a rerun with the same seed must not
+    # match an answer an earlier run left on the screen.
+    marker = MARKERS.randrange(1 << 32)
     cli("send", "--surface", surface, f'echo "@@{marker} $(stty size) $COLUMNS@@"\n')
     pattern = re.compile(rf"@@{marker} (\d+) (\d+) (\d+)@@")
     deadline = time.time() + 5
@@ -210,8 +226,16 @@ def displace():
     # The other client's own input takes it back (the phone does this).
     d.request("set-client-sizing", surface=number, enabled=True, exclusive=True)
     bad += check("other client reclaimed")
-    d.close()
-    bad += check("other client left")
+    if random.random() < 0.5:
+        # Release freezes the grid at the other client's size and no
+        # displaced owner returns (cmux-tui `use_all_client_sizes`): only
+        # Mac activity can take geometry back.
+        d.request("set-client-sizing", surface=number, enabled=True)
+        d.close()
+        bad += check("other client released and left, grid frozen at its size")
+    else:
+        d.close()
+        bad += check("other client left")
     label = mac_activity()
     bad += check(f"{label} after the other client left")
     return bad + expect_mac_grid(pane, (cols, rows), label)

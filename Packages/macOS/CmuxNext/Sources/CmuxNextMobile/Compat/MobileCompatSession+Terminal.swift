@@ -75,6 +75,9 @@ extension MobileCompatSession {
             throw MobileRPCError.invalidParams("text is required")
         }
         if !text.isEmpty {
+            let stream = streams[surfaceID]
+                ?? streams.first { $0.key.caseInsensitiveCompare(surfaceID) == .orderedSame }?.value
+            await stream?.activate()
             try await backend.send(location.tab.surface, bytes: Data(text.utf8), paste: paste)
         }
         return .object([
