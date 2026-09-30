@@ -1966,6 +1966,137 @@
         }
       }
     },
+    "cli.socket.error.foreignOwner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refusing to send the socket password to %@: the socket is not owned by the current user."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ にソケットパスワードを送信しません: このソケットは現在のユーザーが所有していません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拒绝向 %@ 发送套接字密码：该套接字不属于当前用户。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Socket-Passwort wird nicht an %@ gesendet: Der Socket gehört nicht dem aktuellen Benutzer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Refus d’envoyer le mot de passe du socket à %@ : le socket n’appartient pas à l’utilisateur actuel."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض إرسال كلمة مرور المقبس إلى %@: المقبس ليس ملكًا للمستخدم الحالي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se envía la contraseña del socket a %@: el socket no pertenece al usuario actual."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拒絕向 %@ 傳送 socket 密碼：此 socket 不屬於目前使用者。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 소켓 암호를 보내지 않습니다: 이 소켓은 현재 사용자의 소유가 아닙니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lozinka socketa se ne šalje na %@: socket ne pripada trenutnom korisniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sender ikke socket-adgangskoden til %@: socketten ejes ikke af den aktuelle bruger."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La password del socket non viene inviata a %@: il socket non appartiene all’utente corrente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនផ្ញើពាក្យសម្ងាត់ socket ទៅ %@ ទេ៖ socket នេះមិនមែនជារបស់អ្នកប្រើបច្ចុប្បន្នទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sender ikke socket-passordet til %@: socketen eies ikke av gjeldende bruker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hasło gniazda nie zostanie wysłane do %@: gniazdo nie należy do bieżącego użytkownika."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A senha do socket não será enviada para %@: o socket não pertence ao usuário atual."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пароль сокета не отправлен в %@: сокет не принадлежит текущему пользователю."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ส่งรหัสผ่านซ็อกเก็ตไปยัง %@: ซ็อกเก็ตนี้ไม่ได้เป็นของผู้ใช้ปัจจุบัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Soket parolası %@ adresine gönderilmiyor: soket geçerli kullanıcıya ait değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пароль сокета не надіслано до %@: сокет не належить поточному користувачу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gửi mật khẩu socket tới %@: socket không thuộc về người dùng hiện tại."
+          }
+        }
+      }
+    },
     "cli.vm.sidebar.usage": {
       "extractionState": "manual",
       "localizations": {
