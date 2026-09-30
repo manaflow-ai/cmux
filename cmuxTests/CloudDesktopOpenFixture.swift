@@ -162,7 +162,9 @@ final class CloudDesktopOpenFixture {
         assertTaskWindowRemainsUnfocused()
     }
 
-    func drop(_ row: CloudTreeNode, into workspace: Workspace) async throws {
+    /// Drops `row` through the real workspace action and waits until the Desktop has
+    /// `expectedProjections` views and the drop's focus transaction selected one here.
+    func drop(_ row: CloudTreeNode, into workspace: Workspace, expectedProjections: Int) async throws {
         assertTaskWindowRemainsUnfocused()
         let group = try #require(row.dragGroup)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -170,30 +172,18 @@ final class CloudDesktopOpenFixture {
         try #require(route.windowId == app.windowID && route.tabManager === app.manager)
         try #require(route.workspace === workspace && route.paneId == pane)
         try #require(workspace.selectedPanelForPaneDrop(in: pane) != nil)
-        let expected = catalog.projections(of: display.id).count + 1
-        let committed = CloudLinkFirstValue<Bool>()
-        let catalog = catalog
-        let resource = display.id
-        let token = NotificationCenter.default.addObserver(forName: SurfaceCatalog.didChangeNotification,
-            object: catalog, queue: .main) { _ in
-                MainActor.assumeIsolated {
-                    if catalog.projections(of: resource).count >= expected { committed.resolve(true) }
-                }
-            }
-        defer { NotificationCenter.default.removeObserver(token) }
         try #require(workspace.handleSurfaceResourceDrop(group: group,
             destination: .split(targetPane: pane, orientation: .vertical, insertFirst: false), catalog: catalog))
-        // The commit can land before the next catalog notification, and an
-        // unbounded wait turns a missed commit into the suite's 60 s time limit,
-        // which restarts the app host and discards the rest of the shard.
-        if catalog.projections(of: resource).count >= expected { committed.resolve(true) }
-        let deadline = Task {
-            try? await Task.sleep(for: .seconds(10))
-            committed.resolve(false)
+        let resource = display.id
+        let settled = { [catalog] in
+            let views = catalog.projections(of: resource)
+            return views.count == expectedProjections && views.contains { $0.panelID == workspace.focusedPanelId }
         }
-        defer { deadline.cancel() }
-        let didCommit = await committed.result
-        #expect(didCommit == true, "the drop never committed a second Desktop projection")
+        // Bounded so a missed commit fails here instead of at the suite's time limit,
+        // which restarts the app host and discards the rest of the shard.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !settled(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(settled(), "the drop never settled on \(expectedProjections) focused Desktop view(s)")
         assertTaskWindowRemainsUnfocused()
     }
 

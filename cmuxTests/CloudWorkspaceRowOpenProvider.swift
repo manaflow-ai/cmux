@@ -18,6 +18,10 @@ final class CloudWorkspaceRowOpenProvider: SurfaceProvider {
     var materializations = 0
     var failAt: Int?
     var remoteCloses = 0
+    /// Answers with this tab instead of the requested one, like a stale daemon reply.
+    var answeredTabID: String?
+    /// Binds the attachment to the reserved pane, as the Cloud provider does.
+    var adoptsTerminalReservations: Bool { true }
 
     init(machine: SurfaceMachineID) {
         self.machine = machine
@@ -54,7 +58,7 @@ final class CloudWorkspaceRowOpenProvider: SurfaceProvider {
         }
         let view = remoteView ?? resource.remoteViews?.first
         return SurfaceProjection(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID,
-            remoteWorkspaceID: view?.workspace.id, remoteTabID: view?.tabID)
+            remoteWorkspaceID: view?.workspace.id, remoteTabID: answeredTabID ?? view?.tabID)
     }
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
