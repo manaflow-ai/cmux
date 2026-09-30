@@ -34,8 +34,8 @@ gh variable list --repo manaflow-ai/cmux
 | --- | --- | --- | --- |
 | `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
-| `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission` and its consumers outside pull requests, merge groups and dispatches (the scheduled `ci-macos-15.yml`), nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-26` in `ci-macos.yml`, `ci.yml` and `remote-daemon.yml` |
 | `MACOS_RUNNER_TESTS` | test-only lanes that pick their Xcode by SDK and sign nothing: `test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml` (`auto`) and the `iroh-v2.yml` client | unset (see "Lanes" below) | each lane's own variable or Blacksmith label: `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml`, `MACOS_RUNNER_IOS` for `test-ios.yml` and `iroh-v2.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included, except attempt 1 of a pull request run whose picker placed it on an owned Mac (no helper build in that run; see "Pull request pool preference") | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
@@ -158,25 +158,46 @@ their peak. With live runners, a missing or stale snapshot no longer skips
 the fleet: the owned pools are decided live, and a run none takes keeps its
 default route. A pool's
 capacity is set independently by the Blacksmith plan: 5 machines for
-`blacksmith-12vcpu-macos-26`, 10 for `blacksmith-6vcpu-macos-26`, and 10 for
-`blacksmith-6vcpu-macos-15`. Each label's expected wait uses only its own
-queued and running jobs, including the young-run charges used by the picker.
-The macOS 15 pool counts one round more
-(`COLD_ROUNDS`): the DerivedData seed exists only for the lane's Xcode, so a
-run there compiles cold, 10 to 20 minutes longer, about one job's length.
+`blacksmith-12vcpu-macos-26` and 10 for `blacksmith-6vcpu-macos-26`. Each
+label's expected wait uses only its own queued and running jobs, including the
+young-run charges used by the picker. A pool on another Xcode than the lane's
+pin would count one round more (`COLD_ROUNDS`), since the DerivedData seed
+exists only for the lane's Xcode; no pool in the order is one today.
+
+Blacksmith overflow is macOS 26 only. `blacksmith-6vcpu-macos-15` (Xcode 26.3)
+used to be the last pool in the order, but a pull request or merge-queue run
+placed there tested another OS and Xcode than `main`'s full suite (the owned
+minis, macOS 26 and Xcode 26.6), so a test could pass on one and fail on the
+other. It is not accepted in `CI_PR_POOL_ORDER` either. The live picker
+(`scripts/ci/simple_pool_picker.py`, which `ci.yml`, `test-e2e.yml` and
+`test-ios.yml` run) and `pr_runner_pool.py` share this order. A merge group
+can carry fork code, so it takes an ephemeral Blacksmith macOS 26 pool, never
+an owned Mac, with the lane's Xcode. macOS 15 keeps a separate, non-gating
+signal: see "Scheduled macOS 15 suite" below.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CI_PR_POOL_OVERFLOW` | unset (on) | `0` turns the preference off; every job takes its `MACOS_RUNNER_PR` route |
-| `CI_PR_POOL_ORDER` | `blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-26,blacksmith-6vcpu-macos-15` | preference order; only pools whose Xcode pin `pr_runner_pool.py` knows are accepted, and an unknown label turns the preference off |
+| `CI_PR_POOL_ORDER` | `blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-26` | preference order; only pools whose Xcode pin `pr_runner_pool.py` knows are accepted (the macOS 26 pools and owned labels), and an unknown label, `blacksmith-6vcpu-macos-15` included, turns the preference off |
 | `CI_PR_POOL_MAX_QUEUED` | `0` | with `CI_PR_POOL_QUEUE_ROUNDS=0` only: a Blacksmith pool still takes a run with up to this many macOS jobs queued once it arrives |
 | `CI_PR_POOL_QUEUE_ROUNDS` | `1` | the most job lengths a run's jobs may expect to wait on an owned pool (at most `3`); within that they queue there whatever Blacksmith's wait, while the queue stays within machines x (1 + rounds). `0` is the kill switch and restores the old rule exactly: an owned pool only when the run's peak is free counting every run's peak, and a full Blacksmith pool rolls over at once |
 
-The two macOS 26 pools share the lane's Xcode. A run on
-`blacksmith-6vcpu-macos-15` builds with `CMUX_CI_XCODE_APP_MACOS_15`, the pool
-and Xcode `main`'s own compile admission uses, and the build-input fingerprint
-follows that Xcode. Every Blacksmith pool is sponsored, so cost does not rank
-them; the order is speed first.
+The two macOS 26 pools share the lane's Xcode. A fork run on them builds with
+`CMUX_CI_XCODE_APP_MACOS_26`, the Blacksmith macOS 26 pin, and the build-input
+fingerprint follows that Xcode. Every Blacksmith pool is sponsored, so cost
+does not rank them; the order is speed first.
+
+### Scheduled macOS 15 suite
+
+`ci-macos-15.yml` runs the full app-host suite and `swift-package-tests` on
+`blacksmith-6vcpu-macos-15` with `CMUX_CI_XCODE_APP_MACOS_15` once a day
+(10:41 UTC) and on manual dispatch. It calls `ci-macos.yml` rather than
+copying its jobs: on the schedule event every macOS job falls through to that
+workflow's macOS 15 default, and a dispatch names the pool and Xcode through
+the `pr_*` inputs. It is not a required check. On `main` it keeps one issue
+labeled `macos-15-full-suite-failure` open while it is red, listing the
+failing tests (`scripts/ci/lane_failed_tests.py`), and closes it on the next
+green run (`scripts/ci/main_full_suite.py report --tracker macos-15`).
 
 The queue comes from the queue janitor: each sweep publishes the per-pool demand
 it already listed as the `macos-pool-load` artifact, and the `changes` job
@@ -193,9 +214,8 @@ the pool, the reason, and the queue it saw.
 A fork pull request gets no repository variables, so the janitor copies
 `MACOS_RUNNER_PR` and the three settings above into the snapshot and fork runs
 follow those: `CI_PR_POOL_OVERFLOW=0` or a lane other than
-`blacksmith-6vcpu-macos-26` keeps them on the Blacksmith macOS 15 fallback as
-before. Fork runs never pin an Xcode (each job selects its pool's newest SDK
-26 Xcode) and only use ephemeral `blacksmith-*` pools.
+`blacksmith-6vcpu-macos-26` keeps them on the Blacksmith 6vcpu macOS 26
+fallback. Fork runs only use ephemeral `blacksmith-*` pools.
 
 Owned Mac minis (fleet RFC cmuxterm-hq#573) join as class pools keyed by the
 label glaeda issues to a dedicated member once it has verified the pinned

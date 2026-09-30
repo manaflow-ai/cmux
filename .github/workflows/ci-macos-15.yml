@@ -1,0 +1,96 @@
+name: CI macOS 15
+
+# Pull requests, the merge queue and main's full suite all test on macOS 26
+# with the lane's Xcode (vars.CMUX_CI_XCODE_APP_PR), so a pull request is
+# judged on the OS and toolchain main is. cmux supports macOS 14 and later,
+# and a macOS 15-only failure can be a real user bug, so this runs the full
+# app-host suite and swift-package-tests on the macOS 15 Blacksmith pool
+# (Xcode vars.CMUX_CI_XCODE_APP_MACOS_15, 26.3) once a day. It is a signal,
+# not a gate: no ruleset requires it, and it keeps one tracking issue open
+# while it is red (main_full_suite.py report --tracker macos-15), listing the
+# failing tests (lane_failed_tests.py). The issue closes on the next green run.
+#
+# It calls ci-macos.yml, the jobs CI runs, rather than copying them, with
+# macos_15_lane, which puts compile admission (and so the app-host shards
+# that follow it) on blacksmith-6vcpu-macos-15 with the macOS 15 Xcode on
+# either event. swift-package-tests takes its macOS 15 default there.
+on:
+  schedule:
+    # 10:41 UTC is 03:41 PDT, off-peak for the Blacksmith macOS pools.
+    - cron: "41 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-macos-15-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    # Blacksmith and this repository's macOS variables exist only here.
+    if: github.repository_owner == 'manaflow-ai'
+    permissions:
+      actions: read
+      id-token: write
+      attestations: read
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ci-macos.yml
+    with:
+      macos: ${{ 'true' }}
+      cli: ${{ 'false' }}
+      full_suite: ${{ 'true' }}
+      unit_suite: ${{ 'true' }}
+      swift_packages: ${{ 'true' }}
+      compile_admitted: ${{ 'false' }}
+      release_build: ${{ 'false' }}
+      source_parent1: ""
+      macos_15_lane: ${{ 'true' }}
+
+  report:
+    name: Sync the macOS 15 failure issue
+    needs: [macos]
+    # Only main's runs speak for main; a dispatch on a branch just reports in
+    # its log and summary.
+    if: ${{ always() && github.repository_owner == 'manaflow-ai' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: List the failing tests
+        id: tests
+        if: ${{ needs.macos.result != 'success' }}
+        # A report-only reader: its failure must not stop the issue sync.
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/lane_failed_tests.py --run-id "$GITHUB_RUN_ID" \
+            --output "$RUNNER_TEMP/failed-tests.md"
+          cat "$RUNNER_TEMP/failed-tests.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open, update or close the tracking issue
+        # A cancelled or skipped run tested nothing: leave the issue as it is.
+        if: ${{ github.ref == 'refs/heads/main' && (needs.macos.result == 'success' || needs.macos.result == 'failure') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONCLUSION: ${{ needs.macos.result }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/main_full_suite.py report --tracker macos-15 \
+            --run-id "$GITHUB_RUN_ID" --conclusion "$CONCLUSION" \
+            --extra-section "$RUNNER_TEMP/failed-tests.md"

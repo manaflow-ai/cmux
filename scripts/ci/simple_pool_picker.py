@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""One live, per-label rule for macOS CI pool placement."""
+"""One live, per-label rule for macOS CI pool placement.
+
+Blacksmith overflow uses the macOS 26 pools only, the macOS and Xcode (the
+pull-request lane's pin, vars.CMUX_CI_XCODE_APP_PR) main's full suite runs on.
+`blacksmith-6vcpu-macos-15` (Xcode 26.3) is not a pull-request or merge-queue
+pool: a run placed there tested a different OS and toolchain than main, so a
+test could pass on main and fail in the pull request, or the reverse. macOS 15
+keeps its own non-gating signal in ci-macos-15.yml, a scheduled full suite.
+"""
 
 from __future__ import annotations
 
@@ -12,8 +20,8 @@ import sys
 import urllib.request
 from typing import Any, Mapping, Sequence
 
-BLACKSMITH = ("blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-15")
-CAPACITY = dict(zip(BLACKSMITH, (5, 10, 10)))
+BLACKSMITH = ("blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26")
+CAPACITY = dict(zip(BLACKSMITH, (5, 10)))
 # Public alias retained for callers and table-driven tests.
 BLACKSMITH_CAPACITY = CAPACITY
 OWNED = re.compile(r"^glaeda-(?:std|light|xl)-xcode-[0-9]+(?:\.[0-9]+)*$")
@@ -182,9 +190,7 @@ def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], f
                 counts[label]["queued"] += 1
                 if RESERVED.search(f"{job.get('workflow_name', '')} {job.get('name', '')}"):
                     counts[label]["reserved"] += 1
-    blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
-                            xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "")
-                       for label in BLACKSMITH)
+    blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label]) for label in BLACKSMITH)
     return State(jobs, tuple(owned), blacksmith, fork, enabled, (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback)
 
 
@@ -271,8 +277,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     repository = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
     head = env.get("HEAD_REPO") or repository
     trusted_fork = (env.get("CI_PR_POOL_FORK_ALLOWED") or "").strip() == "1"
+    # A merge group can carry a fork pull request's code, so it takes an
+    # ephemeral Blacksmith pool like a fork (owned_pool_rescue.TRUSTED_SIDE_EVENTS).
+    ephemeral_only = (head != repository and not trusted_fork) or env.get("EVENT_NAME") == "merge_group"
     choice = pick(observe(token=env.get("ROUTE_TOKEN") or env.get("GH_TOKEN") or "", repository=repository,
-                       jobs=jobs, env=env, fork=head != repository and not trusted_fork))
+                       jobs=jobs, env=env, fork=ephemeral_only))
     values = write_outputs(choice, jobs, env.get("GITHUB_OUTPUT"), env)
     for key, value in values.items():
         print(f"{key}={value}")

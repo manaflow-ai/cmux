@@ -295,5 +295,71 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("github.event_name != 'push'", condition)
 
 
+class MacOS15TrackerTests(unittest.TestCase):
+    """ci-macos-15.yml's scheduled suite keeps its own issue with the same mechanism."""
+
+    LANE = ROOT / ".github/workflows/ci-macos-15.yml"
+
+    def test_trackers_keep_separate_issues(self):
+        main, macos_15 = MODULE.TRACKERS["main"], MODULE.TRACKERS["macos-15"]
+        self.assertIs(main, MODULE.MAIN_TRACKER)
+        self.assertEqual(main.label, MODULE.ISSUE_LABEL)
+        self.assertNotEqual(main.label, macos_15.label)
+        self.assertNotEqual(main.title, macos_15.title)
+
+    def test_macos_15_body_names_its_lane_and_failing_tests(self):
+        section = "### Failing tests\n\n- `FooTests/testBar()` (app-host, [log](https://x/1))\n"
+        body = MODULE.failure_body(run(html_url="https://run/9"), [], section, MODULE.MACOS_15_TRACKER)
+        self.assertTrue(body.startswith(f"The scheduled macOS 15 full suite (Xcode 26.3) failed at {HEAD}"))
+        self.assertIn("`FooTests/testBar()`", body)
+        self.assertIn("not a required check", body)
+        # main's wording is unchanged.
+        self.assertTrue(MODULE.failure_body(run(), []).startswith("Full-suite CI on `main` failed at"))
+
+    def test_macos_15_reports_only_with_its_runs_verdict(self):
+        with self.assertRaises(SystemExit):
+            MODULE.main(["--repo", "o/r", "report", "--tracker", "macos-15", "--conclusion", "cancelled"])
+        self.assertEqual(MODULE.main(["--repo", "o/r", "report", "--tracker", "macos-15"]), 2)
+        self.assertEqual(MODULE.main(["--repo", "o/r", "report", "--tracker", "macos-15", "--conclusion", "failure"]), 2)
+
+    def test_lane_is_scheduled_on_macos_15_and_syncs_only_from_main(self):
+        text = self.LANE.read_text(encoding="utf-8")
+        self.assertRegex(text, r"(?m)^  schedule:\n    # .*\n    - cron: \"41 10 \* \* \*\"$")
+        self.assertIn("uses: ./.github/workflows/ci-macos.yml", text)
+        self.assertIn("      macos_15_lane: ${{ 'true' }}\n", text)
+        self.assertIn("--tracker macos-15", text)
+        self.assertIn("github.ref == 'refs/heads/main'", text.split("Open, update or close the tracking issue", 1)[1])
+        self.assertNotIn("pull_request", text.split("\njobs:", 1)[0])
+
+
+class LaneFailedTestsTests(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import lane_failed_tests
+
+        self.lane = lane_failed_tests
+
+    def test_package_failures_read_xctest_and_swift_testing(self):
+        log = (
+            "2026-09-30T10:00:00.1Z Test Case '-[CmuxKitTests.ParserTests testEmpty]' failed (0.1 seconds).\n"
+            "Test Case '-[CmuxKitTests.ParserTests testFull]' passed (0.1 seconds).\n"
+            "\x1b[31m✘ Test quxWorks() failed after 0.2 seconds with 1 issue.\x1b[0m\n"
+            "✔ Test fine() passed after 0.1 seconds.\n"
+        )
+        self.assertEqual(self.lane.package_failures(log), {"ParserTests/testEmpty", "quxWorks()"})
+
+    def test_section_lists_tests_and_silent_jobs(self):
+        crash = self.lane.attribution.HostCrash(shard="3", job_url="https://x/3",
+                                                signatures=["EXC_BAD_ACCESS"], tests=["BazTests/testCrash()"])
+        text = self.lane.section({"FooTests/testBar()": ["https://x/1"]}, [crash],
+                                 {"quxWorks()": ["https://x/2"]},
+                                 [{"name": "macos / macOS compile admission", "html_url": "https://x/4"}])
+        self.assertIn("- `FooTests/testBar()` (app-host, [log](https://x/1))", text)
+        self.assertIn("`BazTests/testCrash()` (app-host, the app host crashed while running it: `EXC_BAD_ACCESS`", text)
+        self.assertIn("- `quxWorks()` (swift-package-tests, [log](https://x/2))", text)
+        self.assertIn("[macos / macOS compile admission](https://x/4)", text)
+        self.assertIn("No failing test was found", self.lane.section({}, [], {}, []))
+
+
 if __name__ == "__main__":
     unittest.main()

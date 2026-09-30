@@ -17,8 +17,8 @@ including 80 minutes after #14241 merged.
 So for each pool, walk main's first-parent history to the nearest commit whose
 seeder run saved that pool's seed, and skip that pool only if that commit's
 build inputs, under the pool's own Xcode, equal this one's. Each pool decides
-alone: a macOS 15 seed that keeps failing must not make every push rebuild the
-macOS 26 seeds too. Anything unknown (API errors, no seeded ancestor within
+alone: one pool's seed that keeps failing (a pool on another Xcode, or the
+trusted pool) must not make every push rebuild the other seeds too. Anything unknown (API errors, no seeded ancestor within
 the window, a commit outside the shallow checkout) builds that pool.
 
 A pool may be a lane `LABEL@K`: the same runners, building in the second (or

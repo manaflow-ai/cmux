@@ -14,14 +14,20 @@ The run goes where it expects to wait least (pick()):
     vars.CI_PR_POOL_ORDER, comma-separated; by default
       blacksmith-12vcpu-macos-26   same macOS and Xcode as the lane, faster
       blacksmith-6vcpu-macos-26    vars.MACOS_RUNNER_PR today
-      blacksmith-6vcpu-macos-15    macOS 15 Xcode (vars.CMUX_CI_XCODE_APP_MACOS_15),
-                                   the pool and Xcode main's own CI runs on
 
     expected wait = that label's queued jobs over its Blacksmith plan capacity,
                     times a job's length there (JOB_MINUTES: 12vcpu jobs run
-                    about twice as fast), plus COLD_ROUNDS on the macOS 15
-                    pool, which has no DerivedData seed for its Xcode and
-                    compiles cold
+                    about twice as fast), plus COLD_ROUNDS on a pool whose
+                    Xcode is not the lane's pin (none in POOLS today), which
+                    has no DerivedData seed and compiles cold
+
+Every pool here is macOS 26 on the lane's Xcode (vars.CMUX_CI_XCODE_APP_PR),
+the macOS and Xcode main's full suite runs on (the owned minis). The macOS 15
+pool (MACOS_15_RUNNER, Xcode 26.3) was once the last overflow: a run placed
+there tested another OS and toolchain than main, so a test could pass on one
+and fail on the other. It is not in POOLS, so CI_PR_POOL_ORDER cannot name it
+either. macOS 15 keeps a separate non-gating signal: ci-macos-15.yml runs the
+full app-host suite and swift-package-tests there on a schedule.
 
 Owned pools come first in the default order and take the run while the jobs
 they would hold start within vars.CI_PR_POOL_QUEUE_ROUNDS job lengths
@@ -290,8 +296,8 @@ one run's machines. ci-owned-pool-rescue.yml watches it like a pull request.
 
 Anything uncertain keeps today's route: an event other than pull_request or
 main's dispatch, a
-lane (MACOS_RUNNER_PR) naming another pool or unset (the documented way back
-to the macOS 15 lane), an API error, a missing, stale or malformed snapshot,
+lane (MACOS_RUNNER_PR) naming another pool or unset (a job's own expression then
+takes it), an API error, a missing, stale or malformed snapshot,
 or an invalid setting. The script then prints an empty runner, and every
 job's own expression resolves exactly as before.
 """
@@ -319,12 +325,13 @@ LARGE_RUNNER = "blacksmith-12vcpu-macos-26"
 MACOS_15_RUNNER = "blacksmith-6vcpu-macos-15"
 # Pool -> the variable holding its Xcode pin; "" keeps the pull-request lane's
 # own pin, which is right for every macOS 26 pool.
+# MACOS_15_RUNNER is deliberately absent: pull request and merge-queue runs
+# test on main's macOS and Xcode (see the module docstring).
 POOLS = {
     LARGE_RUNNER: "",
     DEFAULT_RUNNER: "",
-    MACOS_15_RUNNER: "CMUX_CI_XCODE_APP_MACOS_15",
 }
-DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
+DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER)
 # Owned classes in preference order, ahead of Blacksmith in the default order
 # once CI_PR_POOL_OWNED is 1. Their label embeds the lane's Xcode version, and
 # their POOLS pin is "" (the lane's own), which is the Xcode that label names.
@@ -440,14 +447,13 @@ MAX_QUEUE_ROUNDS = 3
 # a queued owned job is moved to Blacksmith after about this much wait per round, so no job is put
 # on an owned queue it would not leave within its rounds.
 QUEUE_ROUND_MINUTES = 15
-# A pool on another Xcode than the lane's pin (the macOS 15 pool, 26.3) has no
-# DerivedData seed: seed-derived-data.yml seeds the lane's Xcode only. Its
-# compile admission runs cold, 10 to 20 minutes longer than a seeded one
-# (1,034 s and 1,537 s against a 321 s median on 2026-09-24), about one more
-# job's length. When every pool is full it counts one more round of queue.
-# A free machine there still beats queueing on a full macOS 26 pool: on
-# 2026-09-24 the 6vcpu macOS 26 pool queued 45 jobs and 12vcpu 18 while
-# macOS 15 ran 1 to 5 of its 10.
+# A pool on another Xcode than the lane's pin has no DerivedData seed:
+# seed-derived-data.yml seeds the lane's Xcode only. Its compile admission
+# runs cold, 10 to 20 minutes longer than a seeded one (the macOS 15 pool,
+# Xcode 26.3: 1,034 s and 1,537 s against a 321 s median on 2026-09-24),
+# about one more job's length. When every pool is full it counts one more
+# round of queue. No pool in POOLS is cold today (the macOS 15 pool left the
+# order, see the module docstring); the rule stays for a pool that is.
 COLD_ROUNDS = 1
 # Blacksmith concurrency is per label under the manaflow-ai plan. Keep this
 # table as the single source for every picker that estimates Blacksmith wait.

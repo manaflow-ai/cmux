@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -27,7 +29,7 @@ class PickRuleTests(unittest.TestCase):
                 "2026-09-30 12vcpu full with 100 queued, 6vcpu-26 idle",
                 picker.State(
                     jobs=1,
-                    blacksmith=(pool(picker.BLACKSMITH[0], 5, 5, 100), pool(picker.BLACKSMITH[1], 10), pool(picker.BLACKSMITH[2], 10)),
+                    blacksmith=(pool(picker.BLACKSMITH[0], 5, 5, 100), pool(picker.BLACKSMITH[1], 10)),
                 ),
                 picker.BLACKSMITH[1],
             ),
@@ -52,8 +54,7 @@ class PickRuleTests(unittest.TestCase):
             (
                 "all full uses the lowest queued plus running ratio",
                 picker.State(jobs=1, blacksmith=(pool(picker.BLACKSMITH[0], 5, 5, 1),
-                                                 pool(picker.BLACKSMITH[1], 10, 10, 0),
-                                                 pool(picker.BLACKSMITH[2], 10, 10, 5))),
+                                                 pool(picker.BLACKSMITH[1], 10, 10, 0))),
                 picker.BLACKSMITH[1],
             ),
         ]
@@ -70,6 +71,61 @@ class PickRuleTests(unittest.TestCase):
         state = picker.State(jobs=3, owned=(pool("glaeda-std-xcode-26.6", 8, running=5, queued=20),),
                              blacksmith=(pool(picker.BLACKSMITH[0], 5),), owned_enabled=True)
         self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
+
+
+class MacOS15IsNotAPullRequestPoolTests(unittest.TestCase):
+    """Pull request, merge-queue, E2E and iOS runs test on main's macOS 26 and Xcode."""
+
+    MACOS_15 = "blacksmith-6vcpu-macos-15"
+
+    def test_blacksmith_overflow_is_macos_26_only(self):
+        self.assertEqual(picker.BLACKSMITH, ("blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"))
+        self.assertNotIn(self.MACOS_15, picker.CAPACITY)
+
+    def test_a_pool_outside_the_order_is_never_chosen(self):
+        # 2026-09-24: 6vcpu macOS 26 queued 45 and 12vcpu 18 while macOS 15
+        # ran 1 of its 10. The run still queues on macOS 26.
+        state = picker.State(jobs=3, blacksmith=(pool(picker.BLACKSMITH[0], 5, 5, 18),
+                                                 pool(picker.BLACKSMITH[1], 10, 10, 45),
+                                                 pool(self.MACOS_15, 10, 1, 0)))
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, picker.BLACKSMITH[0])
+        self.assertEqual(choice.xcode_app, "")
+
+    def test_live_state_counts_only_the_macos_26_pools(self):
+        class Fake(picker.LiveState):
+            def __init__(self, token, repository):
+                super().__init__(token, repository)
+
+            def runners(self):
+                return []
+
+            def active_jobs(self):
+                return [{"labels": [self.MACOS_15], "status": "queued"} for _ in range(3)] + [
+                    {"labels": [picker.BLACKSMITH[1]], "status": "in_progress"}]
+        Fake.MACOS_15 = self.MACOS_15
+        original = picker.LiveState
+        picker.LiveState = Fake
+        try:
+            state = picker.observe(token="t", repository="manaflow-ai/cmux", jobs=1, env={}, fork=False)
+        finally:
+            picker.LiveState = original
+        self.assertEqual([item.label for item in state.blacksmith], list(picker.BLACKSMITH))
+        self.assertEqual(state.blacksmith[1].running, 1)
+
+    def test_merge_group_takes_an_ephemeral_pool(self):
+        """A merge group can carry fork code, so it never takes an owned Mac."""
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "CI_PR_POOL_OWNED": "1",
+               "CI_OWNED_POOL_SLOTS": '{"glaeda-std-xcode-26.6": 8}', "RUN_MACOS": "true",
+               "CI_PR_POOL_FORK_ALLOWED": "1"}
+        for event, owned in (("merge_group", False), ("workflow_dispatch", True), ("pull_request", True)):
+            with self.subTest(event=event):
+                with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+                    picker.main([], env={**env, "EVENT_NAME": event})
+                values = dict(line.split("=", 1) for line in out.getvalue().splitlines() if "=" in line)
+                self.assertEqual(values["persistent"], "true" if owned else "false")
+                if not owned:
+                    self.assertIn(values["runner"], picker.BLACKSMITH)
 
 
 class LiveReaderTests(unittest.TestCase):
