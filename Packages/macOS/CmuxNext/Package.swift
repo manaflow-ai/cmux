@@ -242,7 +242,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextTabsTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextTabs"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextTabs", "CmuxNextResources"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -255,7 +255,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

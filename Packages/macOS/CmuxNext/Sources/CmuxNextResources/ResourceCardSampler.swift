@@ -22,7 +22,7 @@ public final class ResourceCardSampler {
 
     public let interval: Duration
     private let timer: DemandTimer
-    private weak var source: (any ResourceSampleSource)?
+    public private(set) weak var source: (any ResourceSampleSource)?
     private var generation: UInt64 = 0
     private var onUpdate: Update?
     private var latest: ResourceSampleSet?
