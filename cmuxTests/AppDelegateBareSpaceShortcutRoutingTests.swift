@@ -222,6 +222,42 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         )
     }
 
+    /// A test that never touches the isolated keys writes none of them, so it
+    /// posts no defaults notification. A test that changed them gets back the
+    /// values it started with when its outermost scope ends.
+    func testDefaultsKeyIsolationRestoresOnlyChangedKeys() throws {
+        let suiteName = "cmuxTests.DefaultsKeyIsolation.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(WriteRecordingDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let kept = "cmuxTests.isolation.kept"
+        let changed = "cmuxTests.isolation.changed"
+        let added = "cmuxTests.isolation.added"
+        let isolation = DefaultsKeyIsolation(keys: [kept, changed, added], defaults: defaults)
+
+        isolation.begin()
+        isolation.end()
+        XCTAssertEqual(defaults.writtenKeys, [], "a scope over absent keys writes nothing")
+
+        defaults.set(true, forKey: kept)
+        defaults.set(Data([1]), forKey: changed)
+        isolation.begin()
+        XCTAssertNil(defaults.object(forKey: kept))
+        XCTAssertNil(defaults.object(forKey: changed))
+        isolation.begin()
+        defaults.set(true, forKey: kept)
+        defaults.set(Data([2]), forKey: changed)
+        defaults.set(1.0, forKey: added)
+        isolation.end()
+        XCTAssertEqual(defaults.data(forKey: changed), Data([2]), "only the outermost scope restores")
+
+        defaults.writtenKeys = []
+        isolation.end()
+        XCTAssertEqual(defaults.object(forKey: kept) as? Bool, true)
+        XCTAssertEqual(defaults.data(forKey: changed), Data([1]))
+        XCTAssertNil(defaults.object(forKey: added))
+        XCTAssertEqual(defaults.writtenKeys.sorted(), [added, changed], "a key at its saved value is not rewritten")
+    }
+
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
@@ -276,5 +312,19 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+}
+
+private final class WriteRecordingDefaults: UserDefaults, @unchecked Sendable {
+    var writtenKeys: [String] = []
+
+    override func set(_ value: Any?, forKey defaultName: String) {
+        writtenKeys.append(defaultName)
+        super.set(value, forKey: defaultName)
+    }
+
+    override func removeObject(forKey defaultName: String) {
+        writtenKeys.append(defaultName)
+        super.removeObject(forKey: defaultName)
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxTerminal
 import Foundation
 import Testing
@@ -400,11 +401,31 @@ enum MainWindowDefaultsIsolation {
         ]
     }
 
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var depth = 0
-    nonisolated(unsafe) private static var saved: [String: Any] = [:]
+    static let standard = DefaultsKeyIsolation(keys: keys, defaults: .standard)
 
-    static func begin(defaults: UserDefaults = .standard) {
+    static func begin() { standard.begin() }
+    static func end() { standard.end() }
+}
+
+/// Clears `keys` while a scope is open and puts back the values they had when
+/// the outermost scope began. It writes only keys whose value differs: every
+/// write, even of an identical value or of an absent key, posts
+/// `UserDefaults.didChangeNotification` to every defaults observer in the
+/// process (`UserDefaults+ChangeOnlyWrites.swift`), and this runs around every
+/// test.
+final class DefaultsKeyIsolation: @unchecked Sendable {
+    private let keys: [String]
+    private let defaults: UserDefaults
+    private let lock = NSLock()
+    private var depth = 0
+    private var saved: [String: Any] = [:]
+
+    init(keys: [String], defaults: UserDefaults) {
+        self.keys = keys
+        self.defaults = defaults
+    }
+
+    func begin() {
         lock.lock()
         defer { lock.unlock() }
         if depth == 0 {
@@ -415,21 +436,23 @@ enum MainWindowDefaultsIsolation {
         }
         depth += 1
         for key in keys {
-            defaults.removeObject(forKey: key)
+            defaults.removeObjectIfPresent(forKey: key)
         }
     }
 
-    static func end(defaults: UserDefaults = .standard) {
+    func end() {
         lock.lock()
         defer { lock.unlock() }
         guard depth > 0 else { return }
         depth -= 1
         guard depth == 0 else { return }
         for key in keys {
-            if let value = saved[key] {
-                defaults.set(value, forKey: key)
+            if let value = saved[key] as? NSObject {
+                if (defaults.object(forKey: key) as? NSObject)?.isEqual(value) != true {
+                    defaults.set(value, forKey: key)
+                }
             } else {
-                defaults.removeObject(forKey: key)
+                defaults.removeObjectIfPresent(forKey: key)
             }
         }
         saved = [:]
@@ -450,9 +473,17 @@ struct IsolatedMainWindowDefaultsTrait: SuiteTrait, TestTrait, TestScoping {
         testCase: Test.Case?,
         performing function: @Sendable () async throws -> Void
     ) async throws {
-        MainWindowDefaultsIsolation.begin()
-        defer { MainWindowDefaultsIsolation.end() }
-        try await function()
+        // A defaults write waits for observers registered on the main queue.
+        // Writing from a background thread while holding the isolation lock
+        // could wait on a main thread that is waiting for that lock.
+        await MainActor.run { MainWindowDefaultsIsolation.begin() }
+        do {
+            try await function()
+        } catch {
+            await MainActor.run { MainWindowDefaultsIsolation.end() }
+            throw error
+        }
+        await MainActor.run { MainWindowDefaultsIsolation.end() }
     }
 }
 

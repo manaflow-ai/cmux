@@ -151,7 +151,7 @@ if [ -n "$app_host_home_input" ]; then
   )
   # The per-run home does not isolate the app's defaults; see the script.
   if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
-    "$(dirname "$0")/reset-app-defaults.sh" "$CMUX_DERIVED_DATA_PATH"
+    "$ci_script_dir/reset-app-defaults.sh" "$CMUX_DERIVED_DATA_PATH"
   fi
 fi
 

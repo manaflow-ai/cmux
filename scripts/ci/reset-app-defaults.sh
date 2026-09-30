@@ -16,7 +16,20 @@
 set -euo pipefail
 
 derived_data="${1:?usage: reset-app-defaults.sh <DerivedData path>}"
-info_plist="$derived_data/Build/Products/Debug/cmux DEV.app/Contents/Info.plist"
+# A local run would wipe the settings of the tagged build it tests.
+if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+  echo "reset-app-defaults: not a CI runner; leaving defaults alone" >&2
+  exit 0
+fi
+app="$derived_data/Build/Products/Debug/cmux DEV.app"
+if [ ! -d "$app" ]; then
+  app="$(find "$derived_data" -path "*/Build/Products/Debug/cmux DEV.app" -print -quit 2>/dev/null || true)"
+fi
+if [ -z "$app" ]; then
+  echo "reset-app-defaults: no cmux DEV.app under $derived_data; nothing reset" >&2
+  exit 0
+fi
+info_plist="$app/Contents/Info.plist"
 bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" 2>/dev/null || true)"
 # Only a DEV build's own domain: never a release app's settings.
 case "$bundle_id" in
