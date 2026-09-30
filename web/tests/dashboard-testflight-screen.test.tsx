@@ -197,6 +197,12 @@ describe("dashboard TestFlight screen", () => {
     expect(html).not.toContain('data-testid="requires-pro"');
   });
 
+  test("a stale welcome link does not hide the upgrade prompt from a Free viewer", async () => {
+    const html = await renderTestflightPage({ welcome: "pro" }, { planId: "free", isPro: false, billingManagement: "none" });
+    expect(html).toContain('data-testid="requires-pro"');
+    expect(html).not.toContain('data-testid="plan-welcome"');
+  });
+
   test("renders eligible not enrolled state with join form", async () => {
     const html = await renderTestflightPage();
 
