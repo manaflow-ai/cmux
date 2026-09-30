@@ -34,6 +34,7 @@ on:
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
+      - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
   pull_request:
     paths:
@@ -66,6 +67,7 @@ on:
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
+      - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
   workflow_dispatch:
 

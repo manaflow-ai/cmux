@@ -35,6 +35,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
     try expectExplicitNullRejected(protocol.DetachedEvent, "by");
     try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "scope");
     try expectExplicitNullRejected(protocol.DetachedEvent, "view");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "attempts");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "cell_height");

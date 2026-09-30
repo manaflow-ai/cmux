@@ -34,17 +34,19 @@ struct PaneResizeShortcutTests {
             defer { window.performClose(nil) }
             let manager = try #require(delegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
-            workspace.bonsplitController.setContainerFrame(
-                CGRect(x: 0, y: 0, width: 1000, height: 1000)
-            )
-            let first = try #require(workspace.focusedPanelId)
             // createMainWindow copies the size of the current main window, and
             // earlier tests in the host leave 320-point windows behind. Split
             // admission then correctly refuses a side-by-side split, so give
             // the window and its split container a realistic size first.
             window.setContentSize(NSSize(width: 1_000, height: 700))
             window.contentView?.layoutSubtreeIfNeeded()
-            workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 1000, height: 1000))
+            // The test exercises divider keyboard routing, so give Bonsplit a
+            // usable geometry before creating the second pane. A newly-created
+            // hidden test window can otherwise report `noSpace` on a cold runner.
+            workspace.bonsplitController.setContainerFrame(
+                CGRect(x: 0, y: 0, width: 1000, height: 1000)
+            )
+            let first = try #require(workspace.focusedPanelId)
             let horizontal = direction == "left" || direction == "right"
             let second = try #require(workspace.newTerminalSplit(
                 from: first,
@@ -61,8 +63,6 @@ struct PaneResizeShortcutTests {
             #expect(await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
                 workspace.tmuxLayoutSnapshot?.panes.count == 2
             })
-            let controller = workspace.bonsplitController
-            controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1000, height: 1000))
             let split = try rootSplit(controller)
             #expect(controller.setDividerPosition(0.5, forSplit: try #require(UUID(uuidString: split.id))))
             workspace.didProgrammaticallyChangeSplitGeometry()

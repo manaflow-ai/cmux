@@ -12,6 +12,7 @@ interface PiState {
   sessionFile?: string;
   commands: CommandEntry[];
   initialApplied: boolean;
+  initialApplying?: Promise<void>;
   activeTurn: boolean;
   activeGeneration?: number;
 }
@@ -25,9 +26,25 @@ export const piAdapter: Adapter = {
     ],
   },
   async send(sess, prompt, generation?: number) {
-    const proc = ensureProc(sess);
     const st = state(sess);
-    await applyInitialOptions(sess);
+    // Establish the process before checking initialization. If it exits while
+    // setup is in flight, ensureProc resets initialization for the replacement
+    // and this loop applies setup to that process before dispatching anything.
+    let proc = ensureProc(sess);
+    let initialized = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await applyInitialOptions(sess);
+      const current = ensureProc(sess);
+      if (current === proc && current.exitCode === null && !current.killed) {
+        initialized = true;
+        proc = current;
+        break;
+      }
+      proc = current;
+    }
+    if (!initialized || st.proc !== proc || proc.exitCode !== null || proc.killed) {
+      throw new Error("pi process changed during startup");
+    }
     const type = st.activeTurn ? "steer" : "prompt";
     if (type === "prompt") {
       st.activeTurn = true;
@@ -48,6 +65,8 @@ export const piAdapter: Adapter = {
     const st = state(sess);
     const proc = st.proc;
     st.proc = undefined;
+    st.initialApplied = false;
+    st.initialApplying = undefined;
     rejectPending(st, "pi process disposed");
     proc?.kill();
   },
@@ -114,11 +133,15 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
     stderr: "pipe",
     env: { ...process.env },
   });
+  st.initialApplied = false;
+  st.initialApplying = undefined;
   st.proc = proc;
 
   readLines(proc.stdout, (line) => handleLine(sess, line), () => {
     if (st.proc === proc) {
       st.proc = undefined;
+      st.initialApplied = false;
+      st.initialApplying = undefined;
       rejectPending(st, "pi process exited");
       if (st.activeTurn) {
         const generation = st.activeGeneration;
@@ -162,12 +185,34 @@ function rejectPending(st: PiState, message: string) {
 async function applyInitialOptions(sess: SessionCtx) {
   const st = state(sess);
   if (st.initialApplied) return;
-  st.initialApplied = true;
-  const requestedThinking = typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "";
-  if (typeof sess.startOptions.model === "string") await setPiOption(sess, "model", st.model);
-  if (!st.modelChoices.length || !st.commands.length) await refreshPi(sess);
-  if (requestedThinking) await setPiOption(sess, "thinking", requestedThinking);
-  await captureState(sess);
+  if (st.initialApplying) return st.initialApplying;
+  const startedOn = st.proc;
+  const stale = () => st.proc !== startedOn;
+  const applying = (async () => {
+    const requestedThinking = typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "";
+    if (stale()) return;
+    if (typeof sess.startOptions.model === "string") {
+      await setPiOption(sess, "model", st.model);
+      if (stale()) return;
+    }
+    if (!st.modelChoices.length || !st.commands.length) {
+      await refreshPi(sess);
+      if (stale()) return;
+    }
+    if (requestedThinking) {
+      await setPiOption(sess, "thinking", requestedThinking);
+      if (stale()) return;
+    }
+    await captureState(sess);
+    if (stale()) return;
+    st.initialApplied = true;
+  })();
+  st.initialApplying = applying;
+  try {
+    await applying;
+  } finally {
+    if (st.initialApplying === applying) st.initialApplying = undefined;
+  }
 }
 
 async function setPiOption(sess: SessionCtx, id: string, value: OptionValue) {

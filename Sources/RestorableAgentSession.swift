@@ -746,7 +746,7 @@ enum AgentResumeCommandBuilder {
     /// so the binding's typed `prepared_arguments` stay the agent's own argv. `AgentRestorePlanner`
     /// applies the prefix itself when it replays those, and wrapping them here as well would stack
     /// the prefix twice. #10494
-    private static func externalLauncher(
+    static func externalLauncher(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
