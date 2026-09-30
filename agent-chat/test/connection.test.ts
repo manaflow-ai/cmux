@@ -3,6 +3,7 @@ import { openSessionConnection } from "../src/connection";
 class FakeSocket {
   onopen: (() => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
+  onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
   closed = false;
   closes = 0;
@@ -80,6 +81,17 @@ try {
   if (timerCount() !== 0) throw new Error("stale socket scheduled another connection");
   if (recovering.current() !== second.asWebSocket()) throw new Error("stale socket cleared the replacement connection");
 
+  // Browser WebSockets can report an error without delivering close promptly.
+  // The view must still arm the same bounded reconnect path instead of
+  // remaining forever with a dead socket.
+  const errored = client();
+  const erroredFirst = errored.sockets[0];
+  erroredFirst.onerror?.();
+  if (errored.current() !== null || timerCount() !== 1) throw new Error("socket error left the dead connection active or unqueued");
+  flushTimers();
+  if (errored.sockets.length !== 2) throw new Error("socket error did not create a replacement connection");
+  errored.disconnect();
+
   // The retry may already be queued for execution when the view is disposed.
   second.close();
   const queuedRetry = [...timers.values()][0];
@@ -97,7 +109,7 @@ try {
   mounted.disconnect();
   // Detached before closing: these handlers capture the whole session closure
   // graph, and the socket outlives cleanup until the close handshake finishes.
-  if (only.onopen !== null || only.onmessage !== null || only.onclose !== null) {
+  if (only.onopen !== null || only.onmessage !== null || only.onerror !== null || only.onclose !== null) {
     throw new Error("cleanup left handlers attached to the disposed socket");
   }
   mounted.disconnect();
