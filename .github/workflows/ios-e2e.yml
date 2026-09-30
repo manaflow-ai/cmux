@@ -312,6 +312,11 @@ jobs:
     env:
       CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
       CMUX_IROH_V2_FORCE_RELAY: "1"
+      # Read by scripts/mobile-dev-launch.sh, which forwards them to the
+      # simulator app: a fresh install must not stop on the What's New sheet,
+      # and the driver expects the paired terminal already open.
+      CMUX_UITEST_SUPPRESS_WHATS_NEW: "1"
+      CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE: "1"
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
