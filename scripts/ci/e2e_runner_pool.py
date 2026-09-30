@@ -68,9 +68,11 @@ mini's canonical-root token, so when CI_OWNED_POOL_SLOTS gives the pool a root
 count (pr_runner_pool.root_label()) the run takes the root label and needs a
 free root runner as well. An owned pool is never the
 fewest-queued fallback: with no room within the rounds the run takes Blacksmith. A job
-that waits on, or is refused by, an owned Mac is re-run on Blacksmith by
-ci-owned-pool-rescue.yml; every re-run attempt takes retry_runner(). That
-holds for an explicit owned runner too: it is the one pick that is moved.
+that waits on, or is refused by, an owned Mac is re-run by
+ci-owned-pool-rescue.yml. A re-run that keeps attempt 1's pick, and every
+attempt from 3 on, takes retry_runner(); a full re-run's attempt 2 takes its
+own new pick (test-e2e.yml's `picked_attempt`). That holds for an explicit
+owned runner too.
 
 Live owned capacity: with the org App's token (ROUTE_TOKEN; test-e2e.yml mints
 it for this repository's runs while owned pools are on), the owned pools are
