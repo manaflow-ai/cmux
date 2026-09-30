@@ -10,6 +10,7 @@ const worker = defineWorker({
     AccountDO: exports.durableObject({ storage: "sqlite" }),
     ConversationDO: exports.durableObject({ storage: "sqlite" }),
     MuxDO: exports.durableObject({ storage: "sqlite" }),
+    MuxApi: exports.worker(),
   },
   env: {
     ACCOUNT: bindings.durableObject({ worker: "mux-staging", exportName: "AccountDO" }),
