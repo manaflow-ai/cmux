@@ -5659,7 +5659,11 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert "workflows: [CI]" not in watcher
     assert "head_sha=$HEAD_SHA" in watcher
     assert "event=merge_group" in watcher
-    assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
+    assert '$3 != "" && $3 != "success" && $3 != "skipped"' in watcher
+    # One jobs page per poll: the shared GITHUB_TOKEN budget cannot carry a
+    # run read plus a jobs read every 20 seconds for each queued group.
+    assert "jobs?filter=latest&per_page=100" in watcher
+    assert 'sleep "$POLL_SECONDS"' in watcher and 'POLL_SECONDS: "30"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
     # ci.yml holds no actions: write at all: a pull_request run takes it from
