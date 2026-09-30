@@ -76,3 +76,12 @@ public enum WindowTitlebar {
         return frame.maxY >= content.convert(content.bounds, to: nil).maxY - 0.5
     }
 }
+
+/// A window with a view in its top row after the traffic lights (an
+/// incognito window's badge while the sidebar is hidden). Tab strips under
+/// it start their tabs after it.
+@MainActor
+public protocol TitlebarAccessoryHosting: AnyObject {
+    /// The accessory's frame in window coordinates, nil when none shows.
+    var titlebarAccessoryFrame: CGRect? { get }
+}

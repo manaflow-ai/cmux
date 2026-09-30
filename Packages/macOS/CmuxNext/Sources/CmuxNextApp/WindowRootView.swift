@@ -80,6 +80,48 @@ final class WindowRootView: NSView {
         needsLayout = true
     }
 
+    /// A view shown in the top row after the traffic lights while
+    /// `showsTitlebarBadge` (the incognito badge when the sidebar, whose
+    /// header shows it otherwise, is hidden). Strips under it start after it
+    /// (`TitlebarAccessoryHosting`).
+    var titlebarBadge: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let titlebarBadge {
+                titlebarBadge.translatesAutoresizingMaskIntoConstraints = true
+                addSubview(titlebarBadge, positioned: .above, relativeTo: nil)
+            }
+            needsLayout = true
+        }
+    }
+
+    var showsTitlebarBadge = false {
+        didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
+    }
+
+    /// The badge's frame in window coordinates while it shows.
+    var titlebarBadgeFrame: CGRect? {
+        guard let badge = titlebarBadge, !badge.isHidden else { return nil }
+        return badge.convert(badge.bounds, to: nil)
+    }
+
+    override func layout() {
+        super.layout()
+        guard let badge = titlebarBadge else { return }
+        badge.isHidden = !showsTitlebarBadge
+        guard showsTitlebarBadge else { return }
+        let size = badge.fittingSize
+        let rowHeight = titlebarStyle == .minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
+        var x = Metrics.space3
+        var midY = bounds.maxY - rowHeight / 2
+        if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
+            let local = convert(lights, from: nil)
+            x = local.maxX + Metrics.space3
+            midY = local.midY
+        }
+        badge.frame = CGRect(x: x, y: (midY - size.height / 2).rounded(), width: size.width, height: size.height)
+    }
+
     /// Replaces the workspace layout view.
     func show(_ view: NSView) {
         guard content !== view else { return }

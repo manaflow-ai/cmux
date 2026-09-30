@@ -71,6 +71,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
         workspaceObservation?.cancel()
+        badgeObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
         content?.teardown()
@@ -229,6 +230,25 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) { services.windows.stateDidChange(state) }
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.stateDidChange(state) }
 
+    private var badgeObservation: Task<Void, Never>?
+
+    /// Marks this window incognito: the badge shows in the sidebar header,
+    /// and in the top row after the traffic lights while the sidebar is
+    /// hidden (strips under it start after it).
+    func showIncognitoBadge() {
+        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
+        root.titlebarBadge = IncognitoBadgeView()
+        let model = sidebar.model
+        badgeObservation = Task { [weak self] in
+            for await hidden in Observations({ model.isHidden }) {
+                guard let self else { return }
+                root.showsTitlebarBadge = hidden
+                root.layoutSubtreeIfNeeded()
+                for pane in content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
+            }
+        }
+    }
+
     /// Set once closing this incognito window was confirmed (or needed no
     /// confirmation).
     private var closeConfirmed = false
@@ -255,7 +275,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// reports every first-responder change to the window's focus coordinator
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
-final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding {
+final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting {
+    /// The incognito badge in the top row while the sidebar is hidden.
+    var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarBadgeFrame }
+
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
