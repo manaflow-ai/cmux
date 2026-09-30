@@ -13,6 +13,11 @@ extension GhosttyNSView {
         originSurfaceId: UUID?,
         onCompleted: @escaping () -> Void = {}
     ) -> Bool {
+        guard !text.isEmpty else {
+            onCompleted()
+            return false
+        }
+        invalidatePromptSelectionTrackingForInput()
         guard let surface = terminalSurface,
               let originSurfaceId,
               surface.id == originSurfaceId else {

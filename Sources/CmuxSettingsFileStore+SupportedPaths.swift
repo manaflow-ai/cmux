@@ -49,6 +49,7 @@ extension CmuxSettingsFileStore {
         "terminal.reflowHardWrapOnCopy",
         "terminal.confirmUnsafePaste",
         "terminal.textEditingGestures",
+        "terminal.promptSelection",
         "terminal.textEditingCommandMovesByWord",
         "terminal.textEditingGesturesInFullScreenApps",
         "terminal.showPasswordInputIndicator",

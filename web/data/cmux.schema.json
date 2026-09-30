@@ -815,6 +815,11 @@
           "default": false,
           "description": "Keep textEditingGestures active while a full-screen application has the terminal on the alternate screen. tmux, screen, and zellij keep the outer terminal on the alternate screen even at their shell prompt, so turn this on to use gestures inside a multiplexer. Applications that bind the gesture chords themselves then receive the translated keys."
         },
+        "promptSelection": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the shell input at a prompt behaves like a text field for selection: Command-A selects only the command being typed (an empty prompt keeps select-all), Shift-Left/Right and Command-Shift-Left/Right extend the selection, and typing, Delete, or Command-X replace it through arrow and Backspace keys. Needs shell integration (OSC 133) and applies only at a prompt on the main screen, never inside full-screen TUIs or while a command runs. Assumes an emacs-style line editor; in vi command mode the replayed Backspace keys move instead of deleting."
+        },
         "showPasswordInputIndicator": {
           "type": "boolean",
           "default": true,

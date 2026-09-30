@@ -525,6 +525,8 @@ bool ghostty_surface_needs_confirm_quit(void *surface) {
     return cmux_test_needs_confirm_quit;
 }
 void ghostty_surface_new(void) {}
+void ghostty_surface_prompt_input(void) {}
+void ghostty_surface_select_prompt_input(void) {}
 bool ghostty_surface_process_exited(void *surface) {
     (void)surface;
     return false;

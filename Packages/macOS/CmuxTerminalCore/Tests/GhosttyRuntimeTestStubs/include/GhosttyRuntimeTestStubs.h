@@ -31,6 +31,13 @@ GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_surface_new_with_scrollback_limit(
     size_t scrollback_limit_bytes);
 
 GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_clear_selection(void *surface);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_has_selection(void *surface);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_prompt_input(void *surface, void *result);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_select_prompt_input(
+    void *surface,
+    uint32_t start,
+    uint32_t end
+);
 
 GHOSTTY_RUNTIME_TEST_STUB_WEAK float ghostty_surface_font_size(void *surface);
 

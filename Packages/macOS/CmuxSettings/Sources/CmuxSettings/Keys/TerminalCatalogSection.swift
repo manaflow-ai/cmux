@@ -72,6 +72,17 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textEditingGestures"
     )
 
+    /// Whether the shell input at a prompt behaves like a text field for
+    /// selection: Command-A selects the command being typed, Shift-arrows
+    /// extend, and typing, Delete, or Command-X replace the selection. Needs
+    /// shell integration (OSC 133). Off by default, because edits replay
+    /// arrow and Backspace keys that assume an emacs-style line editor.
+    public let promptSelection = DefaultsKey<Bool>(
+        id: "terminal.promptSelection",
+        defaultValue: false,
+        userDefaultsKey: "terminal.promptSelection"
+    )
+
     /// Whether text-editing gestures use the browser-style layout: Command
     /// moves and deletes by word like Option, and Control+Left/Right move to
     /// the line start and end. Only consulted while ``textEditingGestures`` is

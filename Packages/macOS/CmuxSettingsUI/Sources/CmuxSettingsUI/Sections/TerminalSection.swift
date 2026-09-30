@@ -26,6 +26,7 @@ public struct TerminalSection: View {
     @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
     @State private var confirmUnsafePaste: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
+    @State private var promptSelection: DefaultsValueModel<Bool>
     @State private var textEditingCommandMovesByWord: DefaultsValueModel<Bool>
     @State private var textEditingGesturesInFullScreenApps: DefaultsValueModel<Bool>
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
@@ -59,6 +60,7 @@ public struct TerminalSection: View {
         _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
         _confirmUnsafePaste = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.confirmUnsafePaste))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
+        _promptSelection = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.promptSelection))
         _textEditingCommandMovesByWord = State(
             initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingCommandMovesByWord)
         )
@@ -100,6 +102,7 @@ public struct TerminalSection: View {
             reflowHardWrapOnCopy,
             confirmUnsafePaste,
             textEditingGestures,
+            promptSelection,
             textEditingCommandMovesByWord,
             textEditingGesturesInFullScreenApps,
             passwordInputIndicator,
@@ -435,6 +438,19 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalTextEditingGesturesToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.promptSelection"),
+                String(localized: "settings.terminal.promptSelection", defaultValue: "Prompt Text Selection"),
+                subtitle: promptSelection.current
+                    ? String(localized: "settings.terminal.promptSelection.subtitleOn", defaultValue: "At a shell prompt, Command-A selects the command you're typing, Shift-arrow keys extend the selection, and typing, Delete, or Command-X replace it. Needs shell integration and an emacs-style line editor.")
+                    : String(localized: "settings.terminal.promptSelection.subtitleOff", defaultValue: "Command-A selects everything in the terminal, and typing never replaces a selection.")
+            ) {
+                Toggle("", isOn: Binding(get: { promptSelection.current }, set: { promptSelection.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalPromptSelectionToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

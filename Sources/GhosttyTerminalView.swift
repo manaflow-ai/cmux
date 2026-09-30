@@ -4033,6 +4033,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
+    /// The directed prompt selection cmux last made (`terminal.promptSelection`),
+    /// or the point a Shift-arrow extension collapsed onto. Non-nil only while
+    /// cmux owns a selection inside the shell input, so ordinary typing costs a
+    /// single nil check before any Ghostty call.
+    private var promptSelectionTracking = TerminalPromptSelectionTracker()
     /// The alternate-screen state read on the last gesture press, reused by its
     /// auto-repeats so a held chord does not serialize the viewport per repeat.
     private var textEditingGestureAlternateScreenAtPress: (keyCode: UInt16, onAlternateScreen: Bool)?
@@ -4807,6 +4812,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let currentMouseSurfaceIdentity = currentGhosttyMouseSurfaceIdentity
         let nextMouseSurfaceIdentity = ghosttyMouseSurfaceIdentity(for: surface)
         if !isSameSurface {
+            promptSelectionTracking.invalidateForSurfaceReplacement()
             if pendingKeyActionCount > 0,
                (pendingExplicitKeyDownSurface !== surface
                 || pendingExplicitKeyDownSurfaceID != surface.id) {
@@ -4825,6 +4831,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Reset any OSC 22 mouse shape carried over from the previous surface.
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         } else if currentMouseSurfaceIdentity != nextMouseSurfaceIdentity {
+            promptSelectionTracking.invalidateForSurfaceReplacement()
             // A TerminalSurface can rebuild its native pointer without being
             // replaced. Never send an old session to the replacement pointer.
             resetGhosttyMouseButtonTracking()
@@ -4843,6 +4850,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         applySurfaceBackground()
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
         synchronizeGhosttyMouseSurfaceIdentity()
+    }
+
+    func invalidatePromptSelectionTrackingForInput() {
+        promptSelectionTracking.invalidateForInput()
     }
 
     private func queueExplicitKeyDownForInputDemand(_ event: NSEvent) {
@@ -4895,6 +4906,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               let preparationService = imageTransferPreparation else {
             return false
         }
+        invalidatePromptSelectionTrackingForInput()
         pendingPasteSurface = surface
         pendingPasteSurfaceID = surface.id
 
@@ -6442,6 +6454,173 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return performBindingAction("esc:\(chord.letter)")
     }
 
+    // MARK: - Prompt selection (terminal.promptSelection)
+
+    /// Whether the shell input behaves like a text field for selection.
+    ///
+    /// Reads the same defaults key as `terminal.promptSelection` in the
+    /// settings catalog, whose default is `false`. Callers read it only after
+    /// a keystroke has already matched a prompt selection gesture.
+    private var promptSelectionEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "terminal.promptSelection")
+    }
+
+    /// Handles Command-A and Command-X at a shell prompt.
+    ///
+    /// Runs from `performKeyEquivalent` ahead of Ghostty's `select_all`
+    /// binding and the menu. Anything the resolver passes through (setting
+    /// off, not at a prompt, an empty prompt, Cut with no input selection)
+    /// continues down the normal key-equivalent path unchanged.
+    ///
+    /// - Returns: `true` when the gesture was handled here.
+    private func handlePromptSelectionCommandIfNeeded(
+        _ event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        // An in-flight clipboard read queues later input behind the paste;
+        // acting now would edit the prompt ahead of it. The deferred event
+        // replays through keyDown, so Cmd+A typed during a paste read keeps
+        // Ghostty's whole-screen select_all.
+        guard !keyboardCopyModeActive, !hasMarkedText(), !hasClipboardInputDeferral else { return false }
+        let intent: TerminalPromptSelectionIntent
+        switch KeyboardLayout.normalizedCharacters(for: event) {
+        case "a": intent = .selectAll
+        case "x": intent = .cut
+        default: return false
+        }
+        guard promptSelectionEnabled else { return false }
+        return applyPromptSelection(intent: intent, surface: surface)
+    }
+
+    /// Handles Shift-arrow extension, and while cmux holds a prompt selection,
+    /// the keys that collapse or replace it.
+    ///
+    /// Without a held selection only Shift-arrows are considered, and they
+    /// reach Ghostty only after the pure key mapper matched them and the
+    /// setting is on. Every other keystroke returns after one nil check.
+    ///
+    /// - Returns: `true` when the keystroke was consumed. Typing over a
+    ///   selection deletes it and returns `false`, so the key is still
+    ///   delivered and replaces the selection.
+    private func handlePromptSelectionKeyIfNeeded(
+        _ event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        let holding = promptSelectionTracking.selection != nil
+        if !holding {
+            guard event.keyCode == 0x7B || event.keyCode == 0x7C,
+                  event.modifierFlags.contains(.shift) else { return false }
+        }
+        guard !keyboardCopyModeActive, !hasMarkedText() else {
+            promptSelectionTracking.invalidateForInput()
+            return false
+        }
+        let intent = terminalPromptSelectionIntent(
+            keyCode: event.keyCode,
+            modifiers: textEditingModifiers(from: event.modifierFlags),
+            producesText: holding && promptSelectionKeyProducesText(event, surface: surface)
+        )
+        guard let intent else {
+            promptSelectionTracking.invalidateForInput()
+            return false
+        }
+        if !holding {
+            guard case .extend = intent else { return false }
+        }
+        guard promptSelectionEnabled else {
+            promptSelectionTracking.invalidateForInput()
+            return false
+        }
+        return applyPromptSelection(intent: intent, surface: surface)
+    }
+
+    /// Whether a keystroke inserts printable text into the shell, so typing
+    /// it over a prompt selection should replace the selection.
+    ///
+    /// Option acting as Alt (`macos-option-as-alt`) sends a Meta chord, not
+    /// text, so it does not count.
+    private func promptSelectionKeyProducesText(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
+        guard let text = textForKeyEvent(event), shouldSendText(text) else { return false }
+        guard event.modifierFlags.contains(.option) else { return true }
+        let translation = ghostty_surface_key_translation_mods(surface, modsFromEvent(event))
+        return translation.rawValue & GHOSTTY_MODS_ALT.rawValue != 0
+    }
+
+    /// Resolves `intent` against Ghostty's prompt snapshot and applies it.
+    ///
+    /// - Returns: `true` when the original keystroke must not reach Ghostty.
+    private func applyPromptSelection(
+        intent: TerminalPromptSelectionIntent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        let action = terminalPromptSelectionResolve(
+            intent: intent,
+            snapshot: TerminalPromptInputSnapshot.read(from: surface),
+            tracked: promptSelectionTracking.selection
+        )
+        switch action {
+        case .passThrough:
+            promptSelectionTracking.invalidateForInput()
+            return false
+        case .consume:
+            return true
+        case let .select(selection):
+            guard selection.select(on: surface) else {
+                promptSelectionTracking.invalidateForInput()
+                return false
+            }
+            promptSelectionTracking.record(selection)
+            return true
+        case let .clearSelection(collapsed):
+            GhosttyRuntimeCInterop.clearSelection(surface)
+            promptSelectionTracking.record(collapsed)
+            return true
+        case let .edit(edit, copyFirst, thenPassThrough):
+            // Cut copies the selection's exact text, untrimmed, so pasting
+            // restores what was deleted. The resolver only cuts a non-empty
+            // input selection; if Ghostty still reads no text, leave the
+            // input alone and never write an empty clipboard.
+            if copyFirst {
+                guard let text = readSelectionSnapshot(surface: surface)?.string, !text.isEmpty else {
+                    promptSelectionTracking.invalidateForInput()
+                    return false
+                }
+                GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
+            }
+            promptSelectionTracking.invalidateForInput()
+            GhosttyRuntimeCInterop.clearSelection(surface)
+            sendPromptSelectionEdit(edit, surface: surface)
+            return !thenPassThrough
+        }
+    }
+
+    /// Replays an edit as Left, Right, and Backspace presses through the
+    /// normal key path, so Ghostty encodes them for the active keyboard
+    /// protocol exactly as if they were typed.
+    private func sendPromptSelectionEdit(
+        _ edit: TerminalPromptInputEdit,
+        surface: ghostty_surface_t
+    ) {
+        let presses: [(keyCode: UInt16, count: Int)] = [
+            (0x7B, edit.moveLeft),
+            (0x7C, edit.moveRight),
+            (0x33, edit.deleteBackward),
+        ]
+        for (keyCode, count) in presses where count > 0 {
+            for _ in 0..<count {
+                var keyEvent = ghostty_input_key_s()
+                keyEvent.action = GHOSTTY_ACTION_PRESS
+                keyEvent.keycode = UInt32(keyCode)
+                keyEvent.mods = GHOSTTY_MODS_NONE
+                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+                keyEvent.composing = false
+                keyEvent.unshifted_codepoint = 0
+                keyEvent.text = nil
+                sendGhosttyKey(surface, keyEvent)
+            }
+        }
+    }
+
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
         guard keyboardCopyModeActive else { return false }
         reconcileKeyboardCopyModeViewport(surface: surface)
@@ -6946,6 +7125,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
+        if flags == [.command],
+           handlePromptSelectionCommandIfNeeded(event, surface: surface) {
+            return true
+        }
+
 #if DEBUG
         recordKeyLatency(path: "performKeyEquivalent", event: event)
 #endif
@@ -7196,6 +7380,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             terminalSurface?.didAcceptExplicitInput()
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
+        if handlePromptSelectionKeyIfNeeded(event, surface: surface) {
+            // Same key-up bookkeeping as the text-editing gestures below: the
+            // original press never reached Ghostty, so its release must not.
+            if !event.modifierFlags.contains(.command) {
+                textEditingGestureConsumedKeyUps.insert(event.keyCode)
+            }
             return
         }
         if handleTextEditingGestureIfNeeded(event, surface: surface) {
@@ -8303,6 +8495,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        promptSelectionTracking.invalidateForInput()
         terminalPointerGesture.cancel()
         reconcileGhosttyMouseButtons(
             reason: "mouseDown.preflight",
@@ -9928,6 +10121,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         onTextCompletion: @escaping () -> Void = {}
     ) -> Bool {
         guard plan != .reject else { return false }
+        invalidatePromptSelectionTrackingForInput()
         if case .pasteCloudImages(let urls) = plan {
             MainActor.assumeIsolated {
                 guard let terminalSurface else {
@@ -13963,6 +14157,7 @@ extension GhosttyNSView: NSTextInputClient {
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
         guard !chars.isEmpty else { return }
+        invalidatePromptSelectionTrackingForInput()
         terminalSurface?.didReceiveExplicitInput()
         recordDirectAgentHibernationTerminalInput()
         sendTextToSurfaceAfterInputNotification(
