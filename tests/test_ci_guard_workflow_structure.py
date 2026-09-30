@@ -88,6 +88,28 @@ def test_agent_chat_uses_a_pinned_local_compiler_and_runs_tests_once() -> None:
     package = json.loads((ROOT / "agent-chat/package.json").read_text(encoding="utf-8"))
     assert re.fullmatch(r"\d+\.\d+\.\d+", package["devDependencies"]["typescript"])
     assert package["scripts"]["check"] == "./node_modules/.bin/tsc --noEmit && bun run test"
+def test_ci_group_deduplication_gates_only_the_overlapping_matrix_leg() -> None:
+    workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["workflow-guard-tests"]
+    assert "exclude" not in job["strategy"]["matrix"]
+    steps = job["steps"]
+    poll = next(step for step in steps if step.get("name") == "Check independent fast guard result")
+    assert poll["if"] == "${{ matrix.group == 'ci' }}"
+    gated = [
+        step for step in steps
+        if "matrix.group == 'ci'" in str(step.get("if", ""))
+        and step.get("name") != "Check independent fast guard result"
+    ]
+    assert gated
+    assert all("steps.fast-guard.outputs.skip != 'true'" in step["if"] for step in gated)
+    # The unrelated matrix groups must remain runnable without the fast-check
+    # result, so they cannot carry the ci-only output condition.
+    assert all(
+        "steps.fast-guard.outputs.skip" not in str(step.get("if", ""))
+        for step in steps
+        if "matrix.group == 'preflight'" in str(step.get("if", ""))
+        and "matrix.group == 'ci'" not in str(step.get("if", ""))
+    )
 
 
 if __name__ == "__main__":
