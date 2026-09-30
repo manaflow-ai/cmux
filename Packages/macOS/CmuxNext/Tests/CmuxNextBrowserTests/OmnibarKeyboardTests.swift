@@ -63,6 +63,26 @@ import Testing
         #expect(sim.field.text == "git", "Backspace never re-adds the completion")
     }
 
+    /// Seen live: typing the last character of a shown completion leaves the
+    /// text unchanged, and the card kept rows for the previous text.
+    @Test func typingTheLastCompletedCharacterRequeries() {
+        let sim = OmnibarSim()
+        sim.focus()
+        sim.type("google.co")
+        sim.historyURLs = ["https://google.com/"]
+        sim.backspace()
+        sim.type("o")
+        #expect(sim.field.text == "google.com")
+        #expect(sim.field.selection == range(9, 1))
+        sim.type("m", settle: false)
+        #expect(sim.state.edit.userText == "google.com")
+        #expect(sim.state.edit.inlineCompletion.isEmpty)
+        #expect(sim.queries.last?.text == "google.com")
+        sim.answer()
+        #expect(sim.popup.rows.first?.title == "google.com")
+        #expect(!sim.popup.rows.contains { $0.title == "google.co" })
+    }
+
     @Test func typingInTheMiddleNeverCompletes() {
         let sim = OmnibarSim()
         sim.focus()

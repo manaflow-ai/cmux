@@ -155,7 +155,7 @@ public final class AddressBarView: NSView {
 
     /// Reports what the field editor holds now. The applier's own writes
     /// are echoes and are dropped.
-    private func observeField(kind: OmnibarState.EditKind) {
+    private func observeField(kind: OmnibarState.EditKind?) {
         guard !controller.isApplying, let editor = field.currentEditor() as? NSTextView else { return }
         let marked = editor.hasMarkedText() ? editor.markedRange() : nil
         controller.send(.fieldChanged(.init(text: editor.string, selection: editor.selectedRange(), marked: marked), kind))
@@ -259,7 +259,7 @@ extension AddressBarView: OmnibarPopupSurface {
 }
 
 extension AddressBarView: OmnibarFieldEditorSink {
-    func fieldEditorDidChange(kind: OmnibarState.EditKind) { observeField(kind: kind) }
+    func fieldEditorDidChange(kind: OmnibarState.EditKind?) { observeField(kind: kind) }
 
     func fieldEditorKey(_ key: OmnibarInput.Key) -> Bool { controller.send(.key(key)) }
 

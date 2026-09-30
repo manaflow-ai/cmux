@@ -42,9 +42,11 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     case focusGained(FocusSource)
     case focusLost
 
-    /// The field editor changed: typing, deletion, paste, cut, IME
-    /// composition, a caret move, a click or drag selection, Cmd-A.
-    case fieldChanged(Field, OmnibarState.EditKind)
+    /// The field editor changed. `kind` is set for a text edit (typing,
+    /// deletion, paste, cut, IME composition) and nil for a selection-only
+    /// change (caret move, click or drag selection, Cmd-A). Typing the next
+    /// character of a selected inline completion is an edit with unchanged text.
+    case fieldChanged(Field, OmnibarState.EditKind?)
 
     /// A key the field editor forwards before its own handling.
     case key(Key)

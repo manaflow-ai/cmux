@@ -3,8 +3,8 @@ import AppKit
 /// What the omnibar's field editor reports. Every user change becomes one
 /// `OmnibarInput`; the state machine decides what it means.
 @MainActor protocol OmnibarFieldEditorSink: AnyObject {
-    /// Text, selection or marked text changed by the user.
-    func fieldEditorDidChange(kind: OmnibarState.EditKind)
+    /// Text or marked text (`kind` set) or only the selection (nil) changed.
+    func fieldEditorDidChange(kind: OmnibarState.EditKind?)
     /// A key the state machine may take first. Returns true when handled.
     func fieldEditorKey(_ key: OmnibarInput.Key) -> Bool
     func fieldEditorMouseDown(clickCount: Int)
@@ -93,7 +93,7 @@ final class OmnibarFieldEditor: NSTextView {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         // Drags report once, when they end; edits report through didChangeText.
         guard !stillSelecting, !isChangingText else { return }
-        sink?.fieldEditorDidChange(kind: .insert)
+        sink?.fieldEditorDidChange(kind: nil)
     }
 
     // MARK: Keys and mouse

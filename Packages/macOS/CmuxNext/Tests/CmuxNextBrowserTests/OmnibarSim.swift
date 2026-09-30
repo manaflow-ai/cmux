@@ -182,7 +182,7 @@ import Testing
 
     func moveSelection(to range: NSRange) {
         field.selection = range
-        send(.fieldChanged(field.snapshot, .insert))
+        send(.fieldChanged(field.snapshot, nil))
     }
 
     @discardableResult

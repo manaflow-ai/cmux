@@ -3,8 +3,10 @@ import Foundation
 /// Field editor changes: typing, deletion, paste, IME composition, caret
 /// and selection moves, the focusing click, and undo.
 nonisolated extension OmnibarStep {
-    mutating func fieldChanged(_ field: OmnibarInput.Field, _ kind: OmnibarState.EditKind) {
+    mutating func fieldChanged(_ field: OmnibarInput.Field, _ kind: OmnibarState.EditKind?) {
         let textChanged = field.text != state.fieldText
+        let unchanged = !textChanged && field.selection == state.edit.selection && field.marked == state.edit.marked
+        if unchanged, state.hasFocus { return }
         if !state.hasFocus {
             // The field editor outlived editing (commit or cancel, focus on
             // its way to the page): only a real edit starts editing again.
@@ -12,7 +14,7 @@ nonisolated extension OmnibarStep {
             beginFocus()
         }
         if field.text != state.fieldText || field.marked != state.edit.marked && field.marked != nil {
-            edit(field, kind)
+            edit(field, kind ?? .insert)
         } else {
             selectionChanged(field)
         }
