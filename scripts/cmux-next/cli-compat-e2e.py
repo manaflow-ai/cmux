@@ -140,7 +140,9 @@ def main() -> int:
     r.check("unsupported is typed", ["trigger-flash", "--workspace", ws], lambda o: "unsupported" in o, expect_fail=True)
     # Generated `cmux <noun> <verb>` commands, including nouns that are also
     # legacy top-level commands (`tab`, `pane`, `workspace-group`): the CLI
-    # must route them to the app's actions, never "Unknown command".
+    # must route them to the app's actions, never "Unknown command", while
+    # their legacy forms (`browser open`, `browser <surface> eval` above)
+    # keep working.
     r.check("tab new-webkit", ["tab", "new-webkit", "--url", "about:blank"], lambda o: o.startswith("OK"))
     # Chromium either opens or refuses with the build's reason (fleet builds
     # have no CEF); both prove the verb resolved.

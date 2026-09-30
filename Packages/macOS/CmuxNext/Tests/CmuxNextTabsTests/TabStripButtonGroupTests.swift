@@ -86,4 +86,33 @@ import Testing
         #expect(element.accessibilityPerformPress())
         #expect(h.intents == [.trailingButton("cmux.splitRight")])
     }
+
+    /// Center of the + button in strip coordinates.
+    private func newTabCenter(_ h: Harness) -> CGPoint {
+        let frame = h.strip.newTabButton.frame
+        return h.strip.newTabButton.superview!.convert(CGPoint(x: frame.midX, y: frame.midY), to: h.strip)
+    }
+
+    @Test func plusClickOpensATabAtOnce() {
+        let h = Harness(buttons: [])
+        var asked: [TabContextTarget] = []
+        h.strip.contextMenuProvider = { asked.append($0); return nil }
+        h.strip.pressedNewTab = true
+        #expect(h.strip.endNewTabPress(at: newTabCenter(h)))
+        #expect(h.intents == [.newTab(after: nil)])
+        #expect(asked.isEmpty, "a click never shows the engine menu")
+    }
+
+    @Test func plusHoldShowsTheMenuAndOpensNoTab() async {
+        let h = Harness(buttons: [])
+        var asked: [TabContextTarget] = []
+        h.strip.contextMenuProvider = { asked.append($0); return nil }
+        h.strip.groups.sleep = { _ in }
+        h.strip.pressedNewTab = true
+        h.strip.startNewTabHold()
+        for _ in 0..<50 where asked.isEmpty { await Task.yield() }
+        #expect(asked == [.newTabButton])
+        h.strip.endNewTabPress(at: newTabCenter(h))
+        #expect(h.intents.isEmpty)
+    }
 }
