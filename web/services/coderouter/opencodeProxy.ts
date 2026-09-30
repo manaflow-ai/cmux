@@ -394,9 +394,7 @@ export async function proxyOpenCodeRequest(
     );
   }
   try {
-    const pin = providerPin(target);
-    const upstreamFetch = dependencies.fetch ?? (pin ? pinnedFetch(pin) : fetch);
-    upstream = await fetchWithHeadersTimeout(upstreamFetch, target, {
+    upstream = await fetchWithHeadersTimeout(dependencies.fetch ?? pinnedFetchFor(target), target, {
       method: request.method,
       headers,
       body:
@@ -756,8 +754,10 @@ async function resolveProviderURL(
   }
 }
 
-function providerPin(target: URL): ProviderPin | null {
-  return target instanceof PinnedProviderURL ? { address: target.pinnedAddress, family: target.pinnedFamily } : null;
+/** The fetch for `target`, pinned to the address it was checked against. */
+function pinnedFetchFor(target: URL): typeof fetch {
+  if (!(target instanceof PinnedProviderURL)) return fetch;
+  return pinnedFetch({ address: target.pinnedAddress, family: target.pinnedFamily });
 }
 
 /** A fetch that connects to `pin` whatever the URL's hostname resolves to.
