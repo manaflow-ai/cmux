@@ -126,6 +126,12 @@ final class TabContentCache {
     func browser(for tab: TabModel) -> BrowserEntry? {
         let key = tab.id
         if let entry = browsers[key] { return entry }
+        if pageRequests.claimCloseOnArrival(tab.surface) {
+            // Its page closed before the tab appeared (BrowserPageRequests).
+            let key = tab.id
+            Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }
+            return nil
+        }
         if let adopted = pageRequests.takeAdoption(for: tab.surface) {
             return tracked(install(adopted, for: key), tab)
         }

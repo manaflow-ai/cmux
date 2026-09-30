@@ -36,7 +36,7 @@ final class CEFRuntime {
     var tabBeingAdded: CEFTab?
     /// Browsers Chromium created while their pane's window was still being
     /// created (see `adoptOrphan`).
-    var orphanBrowsers: [Orphan] = []
+    var adoptions = CEFAdoptionLedger()
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?

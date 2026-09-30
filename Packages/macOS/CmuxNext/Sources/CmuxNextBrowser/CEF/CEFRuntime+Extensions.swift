@@ -29,12 +29,13 @@ extension CEFRuntime {
     /// pane; a window cmux does not host (chrome.windows.create, a tab opened
     /// with no window) has its tab moved into the most recently shown pane.
     func adoptOrphan(browser: Int32, window: Int32) {
+        guard !adoptions.isClosed(browser) else { return }
         if let host = hosts.values.first(where: { $0.owns(window: window) || $0.containsBrowser(inWindow: window) }) {
             host.adoptChromiumTab(browser: browser)
             return
         }
         if hosts.values.contains(where: \.isCreatingWindow) {
-            orphanBrowsers.append(Orphan(browser: browser, window: window))
+            adoptions.wait(Orphan(browser: browser, window: window))
             return
         }
         moveIntoShownPane(browser: browser)
@@ -43,13 +44,12 @@ extension CEFRuntime {
     /// A pane's window now exists: adopt the tabs that were created in it
     /// before its first browser reported.
     func windowBecameLive(_ host: CEFPaneHost) {
-        let waiting = orphanBrowsers
-        orphanBrowsers.removeAll()
+        let waiting = adoptions.takeWaiting()
         for orphan in waiting {
             if host.owns(window: orphan.window) {
                 host.adoptChromiumTab(browser: orphan.browser)
             } else if hosts.values.contains(where: \.isCreatingWindow) {
-                orphanBrowsers.append(orphan)
+                adoptions.wait(orphan)
             } else {
                 moveIntoShownPane(browser: orphan.browser)
             }
@@ -64,7 +64,9 @@ extension CEFRuntime {
     }
 
     private func moveIntoShownPaneNow(browser: Int32) {
-        guard tabsByBrowser[browser] == nil else { return }
+        // Chromium may have closed it meanwhile (a tab an extension opened
+        // and removed at once): adopting it would leave a ghost tab.
+        guard tabsByBrowser[browser] == nil, !adoptions.isClosed(browser) else { return }
         guard let shim, forkAPIVersion >= 3,
               let host = lastShownHost ?? hosts.values.first(where: { $0.isLive }),
               let anchor = host.anchorBrowser,
@@ -96,9 +98,4 @@ extension CEFRuntime {
             tab.emit(.contextMenu(request))
         }
     }
-}
-
-struct Orphan: Equatable {
-    var browser: Int32
-    var window: Int32
 }

@@ -19,8 +19,19 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// Pages created by an engine for a daemon tab that is still being
     /// created, by the new tab's surface. `TabContentCache` takes them.
     private var adoptions: [SurfaceID: any BrowserTab] = [:]
+    /// Adopted pages that closed before their daemon tab existed (an
+    /// extension's chrome.tabs.remove right after chrome.tabs.create).
+    /// Weak: a page closed by its user (already uninstalled) lands here too
+    /// and must not be kept alive.
+    private var closedBeforeAdoption: [WeakPage] = []
+    /// Daemon tabs to close when they appear: their page closed first.
+    private var closeOnArrival: Set<SurfaceID> = []
 
     func browserTab(_ page: any BrowserTab, didRequest intent: BrowserTabIntent) {
+        if case .close = intent, let services, services.cache.key(of: page) == nil {
+            // Not installed yet: its daemon tab is still being created.
+            return pageClosedBeforeAdoption(page)
+        }
         guard let services, let key = services.cache.key(of: page), let (_, pane) = services.locateTab(key) else {
             // The opener is gone: nowhere to show a new page.
             if case .adoptTab(let child, _) = intent { child.close() }
@@ -84,6 +95,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// adopted page replaces it.
     func adopt(_ page: any BrowserTab, surface: SurfaceID) {
         guard let services else { page.close(); return }
+        if let index = closedBeforeAdoption.firstIndex(where: { $0.page === page }) {
+            // The page closed while its tab was created: no ghost tab.
+            closedBeforeAdoption.remove(at: index)
+            return closeDaemonTab(on: surface)
+        }
         if let tab = services.locateTab(surface: surface), services.cache.existingBrowser(tab.id) != nil {
             services.cache.replacePage(of: tab, with: page)
         } else {
@@ -94,4 +110,37 @@ final class BrowserPageRequests: BrowserTabDelegate {
     func takeAdoption(for surface: SurfaceID) -> (any BrowserTab)? {
         adoptions.removeValue(forKey: surface)
     }
+
+    /// True once for a daemon tab whose page closed before it appeared; the
+    /// caller shows nothing for it and ``closeTab(_:)`` removes it.
+    func claimCloseOnArrival(_ surface: SurfaceID) -> Bool {
+        closeOnArrival.remove(surface) != nil
+    }
+
+    func closeTab(_ key: String) {
+        services?.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key)))
+    }
+
+    private func pageClosedBeforeAdoption(_ page: any BrowserTab) {
+        if let surface = adoptions.first(where: { $0.value === page })?.key {
+            adoptions[surface] = nil
+            closeDaemonTab(on: surface)
+        } else {
+            closedBeforeAdoption.removeAll { $0.page == nil || $0.page === page }
+            closedBeforeAdoption.append(WeakPage(page: page))
+        }
+    }
+
+    private func closeDaemonTab(on surface: SurfaceID) {
+        if let tab = services?.locateTab(surface: surface) {
+            closeTab(tab.id)
+        } else {
+            closeOnArrival.insert(surface)
+        }
+    }
+}
+
+/// A page reference that does not keep the page alive.
+struct WeakPage {
+    weak var page: (any BrowserTab)?
 }
