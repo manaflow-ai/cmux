@@ -297,7 +297,7 @@ class FailSafe(unittest.TestCase):
                 self.assertEqual(pool.main(["--snapshot", str(snap_path)], env), 0)
             finally:
                 sys.stdout = old
-            self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
+            self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\nmarker_pool=\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nshard_runner=\n"
                                               f"refused_retry_runner=\nroot_runner=\nside_runner=\n"
                                               "admission_runner=\nadmission_warm=\nowned_jobs=\n")
@@ -489,7 +489,8 @@ def side_lane(key: str) -> str:
     return (f"github.run_attempt == 2 && contains(inputs.pr_owned_jobs, {key}) "
             "&& (inputs.pr_side_runner || inputs.pr_refused_retry_runner) "
             f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            f"|| github.run_attempt == 1 && contains(inputs.pr_owned_jobs, {key}) && inputs.pr_side_runner "
+            "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def warm_lane(index: str = "") -> str:
@@ -2134,12 +2135,15 @@ class Wiring(unittest.TestCase):
         self.assertEqual(step["env"]["DEFAULT_RUNNER"], "${{ vars.MACOS_RUNNER_PR }}")
 
     def test_a_persistent_choice_publishes_the_rescue_marker(self):
+        # marker_pool is the owned pick, or the pool whose side runners took a
+        # Blacksmith pick's side lanes: either way the run has owned jobs.
         steps = self.workflow("ci.yml")["jobs"]["changes"]["steps"]
         mark = next(step for step in steps if step.get("id") == "macos-pool-marker")
-        self.assertEqual(mark["if"], "${{ steps.macos-pool.outputs.persistent == 'true' }}")
+        self.assertEqual(mark["if"], "${{ steps.macos-pool.outputs.marker_pool != '' }}")
+        self.assertEqual(mark["env"]["POOL"], "${{ steps.macos-pool.outputs.marker_pool }}")
         upload = next(step for step in steps if step.get("name") == "Upload the persistent pool marker")
         self.assertEqual(upload["with"]["name"], "macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
-                                                 "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
+                                                 "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.marker_pool }}")
 
     def test_the_picker_reads_the_runs_routing(self):
         changes = self.workflow("ci.yml")["jobs"]["changes"]
@@ -2158,8 +2162,11 @@ class Wiring(unittest.TestCase):
 
     def test_every_pr_route_in_the_run_reads_the_choice(self):
         expected = {
-            # The Claude wrapper, a side lane: the side label first.
-            "ci.yml": "needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner "
+            # The Claude wrapper, a side lane: the side label first, where the
+            # picker placed it (side_only_placement() names a side label for a
+            # Blacksmith pick whose other jobs keep the pick).
+            "ci.yml": "github.run_attempt <= 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') "
+                      "&& needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner "
                       "|| vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
             # tests-build-and-lag each test their own owned_jobs key, and are
@@ -2384,6 +2391,93 @@ class Wiring(unittest.TestCase):
                    if step.get("id") == "macos-pool")["env"]
         self.assertEqual(env["RUN_SWIFT_PACKAGES"], "${{ steps.detect.outputs.swift_packages }}")
         self.assertEqual(env["RUN_RELEASE_BUILD"], "${{ steps.detect.outputs.release_build }}")
+
+
+SIDE_STD = "glaeda-side-std-xcode-26.6"
+SIDE_LIGHT = "glaeda-side-light-xcode-26.6"
+
+
+def side_runners(std=0, light=0, busy_std=0):
+    """Owned runners: idle and busy std side runners, idle light side runners, busy root runners."""
+    runner = lambda busy, *labels: {"status": "online", "busy": busy, "labels": [{"name": name} for name in labels]}
+    return ([runner(False, MINI, SIDE_STD) for _ in range(std)] + [runner(True, MINI, SIDE_STD) for _ in range(busy_std)]
+            + [runner(False, LIGHT, SIDE_LIGHT) for _ in range(light)]
+            + [runner(True, MINI, ROOT_MINI) for _ in range(4)]
+            + [runner(True, LIGHT, "glaeda-root-light-xcode-26.6") for _ in range(2)])
+
+
+class SideOnly(unittest.TestCase):
+    """A Blacksmith pick's side lanes may take idle owned side runners (side_only_placement)."""
+
+    POOLS = (MINI, LIGHT)
+    KEYS = ("claude-wrapper", "swift-package")
+
+    def test_light_first_with_a_margin(self):
+        self.assertEqual(pool.side_only_placement(self.KEYS, side_runners(std=9, light=3), self.POOLS),
+                         (LIGHT, ("claude-wrapper", "swift-package")))
+        # Two idle light runners leave room for one lane beyond the margin; std fits both.
+        self.assertEqual(pool.side_only_placement(self.KEYS, side_runners(std=9, light=2), self.POOLS),
+                         (MINI, ("claude-wrapper", "swift-package")))
+
+    def test_the_most_room_wins_when_no_pool_fits_every_lane(self):
+        keys = ("remote-daemon", "claude-wrapper", "release-build")
+        pool_, placed = pool.side_only_placement(keys, side_runners(std=3, light=2), self.POOLS)
+        # std has room for two, taken in priority order (release-build first).
+        self.assertEqual((pool_, placed), (MINI, ("release-build", "remote-daemon")))
+
+    def test_nothing_without_idle_side_runners(self):
+        for runners in (side_runners(), side_runners(std=1, light=1), side_runners(busy_std=9)):
+            self.assertEqual(pool.side_only_placement(self.KEYS, runners, self.POOLS), ("", ()))
+        self.assertEqual(pool.side_only_placement((), side_runners(std=9), self.POOLS), ("", ()))
+        # Offline runners and root runners are not side runners.
+        offline = [{"status": "offline", "busy": False, "labels": [{"name": MINI}, {"name": SIDE_STD}]}] * 5
+        self.assertEqual(pool.side_only_placement(self.KEYS, offline, self.POOLS), ("", ()))
+
+    def run_main(self, runners, **env_extra):
+        fresh = fleet(busy=11)
+        fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.object(pool.GitHub, "snapshot", return_value=fresh), \
+                unittest.mock.patch.object(pool.GitHub, "pull_request_routes_since", return_value=pool.Routed()), \
+                unittest.mock.patch.object(pool.GitHub, "runners", return_value=runners), \
+                unittest.mock.patch("sys.stdout", io.StringIO()):
+            out = Path(tmp, "out")
+            env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "t",
+                   "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": "1",
+                   "OWNED_SLOTS": json.dumps({MINI: 11, ROOT_MINI: 4, LIGHT: 5,
+                                              "glaeda-root-light-xcode-26.6": 2}), "ROUTE_TOKEN": "app-token",
+                   "POOL_QUEUE_ROUNDS": "0", "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
+                   "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true",
+                   "RUN_FULL_SUITE": "false", "RUN_CLAUDE_WRAPPER": "true", "RUN_SWIFT_PACKAGES": "true",
+                   "RUN_RELEASE_BUILD": "false", **env_extra}
+            self.assertEqual(pool.main([], env), 0)
+            return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+    def test_a_blacksmith_pick_sends_its_side_lanes_to_idle_side_runners(self):
+        # Every root runner is busy, so the run takes Blacksmith; three light side runners are idle.
+        values = self.run_main(side_runners(light=3))
+        self.assertTrue(values["runner"].startswith("blacksmith-"), values["runner"])
+        self.assertEqual((values["persistent"], values["retry_runner"]), ("false", ""))
+        self.assertEqual((values["owned_jobs"], values["side_runner"], values["marker_pool"], values["jobs"]),
+                         (" claude-wrapper swift-package ", SIDE_LIGHT, LIGHT, "2"))
+        self.assertEqual(values["refused_retry_runner"], "")
+
+    def test_no_side_runner_no_change(self):
+        values = self.run_main(side_runners())
+        self.assertTrue(values["runner"].startswith("blacksmith-"), values["runner"])
+        self.assertEqual((values["owned_jobs"], values["side_runner"], values["marker_pool"]), ("", "", ""))
+
+    def test_forks_retries_and_macos_15_picks(self):
+        # A fork head never reads owned runners.
+        values = self.run_main(side_runners(light=3, std=9), HEAD_REPO="someone/cmux", ROUTE_TOKEN="")
+        self.assertEqual((values["owned_jobs"], values["marker_pool"]), ("", ""))
+        values = self.run_main(side_runners(light=3, std=9), GITHUB_RUN_ATTEMPT="2")
+        self.assertEqual((values["owned_jobs"], values["marker_pool"]), ("", ""))
+        # A macOS 15 pick selects another Xcode, which swift-package-tests would carry onto the mini.
+        with unittest.mock.patch.object(pool, "choose", return_value=(pool.Choice(OLD, XCODE_15, "full"), None)):
+            values = self.run_main(side_runners(light=3, std=9))
+        self.assertEqual((values["runner"], values["owned_jobs"], values["side_runner"]),
+                         (OLD, " claude-wrapper ", SIDE_LIGHT))
 
 
 IOS_SIM = "glaeda-ios-sim"

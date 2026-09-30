@@ -478,6 +478,46 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
     return side_label(choice.runner)
 
 
+# Side lanes of a run the picker put on Blacksmith (every owned pool too busy
+# for its root jobs) may still take owned side runners: those are a different
+# resource from the root runners the pick waited on, and on 2026-09-26 up to 18
+# of 42 std side runners and both light ones sat idle while such runs sent
+# swift-package-tests to Blacksmith macOS 15 (about 470 jobs a day). Only
+# runners idle now count, with SIDE_ONLY_MARGIN left over for the runs picking
+# at the same moment, since these jobs have no queue allowance to spend: the
+# light minis first (an M4 beats a 6 vCPU Blacksmith machine), then the std
+# minis. ci-owned-pool-rescue.yml watches the run by its marker like any other
+# owned placement, and a refused lane retries once on the side label before
+# its Blacksmith default.
+SIDE_ONLY_MARGIN = 1
+
+
+def side_only_placement(keys: Sequence[str], runners: Sequence[Mapping[str, Any]],
+                        pools: Sequence[str]) -> tuple[str, tuple[str, ...]]:
+    """(owned pool, side lanes) that idle side runners can take now, or ("", ()).
+
+    `keys` are the run's side lanes in priority order and `pools` the owned pool
+    labels for the lane's Xcode. The light pool is tried first; a pool takes
+    every lane it has room for beyond SIDE_ONLY_MARGIN, and the pool with the
+    most room wins when none fits them all.
+    """
+    if not keys:
+        return "", ()
+    best: tuple[str, tuple[str, ...]] = ("", ())
+    for pool in sorted(pools, key=lambda label: 0 if "-light-" in label else 1):
+        side = side_label(pool)
+        if not side:
+            continue
+        idle = sum(1 for runner in runners
+                   if runner.get("status") == "online" and not runner.get("busy") and side in runner_labels(runner))
+        room = min(len(keys), idle - SIDE_ONLY_MARGIN)
+        if room > len(best[1]):
+            best = (pool, tuple(sorted(keys, key=priority)[:room]))
+        if room == len(keys):
+            break
+    return best
+
+
 def pool_label(label: str) -> str:
     """The owned pool a root or side label's runners belong to; any other label unchanged."""
     for prefix in (ROOT_PREFIX, SIDE_PREFIX):
@@ -1973,7 +2013,10 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
                      f"and a re-run of failed jobs, goes to: `{choice.retry_runner}`")
     if choice.root_runner:
         lines.append(f"- Root jobs among them ({ROOT_JOBS}) take `{choice.root_runner}`")
-    if side:
+    if side and not persistent(choice.runner) and owned_jobs:
+        lines.append(f"- Side lanes on idle owned side runners (SIDE_ONLY_MARGIN): {', '.join(owned_jobs)} "
+                     f"take `{side}`")
+    elif side:
         lines.append(f"- Side lanes among them ({', '.join(SIDE_LANE_JOBS)}) take `{side}`")
     if admission_runner:
         labels = " + ".join(f"`{label}`" for label in json.loads(admission_runner))
@@ -2099,6 +2142,16 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # run takes retry_runner. The marker's jobs are the owned machines held.
     owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None)
                         if persistent(choice.runner) else ((), plan.peak))
+    # A Blacksmith pick's side lanes on idle owned side runners (SIDE_ONLY_MARGIN).
+    # A macOS 15 pick's Xcode is not the minis', so swift-package-tests, which
+    # selects the run's Xcode on an owned Mac, stays with it.
+    side_pool = ""
+    if (choice.runner and not persistent(choice.runner) and live_runners is not None and attempt in ("", "1")
+            and same_repo_pr and (env.get("POOL_OWNED") or "").strip() == "1"):
+        keys = tuple(key for key in plan.side if key != SWIFT_PACKAGE_JOB or not choice.xcode_app)
+        side_pool, side_keys = side_only_placement(keys, live_runners, owned_pools(pr_xcode_app))
+        if side_keys:
+            owned_jobs, held = side_keys, len(side_keys)
     # Admission on a root runner whose kept build is of this run's merge base
     # (see "Warm affinity" above). Attempt 1 only: only it is placed, and
     # ci-macos.yml reads both outputs on attempt 1 only.
@@ -2129,7 +2182,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 admission_runner = ""
                 print(f"::warning title=warm routing::{type(error).__name__}: {error}"[:300])
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
-    side = side_runner(choice, owned_slots)
+    side = side_label(side_pool) if side_pool else side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
                    owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
     print(text)
@@ -2140,6 +2193,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
             handle.write(f"runner={choice.runner}\nxcode_app={choice.xcode_app}\n"
                          f"persistent={'true' if persistent(choice.runner) else 'false'}\n"
+                         # The owned pool the rescue marker names: the pick, or
+                         # the pool whose side runners took a Blacksmith pick's
+                         # side lanes; "" when no job of the run is owned.
+                         f"marker_pool={choice.runner if persistent(choice.runner) else side_pool}\n"
                          f"retry_runner={choice.retry_runner}\njobs={held}\n"
                          f"shard_runner={choice.shard_runner}\n"
                          # Attempt 2 of an owned job the fleet refused tries it

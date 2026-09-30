@@ -1326,6 +1326,9 @@ ROOT_OUTPUT = "needs.changes.outputs.macos_pr_root_runner"
 ADMISSION_PICKED = "steps.macos-pool.outputs.admission_runner"
 ADMISSION_OUTPUT = "needs.changes.outputs.macos_pr_admission_runner"
 SIDE_PICKED = "steps.macos-pool.outputs.side_runner"
+# The owned pool the rescue marker names (the pick, or the pool whose side
+# runners took the side lanes of a Blacksmith pick): only the marker reads it.
+MARKER_PICKED = "steps.macos-pool.outputs.marker_pool"
 SIDE_OUTPUT = "needs.changes.outputs.macos_pr_side_runner"
 PASSED = "${{ needs.changes.outputs.macos_pr_runner }}"
 # Each input the picked pools reach a reusable workflow through, and its value.
@@ -1336,7 +1339,7 @@ INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}",
           "pr_admission_runner": "${{ " + ADMISSION_OUTPUT + " }}",
           "pr_side_runner": "${{ " + SIDE_OUTPUT + " }}"}
 MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
-          "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
+          "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.marker_pool }}")
 # The runs-on branches that may read the picked pool, each behind its
 # pull_request condition; a fork head keeps only a Blacksmith pick.
 GUARDED = (
@@ -1346,7 +1349,8 @@ GUARDED = (
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
     " || 'blacksmith-6vcpu-macos-15')",
     # A side lane: the side label of the pool first, when the picker named one.
-    "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner"
+    "github.event_name == 'pull_request' && (github.run_attempt <= 2 && contains("
+    "needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_side_runner"
     " || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
     # Attempt 2 of a refused owned job: the owned pool once more.
     "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')"
@@ -1390,6 +1394,11 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
                 or path[:3] == ("jobs", "changes", "steps") and path[-2:] == ("with", "name") and value == MARKER))
             if not allowed:
                 violations.append(f"{where}: reads the picker's runner outside macos_pr_runner and the rescue marker")
+        if MARKER_PICKED in value and not (file.name == "ci.yml" and path[:3] == ("jobs", "changes", "steps") and (
+                path[-2:] == ("env", "POOL") and value == "${{ " + MARKER_PICKED + " }}"
+                or path[-2:] == ("with", "name") and value == MARKER
+                or path[-1:] == ("if",) and value == "${{ " + MARKER_PICKED + " != '' }}")):
+            violations.append(f"{where}: reads the marker pool outside the rescue marker")
         if RETRY_PICKED in value and not (
                 file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_retry_runner")
                 and value == "${{ " + RETRY_PICKED + " }}"):

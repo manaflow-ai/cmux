@@ -764,10 +764,12 @@ jobs:
       # watched, which is how every run behaved before the rescue existed.
       - name: Mark a run on a persistent macOS pool
         id: macos-pool-marker
-        if: ${{ steps.macos-pool.outputs.persistent == 'true' }}
+        # marker_pool is the owned pick, or the owned pool whose idle side
+        # runners took a Blacksmith pick's side lanes (side_only_placement).
+        if: ${{ steps.macos-pool.outputs.marker_pool != '' }}
         continue-on-error: true
         env:
-          POOL: ${{ steps.macos-pool.outputs.runner }}
+          POOL: ${{ steps.macos-pool.outputs.marker_pool }}
         run: |
           set -euo pipefail
           marker="$RUNNER_TEMP/macos-pool-persistent.json"
@@ -780,7 +782,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # The janitor reads the run's peak and pool from the name.
-          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.marker_pool }}
           path: ${{ steps.macos-pool-marker.outputs.path }}
           if-no-files-found: error
           retention-days: 1
@@ -1176,7 +1178,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && github.run_attempt == 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && github.run_attempt == 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && (github.run_attempt <= 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
     # processes, so a mini saturated by a compile beside it stretches it:
     # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
