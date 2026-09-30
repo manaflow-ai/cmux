@@ -52,6 +52,26 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         super.sendEvent(event)
     }
 
+    // MARK: Accessibility windows
+
+    /// The window Accessibility clients see as this app's focused or main
+    /// window when `window` is key or main.
+    static func accessibilityWindow(for window: NSWindow?) -> NSWindow? {
+        window
+    }
+
+    override func accessibilityFocusedWindow() -> Any? {
+        guard let window = Self.accessibilityWindow(for: keyWindow), window !== keyWindow else { return super.accessibilityFocusedWindow() }
+        return window
+    }
+
+    override func accessibilityMainWindow() -> Any? {
+        guard let window = Self.accessibilityWindow(for: keyWindow ?? mainWindow), window !== (keyWindow ?? mainWindow) else {
+            return super.accessibilityMainWindow()
+        }
+        return window
+    }
+
     // MARK: Activation
 
     override func activate() {
