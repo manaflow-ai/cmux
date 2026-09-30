@@ -688,11 +688,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let selectedScrollTargetWorkspaceId = input.selectedScrollTargetWorkspaceId
         let forceTableReload = input.forceTableReload
         let forcedReloadViewportOrigin = input.forcedReloadViewportOrigin
-        // Authoritative render: reconciles any optimistic preview, so the
-        // preview bailout stands down.
-        applyGeneration &+= 1
-        previewBailoutTask?.cancel()
-        previewBailoutTask = nil
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
@@ -722,14 +717,20 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                    $0.workspaceId == optimisticSelectionTargetWorkspaceId
                }
            ) {
+            // A stale Cloud content render keeps both the preview and its
+            // rollback task alive. Only an authoritative selection (or a
+            // removed target) supersedes the preview lifecycle.
+            applyGeneration &+= 1
+            previewBailoutTask?.cancel()
+            previewBailoutTask = nil
             for (index, row) in nextRows.enumerated()
             where optimisticallyPaintedRowIds.contains(row.id) {
                 contentChanges.insert(index)
             }
             // Drop the preview first. configure() early-returns when the
             // authoritative model equals the stored one, so a preview whose
-            // selection did not land (replaced by a newer click, or an
-            // unrelated apply arriving first) otherwise kept its paint.
+            // selection did not land (for example, a replaced click) would
+            // otherwise keep its paint after this authoritative apply.
             dropOptimisticPaint(onRowsWithIds: optimisticallyPaintedRowIds)
             optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
             optimisticSelectionTargetWorkspaceId = nil
@@ -1096,6 +1097,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func cancelSelectionIntent() {
         deferredRowClick = nil
         selectionCoalescer.cancel()
+        applyGeneration &+= 1
+        previewBailoutTask?.cancel()
+        previewBailoutTask = nil
+        restoreVisibleCellPaint()
         optimisticSelectionTargetWorkspaceId = nil
     }
 
@@ -2114,9 +2119,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func restoreVisibleCellPaint() {
-        guard let table = containerView?.tableView else { return }
         optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         optimisticSelectionTargetWorkspaceId = nil
+        guard let table = containerView?.tableView else { return }
         let visible = table.rows(in: table.visibleRect)
         for row in visible.lowerBound..<(visible.lowerBound + visible.length) {
             let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
@@ -2124,6 +2129,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             (cellView as? SidebarGroupHeaderTableCellView)?.restoreStoredModelPaint()
         }
     }
+
+#if DEBUG
+    var hasPendingOptimisticSelectionForTesting: Bool {
+        !optimisticallyPaintedRowIds.isEmpty
+    }
+
+    func installOptimisticSelectionPreviewForTesting(targetWorkspaceId: UUID) {
+        optimisticallyPaintedRowIds = [.workspace(targetWorkspaceId)]
+        optimisticSelectionTargetWorkspaceId = targetWorkspaceId
+        schedulePreviewBailout()
+    }
+#endif
 
     func middleClick(row: Int) {
         // Middle-click-close is a workspace-row gesture. A group header is not a

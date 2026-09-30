@@ -75,6 +75,37 @@ struct SidebarWorkspaceTableTests {
 #if DEBUG
     @Test
     @MainActor
+    func staleApplyKeepsPreviewBailoutUntilItsTimeout() async {
+        let controller = SidebarWorkspaceTableController()
+        _ = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        let actions = makeTableActions()
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        controller.installOptimisticSelectionPreviewForTesting(targetWorkspaceId: row.workspaceId)
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: UUID(),
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        #expect(controller.hasPendingOptimisticSelectionForTesting)
+        try? await Task.sleep(for: .milliseconds(450))
+        #expect(!controller.hasPendingOptimisticSelectionForTesting)
+    }
+
+    @Test
+    @MainActor
     func provisionalWorkspaceWriterKeepsSourceAttachedUntilNativeSessionDecision() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
