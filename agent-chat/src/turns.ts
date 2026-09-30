@@ -3,6 +3,8 @@ import type { Block } from "./session";
 export interface TurnGroup {
   id: string;
   user?: Extract<Block, { kind: "user" }>;
+  /** cmux agent messages the agent received for this turn. */
+  messages?: Extract<Block, { kind: "message" }>[];
   activity: Block[];
   assistant?: Extract<Block, { kind: "assistant" }>;
   footer?: Extract<Block, { kind: "footer" }>;
@@ -22,13 +24,24 @@ export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
     }
   };
   const push = () => {
-    if (current && (current.user || current.activity.length || current.assistant || current.footer)) groups.push(current);
+    if (current && (current.user || current.messages?.length || current.activity.length || current.assistant || current.footer)) groups.push(current);
   };
   for (const block of blocks) {
     if (block.kind === "user") {
       push();
       current = { id: `turn-${groups.length}-${block.text.slice(0, 24)}`, user: block, activity: [], done: false };
       pendingAssistantIndex = null;
+      continue;
+    }
+    if (block.kind === "message") {
+      // A message joins the prompt it arrived with. One that woke an idle
+      // agent, or continued it after a reply, starts the turn it caused.
+      if (!current || current.assistant || current.footer || current.activity.length) {
+        push();
+        current = { id: `turn-${groups.length}-message-${block.id}`, activity: [], done: false };
+        pendingAssistantIndex = null;
+      }
+      current.messages = [...(current.messages ?? []), block];
       continue;
     }
     if (!current) {

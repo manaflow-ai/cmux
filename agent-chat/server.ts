@@ -16,7 +16,7 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { attachTranscript, focusTranscriptTerminal, transcriptAdapter, type TranscriptAgent } from "./adapters/transcript";
+import { attachTranscript, focusTranscriptTerminal, queuedTranscriptMessages, transcriptAdapter, type QueuedAgentMessage, type TranscriptAgent } from "./adapters/transcript";
 import { resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
@@ -193,6 +193,11 @@ interface Session extends SessionCtx {
     disposeTimer?: ReturnType<typeof setTimeout>;
     /** What the agent is waiting on in the terminal (permission, question), if anything. */
     attention?: string | null;
+    /** cmux agent messages waiting for the agent, and when they were last read. */
+    queuedMessages?: QueuedAgentMessage[];
+    queuedCheckedAt?: number;
+    queuedInflight?: boolean;
+    queuedReadFailed?: boolean;
   };
 }
 interface WsData {
@@ -268,8 +273,17 @@ function sessionSummary(s: Session) {
     parentConversationId: s.parentConversationId,
     startRequestId: s.startRequestId,
     capabilities: s.transcript ? s.adapter.capabilities : capabilitiesFor(s.provider),
-    ...(s.transcript ? { mode: "transcript" as const, attention: s.transcript.attention ?? null } : {}),
+    ...(s.transcript ? { mode: "transcript" as const, attention: s.transcript.attention ?? null, queuedMessages: s.transcript.queuedMessages ?? [] } : {}),
   };
+}
+
+export function stripQueuedMessages(summary: Record<string, unknown>): Record<string, unknown> {
+  const { queuedMessages: _queuedMessages, ...withoutQueuedMessages } = summary;
+  return withoutQueuedMessages;
+}
+
+function sessionListSummary(s: Session) {
+  return stripQueuedMessages(sessionSummary(s));
 }
 
 function capabilitiesFor(provider: string): ProviderCapabilities {
@@ -329,7 +343,8 @@ function providerInfo(p: ProviderDef) {
 function broadcastSessions() {
   const payload = JSON.stringify({
     kind: "sessions",
-    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
+    // Queued message bodies go only to the session's own page.
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary),
   });
   for (const ws of allSockets) ws.send(payload);
 }
@@ -605,8 +620,14 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
 
 function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID()) {
   if (sess.transcript) {
-    // Typed into the terminal's agent; the transcript records the prompt.
-    void sess.adapter.send(sess, prompt);
+    // Typed into the terminal's agent; the transcript records the prompt, so
+    // there is no turn generation to unwind and no "done" to emit. The send
+    // can still reject (a replaced agent process, a failed spawn), and that
+    // has to reach the user rather than becoming an unhandled rejection.
+    Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
+      console.error("[agent-chat] send failed", err);
+      sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
+    });
     return;
   }
   emitRouting(sess, { phase: "started", requestId, attempt: 1, provider: sess.provider });
@@ -704,12 +725,45 @@ function startTranscriptTail(sess: Session, source: TranscriptSource) {
 // in the transcript until answered; the hook store says when the agent waits.
 function refreshTranscriptAttention(sess: Session, source: TranscriptSource) {
   if (!sess.transcript) return;
+  if (sess.sockets.size) refreshQueuedMessages(sess);
   const attention = transcriptAttention(source.agent, source.sessionId);
   if ((sess.transcript.attention ?? null) === attention) return;
   sess.transcript.attention = attention;
   if (!sess.sockets.size) return;
   const payload = JSON.stringify({ kind: "session-attention", sessionId: sess.id, attention });
   for (const ws of sess.sockets) ws.send(payload);
+}
+
+// Queued cmux agent messages live in the app, not the transcript. Each read
+// spawns the CLI, so it runs at most every couple of seconds while a page is
+// open; delivered messages then appear in the transcript itself.
+const QUEUED_MESSAGES_REFRESH_MS = 2_000;
+// After a failed read (an app without the method, or a busy app), wait longer.
+const QUEUED_MESSAGES_RETRY_MS = 30_000;
+
+function refreshQueuedMessages(sess: Session) {
+  const transcript = sess.transcript;
+  if (!transcript || transcript.queuedInflight) return;
+  const now = Date.now();
+  const interval = transcript.queuedReadFailed ? QUEUED_MESSAGES_RETRY_MS : QUEUED_MESSAGES_REFRESH_MS;
+  if (transcript.queuedCheckedAt && now - transcript.queuedCheckedAt < interval) return;
+  transcript.queuedCheckedAt = now;
+  transcript.queuedInflight = true;
+  void queuedTranscriptMessages(sess)
+    .then((messages) => {
+      transcript.queuedReadFailed = messages === undefined;
+      if (messages === undefined) return;
+      if (JSON.stringify(transcript.queuedMessages ?? []) === JSON.stringify(messages)) return;
+      transcript.queuedMessages = messages;
+      const payload = JSON.stringify({ kind: "session-queued-messages", sessionId: sess.id, messages });
+      for (const ws of sess.sockets) ws.send(payload);
+    })
+    .catch(() => {
+      transcript.queuedReadFailed = true;
+    })
+    .finally(() => {
+      transcript.queuedInflight = false;
+    });
 }
 
 function refreshExistingTranscriptSession(sess: Session): Session {
@@ -2133,7 +2187,7 @@ function startServer() {
       return new Response(null, { status: 302, headers: { location: `${prefixedPath(`/s/${sess.id}`)}${url.search}` } });
     }
     if (url.pathname === "/api/sessions" && req.method === "GET") {
-      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary));
+      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary));
     }
     return new Response(renderPage(url), { headers: { "content-type": "text/html; charset=utf-8" } });
     },
@@ -2154,7 +2208,11 @@ function startServer() {
       }));
       ws.send(JSON.stringify({
         kind: "sessions",
-        sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
+        // Queued message bodies go only to the session's own page.
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map((s) => {
+      const { queuedMessages: _queued, ...summary } = sessionSummary(s) as ReturnType<typeof sessionSummary> & { queuedMessages?: unknown };
+      return summary;
+    }),
       }));
       },
       close(ws) {
