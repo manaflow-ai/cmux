@@ -132,8 +132,18 @@ extension CmuxTuiSurfaceProvider {
             // input. A cloud terminal can have more than one local projection;
             // the pane the user is typing in must be the authoritative owner.
             let existingExplicitInput = created.surface.onExplicitInput
-            created.surface.onExplicitInput = { [weak session] in
+            let createdWorkspaceID = created.workspaceID
+            let createdSurface = created.surface
+            created.surface.onExplicitInput = { [weak session, weak createdSurface] in
                 existingExplicitInput?()
+                // A manual-mirror portal can accept a key or paste while its
+                // AppKit focus callback is one turn behind. Reassert the
+                // selected workspace pane at the input boundary so the active
+                // pane border cannot remain on an adjacent local terminal.
+                if let createdSurface,
+                   let workspace = Workspace.liveWorkspace(id: createdWorkspaceID) {
+                    workspace.focusPanelFromTerminalInput(createdSurface.id)
+                }
                 session?.noteExplicitInput()
             }
             manualMirrorSessions[created.panelID] = session

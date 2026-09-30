@@ -83,6 +83,22 @@ import SwiftUI
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    @Test("Cloud terminal input reasserts the active pane")
+    func cloudTerminalInputReassertsActivePane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanelID = try #require(workspace.focusedPanelId)
+        let cloudPanel = try #require(workspace.newTerminalSurface(inPane: paneID, focus: false))
+        cloudPanel.cloudAttachment = CloudTerminalAttachmentStatus(machineID: "focus-ring-test")
+
+        #expect(workspace.focusedPanelId == localPanelID)
+        #expect(workspace.focusPanelFromTerminalInput(cloudPanel.id))
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(!workspace.focusPanelFromTerminalInput(cloudPanel.id))
+    }
+
     @Test("Cloud shortcut inheritance uses the live remote foreground cwd")
     func cloudShortcutInheritanceUsesLiveRemoteForegroundCwd() async throws {
         let harness = try Harness()
