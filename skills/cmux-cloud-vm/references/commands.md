@@ -61,6 +61,8 @@ cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines sta
 cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
+cmux vm auth setup <id> --git-identity  # explicitly copy this Mac's selected global Git identity
+cmux vm auth setup <id> --github        # explicitly copy this Mac's active GitHub CLI auth
 cmux vm handoff <id>                   # short attach block to paste to a human or another agent
 ```
 
@@ -192,6 +194,13 @@ cmux vm handoff <id> [--json]
 
 Socket `vm.status`, printed as a short block (id, provider, status, `attach: cmux vm shell <id>`, `inspect: cmux vm tools <id>`) to paste to a person or another agent. `--json`: the status payload.
 
+### `cmux vm auth setup`
+
+```bash
+cmux vm auth setup <machine> [--git-identity] [--github] [--json]
+```
+
+Explicitly carry only the named credential scopes from this Mac into one cloud machine. `--git-identity` reads the selected global `user.name` and `user.email` and configures them remotely. `--github` reads the active `gh auth token --hostname github.com` and transfers it through the secret-safe file path before running `gh auth login` and `gh auth setup-git` on the machine. The token is never put in a command argument or printed. At least one scope is required; there is no implicit all-credentials mode.
 ### Base: `cmux vm base open` / `cmux vm base reset`
 
 ```bash
