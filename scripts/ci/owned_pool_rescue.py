@@ -73,13 +73,17 @@ E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
 (with 1 job). An E2E run is a workflow_dispatch, not a pull request, so there
 is no head to re-check, and its build and test jobs are not a split that can
-break: from attempt 2 on both take the runner job's retry_label, a macOS 26
-Blacksmith pool on the same Xcode build. So a stuck or refused E2E job gets
-its failed and cancelled jobs re-run, keeping a build that passed, and the
-follow-on watch of attempt 2 finds no owned job and stops. When the build
-itself did not succeed, every job is re-run instead, so the `sibling` job
-looks again for another run compiling the same revision
-(e2e_build_unfinished). A stuck E2E run
+break. A stuck or refused E2E job gets its failed and cancelled jobs re-run,
+keeping a build that passed; those jobs keep attempt 1's pick, so they take
+the runner job's retry_label, a macOS 26 Blacksmith pool on the same Xcode
+build, and the follow-on watch of attempt 2 finds no owned job and stops.
+When the build itself did not succeed, every job is re-run instead, so the
+`sibling` job looks again for another run compiling the same revision
+(e2e_build_unfinished), and the runner job picks again: attempt 2 takes that
+live pick, which may be an owned Mac, because a Blacksmith re-run cannot adopt
+a product an owned Mac compiled (their Rust toolchains differ) and so compiled
+it again. That attempt is followed like a full re-run, by its picker and its
+own marker, and attempt 3 and later always take retry_label. A stuck E2E run
 that finished some other way (a newer dispatch in its concurrency group
 cancelled it) is not re-run, since that would cancel the newer one. Its
 watch lasts E2E_WATCH_LIMIT_SECONDS, since its test job queues only after a
@@ -963,7 +967,11 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         # full re-run without the variable never holds an owned machine.
         if not failed_only and not light_retry:
             return "done"
-        target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=not failed_only, late=False)
+        # An E2E run whose build did not succeed is re-run in full
+        # (e2e_build_unfinished): its picker runs again and may put attempt 2
+        # on an owned Mac, so that attempt is followed by its picker and marker.
+        full_rerun = not failed_only or result.startswith("re-ran every job")
+        target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=full_rerun, late=False)
         # The followed attempt gets its own watch: a late rescue of attempt 1
         # would otherwise leave it the tail of attempt 1's, ending before its
         # owned jobs even queue. The job's timeout still caps watch plus grace.
@@ -1084,8 +1092,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             log(f"[run {run_id}] could not read the run ({error})")
             return
         full_rerun = False
-        if light_retry and int(run.get("run_attempt") or 0) > 1:
+        if (light_retry or run.get("path") == E2E_WORKFLOW_PATH) and int(run.get("run_attempt") or 0) > 1:
             # A full re-run ran the picker again; a re-run of failed jobs kept attempt 1's.
+            # An E2E full re-run's attempt 2 takes that new pick, owned or not.
             try:
                 jobs = read(lambda: client.jobs(run_id, int(run["run_attempt"])), wait, log)
             except READ_ERRORS as error:

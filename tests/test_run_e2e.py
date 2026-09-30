@@ -1372,7 +1372,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         return next(step for step in steps if "e2e_runner_pool.py" in step.get("run", ""))
 
     def run_pool_step(self, *, requested="auto", variable="", overflow="", order="",
-                      max_queued=""):
+                      max_queued="", attempt="1"):
         """Run the workflow's own step script with the values GitHub would pass.
 
         No token reaches it, so a decision that reads the queue fails safe.
@@ -1403,11 +1403,19 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             output = Path(temp) / "output"
             output.write_text("")
             env["GITHUB_OUTPUT"] = str(output)
+            env["GITHUB_RUN_ATTEMPT"] = attempt
             result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=ROOT, env=env, check=True,
                                     capture_output=True, text=True)
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
         self.assertEqual(lines["retry_label"], self.pool.retry_runner(lines["label"]))
         return lines["label"], result.stderr
+
+    def test_only_attempts_one_and_two_pick_an_owned_mac(self):
+        # A rescue's full re-run picks again; attempt 2 may take the fleet,
+        # attempt 3 and later never do (owned_pool_rescue.LAST_OWNED_ATTEMPT).
+        self.assertEqual(self.run_pool_step(requested=MINI, attempt="2")[0], MINI)
+        self.assertEqual(self.run_pool_step(requested=MINI, attempt="3")[0], SMALL)
+        self.assertEqual(self.run_pool_step(requested=LARGE, attempt="3")[0], LARGE)
 
     def test_the_workflow_step_resolves_through_the_rule(self):
         self.assertEqual(self.run_pool_step()[0], SMALL)
@@ -1454,9 +1462,13 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertNotIn("reserved first for release", comment)
 
     def test_macos_jobs_run_on_the_resolved_pool(self):
-        # A re-run attempt takes retry_label, which moves an owned Mac to Blacksmith.
-        runs_on = ("${{ github.run_attempt > 1 && needs.runner.outputs.retry_label"
-                   " || needs.runner.outputs.label }}")
+        # An attempt takes the runner job's pick only when that job ran in the
+        # same attempt (a full re-run picks again); a re-run of failed jobs
+        # keeps attempt 1's outputs and takes retry_label, which moves an
+        # owned Mac to Blacksmith.
+        runs_on = ("${{ needs.runner.outputs.picked_attempt == github.run_attempt"
+                   " && needs.runner.outputs.label || needs.runner.outputs.retry_label }}")
+        self.assertEqual(self.jobs["runner"]["outputs"]["picked_attempt"], "${{ github.run_attempt }}")
         for name in ("build", "test"):
             with self.subTest(job=name):
                 job = self.jobs[name]
@@ -1612,7 +1624,11 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
     def test_the_runner_job_marks_an_owned_run_for_the_rescue(self):
         steps = {step.get("name"): step for step in self.jobs["runner"]["steps"]}
         mark = steps["Mark a run on a persistent macOS pool"]
-        self.assertEqual(mark["if"], "${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt == 1 }}")
+        # Attempt 2 of a full re-run is marked too, so the rescue can follow it.
+        self.assertEqual(mark["if"], "${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt <= 2 }}")
+        # The sweeper's listing marker has one fixed name: attempt 1 only.
+        self.assertEqual(steps["Upload the owned-pool watch marker"]["if"],
+                         "${{ steps.marker.outputs.path != '' && github.run_attempt == 1 }}")
         upload = steps["Upload the persistent pool marker"]
         self.assertEqual(upload["with"]["name"], "macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
                                                  "-1-${{ steps.pool.outputs.label }}")

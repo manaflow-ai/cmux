@@ -187,6 +187,27 @@ def read(*args):
     return subprocess.check_output(args, text=True, timeout=30).strip()
 
 
+def contract_environment():
+    """CONTRACT_ENVIRONMENT's values, with an SDKROOT that picks no other SDK left out.
+
+    macOS's /usr/bin/python3 is an xcrun shim, and xcrun exports SDKROOT, the
+    selected Xcode's MacOSX.sdk, to the Python it starts. So a Mac whose job
+    PATH reaches no other python3 hashed that path while the rest of the fleet
+    hashed nothing: on 2026-09-26 revision 8b593349 at root 1 was product
+    8f68380f on cmux7s and dd3ed8d1 on cmux10s, and neither Mac could adopt
+    the other's. An SDKROOT naming the SDK xcrun selects anyway (`sdk` already
+    keys its build) changes no byte, so it is recorded as unset. Any other
+    SDKROOT is kept.
+    """
+    values = {name: os.environ.get(name, "") for name in CONTRACT_ENVIRONMENT}
+    sdkroot = values.get("SDKROOT", "")
+    if sdkroot:
+        selected = read("xcrun", "--sdk", "macosx", "--show-sdk-path")
+        if os.path.realpath(sdkroot) == os.path.realpath(selected):
+            values["SDKROOT"] = ""
+    return values
+
+
 def contract(derived=None):
     """Fingerprint everything that decides a compiled product's bytes.
 
@@ -223,7 +244,7 @@ def contract(derived=None):
         "sdk": read("xcrun", "--sdk", "macosx", "--show-sdk-build-version"),
         "architecture": platform.machine(),
         "tools": versions,
-        "environment": {k: os.environ.get(k, "") for k in CONTRACT_ENVIRONMENT},
+        "environment": contract_environment(),
     }
     if derived is None:
         value["os"] = read("sw_vers", "-buildVersion")
