@@ -201,6 +201,10 @@ final class CloudWorkspaceCreationCoordinator {
                 )
                 operation.terminal = firstTerminal.resource
                 projections.append(opened.projection)
+                // Publish each accepted placement to the transaction before the
+                // next await. If a later placement fails, rollback must retire
+                // the panes already materialized in this local workspace.
+                operation.openedProjections = projections
                 try check(operation, catalog: catalog)
                 operation.reservation?.creationReceipt.finish(.success(firstTerminal.resource))
                 let remaining = group.placements.filter { $0 != firstTerminal.placement }
@@ -210,7 +214,11 @@ final class CloudWorkspaceCreationCoordinator {
                             title: group.title,
                             placements: remaining,
                             remoteWorkspaceID: group.remoteWorkspaceID,
-                            representsWorkspace: true
+                            // This is an intentional subset after the first
+                            // terminal adopted the reservation. Re-resolving it
+                            // as a whole workspace would project the first tab
+                            // again and defeat stable placement identity.
+                            representsWorkspace: false
                         ),
                         into: .workspace(id: reservation.workspaceID, placement: .tab),
                         focus: false
@@ -219,6 +227,7 @@ final class CloudWorkspaceCreationCoordinator {
                         throw SurfaceCatalogError.destinationNotFound("workspace placement incomplete")
                     }
                     projections.append(contentsOf: rest)
+                    operation.openedProjections = projections
                 }
             } else {
                 projections = try await catalog.projectGroup(
