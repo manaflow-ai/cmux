@@ -16,7 +16,7 @@ nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     let computersActions: ComputersSettingsActions
-    let cloudActivationCoordinator: CloudActivationCoordinator?
+    var cloudActivationCoordinator: CloudActivationCoordinator?
     private let configFileURL: URL
     private let browserDataImportCoordinator: BrowserDataImportCoordinator
     private let automationConfigStore: AutomationConfigStore
