@@ -292,31 +292,23 @@ jobs:
         if: always()
         run: ./scripts/e2e/backend-up.sh down
 
-  mac-ios-e2e:
-    # The Mac and simulator share one runner. That removes the runner-to-runner
-    # network shortcut while relay-only policy keeps terminal traffic on the
-    # same Iroh path the gate is meant to exercise.
-    # Deliberately not `needs: backend`: the backend holds until this job
-    # releases it, so waiting for its completion would deadlock.
+  build-mac:
+    # The tagged Mac app, built with no secrets so it can run on the owned
+    # fleet: a glaeda side runner on attempt 1 (as reload-build.yml does),
+    # Blacksmith on a rerun or outside manaflow-ai. A side runner keeps its
+    # DerivedData between jobs under $RUNNER_WORKSPACE/.glaeda-state, so
+    # reload.sh (whose tag is not a compiler input) recompiles only what
+    # changed. It runs in parallel with build-ios and the backend.
     needs: route
     if: >-
       success()
       && needs.route.outputs.run_clients == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-14' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 120
-    environment: ios-e2e
-    permissions:
-      contents: read
-      id-token: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') }}
+    timeout-minutes: 60
     env:
       CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
       CMUX_IROH_V2_FORCE_RELAY: "1"
-      # Read by scripts/mobile-dev-launch.sh, which forwards them to the
-      # simulator app: a fresh install must not stop on the What's New sheet,
-      # and the driver expects the paired terminal already open.
-      CMUX_UITEST_SUPPRESS_WHATS_NEW: "1"
-      CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE: "1"
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
@@ -334,6 +326,168 @@ jobs:
           set -euo pipefail
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      - name: Point the build at this lane's backend
+        run: |
+          set -euo pipefail
+          # Everything the build bakes is the same for every run of a commit:
+          # the fixed backend name, relay-only, staging for web side paths.
+          ./scripts/e2e/backend-env.sh env >> "$GITHUB_ENV"
+          {
+            echo "CMUX_DEV_BACKEND_MODE=local"
+            echo "CMUX_DEV_API_BASE_URL=https://cmux-staging.vercel.app"
+            echo "CMUX_IROH_BROKER_BASE_URL=https://cmux-staging.vercel.app"
+          } >> "$GITHUB_ENV"
+
+      - name: Build tagged Mac app
+        run: |
+          set -euo pipefail
+          # Per runner: warm across this runner's jobs on the fleet, empty on
+          # an ephemeral Blacksmith VM. One job per runner at a time holds it.
+          derived="$RUNNER_WORKSPACE/.glaeda-state/ios-e2e-mac-derived-data"
+          mkdir -p "$derived"
+          started="$(date +%s)"
+          ./scripts/reload.sh \
+            --tag "$CMUX_E2E_TAG" \
+            --build-only \
+            --derived-data "$derived" \
+            --no-global-cli-links \
+            --swift-frontend-workaround
+          echo "build: $(( $(date +%s) - started ))s on ${RUNNER_NAME:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+          ./scripts/e2e/prebuilt-apps.sh package-mac "$derived" "$RUNNER_TEMP/prebuilt/mac-app.zip"
+
+      - name: Upload Mac app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-e2e-mac-app-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/prebuilt/mac-app.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  build-ios:
+    # The tagged simulator app, also secret-free and in parallel with
+    # build-mac. Blacksmith: glaeda side runners lack the iOS platform, and
+    # the simulator pool is reached only through the ios_runner_pool picker.
+    needs: route
+    if: >-
+      success()
+      && needs.route.outputs.run_clients == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 60
+    env:
+      CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
+      CMUX_IROH_V2_FORCE_RELAY: "1"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
+    steps:
+      - name: Checkout cmux
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Ensure iOS simulator runtime
+        run: xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+
+      - name: Point the build at this lane's backend
+        run: |
+          set -euo pipefail
+          # Everything the build bakes is the same for every run of a commit:
+          # the fixed backend name, relay-only, staging for web side paths.
+          ./scripts/e2e/backend-env.sh env >> "$GITHUB_ENV"
+          {
+            echo "CMUX_DEV_BACKEND_MODE=local"
+            echo "CMUX_DEV_API_BASE_URL=https://cmux-staging.vercel.app"
+            echo "CMUX_IROH_BROKER_BASE_URL=https://cmux-staging.vercel.app"
+          } >> "$GITHUB_ENV"
+
+      - name: Build tagged simulator app
+        run: |
+          set -euo pipefail
+          # ios/scripts/reload.sh installs into a simulator; a throwaway one
+          # takes the install, and the app itself is what moves on.
+          udid="$(./scripts/e2e/boot-simulator.sh "cmux-e2e-build-${GITHUB_RUN_ID}")"
+          echo "CMUX_E2E_BUILD_SIM_UDID=$udid" >> "$GITHUB_ENV"
+          started="$(date +%s)"
+          ./ios/scripts/reload.sh \
+            --tag "$CMUX_E2E_TAG" \
+            --simulator-id "$udid" \
+            --simulator-only \
+            --no-launch \
+            --swift-frontend-workaround
+          echo "build: $(( $(date +%s) - started ))s on ${RUNNER_NAME:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+          ./scripts/e2e/prebuilt-apps.sh package-ios "$RUNNER_TEMP/prebuilt/ios-app.zip"
+
+      - name: Upload simulator app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-e2e-ios-app-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/prebuilt/ios-app.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Delete build simulator
+        if: always()
+        run: |
+          [ -n "${CMUX_E2E_BUILD_SIM_UDID:-}" ] || exit 0
+          xcrun simctl shutdown "$CMUX_E2E_BUILD_SIM_UDID" 2>/dev/null || true
+          xcrun simctl delete "$CMUX_E2E_BUILD_SIM_UDID" || true
+
+  mac-ios-e2e:
+    # The Mac and simulator share one runner. That removes the runner-to-runner
+    # network shortcut while relay-only policy keeps terminal traffic on the
+    # same Iroh path the gate is meant to exercise.
+    # Deliberately not `needs: backend`: the backend holds until this job
+    # releases it, so waiting for its completion would deadlock. It does wait
+    # for the two app builds, then compiles nothing.
+    needs: [route, build-mac, build-ios]
+    if: >-
+      success()
+      && needs.route.outputs.run_clients == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 120
+    environment: ios-e2e
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
+      CMUX_IROH_V2_FORCE_RELAY: "1"
+      # Read by scripts/mobile-dev-launch.sh, which forwards them to the
+      # simulator app: a fresh install must not stop on the What's New sheet,
+      # and the driver expects the paired terminal already open.
+      CMUX_UITEST_SUPPRESS_WHATS_NEW: "1"
+      CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE: "1"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
+    steps:
+      # No submodules: the apps arrive prebuilt, only the scripts run here.
+      - name: Checkout cmux
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download prebuilt apps
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: ios-e2e-*-app-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/prebuilt
+          merge-multiple: true
+
+      - name: Install build prerequisites
+        run: |
+          set -euo pipefail
           brew_bin="$(brew --prefix)/bin"
           export PATH="$brew_bin:$PATH"
           echo "$brew_bin" >> "$GITHUB_PATH"
@@ -409,49 +563,18 @@ jobs:
       - name: Boot fresh named simulator
         run: |
           set -euo pipefail
-          # Newest available iOS runtime, then the newest iPhone it supports.
-          # "iPhone" productFamily also lists iPod touch, and the last device
-          # type overall may have no runtime on the image.
-          read -r runtime devtype < <(xcrun simctl list runtimes -j | python3 -c '
-          import json, sys
-          runtimes = [r for r in json.load(sys.stdin)["runtimes"]
-                      if r.get("isAvailable") and r.get("platform") == "iOS"]
-          if not runtimes:
-              sys.exit("no available iOS runtime")
-          runtime = max(runtimes, key=lambda r: [int(x) for x in r["version"].split(".")])
-          phones = [d for d in runtime.get("supportedDeviceTypes", [])
-                    if d.get("productFamily") == "iPhone" and d["name"].startswith("iPhone")]
-          if not phones:
-              sys.exit("runtime " + runtime["identifier"] + " supports no iPhone")
-          def generation(device):
-              digits = "".join(c if c.isdigit() else " " for c in device["name"]).split()
-              return (int(digits[0]) if digits else 0, "Pro" in device["name"], "Max" not in device["name"])
-          print(runtime["identifier"], max(phones, key=generation)["identifier"])')
-          udid="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$devtype" "$runtime")"
-          xcrun simctl boot "$udid"
-          xcrun simctl bootstatus "$udid" -b
+          udid="$(./scripts/e2e/boot-simulator.sh "cmux-e2e-${GITHUB_RUN_ID}")"
           echo "CMUX_E2E_SIM_UDID=$udid" >> "$GITHUB_ENV"
-          echo "simulator: $udid ($devtype, $runtime)"
 
-      - name: Build and launch Mac app
+      # The builds baked every per-commit value; only the credentials path is
+      # this machine's. mobile-dev-launch.sh --ensure-mac launches the Mac app.
+      - name: Install prebuilt apps
         run: |
           set -euo pipefail
-          ./scripts/reload.sh \
-            --tag "$CMUX_E2E_TAG" \
-            --launch \
-            --auth-profile agent \
-            --credentials-file "$HOME/.secrets/cmuxterm-dev.env" \
-            --swift-frontend-workaround
-
-      - name: Build iOS simulator app
-        run: |
-          set -euo pipefail
-          ./ios/scripts/reload.sh \
-            --tag "$CMUX_E2E_TAG" \
-            --simulator-id "$CMUX_E2E_SIM_UDID" \
-            --simulator-only \
-            --no-launch \
-            --swift-frontend-workaround
+          ./scripts/e2e/prebuilt-apps.sh install-mac "$RUNNER_TEMP/prebuilt/mac-app.zip" \
+            "$HOME/.secrets/cmuxterm-dev.env"
+          ./scripts/e2e/prebuilt-apps.sh install-ios "$RUNNER_TEMP/prebuilt/ios-app.zip" \
+            "$CMUX_E2E_SIM_UDID"
 
       - name: Configure and verify simulator relay-only policy
         run: |
@@ -553,7 +676,7 @@ jobs:
     # the route skipped the lane or the Mac job passed, red when the route ran
     # and the Mac job failed. Fork PRs are a neutral skip because secret-fenced
     # jobs cannot run there.
-    needs: [route, backend, mac-ios-e2e]
+    needs: [route, backend, build-mac, build-ios, mac-ios-e2e]
     if: always()
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -566,6 +689,8 @@ jobs:
           BACKEND_TAG: ${{ needs.route.outputs.backend_tag }}
           BACKEND_RESULT: ${{ needs.backend.result }}
           MAC_IOS_RESULT: ${{ needs.mac-ios-e2e.result }}
+          BUILD_MAC_RESULT: ${{ needs.build-mac.result }}
+          BUILD_IOS_RESULT: ${{ needs.build-ios.result }}
           IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
@@ -591,9 +716,13 @@ jobs:
             echo "::error::backend: $BACKEND_RESULT (needed because route said run)"
             fail=1
           fi
-          if [ "$RUN_CLIENTS" = "true" ] && [ "$MAC_IOS_RESULT" != "success" ]; then
-            echo "::error::mac-ios-e2e: $MAC_IOS_RESULT (needed because route said run)"
-            fail=1
+          if [ "$RUN_CLIENTS" = "true" ]; then
+            for pair in "build-mac:$BUILD_MAC_RESULT" "build-ios:$BUILD_IOS_RESULT" "mac-ios-e2e:$MAC_IOS_RESULT"; do
+              if [ "${pair#*:}" != "success" ]; then
+                echo "::error::${pair%%:*}: ${pair#*:} (needed because route said run)"
+                fail=1
+              fi
+            done
           fi
           if [ "$fail" -ne 0 ]; then
             echo "- conclusion: FAIL" >> "$GITHUB_STEP_SUMMARY"
