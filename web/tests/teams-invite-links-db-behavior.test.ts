@@ -94,7 +94,7 @@ describe("team invite link claims", () => {
     const created = await link({ maxUses: 1 });
     const otherTeam = await store.createLink({
       stackTeamId: "22222222-2222-4222-8222-222222222222",
-      tokenHash: hash("z"),
+      tokenHash: hash("f"),
       createdByUserId: "admin",
       expiresAt: null,
       maxUses: null,
