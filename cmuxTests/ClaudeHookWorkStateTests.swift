@@ -102,7 +102,9 @@ struct ClaudeHookWorkStateTests {
         let commands = try runPreToolUse(name: "work-state-order", toolName: "Bash", pid: "43404")
         let status = statusLine(commands)
         #expect(
-            status?.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=") == true,
+            status?.hasPrefix(
+                "set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(Self.workspaceId)"
+            ) == true,
             "The work option must not split the prefix other suites pin; saw \(commands)"
         )
         #expect(
