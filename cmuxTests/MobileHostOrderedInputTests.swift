@@ -154,7 +154,8 @@ struct MobileHostOrderedInputTests {
         // a peer that stops reading stalls the serialized writer, and input
         // application must not sit behind that stall.
         var bothHandled = false
-        for _ in 0..<2_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if await gate.handledRequestCount() >= 2 {
                 bothHandled = true
                 break

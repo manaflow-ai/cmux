@@ -13,6 +13,7 @@ import {
   type ProviderId,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelAttachment,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SnapshotRef,
@@ -135,12 +136,12 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string; heal?: boolean },
+    options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean },
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
-  /** Read a provider network without creating or repairing it. */
+  /** Read a provider network by id or slug without creating or repairing it. */
   readonly getNetwork?: (
     provider: ProviderId,
-    networkId: string,
+    networkIdOrSlug: string,
   ) => Effect.Effect<ProviderNetwork | null, VmProviderOperationError>;
   readonly deleteNetwork?: (
     provider: ProviderId,
@@ -165,6 +166,9 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     tunnelId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  readonly attachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
+  readonly detachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -375,4 +379,22 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "deleteTunnel", () =>
       privateNetworking(provider).deleteTunnel(tunnelId)
     ),
+  attachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "attachTunnelNetwork", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.attachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "attachTunnelNetwork" });
+      return await networking.attachTunnelNetwork(tunnelId, networkId);
+    }),
+  detachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "detachTunnelNetwork", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.detachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "detachTunnelNetwork" });
+      await networking.detachTunnelNetwork(tunnelId, networkId);
+    }),
+  listNetworkTunnelIds: (provider, networkId) =>
+    providerEffect(provider, "listNetworkTunnelIds", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.listNetworkTunnelIds) throw new VmOperationUnsupportedError({ provider, operation: "listNetworkTunnelIds" });
+      return await networking.listNetworkTunnelIds(networkId);
+    }),
 });

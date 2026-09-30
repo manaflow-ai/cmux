@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxMobileHost
 import Foundation
 import Testing
 

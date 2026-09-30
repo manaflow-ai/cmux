@@ -37,6 +37,12 @@ final class DeviceTerminalMirrorSession {
         }
     }
     private(set) var assignedGrid: (columns: Int, rows: Int)?
+    var onAttached: (@MainActor () -> Void)?
+    /// The reserved pane's early input, held until an attach sticks. Losing
+    /// the link discards it, since a restarted Mac can restore a terminal
+    /// under the same surface ID with a new shell, and so does stopping the
+    /// session, so a replacement owner never inherits it.
+    private var adoptedRelay: CloudOptimisticInputRelay?
 
     private weak var surface: TerminalSurface?
     private var eventTask: Task<Void, Never>?
@@ -123,6 +129,9 @@ final class DeviceTerminalMirrorSession {
         eventTask?.cancel()
         eventTask = nil
         inputRouter.invalidate()
+        onAttached = nil
+        adoptedRelay?.discard()
+        adoptedRelay = nil
         surface?.clearAssignedGrid()
         surface = nil
     }
@@ -130,6 +139,21 @@ final class DeviceTerminalMirrorSession {
     func retry() {
         guard phase != .stopped else { return }
         scheduleAttach()
+    }
+
+    /// Takes over a reserved pane's input. What was typed before an attach
+    /// first sticks, including while a replay failed on a live link, belongs
+    /// to this remote surface and is delivered in order once one does. If the
+    /// link drops first, that input is discarded rather than sent to whatever
+    /// shell the Mac has when it comes back. After an attach the router drops
+    /// input typed while detached, as it does for panes it created itself, and
+    /// stopping the session discards anything still held.
+    func adopt(_ relay: CloudOptimisticInputRelay) {
+        adoptedRelay = relay
+        onAttached = { [weak self] in
+            guard let self else { return }
+            relay.attach(self.inputRouter)
+        }
     }
 
     // MARK: - Attach and bytes
@@ -183,14 +207,21 @@ final class DeviceTerminalMirrorSession {
         case .resyncRequired:
             if isConnected() {
                 scheduleAttach()
-            } else if phase == .attached || phase == .attaching {
-                phase = .detached
+            } else {
+                linkDropped()
             }
         case .linkReconnected:
             scheduleAttach()
         case .linkLost:
-            if phase == .attached || phase == .attaching { phase = .detached }
+            linkDropped()
         }
+    }
+
+    /// Detaches and drops the reserved pane's held input: the next attach that
+    /// sticks resumes forwarding from what is typed after it.
+    private func linkDropped() {
+        adoptedRelay?.discard()
+        if phase == .attached || phase == .attaching { phase = .detached }
     }
 
     /// Single-flight replay of the source screen, followed by sequenced live bytes.
@@ -212,7 +243,10 @@ final class DeviceTerminalMirrorSession {
 
     private func attach() async {
         guard phase != .stopped, isConnected() else {
-            if phase != .stopped { phase = .detached }
+            if phase != .stopped {
+                adoptedRelay?.discard()
+                phase = .detached
+            }
             return
         }
         phase = .attaching
@@ -233,8 +267,13 @@ final class DeviceTerminalMirrorSession {
             // Discard bytes already covered by the replay, then apply the
             // remaining contiguous tail through the normal sequence check.
             for chunk in buffered { handle(.bytes(sequence: chunk.sequence, data: chunk.data)) }
+            // A replay queued meanwhile re-enters `.attaching` at once, which
+            // drops input the router has not sent yet. Hand over held input
+            // only on the attach that sticks.
+            if !replayNeeded { onAttached?() }
         } catch DeviceLinkError.notConnected {
             guard phase != .stopped else { return }
+            adoptedRelay?.discard()
             phase = .detached
         } catch {
             guard !Task.isCancelled, phase != .stopped else { return }

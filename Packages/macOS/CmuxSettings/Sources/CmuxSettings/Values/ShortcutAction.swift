@@ -126,6 +126,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusNextPane
     case splitRight
     case splitDown
+    case newPaneAutoLayout
     case toggleSplitZoom
     /// Increases every terminal font size in the selected workspace.
     case increaseWorkspaceTerminalFontSize
@@ -219,6 +220,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case diffViewerNextFile
     /// Jumps to the previous file inside the focused diff viewer.
     case diffViewerPreviousFile
+    /// Jumps to the next hunk inside the focused diff viewer.
+    case diffViewerNextHunk
+    /// Jumps to the previous hunk inside the focused diff viewer.
+    case diffViewerPreviousHunk
 
     // MARK: Simulator
     /// Presses the Home button in the focused Simulator pane.
@@ -271,6 +276,8 @@ extension ShortcutAction {
              .diffViewerOpenFileSearch,
              .diffViewerNextFile,
              .diffViewerPreviousFile,
+             .diffViewerNextHunk,
+             .diffViewerPreviousHunk,
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return true
@@ -313,7 +320,7 @@ extension ShortcutAction {
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .toggleBrowserDesignMode, .diffViewerOpenFileSearch, .diffViewerNextFile,
-             .diffViewerPreviousFile:
+             .diffViewerPreviousFile, .diffViewerNextHunk, .diffViewerPreviousHunk:
             return .atom(.browserFocus)
         case .diffViewerScrollDown, .diffViewerScrollUp,
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,

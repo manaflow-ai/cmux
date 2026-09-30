@@ -17,6 +17,7 @@ struct FileDropOverlayDragCompletionTests {
         var onPerform: (() -> Void)?
 
         override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation { .copy }
+        override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation { .copy }
         override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool { prepareResult }
         override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
             calls.append("perform")
@@ -90,6 +91,26 @@ struct FileDropOverlayDragCompletionTests {
             #expect(webView.calls == ["exit"])
             _ = overlay.draggingUpdated(drag)
             #expect(overlay.hintBadgeView.isHidden)
+        }
+    }
+
+    @Test("Cloud workspace and terminal drags never become file-drop hints", arguments: [
+        NSPasteboard.PasteboardType.cloudSidebarRow,
+        DragOverlayRoutingPolicy.surfaceResourceTransferType
+    ], [false, true])
+    func cloudRowsDismissFileHints(type: NSPasteboard.PasteboardType, terminal: Bool) throws {
+        try withBrowserDrag { _, overlay, webView, drag in
+            // A row's identity is authoritative even if another representation
+            // contains a file URL. These are workspace/terminal moves, not files.
+            drag.draggingPasteboard.setString("cloud-row", forType: type)
+            if terminal {
+                drag.draggingPasteboard.setString("pane-transfer", forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+            }
+            #expect(overlay.draggingUpdated(drag).isEmpty)
+            #expect(overlay.hintBadgeView.isHidden)
+            #expect(overlay.hintBadgeView.accessibilityLabel() == nil)
+            #expect(overlay.activeDragWebView == nil)
+            #expect(webView.calls == ["exit"])
         }
     }
 

@@ -59,7 +59,11 @@ NOT_IN_CMUX_JSON = frozenset({
     "account.selectedTeamID",
     "account.welcomeShown",
     # App preferences stored only in UserDefaults today.
+    # The custom accent color's storage; cmux.json sets it through a
+    # "#RRGGBB" app.accentColor value.
+    "app.accentColorCustomHex",
     "app.fileDropDefaultBehavior",
+    "app.installUpdatesAutomatically",
     "app.systemWideHotkeyEnabled",
     "app.titlebarControlsStyle",
     "app.workspaceButtonFade",
@@ -73,7 +77,6 @@ NOT_IN_CMUX_JSON = frozenset({
     "customSidebars.beta.enabled",
     "extensions.beta.enabled",
     "remoteTmux.beta.enabled",
-    "rightSidebar.beta.dock.enabled",
     "rightSidebar.beta.feed.enabled",
     "terminal.beta.predictedEcho.enabled",
     # Device discovery and pairing state.
@@ -91,6 +94,7 @@ NOT_IN_CMUX_JSON = frozenset({
     "integrations.claudeCode.customClaudePath",
     "integrations.claudeCode.hooksEnabled",
     "integrations.codex.hooksEnabled",
+    "integrations.pi.hooksEnabled",
     "integrations.cursor.hooksEnabled",
     "integrations.gemini.hooksEnabled",
     "integrations.kiro.hooksEnabled",

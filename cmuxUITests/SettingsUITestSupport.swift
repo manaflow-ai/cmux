@@ -9,6 +9,8 @@ import XCTest
 /// assert the *effect* actually happened — not merely that the control
 /// flipped.
 class SettingsUITestCase: XCTestCase {
+    // Shared setup intentionally lives here so each concrete Settings UI test
+    // class uses the same launch and window-readiness contract.
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
@@ -36,21 +38,26 @@ class SettingsUITestCase: XCTestCase {
 
     // MARK: - Launch / window
 
-    func makeLaunchedApp() -> XCUIApplication {
+    func makeLaunchedApp(additionalArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += settingsLaunchArguments
+        app.launchArguments += settingsLaunchArguments + additionalArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "main window did not appear")
         return app
     }
 
-    /// Opens the Settings window via ⌘, and returns it.
+    /// The Settings window, by its identifier (`SettingsWindowPresenter.windowIdentifier`)
+    /// rather than its localized title.
+    static let settingsWindowIdentifier = "cmux.settings"
+
+    /// Opens the Settings window via ⌘, and returns it. Settings mounts its
+    /// sections progressively, so the first open can take a few seconds on CI.
     @discardableResult
     func openSettings(_ app: XCUIApplication) -> XCUIElement {
         app.typeKey(",", modifierFlags: .command)
-        let window = app.windows["Settings"]
-        XCTAssertTrue(poll(timeout: 6.0) { window.exists }, "Settings window did not open")
+        let window = app.windows[Self.settingsWindowIdentifier]
+        XCTAssertTrue(poll(timeout: 10.0) { window.exists }, "Settings window did not open")
         return window
     }
 
@@ -98,19 +105,54 @@ class SettingsUITestCase: XCTestCase {
     /// Resolves a toggle by accessibility id across the control kinds a
     /// SwiftUI `Toggle(.switch)` can surface as in XCUITest.
     func toggle(_ root: XCUIElement, id: String, timeout: TimeInterval = 4.0) -> XCUIElement {
-        requireElement(
-            candidates: [root.switches[id], root.checkBoxes[id], root.descendants(matching: .any)[id]],
-            timeout: timeout,
-            description: "toggle \(id)"
-        )
+        var resolved: XCUIElement?
+        let found = poll(timeout: timeout) {
+            let candidates = [
+                root.switches[id],
+                root.checkBoxes[id],
+            ]
+            for candidate in candidates where candidate.exists {
+                resolved = candidate
+                return true
+            }
+
+            // The identifier can land on an element that is neither a switch
+            // nor a checkbox. Use it when it reports a value; otherwise it is
+            // a container, so prefer the switch or checkbox inside it.
+            let row = root.descendants(matching: .any).matching(identifier: id).firstMatch
+            guard row.exists else { return false }
+            if !Self.valueText(of: row).isEmpty {
+                resolved = row
+                return true
+            }
+            for candidate in [row.switches.firstMatch, row.checkBoxes.firstMatch]
+                where candidate.exists {
+                resolved = candidate
+                return true
+            }
+            resolved = row
+            return true
+        }
+        XCTAssertTrue(found, "Expected toggle \(id) to exist")
+        return resolved ?? root.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
-    /// Reads a toggle's on state from its accessibility value.
+    /// Reads a toggle's on state from its accessibility value, falling back
+    /// to `isSelected` only for a control that reports no value.
     func isOn(_ control: XCUIElement) -> Bool {
-        let value = String(describing: control.value ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        let value = Self.valueText(of: control)
+        if value.isEmpty {
+            return control.isSelected
+        }
         return value == "1" || value == "true" || value == "on"
+    }
+
+    /// A control's accessibility value as trimmed lowercase text, or "" when
+    /// it reports none.
+    static func valueText(of control: XCUIElement) -> String {
+        control.value.map { String(describing: $0) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
     }
 
     /// Deletes UserDefaults keys from the debug suite so a test starts

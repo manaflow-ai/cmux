@@ -3,7 +3,6 @@ import CmuxFoundation
 import Foundation
 import CmuxSettings
 import CmuxSettingsUI
-
 extension MenuBarOnlySettings {
     static let legacyCommandPaletteUsageKey = "commandPalette.commandUsage.v1"
     static let legacyCommandPaletteMenuBarOnlyCommandId = "palette.toggleSetting.menuBarOnly"
@@ -372,9 +371,18 @@ enum CommandPaletteSettingsToggleCommands {
                     String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification")
                 },
                 sectionTitle: app,
-                keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort"],
-                defaultValue: SettingCatalog().app.reorderOnNotification.defaultValue,
-                defaultsKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey
+                keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort", "agent", "activity"],
+                // A mode, not a Bool: on means any mode but off. Turning it on
+                // restores the notification mode; turning it off from either
+                // mode stores off.
+                isOn: { defaults in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .value(for: SettingCatalog().app.reorderOnNotification).isEnabled
+                },
+                setOn: { isOn, defaults, _ in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .set(isOn ? .notifications : .off, for: SettingCatalog().app.reorderOnNotification)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "dockBadge",
@@ -814,20 +822,6 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "rightSidebarDock",
-                settingsKey: "betaFeatures.dock",
-                title: {
-                    String(localized: "settings.betaFeatures.dock", defaultValue: "Dock")
-                },
-                sectionTitle: beta,
-                keywords: ["betaFeatures.dock", "dock", "right", "sidebar", "beta", "terminal", "controls"],
-                defaultValue: RightSidebarBetaFeatureSettings.defaultDockEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey,
-                didSet: { _, _, notificationCenter in
-                    notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
-                }
-            ),
-            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
                 title: {
@@ -838,6 +832,7 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultValue: IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                 defaultsKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey
             ),
+            CommandPaletteSettingToggleDescriptor(commandId: commandIdPrefix + "piIntegration", settingsKey: "automation.piIntegration", title: { String(localized: "settings.automation.pi", defaultValue: "Pi Integration") }, sectionTitle: automation, keywords: ["automation.piIntegration", "pi", "hooks", "agent", "integration"], defaultValue: IntegrationsCatalogSection().piHooksEnabled.defaultValue, defaultsKey: IntegrationsCatalogSection().piHooksEnabled.userDefaultsKey),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "suppressSubagentNotifications",
                 settingsKey: "automation.suppressSubagentNotifications",

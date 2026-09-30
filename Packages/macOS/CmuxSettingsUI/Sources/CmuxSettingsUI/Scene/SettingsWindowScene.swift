@@ -135,7 +135,7 @@ public struct SettingsWindowRoot: View {
     /// defaulting to ``SettingsSectionID/account`` when the stored value
     /// is unrecognized (e.g., after dropping a case).
     var selectedSection: SettingsSectionID {
-        SettingsSectionID(rawValue: selectedSectionRaw)?.canonicalSection ?? .account
+        SettingsSectionID(rawValue: selectedSectionRaw) ?? .account
     }
     /// The section whose pane the detail shows.
     var activeSection: SettingsSectionID {
@@ -217,10 +217,9 @@ public struct SettingsWindowRoot: View {
     /// ``applyScrollNavigation(_:proxy:)`` turns the same request into a
     /// scroll, so one observer handles both halves.
     private func applyNavigationRequest(_ notification: Notification) {
-        guard
-            let rawValue = notification.userInfo?["target"] as? String,
-            let target = SettingsSectionID(rawValue: rawValue)?.canonicalSection
-        else { return }
+        guard let target = SettingsSectionID.navigationDestination(userInfo: notification.userInfo)?.section else {
+            return
+        }
         pendingInitialSection = nil
         // Legacy preserves the highlighted search hit when an external
         // navigation request resolves to the same section the currently
@@ -421,7 +420,7 @@ public struct SettingsWindowRoot: View {
     /// rows ("section:<rawValue>"). Mirrors ``SettingsSearchIndex``'s
     /// internal id scheme.
     private func sectionEntryID(for section: SettingsSectionID) -> String {
-        "section:\(section.canonicalSection.rawValue)"
+        "section:\(section.rawValue)"
     }
 
     /// Decodes an entry ID back to the section pane that should be
@@ -430,7 +429,7 @@ public struct SettingsWindowRoot: View {
     private func parentSection(for entryID: String) -> SettingsSectionID {
         if entryID.hasPrefix("section:") {
             let raw = String(entryID.dropFirst("section:".count))
-            return SettingsSectionID(rawValue: raw)?.canonicalSection ?? .account
+            return SettingsSectionID(rawValue: raw) ?? .account
         }
         if let entry = searchIndex.entries.first(where: { $0.id == entryID }) {
             if case .setting(let parent) = entry.kind { return parent }
@@ -499,14 +498,9 @@ public struct SettingsWindowRoot: View {
     /// still the latest — otherwise an earlier request would clobber
     /// the user's most recent navigation.
     private func applyScrollNavigation(_ notification: Notification, proxy: ScrollViewProxy) {
-        guard
-            let rawValue = notification.userInfo?["target"] as? String,
-            let requestedSection = SettingsSectionID(rawValue: rawValue)
-        else { return }
-        let target = requestedSection.canonicalSection
-        let anchorID = requestedSection.canonicalNavigationAnchor(
-            providedAnchor: notification.userInfo?["anchor"] as? String
-        )
+        guard let destination = SettingsSectionID.navigationDestination(userInfo: notification.userInfo) else { return }
+        let target = destination.section
+        let anchorID = destination.anchorID
         let shouldHighlight = (notification.userInfo?["highlight"] as? Bool) ?? false
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration

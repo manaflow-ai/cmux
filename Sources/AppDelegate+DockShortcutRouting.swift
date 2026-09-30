@@ -55,7 +55,7 @@ extension KeyboardShortcutSettings.Action {
              .clearScreenKeepScrollback,
              .focusLeft, .focusRight, .focusUp, .focusDown,
              .focusPreviousPane, .focusNextPane,
-             .splitRight, .splitDown, .toggleSplitZoom,
+             .splitRight, .splitDown, .newPaneAutoLayout, .toggleSplitZoom,
              .resizePaneLeft, .resizePaneRight, .resizePaneUp, .resizePaneDown,
              .equalizeSplits,
              .splitBrowserRight, .splitBrowserDown,
@@ -92,7 +92,8 @@ extension KeyboardShortcutSettings.Action {
              .simulatorRotateRight,
              .simulatorToggleAppearance,
              .simulatorToggleSoftwareKeyboard,
-             .diffViewerNextFile, .diffViewerPreviousFile:
+             .diffViewerNextFile, .diffViewerPreviousFile,
+             .diffViewerNextHunk, .diffViewerPreviousHunk:
             .focusResolved
 
         case .openSettings, .openTeamPicker, .reloadConfiguration,

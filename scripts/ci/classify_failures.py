@@ -9,7 +9,8 @@ Each failed job gets a verdict from SIGNATURES, one table of log patterns:
 
   machine   the runner or its products failed: a runner hook refused the job,
             the compiled products did not restore, the CLI loaded package
-            frameworks from another build, the runner went away. The job's
+            frameworks from another build, the runner went away, the runner
+            lacks the Xcode the job pins. The job's
             test failures, if any, are not evidence about the code.
   code      a test recorded an issue, a compile or guard failed, and no
             machine signature matched.
@@ -58,6 +59,7 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
+import ui_tests_dispatch  # noqa: E402
 
 MACHINE, CODE, DERIVED, UNKNOWN = "machine", "code", "derived", "unknown"
 MARKER = "<!-- cmux-ci-failure-attribution -->"
@@ -96,6 +98,9 @@ SIGNATURES = (
         "the compiled app-host products did not restore on this runner"),
     sig("app-host-preparation", MACHINE, r"Unexpected app-host preparation outcome",
         "the isolated app-host home was not prepared"),
+    sig("gui-token-unavailable", MACHINE,
+        r"^Could not take this Mac's gui token for the app-host tests \(take-gui exited ",
+        "the runner could not acquire the GUI token for app-host tests"),
     # The CLI and the package framework it links came from different builds:
     # the runner staged products from another job. Compiled together, they match.
     sig("mixed-products", MACHINE, r"dyld\[\d+\]: Symbol not found: ",
@@ -105,6 +110,13 @@ SIGNATURES = (
         r"|The hosted runner encountered an error",
         "the runner went away mid-job"),
     sig("disk-full", MACHINE, r"No space left on device", "the runner's disk is full"),
+    # scripts/select-ci-xcode.sh on a Mac without the Xcode the job pins. The
+    # marker is today's text; the anchored messages are what a pull request
+    # branched before it prints (the classifier runs main's copy on any head).
+    sig("xcode-pin-missing", MACHINE,
+        r"\[cmux-ci machine: xcode-pin-missing\]|^Pinned Xcode developer dir (?:does not exist|has no usable macOS SDK): "
+        r"|^This macOS \d+ runner has no Xcode \S+, the version scripts/ci/xcode-pins\.txt pins",
+        "the runner does not have the Xcode this job pins (install it: scripts/ci/xcode_pin_audit.py)"),
     sig("swift-testing-issue", CODE, r"^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)", "a test failed"),
     sig("xctest-failure", CODE, r"\.swift:\d+: error: -\[", "a test failed"),
     sig("ratchet-new-failure", CODE, r"^RATCHET_NEW_FAILURE ", "a test failed that passes on main"),
@@ -309,6 +321,14 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: Mapping) -> dict:
         except RuntimeError as error:
             # GitHub refuses to re-run a run another re-run already started.
             rerun, line = False, f"Every failure is a machine failure; the re-run request failed: {code(error)}"
+        else:
+            # This token's re-run may emit no workflow_run event; start the UI
+            # test dispatch the new attempt's ui-tests job waits for.
+            path, body = ui_tests_dispatch.rerun_dispatch(report["run_id"], int(report.get("attempt") or 1) + 1)
+            try:
+                writer.call("POST", f"repos/{gh.repo}/{path}", body)
+            except RuntimeError as error:
+                print(f"::warning::could not start {ui_tests_dispatch.DISPATCH_WORKFLOW_FILE}: {code(error)}", flush=True)
     body = render_comment(report, line)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:

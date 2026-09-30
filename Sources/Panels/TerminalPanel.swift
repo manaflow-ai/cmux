@@ -180,6 +180,7 @@ final class TerminalPanel: Panel, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        isRemoteTerminal: Bool = false,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         let surface = TerminalSurface(
@@ -194,7 +195,9 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
+            focusPlacement: focusPlacement,
+            isRemoteTerminal: isRemoteTerminal,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)
@@ -759,6 +762,14 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     private func resumeForExplicitInputIfNeeded() {
+        guard isAgentHibernated else { return }
+        _ = requestAgentHibernationResume(focus: false)
+    }
+
+    /// A viewer attaching from another device is visiting this terminal, the
+    /// same as selecting its tab here. Resume a hibernated agent so the attach
+    /// mirrors a live runtime instead of a torn-down surface.
+    func resumeAgentHibernationForRemoteAttach() {
         guard isAgentHibernated else { return }
         _ = requestAgentHibernationResume(focus: false)
     }

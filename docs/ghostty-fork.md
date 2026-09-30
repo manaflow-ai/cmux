@@ -12,6 +12,59 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Cloud VT replay keeps the active viewport anchored
+
+- Branch: `issue-15109-replay-fix`
+  ([manaflow-ai/ghostty#243](https://github.com/manaflow-ai/ghostty/pull/243))
+- Base: fork `main` at `1beeee2b7`, which includes #241's
+  `3429f20e9` trailing-row state fix.
+- Commits: merge `e67359329` retains the exact startup-input bytes pair from
+  #239 (`a78e21739`, `e168fd31c`); `9961d09be` preserves rows containing only
+  background styling.
+- Summary: a full-width background row is terminal content for VT and HTML
+  formatting even when none of its cells contains text. Emitting that row
+  keeps Cloud Codex's grey composer band aligned with the header, prompt, and
+  status after replay. The #241 implementation remains the sole owner of the
+  trailing-row delimiter state.
+- Coverage: Ghostty's `Page VT preserves a fully styled blank row`, cmux-tui's
+  `vt_replay_preserves_blank_tail_after_history`,
+  `vt_replay_preserves_codex_composer_before_incremental_redraw`, and the
+  cell-level Cloud replay tests.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-9961d09be3faf962b6e50541c3b709d5cd234472-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `f3d611f151e7337b116cd15e653d734bc04dd33d8bd5af5fd065bebb6ad78be9`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: do not add another `blank_rows - 1` adjustment on top of
+  #241. Its carried `TrailingState.rows = 1` is required for page boundaries;
+  duplicating the subtraction under-emits a row and shifts the composer in
+  the opposite direction. The styled-row classification is independent.
+
+### Startup input keeps its bytes
+
+- Branch: `issue-12915-hex-escape-bytes` ([manaflow-ai/ghostty#239](https://github.com/manaflow-ai/ghostty/pull/239))
+- Commits: `a78e21739` (cherry-pick of upstream `29b82dd80c46`,
+  ghostty-org/ghostty#13855), `e168fd31c` (round-trip test)
+- Summary: the embedded apprt escapes `initial_input` with
+  `std.zig.stringEscape`, which writes each non-ASCII byte as `\xNN`, and
+  `config/string.zig` then encoded each `\xNN` as a UTF-8 codepoint. Text cmux
+  typed as startup input, such as a `cmux workspace create --command` that
+  prints a Korean OSC title, reached the shell as mojibake
+  ([#12915](https://github.com/manaflow-ai/cmux/issues/12915)). `\xNN` is now
+  one byte, as in Zig. A `text:` keybind with `\xNN` at or above `0x80` now
+  sends that byte too; `\u{...}` still sends a codepoint.
+- Coverage: the Ghostty tests `parse: hex escapes are bytes` and
+  `cloneParsed restores Zig-escaped bytes`, run by `build-ghosttykit.yml`
+  before packaging, and the cmux test `GhosttyStartupInputUTF8Tests`. Hosted
+  [run 36360076795](https://github.com/manaflow-ai/cmux/actions/runs/36360076795)
+  passed 75 tests with both filters at `e168fd31c` (one more than a single-test
+  filter) and published GhosttyKit.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e168fd31c0fc5893cdac933dc665307b3a760554-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `66d0089dcb7ea8873d86553e684e9b746d39c33318fa5c663a84e7fec68b098f`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: upstream carries the same `string.zig` change, so a future
+  upstream merge resolves it by taking either side. Keep the round-trip test
+  in `config/io.zig`; it covers the embedded escape and parse pair together.
+
 ### Unfocused surface frame pacing
 
 - Branch: `perf/unfocused-draw-cap` ([manaflow-ai/ghostty#234](https://github.com/manaflow-ai/ghostty/pull/234))
@@ -72,7 +125,11 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `edefce7785`, the unfocused surface
+The submodule pinned by this branch is `9961d09be`, the Cloud VT replay
+styled-blank-row fix on top of fork `main`, Ghostty #241's carried trailing
+row state, and the exact #239 startup-input commits. The previous pin was
+`e168fd31c0`, the startup-input bytes change on top of `edefce7785`. The
+previous pin was `edefce7785`, the unfocused surface
 frame pacing change on top of `0068ece733`. The previous pin was
 `0068ece733`, the CJK fallback sizing fix
 on top of `a3e9304c5d`. It keeps a primary face without an ideograph metric at

@@ -127,8 +127,11 @@ struct VMClientReadCoalescingTests {
         #expect(model.machines.first?.stats?.state == .unknown)
         #expect(model.machines.first?.stats?.cpus == 2)
         #expect(model.machines.first?.stats?.cpuPercent == nil)
-        #expect(model.listProblem == .unreachable)
-        #expect(model.lastErrorDescription == URLError(.notConnectedToInternet).localizedDescription)
+        // Offline is its own state, not a failed list read (#14483).
+        #expect(model.listStatus == .waitingForNetwork)
+        #expect(model.listProblem == nil)
+        #expect(model.lastErrorDescription == nil)
+        #expect(model.machines.count == 1)
     }
 
     @Test("The VM operation budget cancels a slow transport")
