@@ -15494,10 +15494,8 @@ class TerminalController {
             #endif
             return .err(code: "not_found", message: String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found"), data: nil)
         }
-        let surfaceId = resolved.surfaceID
-        let terminalTarget = resolved.target
-        // A runtime still starting answers with its current state and streams
-        // the rest; one that cannot start fails instead of showing an empty pane.
+        let (surfaceId, terminalTarget) = (resolved.surfaceID, resolved.target)
+        // Starting runtimes stream current state; blocked lifecycles return an error.
         let unavailableReason = terminalTarget.surface.runtimeUnavailableReason
         if !resolved.runtimeReady, terminalTarget.surface.runtimeSurfaceCreationFailed {
             return .err(
@@ -15510,6 +15508,7 @@ class TerminalController {
                 ]
             )
         }
+        if let pendingAdmission = mobileTerminalReplayPendingAdmissionResult(runtimeReady: resolved.runtimeReady, workspaceID: resolved.workspace.id, surfaceID: surfaceId, reason: unavailableReason) { return pendingAdmission }
         if !resolved.runtimeReady, unavailableReason == .hibernated || unavailableReason == .closing {
             return Self.readTextTerminalNotRunningResult(workspaceID: resolved.workspace.id,
                 surfaceID: surfaceId, reason: unavailableReason)

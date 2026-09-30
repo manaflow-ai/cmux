@@ -17,6 +17,20 @@ extension Workspace {
         terminalPanel(for: panelId)?.surface.admitStartupRestoreRuntime()
     }
 
+    /// Applies a cached ownership decision for a deferred agent restore when a
+    /// remote viewer needs the terminal before the normal admission task has
+    /// finished. A missing index remains pending; the replay caller must report
+    /// that state instead of returning an empty successful payload.
+    @discardableResult
+    func admitDeferredAgentResumeRestoreForRemoteAttach(panelId: UUID) -> Bool {
+        guard deferredAgentResumeRestoresByPanelId[panelId] != nil,
+              let index = restorableAgentIndexProvider() else {
+            return false
+        }
+        resolveDeferredAgentResumeRestores(using: index)
+        return deferredAgentResumeRestoresByPanelId[panelId] == nil
+    }
+
     func resolveDeferredAgentResumeRestores(
         using index: RestorableAgentSessionIndex
     ) {

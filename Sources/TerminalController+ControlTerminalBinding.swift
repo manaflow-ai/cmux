@@ -129,6 +129,21 @@ extension Workspace {
 
 @MainActor
 extension TerminalController {
+    /// Keeps a deferred restore from becoming an empty successful replay.
+    func mobileTerminalReplayPendingAdmissionResult(
+        runtimeReady: Bool,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        reason: TerminalSurfaceRuntimeUnavailableReason
+    ) -> V2CallResult? {
+        guard !runtimeReady, reason == .awaitingRestore else { return nil }
+        return Self.readTextTerminalNotRunningResult(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            reason: reason
+        )
+    }
+
     /// Resolves a legacy v1 surface argument to the canonical socket target.
     ///
     /// The v1 protocol accepts either a UUID or an ordered panel index and
@@ -205,6 +220,11 @@ extension TerminalController {
             return (resolved.workspace, surfaceID, target, true)
         }
         guard !Task.isCancelled else { return nil }
+        if resolved.workspace.deferredAgentResumeRestoresByPanelId[surfaceID] != nil {
+            _ = resolved.workspace.admitDeferredAgentResumeRestoreForRemoteAttach(
+                panelId: surfaceID
+            )
+        }
         resolved.workspace.admitStartupRestoreAwaitingFirstVisit(panelId: surfaceID)
         // A bound target skips the resume while a replacement surface is
         // mid-swap; a never-started panel has no target yet.

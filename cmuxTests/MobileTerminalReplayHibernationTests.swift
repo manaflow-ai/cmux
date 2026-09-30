@@ -117,6 +117,38 @@ struct MobileTerminalReplayHibernationTests {
         }
     }
 
+    @Test func replayDoesNotReportSuccessWhileRestoreAdmissionIsPending() async throws {
+        try await withAppContext { workspace in
+            let manager = try #require(AppDelegate.shared?.tabManager)
+            let heldWorkspace = try #require(manager.addWorkspaceIfActive(
+                title: "Pending remote replay",
+                initialTerminalInput: "echo pending-admission\n",
+                initialTerminalStartupRestoreAgent: makeAgent(sessionID: "codex-pending-admission"),
+                select: false,
+                eagerLoadTerminal: false,
+                initialTerminalStartsOnFirstVisit: true
+            ))
+            let panel = try #require(heldWorkspace.focusedTerminalPanel)
+            // Leave the surface's lifecycle gate held while removing the
+            // first-visit owner entry. This is the same awaitingRestore state
+            // produced while deferred agent ownership is still undecided.
+            heldWorkspace.startupRestorePanelIdsAwaitingFirstVisit.remove(panel.id)
+            #expect(panel.surface.isAwaitingStartupRestoreAdmission)
+
+            let result = await TerminalController.shared.v2MobileTerminalReplay(params: [
+                "workspace_id": heldWorkspace.id.uuidString,
+                "surface_id": panel.id.uuidString,
+            ])
+
+            guard case let .err(code, _, data) = result else {
+                Issue.record("Expected a pending-admission error, got \(result)")
+                return
+            }
+            #expect(code == "surface_unavailable")
+            #expect(data?["reason"] as? String == "awaiting_restore")
+        }
+    }
+
     @Test func rejectedReplayLeavesHibernatedAgentAsleep() async throws {
         try await withAppContext { workspace in
             let (panelId, panel) = try hibernateFocusedAgent(in: workspace)
