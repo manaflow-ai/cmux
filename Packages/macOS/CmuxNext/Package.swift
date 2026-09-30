@@ -24,6 +24,8 @@ import PackageDescription
 //   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
+//   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
+//     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -88,6 +90,7 @@ let package = Package(
                 "CmuxNextCloud",
                 "CmuxNextMobile",
                 "CmuxNextUpdater",
+                "CmuxNextResources",
             ],
             resources: [
                 .process("Resources"),
@@ -96,6 +99,22 @@ let package = Package(
         ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
         .target(name: "CmuxNextMallocZone"),
+        // Resource usage for hover cards and `resources` (CPU and memory per
+        // tab, per workspace, shared processes apart). Pure aggregation and a
+        // sampler that runs only while a card is open.
+        .target(
+            name: "CmuxNextResources",
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextResourcesTests",
+            dependencies: ["CmuxNextResources", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // Sparkle updates: channel/feed resolution, a read-only appcast probe
         // (dev builds and `updates.check`), and the update sheet.
         .target(
@@ -218,7 +237,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextTabs",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -228,7 +247,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSidebar",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources"],
             resources: [
                 .process("Resources"),
             ],
