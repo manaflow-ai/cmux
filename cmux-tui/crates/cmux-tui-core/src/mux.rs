@@ -3402,6 +3402,12 @@ impl Mux {
             if let (Some(record), Some(runtime)) = (frontend, surface.as_browser()) {
                 runtime.set_frontend_location(None, record.title.clone());
             }
+            if let (Some(record), Some(runtime)) = (
+                presentation.remote_terminals.get(browser.public_id.as_str()),
+                surface.as_browser(),
+            ) {
+                runtime.set_frontend_location(None, Some(record.display_title()));
+            }
             insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
             match browser.reconnect {
                 RegistryBrowserReconnect::Recreate => {

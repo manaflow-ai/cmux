@@ -289,6 +289,7 @@ pub(crate) struct BrowserMessages {
     pub attach_unsupported: &'static str,
     pub graphics_unsupported: &'static str,
     pub loading: &'static str,
+    pub remote_terminal: &'static str,
     pub busy: &'static str,
     pub no_active_surface: &'static str,
     pub not_browser: &'static str,
@@ -306,6 +307,10 @@ impl BrowserMessages {
 
     pub(crate) fn loading(&self, url: &str) -> String {
         self.loading.replace("{url}", url)
+    }
+
+    pub(crate) fn remote_terminal(&self, title: &str) -> String {
+        self.remote_terminal.replace("{title}", title)
     }
     pub(crate) fn failure_message(&self, failure: BrowserFailure<'_>) -> String {
         match failure {
@@ -1517,6 +1522,7 @@ edits shell files. Authenticate with the configured host before retrying.
         attach_unsupported: "browser panes are not supported over attach yet",
         graphics_unsupported: "terminal has no kitty graphics support",
         loading: "loading {url}...",
+        remote_terminal: "{title}: a terminal on another machine; open it in the cmux app",
         busy: "browser is busy; command dropped",
         no_active_surface: "no active surface",
         not_browser: "active surface is not a browser",
@@ -2245,6 +2251,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         attach_unsupported: "アタッチ経由ではブラウザペインにまだ対応していません",
         graphics_unsupported: "ターミナルが Kitty グラフィックスに対応していません",
         loading: "{url} を読み込んでいます…",
+        remote_terminal: "{title}: 別のマシンのターミナルです。cmux アプリで開いてください",
         busy: "ブラウザが処理中のため、コマンドを破棄しました",
         no_active_surface: "アクティブなサーフェスがありません",
         not_browser: "アクティブなサーフェスはブラウザではありません",
