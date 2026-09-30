@@ -119,6 +119,23 @@ import Testing
         #expect(page.isClosed)
     }
 
+    /// An extension's popup window (`chrome.windows.update` with bounds):
+    /// the panel takes the new content size and keeps its title bar.
+    @Test func resizePopupResizesThePanel() throws {
+        let panels = BrowserPopupPanels()
+        panels.ordersPanelsIn = false
+        let parent = makeParent()
+        let page = makePage()
+        panels.open(page, request: BrowserPopupRequest(size: CGSize(width: 400, height: 300)), over: parent, openerKey: "tab-1")
+        let panel = try #require(panels.panel(for: page))
+        let before = panel.frame
+        #expect(panels.handle(page, .resizePopup(BrowserPopupRequest(size: CGSize(width: 600, height: 500)))))
+        #expect(panel.frame.width == 600)
+        #expect(panel.frame.height == 500 + (before.height - 300))
+        #expect(panels.owns(page), "a resize never closes the panel")
+        panels.closeAll()
+    }
+
     /// A page that is not in a panel is not handled here.
     @Test func otherPagesAreNotHandled() {
         let panels = BrowserPopupPanels()

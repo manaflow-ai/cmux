@@ -117,6 +117,8 @@ final class BrowserPopupPanels {
             open(child, request: request, over: parent, openerKey: entry.openerKey)
         case .contextMenu(let request):
             BrowserContextMenuBuilder.present(request, in: page.contentView)
+        case .resizePopup:
+            break
         case .activate, .download, .notice, .rerouteStore:
             // A panel has no tab to select, no chrome for notices, and one store.
             break

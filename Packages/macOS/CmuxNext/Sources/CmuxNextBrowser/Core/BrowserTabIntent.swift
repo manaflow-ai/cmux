@@ -47,6 +47,10 @@ public enum BrowserTabIntent {
     /// The page did not handle an Escape key down (a popup panel closes on
     /// it; a tab ignores it).
     case unhandledEscape
+    /// The page's popup window asked for a new size or position
+    /// (`chrome.windows.update` with bounds). A popup panel follows; a tab
+    /// ignores it.
+    case resizePopup(BrowserPopupRequest)
 }
 
 /// Receives intents from a tab.

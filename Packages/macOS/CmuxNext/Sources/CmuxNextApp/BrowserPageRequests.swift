@@ -70,7 +70,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.cache.reroute(key, to: url)
         case .openPopup(let child, let request):
             openPopup(child, request: request, openerKey: key, pane: pane)
-        case .unhandledEscape:
+        case .unhandledEscape, .resizePopup:
             break
         }
     }
