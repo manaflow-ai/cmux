@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar category create rows")
 struct CloudTreeCategoryCreateActionTests {
-    @Test("Cloud Machines ends with a New Cloud Machine row, even when the fleet is empty")
+    @Test("Cloud Machines starts with a New Cloud Machine row when the fleet is empty")
     func cloudMachinesCategoryHasPersistentMachineAction() throws {
         let fixture = Fixture()
         defer { fixture.close() }
@@ -25,6 +25,7 @@ struct CloudTreeCategoryCreateActionTests {
             return false
         })
         #expect(action.kind == .createAction(.newCloudVM))
+        #expect(section.children.first === action)
         #expect(fixture.row(for: action) >= 0)
         #expect(try fixture.cell(for: action).accessibilityLabel() == CloudTreeCreateAction.newCloudVM.title)
         let createHost = try fixture.createHost(for: action)
@@ -36,10 +37,24 @@ struct CloudTreeCategoryCreateActionTests {
         )
         let hit = try #require(outline.hitTest(hitPoint))
         #expect(outline.validateProposedFirstResponder(hit, for: nil))
+        #expect(section.children.allSatisfy { node in
+            if case .createAction(.newWorkspaceOnResolvedMachine) = node.kind { return false }
+            return true
+        })
+    }
+
+    @Test("Cloud Machines exposes resolved New Workspace only with a machine")
+    func cloudMachinesCategoryGuardsResolvedWorkspaceAction() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        fixture.apply(machines: [fixture.machine])
+
+        let section = try #require(fixture.cloudSection)
         let fallback = try #require(section.children.first { node in
             if case .createAction(.newWorkspaceOnResolvedMachine) = node.kind { return true }
             return false
         })
+        #expect(fixture.row(for: fallback) == 2)
         fixture.coordinator.open(fallback)
         #expect(fixture.events.resolvedWorkspaceActionCalled)
     }
@@ -112,10 +127,7 @@ struct CloudTreeCategoryCreateActionTests {
         let outline = try #require(fixture.coordinator.outlineView)
         let newVMRow = outline.row(forItem: newVM)
         #expect(newVM.kind.isSelectable)
-        // Start at the existing empty-state row immediately before the action.
-        // It remains selectable, just as it was before category actions existed.
-        outline.selectRowIndexes(IndexSet(integer: newVMRow - 1), byExtendingSelection: false)
-        fixture.coordinator.moveSelection(by: 1)
+        outline.selectRowIndexes(IndexSet(integer: newVMRow), byExtendingSelection: false)
         #expect(outline.selectedRow == newVMRow)
         fixture.coordinator.openSelection()
         #expect(fixture.events.cloudVMActionCalled)

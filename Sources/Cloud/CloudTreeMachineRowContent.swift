@@ -14,23 +14,15 @@ struct CloudTreeMachineRowContent: View {
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
-                CloudTreeRowIcon(
-                    style: style,
-                    systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
-                    tint: CloudTreeIconPalette.machine
-                )
-                .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
-                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
-                    nameRow
-                    if style.machineRowLayout == .twoLine {
-                        Text(subtitle)
-                            .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(height: scaled(style.machineSubtitleLineHeight))
-                    }
+            VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
+                nameRow
+                if style.machineRowLayout == .twoLine {
+                    Text(subtitle)
+                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
@@ -42,6 +34,12 @@ struct CloudTreeMachineRowContent: View {
     /// Machine identity retains its own line at every sidebar width.
     private var nameRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+            if machine.freeAccess == .expired {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: style.detailSize, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
             HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
                 Text(machine.displayName)
                     .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
