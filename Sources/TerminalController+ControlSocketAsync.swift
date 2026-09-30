@@ -305,7 +305,7 @@ extension TerminalController {
         if request.method == "surface.input_state" {
             // Several main-actor hops; run them on a GCD thread rather than
             // parking a cooperative-pool thread while main is busy.
-            return await runBlockingSocketBody {
+            return await runSocketWorkerBlockingBody {
                 self.socketWorkerV2Response(
                     handling: ControlRequest(
                         id: request.id,
