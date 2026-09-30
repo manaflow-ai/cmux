@@ -146,6 +146,19 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("could not determine ancestry", result.stderr)
 
+    def test_shallow_clone_gap_is_not_divergence(self) -> None:
+        # CI checks submodules out shallowly. When a forward bump spans more
+        # history than the clone holds, both commits exist locally but no
+        # ancestry connects them; the local check must defer to GitHub.
+        self.commit_sub("middle subject")
+        tip = self.commit_sub("tip subject")
+        shallow = self.root / "shallow"
+        git("-c", "protocol.file.allow=always", "clone", "-q", "--depth", "1",
+            f"file://{self.subrepo}", str(shallow), cwd=self.root)
+        git("fetch", "-q", "--depth", "1", "origin", self.a, cwd=shallow)
+        self.assertEqual(git("rev-parse", "--is-shallow-repository", cwd=shallow), "true")
+        self.assertIsNone(submodule_forward_only.local_relation(str(shallow), self.a, tip))
+
     def test_declared_rollback_passes(self) -> None:
         b = self.commit_sub("intentional rollback")
         self.pointer(b)

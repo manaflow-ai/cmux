@@ -86,9 +86,7 @@ extension WorkspaceDetailView {
                 artifactGalleryRefreshSignal = signal
             }
         },
-        onSharedSizingChipTapped: {
-            isTerminalSizeSheetPresented = true
-        }
+        onSharedSizingChipTapped: presentTerminalSizeSheet
     )
     .popover(
         isPresented: terminalArtifactFilesPresentation.isPresented,

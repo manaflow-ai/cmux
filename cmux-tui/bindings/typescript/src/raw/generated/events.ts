@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8. */
+/* cmux-tui mux protocol 12, IR 8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd. */
 
 
 import type * as T from "./types.js";
@@ -84,6 +84,7 @@ export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 export type DetachedEvent = { event: "detached" } & {
   "by"?: T.SizeDetachActor;
   "reason"?: T.DetachReason;
+  "scope"?: string;
   "surface": T.Id;
   "view"?: string;
 };

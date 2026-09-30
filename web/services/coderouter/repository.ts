@@ -191,6 +191,24 @@ export async function revokeRouteTokensForVm(
     ));
 }
 
+/** A member left the team (Stack team_membership.deleted): their sessions
+ * for that team end now. Other teams' sessions and VM-bound tokens of the
+ * team's machines are untouched (machines are team resources). */
+export async function revokeRouteTokensForTeamMember(
+  input: { readonly teamId: string; readonly userId: string },
+  now = new Date(),
+): Promise<void> {
+  await cloudDb()
+    .update(coderouterRouteTokens)
+    .set({ revokedAt: now })
+    .where(and(
+      eq(coderouterRouteTokens.teamId, input.teamId),
+      eq(coderouterRouteTokens.stackUserId, input.userId),
+      isNull(coderouterRouteTokens.vmId),
+      isNull(coderouterRouteTokens.revokedAt),
+    ));
+}
+
 export async function revokeRouteTokensForUser(
   stackUserId: string,
   now = new Date(),
