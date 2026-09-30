@@ -2,12 +2,15 @@
 // Budgets the JavaScript the `cmux diff` viewer evaluates on every open.
 //
 // The diff surface is `main.mjs` -> `chunks/diffSurface.mjs` plus every chunk
-// those two reach through static imports. Anything shiki resolves on demand
+// those two reach through static imports. The highlight worker entry
+// `chunks/diff-worker.mjs` is evaluated once per pool worker (3 on desktop)
+// and gets its own, smaller budget. Anything shiki resolves on demand
 // (TextMate grammars, themes, the Oniguruma WASM blob) must stay a dynamic
-// import so it is fetched only for the languages in the diff. This script
-// walks the committed bundle under `Resources/markdown-viewer/webviews-app`,
-// sums the eager closure and fails when it grows past the budget or when a
-// grammar, theme or WASM chunk is reachable statically.
+// import so it is fetched only for the languages in the diff, and the worker
+// must never evaluate the main-thread renderer or React. This script walks
+// the committed bundle under `Resources/markdown-viewer/webviews-app`, sums
+// each eager closure and fails when one grows past its budget or when a
+// forbidden chunk is reachable statically.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,14 +18,30 @@ import { fileURLToPath } from "node:url";
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const bundleDirectory = resolve(process.argv[2] ?? join(repositoryRoot, "Resources/markdown-viewer/webviews-app"));
-const budgetBytes = Number(process.env.CMUX_WEBVIEWS_DIFF_EAGER_BUDGET_BYTES ?? 1_500_000);
-if (!Number.isSafeInteger(budgetBytes) || budgetBytes <= 0) {
-  console.error("CMUX_WEBVIEWS_DIFF_EAGER_BUDGET_BYTES must be a positive integer");
-  process.exit(2);
+function budgetFromEnvironment(name, fallback) {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    console.error(`${name} must be a positive integer`);
+    process.exit(2);
+  }
+  return value;
 }
 
-const diffSurfaceEntries = ["main.mjs", "chunks/diffSurface.mjs"];
 const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-)/;
+const surfaces = [
+  {
+    name: "diff surface",
+    entries: ["main.mjs", "chunks/diffSurface.mjs"],
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_EAGER_BUDGET_BYTES", 1_500_000),
+    forbidden: [],
+  },
+  {
+    name: "diff worker",
+    entries: ["chunks/diff-worker.mjs"],
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_WORKER_EAGER_BUDGET_BYTES", 400_000),
+    forbidden: ["chunks/diff-vendor.mjs", "chunks/vendor.mjs"],
+  },
+];
 const staticImportPattern = /(?:^|[;}\s])(?:import|export)\s*(?:[^;'"()]*?from\s*)?["']([^"']+)["']/g;
 
 function staticImports(filePath) {
@@ -65,26 +84,32 @@ function listChunks() {
   return readdirSync(chunksDirectory).filter((name) => name.endsWith(".mjs")).map((name) => `chunks/${name}`);
 }
 
-const eager = eagerClosure(diffSurfaceEntries);
-const rows = Array.from(eager, ([filePath, size]) => [relative(bundleDirectory, filePath), size])
-  .sort((left, right) => right[1] - left[1]);
-const totalBytes = rows.reduce((sum, [, size]) => sum + size, 0);
 const failures = [];
-for (const [relativePath] of rows) {
-  if (lazyOnlyChunkPattern.test(relativePath)) {
-    failures.push(`${relativePath} is reachable through static imports; it must stay a dynamic import`);
+const eagerFiles = new Set();
+for (const surface of surfaces) {
+  const eager = eagerClosure(surface.entries);
+  const rows = Array.from(eager, ([filePath, size]) => [relative(bundleDirectory, filePath), size])
+    .sort((left, right) => right[1] - left[1]);
+  const totalBytes = rows.reduce((sum, [, size]) => sum + size, 0);
+  for (const [relativePath] of rows) {
+    eagerFiles.add(relativePath);
+    if (lazyOnlyChunkPattern.test(relativePath)) {
+      failures.push(`${surface.name}: ${relativePath} is reachable through static imports; it must stay a dynamic import`);
+    }
+    if (surface.forbidden.includes(relativePath)) {
+      failures.push(`${surface.name}: ${relativePath} is reachable through static imports; the worker must not evaluate it`);
+    }
+  }
+  if (totalBytes > surface.budgetBytes) {
+    failures.push(`${surface.name} evaluates ${totalBytes} bytes on open, budget is ${surface.budgetBytes} bytes`);
+  }
+  console.log(`${surface.name} eager JS: ${totalBytes} bytes across ${rows.length} files (budget ${surface.budgetBytes})`);
+  for (const [relativePath, size] of rows) {
+    console.log(`  ${String(size).padStart(9)}  ${relativePath}`);
   }
 }
-if (totalBytes > budgetBytes) {
-  failures.push(`diff surface evaluates ${totalBytes} bytes on open, budget is ${budgetBytes} bytes`);
-}
 
-const allChunks = listChunks();
-const lazyChunks = allChunks.filter((name) => !eager.has(resolve(bundleDirectory, name)));
-console.log(`diff surface eager JS: ${totalBytes} bytes across ${rows.length} files (budget ${budgetBytes})`);
-for (const [relativePath, size] of rows) {
-  console.log(`  ${String(size).padStart(9)}  ${relativePath}`);
-}
+const lazyChunks = listChunks().filter((name) => !eagerFiles.has(name));
 console.log(`lazy chunks: ${lazyChunks.length}`);
 if (failures.length > 0) {
   for (const failure of failures) {
