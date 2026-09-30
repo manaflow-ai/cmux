@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { DashboardSectionSkeleton } from "../../components/dashboard-skeleton";
 import { EmptyState, SectionError } from "../../components/page-states";
+import { RequiresPro } from "../../components/requires-pro";
 import { useDashboardTeamScope } from "../../shell/dashboard-team-scope";
 import { V2DashboardController, type DashboardDirectory } from "./v2-dashboard-controller";
 
@@ -24,6 +25,7 @@ export function MobileDevicesPage({ userId }: Props) {
         <h1 className="text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
+      <RequiresPro feature="mobileDevices" />
       <MobileDevicesDashboard userId={userId} />
     </div>
   );
