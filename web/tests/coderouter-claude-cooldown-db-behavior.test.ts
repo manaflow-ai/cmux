@@ -218,3 +218,59 @@ for (const pool of ["claude", "native"] as const) {
     });
   }
 }
+
+
+for (const pool of ["claude", "native"] as const) {
+  dbTest(`${pool} cooldown replaces an expired non-transient reason`, async () => {
+    const accountId = pool === "claude" ? await insertClaudeAccount() : await insertNativeAccount();
+    if (pool === "claude") {
+      await claudeAccountStore.markCooldown(accountId, new Date(Date.now() + FIFTEEN_MINUTES_MS), "invalid_credential");
+      await sql`update coderouter_claude_accounts
+        set cooldown_until = '2000-01-01', updated_at = '2000-01-01' where id = ${accountId}`;
+    } else {
+      await markAccountCooldown(accountId, FIFTEEN_MINUTES_MS, undefined, "invalid_credential");
+      await sql`update coderouter_accounts
+        set cooldown_until = '2000-01-01', updated_at = '2000-01-01' where id = ${accountId}`;
+    }
+
+    const transientStartedAt = Date.now();
+    if (pool === "claude") {
+      await claudeAccountStore.markCooldown(accountId, new Date(transientStartedAt + TWENTY_SECONDS_MS), "upstream_unavailable");
+    } else {
+      await markAccountCooldown(accountId, TWENTY_SECONDS_MS, undefined, "upstream_unavailable");
+    }
+    const row = await readCooldown(pool, accountId);
+    expect(row.last_failure_code).toBe("upstream_unavailable");
+    expect(Number(row.deadline_ms)).toBeGreaterThanOrEqual(transientStartedAt + TWENTY_SECONDS_MS);
+
+    if (pool === "claude") {
+      const selection = await claude.select(CLAUDE_TEAM, { stickyKey: null });
+      expect(selection.kind).toBe("exhausted");
+      if (selection.kind !== "exhausted") throw new Error("cooling account was selected");
+      expect(selection.capacityRetryAfterSeconds).toBeGreaterThan(0);
+    } else {
+      const capacity = await nextCapacityAvailableAt({ teamId: NATIVE_TEAM, provider: "openai-apikey" });
+      expect(capacity?.getTime()).toBeGreaterThanOrEqual(transientStartedAt + TWENTY_SECONDS_MS);
+    }
+  });
+
+  dbTest(`${pool} cooldown keeps a NULL reason on a live longer deadline`, async () => {
+    const accountId = pool === "claude" ? await insertClaudeAccount() : await insertNativeAccount();
+    const liveStartedAt = Date.now();
+    const liveDuration = ONE_HOUR_MS;
+    if (pool === "claude") {
+      await sql`update coderouter_claude_accounts
+        set cooldown_until = ${new Date(liveStartedAt + liveDuration)}, last_failure_code = null
+        where id = ${accountId}`;
+      await claudeAccountStore.markCooldown(accountId, new Date(Date.now() + TWENTY_SECONDS_MS), "upstream_unavailable");
+    } else {
+      await sql`update coderouter_accounts
+        set cooldown_until = ${new Date(liveStartedAt + liveDuration)}, last_failure_code = null
+        where id = ${accountId}`;
+      await markAccountCooldown(accountId, TWENTY_SECONDS_MS, undefined, "upstream_unavailable");
+    }
+    const row = await readCooldown(pool, accountId);
+    expect(row.last_failure_code).toBeNull();
+    expect(Number(row.deadline_ms)).toBeGreaterThanOrEqual(liveStartedAt + liveDuration);
+  });
+}
