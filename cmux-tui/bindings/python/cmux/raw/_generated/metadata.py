@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b'
+IR_SHA256 = '90db9acbd5797fe4bffd916191ecad7b8f1337ac670f0f03dbda978e56cf6d45'
 
 
 @dataclass(frozen=True)
@@ -575,6 +575,7 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(9, None),
             'workspace': CommandFieldMetadata(None, None),
         },
@@ -1300,6 +1301,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -1317,6 +1319,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'width': CommandFieldMetadata(None, None),
         },
@@ -1355,6 +1358,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -2198,6 +2202,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),

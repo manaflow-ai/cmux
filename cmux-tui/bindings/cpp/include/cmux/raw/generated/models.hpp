@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b";
+inline constexpr std::string_view kProtocolIrSha256 = "90db9acbd5797fe4bffd916191ecad7b8f1337ac670f0f03dbda978e56cf6d45";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1257,6 +1257,7 @@ struct CreateTerminalRequest {
     Field<std::string> name{};
     Field<std::string> origin{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     Field<Id> workspace{};
     friend bool operator==(const CreateTerminalRequest&, const CreateTerminalRequest&) = default;
@@ -2203,6 +2204,7 @@ struct NewPaneRequest {
     std::optional<bool> keep{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
@@ -2214,6 +2216,7 @@ struct NewPaneRightRequest {
     std::optional<bool> keep{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     Field<float> width{};
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
@@ -2240,6 +2243,7 @@ struct NewTabRequest {
     std::optional<bool> keep{};
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     friend bool operator==(const NewTabRequest&, const NewTabRequest&) = default;
 };
@@ -3210,6 +3214,7 @@ struct SplitRequest {
     std::optional<bool> keep{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
 };

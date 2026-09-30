@@ -220,6 +220,9 @@ pub const SCREEN_METADATA_CAPABILITY: &str = "screen-metadata-v1";
 /// Chrome-style screen groups: the `*-screen-group` commands, saved screen
 /// groups, and `Workspace.screen_groups`.
 pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
+/// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
+/// `create-terminal`: arguments for the terminal's shell.
+pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
 /// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`,
 /// `daemon`) on `notify`, the `notification` event, the tab marker and
 /// `list-notifications`; the daemon posts OSC 9, OSC 777 and OSC 99 from
@@ -362,6 +365,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
+        TERMINAL_SHELL_ARGS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1288,6 +1292,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     /// The daemon persists its location and never attaches a CDP target.
@@ -1454,6 +1462,10 @@ enum Command {
         key: Option<String>,
         #[serde(default)]
         argv: Option<Vec<String>>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
         #[serde(default)]
         command: Option<String>,
         #[serde(default)]
@@ -1597,6 +1609,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     NewPaneRight {
         pane: PaneId,
@@ -1617,6 +1633,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     Split {
         pane: PaneId,
@@ -1637,6 +1657,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     SetRatio {
         pane: PaneId,
@@ -13873,8 +13897,8 @@ fn handle_command_with_cancellation(
             mux.set_terminal_keep(&terminal_id, keep)?;
             Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface =
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -14139,6 +14163,7 @@ fn handle_command_with_cancellation(
             workspace,
             key,
             argv,
+            shell_args,
             command,
             cwd,
             name,
@@ -14157,12 +14182,15 @@ fn handle_command_with_cancellation(
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
+            if shell_args.is_some() && (argv.is_some() || command.is_some()) {
+                anyhow::bail!("shell_args cannot be combined with argv or command");
+            }
             let argv = match (argv, command) {
                 (Some(argv), None) if !argv.is_empty() => Some(argv),
                 (None, Some(command)) if !command.is_empty() => {
                     Some(vec![platform::default_shell(), "-lc".to_string(), command])
                 }
-                (None, None) => None,
+                (None, None) => shell_argv(&env, shell_args),
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
             let size = paired_surface_size("create-terminal", cols, rows)?;
@@ -14382,14 +14410,24 @@ fn handle_command_with_cancellation(
             };
             Ok(screen_group_outcome_json(&mux.reopen_saved_screen_group(&saved, workspace)?))
         }
-        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface =
                 mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewPaneRight { pane, width, cols, rows, cwd, env, keep, terminal_id } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+        Command::NewPaneRight {
+            pane,
+            width,
+            cols,
+            rows,
+            cwd,
+            env,
+            keep,
+            terminal_id,
+            shell_args,
+        } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface = mux.new_pane_right_with_options(
                 pane,
                 width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
@@ -14398,9 +14436,9 @@ fn handle_command_with_cancellation(
             )?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id } => {
+        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
             let dir = parse_split_dir(&dir)?;
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface =
                 mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -16083,9 +16121,27 @@ fn placement_spawn_options(
     cwd: Option<String>,
     env: Option<&BTreeMap<String, String>>,
     terminal_id: Option<String>,
+    shell_args: Option<Vec<String>>,
 ) -> anyhow::Result<crate::TerminalSpawnOptions> {
     let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
-    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id })
+    let argv = shell_argv(&env, shell_args);
+    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv })
+}
+
+/// `terminal-shell-args-v1`: the shell the terminal would run with no
+/// arguments, given `shell_args`, so a frontend can pass the argv Ghostty's
+/// shell integration needs (bash `--posix` with `ENV`, nushell `--execute`).
+/// The shell is the terminal's own `SHELL` from its `env` (the frontend
+/// chose the arguments for it), else the daemon's default shell. None or an
+/// empty list keeps the plain default shell.
+fn shell_argv(env: &[(String, String)], shell_args: Option<Vec<String>>) -> Option<Vec<String>> {
+    let shell_args = shell_args.filter(|arguments| !arguments.is_empty())?;
+    let shell = env
+        .iter()
+        .find(|(key, value)| key == "SHELL" && !value.is_empty())
+        .map(|(_, value)| value.clone())
+        .unwrap_or_else(platform::default_shell);
+    Some(std::iter::once(shell).chain(shell_args).collect())
 }
 
 /// The reply of a placement command: the new view and the terminal it
@@ -23161,6 +23217,7 @@ mod tests {
                     workspace: Some(workspace),
                     key: None,
                     argv: None,
+                    shell_args: None,
                     command: None,
                     cwd: None,
                     name: None,
@@ -23190,6 +23247,7 @@ mod tests {
             workspace: Some(workspace),
             key: None,
             argv: None,
+            shell_args: None,
             command: None,
             cwd: None,
             name: Some("raw terminal".to_string()),
@@ -24663,7 +24721,10 @@ mod tests {
             if text.contains(needle) {
                 return;
             }
-            assert!(Instant::now() < deadline, "terminal did not show {needle:?}; screen: {text:?}");
+            assert!(
+                Instant::now() < deadline,
+                "terminal did not show {needle:?}; screen: {text:?}"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
     }

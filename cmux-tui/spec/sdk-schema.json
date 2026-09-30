@@ -7810,6 +7810,20 @@
         "format": "terminal host id (UUIDv4 hex without dashes)"
        }
       ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,
@@ -8186,6 +8200,20 @@
       "default": false,
       "since": 12,
       "capability": "terminal-reap-v1"
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,
@@ -8968,6 +8996,20 @@
         "format": "terminal host id (UUIDv4 hex without dashes)"
        }
       ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,
@@ -9084,6 +9126,20 @@
         "format": "terminal host id (UUIDv4 hex without dashes)"
        }
       ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,
@@ -9194,6 +9250,20 @@
         "format": "terminal host id (UUIDv4 hex without dashes)"
        }
       ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,

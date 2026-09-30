@@ -1711,11 +1711,14 @@ pub struct TerminalSpawnOptions {
     /// Caller-chosen terminal host id (32 lowercase hex, UUIDv4), so the
     /// caller can put it in `env` before the child starts.
     pub terminal_id: Option<String>,
+    /// The program and arguments to run instead of the bare default shell
+    /// (`terminal-shell-args-v1` resolves `shell_args` into it).
+    pub argv: Option<Vec<String>>,
 }
 
 impl TerminalSpawnOptions {
     pub fn new(cwd: Option<String>, env: Vec<(String, String)>) -> Self {
-        Self { cwd, env, terminal_id: None }
+        Self { cwd, env, terminal_id: None, argv: None }
     }
 }
 
@@ -4714,6 +4717,10 @@ impl Mux {
         Self::insert_optional_string(fields, "cwd", spawn.cwd);
         Self::insert_terminal_env(fields, spawn.env);
         Self::insert_optional_string(fields, RESERVED_TERMINAL_ID_FIELD, spawn.terminal_id);
+        if let Some(argv) = spawn.argv {
+            fields
+                .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
+        }
     }
 
     fn insert_cell_size(fields: &mut Map<String, Value>, size: Option<(u16, u16)>) {

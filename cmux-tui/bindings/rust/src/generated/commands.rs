@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b.
+// cmux-tui mux protocol 12, IR 90db9acbd5797fe4bffd916191ecad7b8f1337ac670f0f03dbda978e56cf6d45.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -606,6 +606,8 @@ pub struct CreateTerminalRequest {
     pub origin: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1288,6 +1290,8 @@ pub struct NewPaneRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
 }
 
@@ -1308,6 +1312,8 @@ pub struct NewPaneRightRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1360,6 +1366,8 @@ pub struct NewTabRequest {
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
 }
@@ -2145,6 +2153,8 @@ pub struct SplitRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
 }
 
@@ -2667,6 +2677,10 @@ impl CmuxClient {
             self.require_protocol_field("create-terminal", 12)?;
             self.require_capability_field("create-terminal", "terminal-reap-v1")?;
         }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "terminal-shell-args-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("create-terminal", 9)?;
         }
@@ -2946,6 +2960,10 @@ impl CmuxClient {
             self.require_protocol_field("new-pane", 12)?;
             self.require_capability_field("new-pane", "terminal-reap-v1")?;
         }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-shell-args-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-pane", 12)?;
             self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
@@ -2966,6 +2984,10 @@ impl CmuxClient {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-reap-v1")?;
         }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
@@ -2985,6 +3007,10 @@ impl CmuxClient {
         if request.keep.is_some() {
             self.require_protocol_field("new-tab", 12)?;
             self.require_capability_field("new-tab", "terminal-reap-v1")?;
+        }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "terminal-shell-args-v1")?;
         }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-tab", 12)?;
@@ -3344,6 +3370,10 @@ impl CmuxClient {
         if request.keep.is_some() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-reap-v1")?;
+        }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "terminal-shell-args-v1")?;
         }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("split", 12)?;

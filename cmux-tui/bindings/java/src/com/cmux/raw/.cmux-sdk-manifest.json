@@ -347,8 +347,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "4561711d504856c64546b22aeff2fad357e6918e5268733e3eb0563d7ac3f0ee",
-      "size": 48548
+      "sha256": "377491ba52b1f9e65a9221f22112a68041e43c3bdb7223905989b7143f4e40e5",
+      "size": 48953
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -407,8 +407,8 @@
     },
     {
       "path": "CreateTerminalRequest.java",
-      "sha256": "e284fb2555585db2bf9438419bcecd6f504a16b9a99a6a5dcc4d2b7d8be19dc0",
-      "size": 11479
+      "sha256": "da50ad29926f9080ee3337acecc5a08c44eec2f39d71b610af5f937cb0c44c61",
+      "size": 12299
     },
     {
       "path": "CreateWorkspaceGroupRequest.java",
@@ -992,13 +992,13 @@
     },
     {
       "path": "NewPaneRequest.java",
-      "sha256": "644b4d708b096e828bd80f288b0f44ace28a431b76dc4587a114404f20ab1eb5",
-      "size": 5677
+      "sha256": "d825033157b108b08e9c90c64e1cfe0da692d215201d01ac6b223be72beffbab",
+      "size": 6483
     },
     {
       "path": "NewPaneRightRequest.java",
-      "sha256": "51b8a018dd41016d286d6c6dc1d417f393b53693ab2811b4ea8dbb7db776c3c8",
-      "size": 6375
+      "sha256": "817a367ea368603d3588fbae8b4f13a6c3aad7021e2fd8b48843123df026f213",
+      "size": 7191
     },
     {
       "path": "NewScreenRequest.java",
@@ -1007,8 +1007,8 @@
     },
     {
       "path": "NewTabRequest.java",
-      "sha256": "748bcb6ba5ff841162ecf2f4bf2d65bc2ea937c177492a3bd49287d1bb532be2",
-      "size": 5622
+      "sha256": "03bdb258ea26c01249bda64ac6a0ac83cd1c32569fc66ada23185f36545e67e9",
+      "size": 6426
     },
     {
       "path": "NewWorkspaceRequest.java",
@@ -1152,7 +1152,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "264715111927ecda5f80b17be18ceecc123ae29881a1b1f6211c98650bc411d2",
+      "sha256": "52f59ba2618060d964a8475abd59b4e03c9463095d6c5bbe42b7a0e03acba134",
       "size": 4696
     },
     {
@@ -1707,8 +1707,8 @@
     },
     {
       "path": "SplitRequest.java",
-      "sha256": "aecba2696094ca17d409418798ec039bf84140e399bc8e1525b992d2f9c5d7ab",
-      "size": 6265
+      "sha256": "547207c73eefbc0030cdd8d70e0e4cd31c70ac00a5cc9228d416493e30835fc3",
+      "size": 7067
     },
     {
       "path": "StatusEvent.java",
@@ -2127,7 +2127,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b",
+  "ir_sha256": "90db9acbd5797fe4bffd916191ecad7b8f1337ac670f0f03dbda978e56cf6d45",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

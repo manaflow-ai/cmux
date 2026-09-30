@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b. */
+/* cmux-tui mux protocol 12, IR 90db9acbd5797fe4bffd916191ecad7b8f1337ac670f0f03dbda978e56cf6d45. */
 
 
 import type * as T from "./types.js";
@@ -407,6 +407,7 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "name"?: (string) | null;
   "origin"?: (string) | null;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
 }
@@ -890,6 +891,7 @@ export interface NewPaneRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
 }
 export type NewPaneResult = T.SurfaceResult;
@@ -903,6 +905,7 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
   "width"?: (number) | null;
 }
@@ -933,6 +936,7 @@ export interface NewTabRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
 }
 export type NewTabResult = T.SurfaceResult;
@@ -1512,6 +1516,7 @@ export interface SplitRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
 }
 export type SplitResult = T.SurfaceResult;

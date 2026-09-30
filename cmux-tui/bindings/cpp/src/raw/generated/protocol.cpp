@@ -11496,6 +11496,11 @@ Result<Json> Codec<CreateTerminalRequest>::encode(const CreateTerminalRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.shell_args.is_absent()) {
+        auto encoded = encode_value(value.shell_args);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("shell_args", std::move(encoded).value());
+    }
     if (!value.terminal_id.is_absent()) {
         auto encoded = encode_value(value.terminal_id);
         if (!encoded) return std::move(encoded).error();
@@ -11640,6 +11645,16 @@ Result<CreateTerminalRequest> Codec<CreateTerminalRequest>::decode(const Json& v
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_shell_args = value.find("shell_args");
+    if (field_shell_args) {
+        if (field_shell_args->is_null()) {
+            result.shell_args = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_shell_args);
+            if (!decoded) return std::move(decoded).error();
+            result.shell_args = Field<std::vector<std::string>>(std::move(decoded).value());
         }
     }
     const Json* field_terminal_id = value.find("terminal_id");
@@ -14349,6 +14364,11 @@ Result<Json> Codec<NewPaneRequest>::encode(const NewPaneRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.shell_args.is_absent()) {
+        auto encoded = encode_value(value.shell_args);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("shell_args", std::move(encoded).value());
+    }
     if (!value.terminal_id.is_absent()) {
         auto encoded = encode_value(value.terminal_id);
         if (!encoded) return std::move(encoded).error();
@@ -14416,6 +14436,16 @@ Result<NewPaneRequest> Codec<NewPaneRequest>::decode(const Json& value) {
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
         }
     }
+    const Json* field_shell_args = value.find("shell_args");
+    if (field_shell_args) {
+        if (field_shell_args->is_null()) {
+            result.shell_args = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_shell_args);
+            if (!decoded) return std::move(decoded).error();
+            result.shell_args = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
     const Json* field_terminal_id = value.find("terminal_id");
     if (field_terminal_id) {
         if (field_terminal_id->is_null()) {
@@ -14459,6 +14489,11 @@ Result<Json> Codec<NewPaneRightRequest>::encode(const NewPaneRightRequest& value
         auto encoded = encode_value(value.rows);
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
+    }
+    if (!value.shell_args.is_absent()) {
+        auto encoded = encode_value(value.shell_args);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("shell_args", std::move(encoded).value());
     }
     if (!value.terminal_id.is_absent()) {
         auto encoded = encode_value(value.terminal_id);
@@ -14530,6 +14565,16 @@ Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_shell_args = value.find("shell_args");
+    if (field_shell_args) {
+        if (field_shell_args->is_null()) {
+            result.shell_args = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_shell_args);
+            if (!decoded) return std::move(decoded).error();
+            result.shell_args = Field<std::vector<std::string>>(std::move(decoded).value());
         }
     }
     const Json* field_terminal_id = value.find("terminal_id");
@@ -14751,6 +14796,11 @@ Result<Json> Codec<NewTabRequest>::encode(const NewTabRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.shell_args.is_absent()) {
+        auto encoded = encode_value(value.shell_args);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("shell_args", std::move(encoded).value());
+    }
     if (!value.terminal_id.is_absent()) {
         auto encoded = encode_value(value.terminal_id);
         if (!encoded) return std::move(encoded).error();
@@ -14817,6 +14867,16 @@ Result<NewTabRequest> Codec<NewTabRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_shell_args = value.find("shell_args");
+    if (field_shell_args) {
+        if (field_shell_args->is_null()) {
+            result.shell_args = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_shell_args);
+            if (!decoded) return std::move(decoded).error();
+            result.shell_args = Field<std::vector<std::string>>(std::move(decoded).value());
         }
     }
     const Json* field_terminal_id = value.find("terminal_id");
@@ -18524,6 +18584,11 @@ Result<Json> Codec<SplitRequest>::encode(const SplitRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.shell_args.is_absent()) {
+        auto encoded = encode_value(value.shell_args);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("shell_args", std::move(encoded).value());
+    }
     if (!value.terminal_id.is_absent()) {
         auto encoded = encode_value(value.terminal_id);
         if (!encoded) return std::move(encoded).error();
@@ -18598,6 +18663,16 @@ Result<SplitRequest> Codec<SplitRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_shell_args = value.find("shell_args");
+    if (field_shell_args) {
+        if (field_shell_args->is_null()) {
+            result.shell_args = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_shell_args);
+            if (!decoded) return std::move(decoded).error();
+            result.shell_args = Field<std::vector<std::string>>(std::move(decoded).value());
         }
     }
     const Json* field_terminal_id = value.find("terminal_id");
@@ -25319,9 +25394,10 @@ constexpr std::array<CommandFieldRequirement, 6> kCommand29FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand35FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand37FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand37FieldRequirements{{
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
+    {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 9U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand46FieldRequirements{{
@@ -25343,21 +25419,24 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand90FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand95FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand95FieldRequirements{{
     {"cwd", 12U, "terminal-placement-env-v1"},
     {"env", 12U, "terminal-placement-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
+    {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand96FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand96FieldRequirements{{
     {"cwd", 12U, "terminal-placement-env-v1"},
     {"env", 12U, "terminal-placement-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
+    {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand98FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand98FieldRequirements{{
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
+    {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand101FieldRequirements{{
@@ -25408,10 +25487,11 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand159FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand161FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand161FieldRequirements{{
     {"cwd", 12U, "terminal-env-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
+    {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 2> kCommand162FieldRequirements{{

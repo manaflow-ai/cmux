@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cabd6501831a3f1875fc4aa392d8132a3e9c476496d0b4b55cf97c2566893e0b";
+pub const ir_sha256 = "90db9acbd5797fe4bffd916191ecad7b8f1337ac670f0f03dbda978e56cf6d45";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3136,6 +3136,7 @@ pub const CreateTerminalRequest = struct {
     name: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 
@@ -3157,6 +3158,7 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .fields = &.{
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
             },
         },
@@ -4371,6 +4373,7 @@ pub const NewPaneRequest = struct {
     keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -4392,6 +4395,7 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
                 .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -4406,6 +4410,7 @@ pub const NewPaneRightRequest = struct {
     keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
 
@@ -4428,6 +4433,7 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -4470,6 +4476,7 @@ pub const NewTabRequest = struct {
     keep: ?bool = null,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -4490,6 +4497,7 @@ pub fn newTab(client: anytype, request: NewTabRequest) !wire.Decoded(NewTabResul
             .fields = &.{
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -5865,6 +5873,7 @@ pub const SplitRequest = struct {
     keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -5886,6 +5895,7 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
                 .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
