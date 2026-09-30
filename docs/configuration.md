@@ -223,6 +223,8 @@ The glyph shows the loudest state that applies:
 | --- | --- |
 | An agent reported an error | red warning triangle |
 | An agent needs input | amber dot |
+| An agent is running through subagents | pulsing gray connected-points glyph |
+| An agent is waiting on a background command, a scheduled wakeup or a CI run | gray hourglass |
 | An agent is running | pulsing gray dot, in place of the loading spinner |
 | An agent is starting (no state reported yet) | dashed ring |
 | Unread notifications | blue dot, in place of the unread count badge |
@@ -233,9 +235,11 @@ The glyph shows the loudest state that applies:
 | Branch, no pull request | gray branch glyph |
 | Plain terminal | none; the title starts at the row's edge |
 
+The hourglass only goes up when every running agent in the workspace reported that it is waiting, so a second agent still working keeps the row running.
+
 cmux does not fetch a pull request's checks or mergeability, so an open pull request is gray whatever CI says. A pull request whose state repeated refresh failures could not confirm does not set the glyph at all.
 
-Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `running`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
+Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `subagents`, `running`, `waiting`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
 
 ```json
 {
@@ -253,7 +257,7 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 - Default: `false`.
 - Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
 - The notification preview moves to the top of the tooltip too. Rows you added yourself (a workspace description, `cmux set-status` under other keys, logs, progress, ports) keep their lines.
-- Workspace group headers show a glyph, after the group name, for the workspaces without a row of their own: the anchor workspace while the group is expanded, and every member once it is collapsed. Only states that ask for attention appear there (error, needs input, running, unread), the loudest first; hover it to see which workspace each comes from. It replaces the header's unread count.
+- Workspace group headers show a glyph, after the group name, for the workspaces without a row of their own: the anchor workspace while the group is expanded, and every member once it is collapsed. Only states that ask for attention appear there (error, needs input, subagents, running, waiting, unread), the loudest first; hover it to see which workspace each comes from. It replaces the header's unread count.
 - The pulse is a Core Animation opacity loop capped at 30 Hz. It stops while the window is hidden or occluded, and Reduce Motion keeps the dot still.
 - A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
 - Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
