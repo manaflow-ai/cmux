@@ -143,7 +143,7 @@ struct NewMachineSheet: View {
             if showsSizeRow {
                 GridRow {
                     gridLabel(sizeLabel)
-                    sizeMenu.fixedSize()
+                    fittedSizeMenu
                 }
             }
             if model.supportsNetworkPolicy {
@@ -192,6 +192,7 @@ struct NewMachineSheet: View {
         Text(title)
             .cmuxFont(size: 13)
             .foregroundStyle(.secondary)
+            .fixedSize()
             .gridColumnAlignment(.trailing)
             .accessibilityHidden(true)
     }
@@ -201,7 +202,7 @@ struct NewMachineSheet: View {
     private var stackedLayout: some View {
         VStack(alignment: .leading, spacing: 12) {
             if showsSizeRow {
-                stackedRow(sizeLabel) { sizeMenu.fixedSize() }
+                stackedRow(sizeLabel) { fittedSizeMenu }
             }
             if model.supportsNetworkPolicy {
                 stackedRow(networkLabel) {
@@ -296,7 +297,7 @@ struct NewMachineSheet: View {
     private var groupedLayout: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showsSizeRow {
-                groupedRow(sizeLabel) { sizeMenu.fixedSize() }
+                groupedRow(sizeLabel) { fittedSizeMenu }
             }
             if model.supportsNetworkPolicy {
                 if showsSizeRow { groupedDivider }
@@ -345,6 +346,7 @@ struct NewMachineSheet: View {
             Text(title)
                 .cmuxFont(size: 13)
                 .lineLimit(1)
+                .layoutPriority(1)
                 .accessibilityHidden(true)
             Spacer(minLength: 8)
             content()
@@ -360,6 +362,13 @@ struct NewMachineSheet: View {
     // MARK: Shared controls
 
     private var sizeMenu: some View { makeSizeMenu(borderless: false) }
+
+    /// The pop-up's ideal width is its widest row (a locked "… · Requires
+    /// Max" row), which can exceed the sheet. It may narrow to the space the
+    /// row labels leave; the selected title is short and still fits.
+    private var fittedSizeMenu: some View {
+        sizeMenu.fixedSize(horizontal: false, vertical: true)
+    }
 
     /// The size pop-up: allowed sizes, then the locked ones with the plan
     /// that unlocks them. Picking a locked size asks to upgrade instead.
