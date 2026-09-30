@@ -3248,6 +3248,7 @@
         "automation": {
           "ampIntegration": "Turns the cmux hooks for Amp on or off. Turning them off leaves the bundled plugin installed but idle.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
+          "agentAutoResume": "Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed.",
           "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
           "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
@@ -3321,7 +3322,12 @@
           "compactAgentStatus": "Show each workspace on one line: one colored icon before the title for agent, unread, and pull request state replaces the agent status rows (for example Running or Needs input), the branch and directory line, and the pull request rows, whose details move to the icon's tooltip. Other status entries keep their rows.",
           "compactStatusIcons": "SF Symbol names that replace the compactAgentStatus glyph for each state, for example {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Unset states keep the built-in symbol, and a name that does not render falls back to it.",
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
-          "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
+          "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies.",
+          "beta": {
+            "conversations": {
+              "enabled": "Show the unified Conversations view in the sidebar picker."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Right-sidebar file explorer (file tree) settings.",
@@ -3552,7 +3558,8 @@
         "wn-reload": "Reload configuration",
         "wn-quit": "Quit"
       },
-      "paneResizeDescription": "Resize the focused pane with Ctrl+Shift+H/J/K/L (left/down/up/right). Hold a key to keep resizing. Change the bindings and Pane Resize Step in Settings → Keyboard Shortcuts. The step is also configurable with app.paneResizeStepPixels in cmux.json (1–200, default 20)."
+      "paneResizeDescription": "Resize the focused pane with Ctrl+Shift+H/J/K/L (left/down/up/right). Hold a key to keep resizing. Change the bindings and Pane Resize Step in Settings → Keyboard Shortcuts. The step is also configurable with app.paneResizeStepPixels in cmux.json (1–200, default 20).",
+      "fileEditorWordWrap": "Toggle File Editor Word Wrap (Option+Z)."
     },
     "api": {
       "title": "CLI Reference",
@@ -4214,7 +4221,8 @@
       "maxLinesSetting": "TextBox Max Lines caps the TextBox height before its content scrolls.",
       "configTitle": "cmux.json",
       "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
+      "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces.",
+      "betaCallout": "TextBox is a beta feature. Its defaults and behavior may change while it is being tested."
     },
     "ios": {
       "metaTitle": "iOS App",
@@ -6995,6 +7003,10 @@
     "grant_body": {
       "message": "Publication email grant",
       "action": "Send email and optional expiresAt."
+    },
+    "reserved_port": {
+      "message": "Port 1337 is reserved for the Cloud VM's cmux connection and cannot be published.",
+      "action": "Publish the port your own server listens on instead."
     }
   },
   "cliAuthIdentity": {
@@ -7006,6 +7018,22 @@
     "signedOutTitle": "Sign in to authorize coderouter",
     "signedOutBody": "A command line application is waiting for you to sign in. Sign in with your cmux account to finish connecting this terminal. If you did not start this request, close this page.",
     "signInButton": "Sign in"
+  },
+  "mobile": {
+    "agentFeed": {
+      "fullText": {
+        "seeMore": "See more"
+      },
+      "search": {
+        "placeholder": "Search Feed"
+      },
+      "openWorkspace": "Open workspace",
+      "openTab": "Open tab",
+      "openFailed": {
+        "title": "Couldn’t open event",
+        "message": "The event’s computer, workspace, or tab is no longer available."
+      }
+    }
   },
   "MobileRelease106": {
     "title": "What's New in 1.0.6",

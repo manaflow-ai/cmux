@@ -3311,7 +3311,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ always() }}" in block
+    assert "if: ${{ !cancelled() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
 
@@ -3323,7 +3323,7 @@ def test_required_tests_status_waits_for_platform_workflows() -> None:
         assert f"      - {job_name}" in block
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
-    assert "if: ${{ always() }}" in block
+    assert "if: ${{ !cancelled() }}" in block
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block
@@ -3876,7 +3876,11 @@ def test_linux_failure_still_blocks_tests_after_macos_succeeds() -> None:
         needs["linux-preflight"]["result"] = outcome
         result = run_tests_gate(needs)
         assert result.returncode != 0, outcome
-        assert f"linux preflight did not pass: {outcome}" in result.stderr
+        if outcome == "cancelled":
+            assert "cancelled: linux-preflight" in result.stderr
+            assert "this run was stopped before it reported a test verdict" in result.stderr
+        else:
+            assert f"linux preflight did not pass: {outcome}" in result.stderr
 
 
 def test_macos_status_accepts_compile_only_prior_admission_skip() -> None:
@@ -5843,7 +5847,7 @@ def test_linux_aggregate_preserves_all_routed_results() -> None:
     assert "      - web" in block
     for web_job in WEB_JOBS:
         assert f"      - {web_job}" not in block
-    assert "if: ${{ always() }}" in block
+    assert "!cancelled()" in block
     assert 'guard_routes = (' in block
     assert 'bad[f"guards.{route}"]' in block
     assert 'bad["guards"] = f"{guard_result} (one or more guard routes=true)"' in block

@@ -3,7 +3,7 @@ Object.defineProperty(globalThis, "location", {
   value: { pathname: "/" },
 });
 
-const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft, shouldAcceptSessionActionResponse } = await import("../src/session");
+const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft, shouldAcceptSessionActionResponse, transcriptComposerLocked } = await import("../src/session");
 const { latestRouteStatus, normalizeRouteStatus, routeHealthForPhase } = await import("../route-status");
 
 const writes: Record<string, string> = {};
@@ -92,6 +92,16 @@ if (latest?.health !== "degraded" || latest?.parentSessionId !== "session-1") {
 }
 if (latestRouteStatus([{ kind: "routing", phase: "invalid", conversationId: "c", requestId: "r", attempt: 1 }]) !== null) {
   throw new Error("malformed routing events should not become route health state");
+}
+
+if (!transcriptComposerLocked({ mode: "transcript", attention: "Codex needs approval" })) {
+  throw new Error("terminal attention should lock the transcript composer");
+}
+if (
+  transcriptComposerLocked({ mode: "transcript", attention: "   " })
+  || transcriptComposerLocked({ mode: undefined, attention: "Codex needs approval" })
+) {
+  throw new Error("only non-empty transcript attention should lock the composer");
 }
 
 console.log("session store assertions passed");
