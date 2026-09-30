@@ -4022,19 +4022,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // only inside the task can save an old account/team's rows under the
         // new scope if sign-out or team switching wins the race.
         let sourceGeneration = secondaryAggregationScopeGeneration
+        let sourceWorkspaceStateRevision = foregroundWorkspaceStateRevision
         let sourceUserID = identityProvider?.currentUserID
-        // The captured value is a complete authenticated snapshot. Do not
-        // discard it merely because another update arrived while this task was
-        // queued: that turns normal event coalescing into a lost persistence
-        // write and makes the next launch wait for the live list. A newer full
-        // snapshot will overwrite an older one naturally.
+        // A newer authoritative list may arrive while this task is suspended
+        // on scope resolution. Only the newest foreground revision may write,
+        // otherwise an older task can resume later and restore stale rows over
+        // the newer snapshot.
         Task(priority: .userInitiated) { @MainActor [weak self] in
             guard let self,
                   self.secondaryAggregationScopeGeneration == sourceGeneration,
+                  self.foregroundWorkspaceStateRevision == sourceWorkspaceStateRevision,
                   self.identityProvider?.currentUserID == sourceUserID,
                   let scope = await self.currentScopeSnapshot(),
                   await self.isScopeCurrent(scope),
                   self.secondaryAggregationScopeGeneration == sourceGeneration,
+                  self.foregroundWorkspaceStateRevision == sourceWorkspaceStateRevision,
                   self.identityProvider?.currentUserID == sourceUserID else { return }
             workspaceSnapshotStore.save(
                 state: state,

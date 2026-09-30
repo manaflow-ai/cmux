@@ -45,11 +45,13 @@ TASK_ROOT="/tmp/cmux-iroh-mario"
 for ((index=1; index<=COUNT+2; index++)); do
   workdir="$TASK_ROOT-$index"
   mkdir -p "$workdir"
+  session_log="$workdir/codex-session.log"
+  rm -f "$session_log"
   if (( index <= COUNT )); then
     prompt="Build and iteratively improve a playable Mario-style HTML game in $workdir. Use real file edits and run local checks. Work independently for at least ten meaningful iterations. Print CMUX_CODEX_${index}_READY after the first playable version and CMUX_CODEX_${index}_ITER_<number> after every later improvement. Keep the game runnable from index.html."
-    command="codex --yolo -m '$MODEL' -- $(printf '%q' "$prompt")"
+    command="codex --yolo -m '$MODEL' -- $(printf '%q' "$prompt") 2>&1 | tee -a $(printf '%q' "$session_log")"
   else
-    command="while true; do printf 'CMUX_SUPPORT_${index}_READY\n'; sleep 30; done"
+    command="while true; do printf 'CMUX_SUPPORT_${index}_READY\n' | tee -a $(printf '%q' "$session_log"); sleep 30; done"
   fi
   response="$("${CLI[@]}" --json --id-format uuids workspace create --name "iroh codex $index" --cwd "$workdir" --command "$command" --focus false)"
   workspace="$(printf '%s' "$response" | json_value workspace_id)"
@@ -71,14 +73,18 @@ while (( $(date +%s) < deadline )); do
   for index in "${!WORKSPACES[@]}"; do
     screen="$(read_screen "${WORKSPACES[$index]}" "${SURFACES[$index]}")"
     session_number=$((index + 1))
+    session_log="$TASK_ROOT-$session_number/codex-session.log"
+    durable_output="$(cat "$session_log" 2>/dev/null || true)"
+    combined_output="$screen
+$durable_output"
     marker_seen=0
     if (( session_number <= COUNT )); then
       ready_marker="CMUX_CODEX_${session_number}_READY"
-      if grep -qF "$ready_marker" <<<"$screen"; then
+      if grep -qF "$ready_marker" <<<"$combined_output"; then
         READY_SESSIONS[$index]=1
         marker_seen=1
       fi
-      iteration_count="$(grep -oE "CMUX_CODEX_${session_number}_ITER_[0-9]+" <<<"$screen" \
+      iteration_count="$(grep -oE "CMUX_CODEX_${session_number}_ITER_[0-9]+" <<<"$combined_output" \
         | sed -E 's/.*_ITER_//' | sort -n | tail -1 || true)"
       if [[ "$iteration_count" =~ ^[0-9]+$ ]] \
          && (( iteration_count > ITERATION_COUNTS[index] )); then
@@ -86,11 +92,11 @@ while (( $(date +%s) < deadline )); do
         marker_seen=1
       fi
       if (( READY_SESSIONS[index] == 0 )) \
-         && grep -Eqi 'command not found|login required|authentication required' <<<"$screen"; then
+         && grep -Eqi 'command not found|login required|authentication required' <<<"$combined_output"; then
         echo "error: Codex session $session_number exited or needs authentication before its ready marker" >&2
         exit 1
       fi
-    elif grep -qF "CMUX_SUPPORT_" <<<"$screen"; then
+    elif grep -qF "CMUX_SUPPORT_" <<<"$combined_output"; then
       marker_seen=1
     fi
     if (( marker_seen == 1 )); then
