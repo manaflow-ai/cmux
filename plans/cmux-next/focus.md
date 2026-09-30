@@ -551,3 +551,10 @@ Style, Toggle Focus Ring for a Single Pane. The glow is a stroke with a shadow c
 the content rect, so it falls inward only. The attention ring of an unread notification
 shares the overlay (plans/cmux-next/notifications.md). Column scrolling:
 plans/cmux-next/niri.md.
+
+Resize rule (2026-09-30): the ring's layers move in the same call that sets the overlay's
+frame (`PaneOverlayView.setFrameSize`), so the pass that places the panes places the ring,
+even when the plane lives in the overlay panel above Chromium pages, whose own layout pass
+runs later (`FocusRingResizeTests`; `debug.layers` `ring_in_sync`, DEBUG `ring_lag_passes`).
+A page window the fork adds goes below the overlay inside `ShellWindow.addChildWindow`, so
+no frame shows a new page over the ring (`OverlayPageOrderTests`).
