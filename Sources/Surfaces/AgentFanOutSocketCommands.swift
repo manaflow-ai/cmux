@@ -103,6 +103,16 @@ extension TerminalController {
         let focus = (params["focus"] as? Bool) ?? false
         let namePrefix = fanOutString(params["name_prefix"]) ?? "\(agent) fan-out"
         let generatedID = operationID ?? "f_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased())"
+        // Capture the initiating window before any child network operation.
+        // Every visible child then lands in the same originating window even
+        // if selection changes while the fan-out is being admitted.
+        let workspaceCreationHost: CloudWorkspaceCreationHost? = open
+            ? await MainActor.run {
+                AppDelegate.shared?.preferredMainWindowContextForWorkspaceCreation(
+                    debugSource: "agent.fan-out"
+                )?.tabManager.map(CloudWorkspaceCreationHost.init(manager:))
+            }
+            : nil
         let destination: SurfaceDestination?
         if open, let workspaceID = TerminalController.shared.surfaceTargetWorkspaceID(params, strictExplicit: true) {
             destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
@@ -156,7 +166,15 @@ extension TerminalController {
                 if let sharedWorkspace {
                     childWorkspace = sharedWorkspace
                 } else {
-                    childWorkspace = try await provider.createRemoteWorkspace(name: childName)
+                    // Keep workspace creation from leaving its default starter
+                    // shell beside the agent. The receipt gives us the exact
+                    // starter identity even while the graph is catching up;
+                    // close it before launching the child command.
+                    let receipt = try await provider.createRemoteWorkspaceReceipt(name: childName)
+                    childWorkspace = receipt.workspace
+                    if let starter = receipt.terminal {
+                        try? await provider.closeTerminal(starter.id, remoteWorkspaceID: childWorkspace.id)
+                    }
                     createdChildWorkspace = childWorkspace
                 }
                 operation.children[index].remoteWorkspaceID = childWorkspace.id
@@ -180,7 +198,8 @@ extension TerminalController {
                     let opened = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
                         machine: .cloud(machineID), provider: provider, catalog: catalog,
                         name: childWorkspace.name, focus: focus, openLocally: open,
-                        existingWorkspace: childWorkspace, existingTerminal: childTerminal
+                        existingWorkspace: childWorkspace, existingTerminal: childTerminal,
+                        host: workspaceCreationHost
                     )
                     response = [
                         "machine": machineID,
