@@ -25,6 +25,67 @@ public enum AgentPromptInputState: Equatable, Sendable {
     }
 }
 
+/// The agent family represented by a detected prompt.
+public enum AgentPromptAgentKind: String, Equatable, Sendable {
+    /// Anthropic's Claude Code terminal interface.
+    case claude
+    /// OpenAI's Codex terminal interface.
+    case codex
+}
+
+/// A screen observation used by commands that submit text to an agent.
+///
+/// The input state retains the draft and dialog guard from ``AgentPromptInputState``.
+/// The additional flags describe transient UI that changes which key submits a
+/// message (for example, Codex's busy queue affordance).
+public struct AgentPromptSubmissionSnapshot: Equatable, Sendable {
+    /// The detected input, dialog, or unknown state.
+    public let state: AgentPromptInputState
+    /// The agent family inferred from its prompt, when one is visible.
+    public let agentKind: AgentPromptAgentKind?
+    /// True when an agent is processing a turn and offers a queue action.
+    public let busy: Bool
+    /// True when the screen reports that a message has been queued.
+    public let queued: Bool
+    /// True when an agent is showing slash-command suggestions.
+    public let slashCommandPopup: Bool
+
+    /// Creates a snapshot from styled terminal rows.
+    ///
+    /// - Parameter screenRows: Visible rows from top to bottom. Faint spans are
+    ///   treated as placeholders and are excluded from drafts.
+    public init(screenRows: [[AgentPromptScreenSpan]]) {
+        let result = Self.detect(rows: screenRows)
+        state = result.state
+        agentKind = result.agentKind
+        busy = result.busy
+        queued = result.queued
+        slashCommandPopup = result.slashCommandPopup
+    }
+
+    /// Creates a conservative snapshot from plain terminal text.
+    ///
+    /// ANSI styling is removed, so only well-known placeholder phrases are
+    /// treated as empty. Unknown text following a prompt remains a draft.
+    ///
+    /// - Parameter screenText: Visible screen text, with one row per line.
+    public init(screenText: String) {
+        let rows = screenText
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { [AgentPromptScreenSpan(column: 0, text: Self.stripANSI(String($0).replacingOccurrences(of: "\r", with: "")), faint: false)] }
+        self.init(screenRows: rows)
+    }
+
+    /// Alias for callers that use an `is` prefix for state flags.
+    public var isBusy: Bool { busy }
+    /// Alias for callers that use an `is` prefix for state flags.
+    public var isQueued: Bool { queued }
+    /// Alias for callers that use a visibility suffix for popup state.
+    public var hasSlashCommandPopup: Bool { slashCommandPopup }
+    /// Alias for callers that call the detected family the kind.
+    public var kind: AgentPromptAgentKind? { agentKind }
+}
+
 /// One styled run of text in a screen row.
 public struct AgentPromptScreenSpan: Equatable, Sendable {
     public var column: Int
@@ -56,9 +117,20 @@ public struct AgentPromptScreenSpan: Equatable, Sendable {
 /// Both glyphs can appear in other programs' output, so callers should only
 /// act on the result for a surface known to run an agent.
 extension AgentPromptInputState {
-    private static let claudePromptPrefix = "\u{276F}\u{00A0}"
-    private static let codexPromptPrefix = "\u{203A} "
-    private static let dialogHints = [
+    /// Reads the input state from a screen.
+    ///
+    /// - Parameter rows: The visible screen, top to bottom; each row's spans
+    ///   in column order.
+    public init(screenRows rows: [[AgentPromptScreenSpan]]) {
+        self = AgentPromptSubmissionSnapshot(screenRows: rows).state
+    }
+
+}
+
+private extension AgentPromptSubmissionSnapshot {
+    static let claudePromptPrefix = "\u{276F}\u{00A0}"
+    static let codexPromptPrefix = "\u{203A} "
+    static let dialogHints = [
         "esc to cancel",
         "esc to go back",
         "press enter to",
@@ -66,33 +138,52 @@ extension AgentPromptInputState {
         "enter to select",
     ]
     /// How many non-empty rows at the bottom are searched for dialog hints.
-    private static let dialogHintRowWindow = 6
+    static let dialogHintRowWindow = 6
 
-    /// Reads the input state from a screen.
-    ///
-    /// - Parameter rows: The visible screen, top to bottom; each row's spans
-    ///   in column order.
-    public init(screenRows rows: [[AgentPromptScreenSpan]]) {
-        self = Self.detect(rows: rows)
+    struct DetectionResult {
+        let state: AgentPromptInputState
+        let agentKind: AgentPromptAgentKind?
+        let busy: Bool
+        let queued: Bool
+        let slashCommandPopup: Bool
     }
 
-    private static func detect(rows: [[AgentPromptScreenSpan]]) -> AgentPromptInputState {
+    static func detect(rows: [[AgentPromptScreenSpan]]) -> DetectionResult {
         let plainRows = rows.map(plainText)
         let promptRow = plainRows.lastIndex(where: { promptPrefix(in: $0) != nil })
+        let detectedKind = promptRow.flatMap { self.agentKind(for: plainRows[$0]) }
+            ?? inferredAgentKind(from: plainRows)
 
         let hintSearchStart = promptRow.map { $0 + 1 } ?? 0
-        let bottomRows = plainRows[hintSearchStart...].reversed()
+        let bottomRows = Array(plainRows[hintSearchStart...].reversed()
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-            .prefix(dialogHintRowWindow)
+            .prefix(dialogHintRowWindow))
+        let slashCommandPopup = isSlashCommandPopup(
+            plainRows: plainRows,
+            promptRow: promptRow,
+            bottomRows: bottomRows
+        )
         if bottomRows.contains(where: { row in
             let lowered = row.lowercased()
             return dialogHints.contains { lowered.contains($0) }
         }) {
-            return .dialog
+            return DetectionResult(
+                state: .dialog,
+                agentKind: detectedKind,
+                busy: isBusy(plainRows),
+                queued: isQueued(plainRows),
+                slashCommandPopup: slashCommandPopup
+            )
         }
 
         guard let promptRow, let prefix = promptPrefix(in: plainRows[promptRow]) else {
-            return .unknown
+            return DetectionResult(
+                state: .unknown,
+                agentKind: detectedKind,
+                busy: isBusy(plainRows),
+                queued: isQueued(plainRows),
+                slashCommandPopup: slashCommandPopup
+            )
         }
 
         var typed = ""
@@ -108,7 +199,19 @@ extension AgentPromptInputState {
             typed += String(cells.filter { !$0.faint }.map(\.character))
         }
         let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{00A0}\u{2502}")))
-        return trimmed.isEmpty ? .empty : .draft(trimmed)
+        let state: AgentPromptInputState
+        if trimmed.isEmpty || isPlaceholder(trimmed, kind: detectedKind) {
+            state = .empty
+        } else {
+            state = .draft(trimmed)
+        }
+        return DetectionResult(
+            state: state,
+            agentKind: detectedKind,
+            busy: isBusy(plainRows),
+            queued: isQueued(plainRows),
+            slashCommandPopup: slashCommandPopup
+        )
     }
 
     // MARK: - Private
@@ -136,6 +239,80 @@ extension AgentPromptInputState {
         if body.hasPrefix(claudePromptPrefix) { return claudePromptPrefix }
         if body.hasPrefix(codexPromptPrefix) { return codexPromptPrefix }
         return nil
+    }
+
+    private static func agentKind(for row: String) -> AgentPromptAgentKind? {
+        guard let prefix = promptPrefix(in: row) else { return nil }
+        return prefix == claudePromptPrefix ? .claude : .codex
+    }
+
+    private static func inferredAgentKind(from rows: [String]) -> AgentPromptAgentKind? {
+        let text = rows.joined(separator: "\n").lowercased()
+        if text.contains("ask codex") || text.contains("codex") { return .codex }
+        if text.contains("claude code") { return .claude }
+        return nil
+    }
+
+    private static func isBusy(_ rows: [String]) -> Bool {
+        let markers = [
+            "working", "thinking", "generating", "processing",
+            "esc to interrupt", "press esc to interrupt", "ctrl+c to interrupt",
+        ]
+        return rows.contains { row in
+            let lowered = row.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return markers.contains { lowered.contains($0) }
+        }
+    }
+
+    private static func isQueued(_ rows: [String]) -> Bool {
+        rows.contains { row in
+            let lowered = row.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return lowered == "queued" || lowered.hasPrefix("queued ")
+                || lowered.contains("in queue") || lowered.contains("message queued")
+        }
+    }
+
+    private static func isSlashCommandPopup(
+        plainRows: [String],
+        promptRow: Int?,
+        bottomRows: [String]
+    ) -> Bool {
+        guard let promptRow else { return false }
+        let hasSlashOption = plainRows.dropFirst(promptRow + 1).contains { row in
+            row.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
+        }
+        guard hasSlashOption else { return false }
+        return bottomRows.contains { row in
+            let lowered = row.lowercased()
+            return lowered.contains("enter to select") || lowered.contains("tab to select")
+                || lowered.contains("esc to cancel")
+        }
+    }
+
+    private static func isPlaceholder(_ text: String, kind: AgentPromptAgentKind?) -> Bool {
+        guard kind == .codex else { return false }
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return [
+            "ask codex to do anything",
+            "ask codex anything",
+            "ask codex to do something",
+        ].contains(normalized)
+    }
+
+    private static func stripANSI(_ text: String) -> String {
+        var output = ""
+        var iterator = text.makeIterator()
+        while let character = iterator.next() {
+            guard character == "\u{001B}" else {
+                output.append(character)
+                continue
+            }
+            guard iterator.next() == "[" else { continue }
+            while let control = iterator.next() {
+                if ("@"..."~").contains(control) { break }
+            }
+        }
+        return output
     }
 
     private struct Cell {
