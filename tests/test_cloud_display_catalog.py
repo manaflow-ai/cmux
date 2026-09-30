@@ -1,5 +1,6 @@
 """Execute the guest display catalog; no guest VM or GUI is mutated."""
 import concurrent.futures
+import io
 import importlib.machinery
 import importlib.util
 import json
@@ -237,6 +238,74 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertEqual(command[1:3], ["--no-fehbg", "--bg-fill"])
         self.assertEqual(command[-1], "/usr/share/backgrounds/cmux/wallpaper.jpg")
         self.assertEqual(run.call_args.kwargs["env"], environment)
+
+    def test_adopted_display_is_repainted_after_helper_upgrade(self):
+        # An upgraded helper adopts X servers its predecessor started; those
+        # were never painted, so adoption must paint instead of leaving black.
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+        number = 2
+        runtime = self.root / "runtime" / "2"
+        runtime.mkdir(parents=True)
+
+        class Process:
+            pid = 4242
+
+            def terminate(self):
+                pass
+
+            def poll(self):
+                return None
+
+        def adopt(adopted, *_args):
+            service.named_processes[adopted] = {
+                name: Process() for name in ("xvnc", "dbus", "openbox", "tint2", "vncconfig")
+            }
+
+        with mock.patch.object(display, "ready", return_value=False), \
+             mock.patch.object(display, "rfb_ready", return_value=True), \
+             mock.patch.object(display, "novnc_ready", return_value=True), \
+             mock.patch.object(display.shutil, "which",
+                               side_effect=lambda name: None if name == "xev" else name), \
+             mock.patch.object(service, "recover_processes", side_effect=adopt), \
+             mock.patch.object(service, "start_websockify"), \
+             mock.patch.object(service, "apply_wallpaper") as paint:
+            service.start_components(number, {"DISPLAY": ":2"}, runtime)
+
+        paint.assert_called_once()
+        service.shutdown.set()
+
+    def test_display_resize_refills_wallpaper_and_nudges_its_dock(self):
+        # noVNC's remote resize grows the root window; the old pixmap tiles
+        # unless the display repaints on each RandR screen change.
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+        tint2 = mock.Mock(pid=31337)
+        tint2.poll.return_value = None
+        service.named_processes[2] = {"tint2": tint2}
+        watcher = mock.Mock(stdout=io.StringIO(
+            "PropertyNotify event, serial 1\n"
+            "RRScreenChangeNotify event, serial 18, synthetic NO, window 0x1e5\n"))
+        environment = {"DISPLAY": ":2"}
+        with mock.patch.object(service, "apply_wallpaper") as paint, \
+             mock.patch.object(display.os, "kill") as kill:
+            service.repaint_on_resize(2, environment, watcher)
+        paint.assert_called_once_with(2, environment)
+        kill.assert_called_once_with(31337, display.signal.SIGUSR1)
+
+    def test_display_session_tracks_resize_watcher(self):
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+        runtime = self.root / "runtime" / "2"
+        commands = []
+
+        def spawn(command, **_options):
+            commands.append(command)
+            return mock.Mock(stdout=None, poll=mock.Mock(return_value=None))
+
+        with mock.patch.object(display.subprocess, "Popen", side_effect=spawn), \
+             mock.patch.object(display.shutil, "which", side_effect=lambda name: name):
+            service.start_session_components(2, {"DISPLAY": ":2"}, runtime)
+        self.assertIn("resize-watch", service.named_processes[2])
+        self.assertIn(["xev", "-root", "-event", "randr"], commands)
+        service.shutdown.set()
 
     def test_start_failure_retains_resource_and_replay_receipt(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")
