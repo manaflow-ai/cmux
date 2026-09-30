@@ -260,14 +260,19 @@ final class AgentAutoResumeCoordinator {
                 .trimmingCharacters(in: .whitespaces)
             guard !typedRow.isEmpty else { continue }
             let lowered = typedRow.lowercased()
-            let isStatusRow = lowered.contains("ctx ")
-                || lowered.contains("auto mode on")
-                || lowered.contains("shift+tab")
-                || (lowered.contains("· /")
-                    && (lowered.hasPrefix("gpt-")
-                        || lowered.hasPrefix("o1")
-                        || lowered.hasPrefix("o3")
-                        || lowered.hasPrefix("o4")))
+            let contextParts = lowered.components(separatedBy: " · ctx ")
+            let isClaudeModelStatus = contextParts.count == 2
+                && ["sonnet ", "opus ", "haiku "].contains(where: contextParts[0].hasPrefix)
+                && contextParts[1].hasSuffix("%")
+                && Int(contextParts[1].dropLast()) != nil
+            let isClaudeModeStatus = lowered == "⏵⏵ auto mode on (shift+tab to cycle)"
+            let codexStatusParts = lowered.components(separatedBy: " · ")
+            let isCodexModelStatus = codexStatusParts.count == 2
+                && codexStatusParts[0].hasPrefix("gpt-")
+                && codexStatusParts[0].contains(" ")
+                && codexStatusParts[1].hasPrefix("/")
+            let isStalledFooter = lowered.hasSuffix("goal stalled (/goal resume)")
+            let isStatusRow = isClaudeModelStatus || isClaudeModeStatus || isCodexModelStatus || isStalledFooter
             if !isStatusRow {
                 return .draft
             }
@@ -322,7 +327,7 @@ final class AgentAutoResumeCoordinator {
                   binding.kind == nil
                       || binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == agent.lowercased()
             else { return false }
-            guard let sessionId, !sessionId.isEmpty else { return true }
+            guard let sessionId, !sessionId.isEmpty else { return currentSessionId == nil }
             guard let currentSessionId else { return false }
             return currentSessionId == sessionId
         }
