@@ -17,7 +17,7 @@ import {
   teamErrorCode,
   teamQueryKeys,
   useDeleteTeam,
-  useRemoveMember,
+  useLeaveTeam,
   useUpdateTeam,
 } from "@/dashboard-app/queries/teams";
 import { TEAM_NAME_MAX_LENGTH, validateTeamName } from "./team-logic";
@@ -128,7 +128,7 @@ function LeaveTeamSection({ detail }: { readonly detail: TeamDetail }) {
   const errorText = useTeamErrorText();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const leave = useRemoveMember(detail.team.id);
+  const leave = useLeaveTeam(detail.team.id);
   const [open, setOpen] = useState(false);
   const lastAdmin = isLastAdmin(detail);
 

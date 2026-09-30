@@ -179,6 +179,18 @@ export function removeMemberMutation(queryClient: QueryClient, teamId: string) {
   );
 }
 
+/**
+ * The viewer leaving the team. Unlike removing someone else, nothing is
+ * refetched: the viewer is no longer a member, so the caller navigates away
+ * and `forgetTeam` drops the detail.
+ */
+export function leaveTeamMutation(_queryClient: QueryClient, teamId: string): UseMutationOptions<unknown, unknown, string> {
+  return {
+    scope: teamMutationScope(teamId),
+    mutationFn: (viewerUserId: string) => teamApi.removeMember(teamId, viewerUserId),
+  };
+}
+
 export function resendInvitationMutation(queryClient: QueryClient, teamId: string) {
   return optimisticDetailMutation(
     queryClient,
@@ -224,6 +236,10 @@ export function useChangeRole(teamId: string) {
 
 export function useRemoveMember(teamId: string) {
   return useMutation(removeMemberMutation(useQueryClient(), teamId));
+}
+
+export function useLeaveTeam(teamId: string) {
+  return useMutation(leaveTeamMutation(useQueryClient(), teamId));
 }
 
 export function useUpdateTeam(teamId: string) {
