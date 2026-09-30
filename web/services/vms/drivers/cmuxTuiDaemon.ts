@@ -292,11 +292,35 @@ function pinnedFile(sha256: string, path: string): string {
   return `printf '%s  %s\n' ${shellQuote(sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
 }
 
-/** Downloads `url` to `path`. */
+/** Attempts per download; each one resumes from the bytes already on disk. */
+export const CMUX_TUI_FETCH_ATTEMPTS = 8;
+
+/**
+ * Downloads `url` to `path`, resuming after a dropped connection.
+ *
+ * files.cmux.com has no edge cache for these objects, so a VM can read a 40 MB
+ * binary at a few KB/s, and one HTTP/2 stream reset failed a whole fleet
+ * upgrade. HTTP/1.1 avoids the stream errors, `-C -` continues a partial file
+ * instead of starting over, and the speed floor ends a stalled transfer so the
+ * next attempt resumes it. A server that refuses a range (curl 33) or a partial
+ * file that no longer fits (curl 36, HTTP 416 as 22) starts the next attempt
+ * from zero. The wget fallback (BusyBox images) resumes with `-c` and its own
+ * retries. The caller verifies the sha256 pin, so a resumed file that mixed
+ * two objects is refused, never installed.
+ */
 export function cmuxTuiFetchCommand(path: string, url: string): string {
+  const quoted = shellQuote(url);
+  const curl =
+    `curl -fsSL --http1.1 --connect-timeout 20 --speed-limit 1024 --speed-time 60 -C - -o ${path} ${quoted}`;
   return (
-    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 -o ${path} ${shellQuote(url)}; ` +
-    `elif command -v wget >/dev/null 2>&1; then wget -q -O ${path} ${shellQuote(url)}; ` +
+    `rm -f ${path}; ` +
+    `if command -v curl >/dev/null 2>&1; then cmux_fetch_ok=0; cmux_fetch_try=1; ` +
+    `while :; do ${curl} && { cmux_fetch_ok=1; break; }; ` +
+    `case $? in 22|33|36) rm -f ${path};; esac; ` +
+    `if [ $cmux_fetch_try -ge ${CMUX_TUI_FETCH_ATTEMPTS} ]; then break; fi; ` +
+    `sleep $cmux_fetch_try; cmux_fetch_try=$((cmux_fetch_try + 1)); done; ` +
+    `[ $cmux_fetch_ok = 1 ]; ` +
+    `elif command -v wget >/dev/null 2>&1; then wget -q -c -O ${path} ${quoted}; ` +
     `else false; fi`
   );
 }
