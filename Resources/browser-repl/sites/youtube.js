@@ -55,7 +55,7 @@
 
   // The in-tab transcript path runs as several short page calls (a long
   // call can lose its completion when YouTube's player reshuffles the page):
-  // captureStart hooks XHR and fetch in the page world and turns captions on
+  // captureStart hooks XHR body getters and fetch in the page world and turns captions on
   // in the muted player; captureRead returns what the player received;
   // captureStop restores the page and returns the caption URLs it saw.
   const CAPTURE = "Symbol.for('cmux.sites.youtube.capture')";
@@ -70,19 +70,29 @@
         return false;
       }
     };
-    const state = { bodies: [], urls: [], open: XMLHttpRequest.prototype.open, fetch: window.fetch };
+    // The player keeps its own reference to XHR open, so hook where it reads
+    // the body: the responseText and response getters.
+    const P = XMLHttpRequest.prototype;
+    const state = { bodies: [], urls: [], getters: {}, fetch: window.fetch };
     window[${CAPTURE}] = state;
-    XMLHttpRequest.prototype.open = function (method, url) {
-      if (matches(String(url)))
-        this.addEventListener("load", () => {
+    for (const name of ["responseText", "response"]) {
+      const d = Object.getOwnPropertyDescriptor(P, name);
+      state.getters[name] = d;
+      Object.defineProperty(P, name, {
+        configurable: true,
+        enumerable: d.enumerable,
+        get() {
+          const v = d.get.call(this);
           try {
-            const r = this.response;
-            const body = this.responseType === "" || this.responseType === "text" ? this.responseText : r instanceof ArrayBuffer ? new TextDecoder().decode(r) : r && typeof r === "object" ? JSON.stringify(r) : "";
-            if (body) state.bodies.push(body);
+            if (this.readyState === 4 && matches(this.responseURL)) {
+              const body = typeof v === "string" ? v : v instanceof ArrayBuffer ? new TextDecoder().decode(v) : v && typeof v === "object" ? JSON.stringify(v) : "";
+              if (body && !state.bodies.includes(body)) state.bodies.push(body);
+            }
           } catch (e) {}
-        });
-      return state.open.apply(this, arguments);
-    };
+          return v;
+        },
+      });
+    }
     window.fetch = function (input) {
       const p = state.fetch.apply(this, arguments);
       const url = typeof input === "string" ? input : input && input.url;
@@ -96,7 +106,8 @@
     state.observer.observe({ type: "resource", buffered: true });
     try {
       if (player.mute) player.mute();
-      if (arg.play && player.playVideo) player.playVideo();
+      // Captions load while the video plays; turning them on first does not.
+      if (player.playVideo) player.playVideo();
       if (player.toggleSubtitlesOn) player.toggleSubtitlesOn();
       else if (player.toggleSubtitles) player.toggleSubtitles();
       if (arg.lang && player.setOption) player.setOption("captions", "track", { languageCode: arg.lang });
@@ -110,7 +121,7 @@
     const p = document.getElementById("movie_player");
     try { if (p && p.pauseVideo) p.pauseVideo(); } catch (e) {}
     if (!s) return { bodies: [], urls: [] };
-    XMLHttpRequest.prototype.open = s.open;
+    for (const [name, d] of Object.entries(s.getters)) Object.defineProperty(XMLHttpRequest.prototype, name, d);
     window.fetch = s.fetch;
     s.observer.disconnect();
     delete window[${CAPTURE}];

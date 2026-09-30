@@ -232,6 +232,13 @@ now in the mocks and fixed: the REPL's fetch gets YouTube's mobile site and
 Google's basic results page, a tab gets Google's opaque `/goto` links, and
 YouTube's player token makes the direct caption URL empty.
 
+A second run on the rebuilt tag (commit 75dad504a2d) returned real data for
+every item except `youtube.transcript`: in the app, YouTube's player loads
+its caption track in some runs and not in others, and a refetch of the
+player's caption URL is empty. The tool reads the player's response through
+the XHR body getters (the player keeps its own reference to `open`); treat
+in-app transcripts as intermittent until a later run shows otherwise.
+
 Tools against private accounts (Gmail, Calendar, Slack, Notion, LinkedIn, X
 timelines, Linear, Jira) are verified only against the mocks: running them
 live reads the user's private data. Their page selectors follow the sites'
