@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSidebar
 import CmuxNextTabs
 import QuartzCore
 
@@ -53,11 +54,13 @@ extension TabDragSession {
         case .newColumn(let screenID, let after):
             guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return settle(false) }
             TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: column, services: services, transaction: transaction, completion: settle)
-        case .newWorkspace(let group, let index):
+        case .newWorkspace:
+            // Made unplaced, then put at the gap by the sidebar's own path
+            // (personal order, or move-workspace-to-group at the slot).
+            let slot = gapSlot(drag)
             Task {
-                let key = await TabMoves.toNewWorkspace(tab, group: group.map(WorkspaceGroupID.init(rawValue:)), index: index,
-                                                        services: services, transaction: transaction)
-                if let key, let state = dropWindow?.state { services.windows.claim(workspaceID: key.rawValue, in: state) }
+                let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
+                if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot) }
                 settle(key != nil)
             }
         case .workspace(let id):
@@ -91,11 +94,11 @@ extension TabDragSession {
             guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return settle(false) }
             TabGroupMoves.toNewColumn(group, anchor: anchor, afterColumn: column, services: services, transaction: transaction,
                                       completion: settle)
-        case .newWorkspace(let workspaceGroup, let index):
+        case .newWorkspace:
+            let slot = gapSlot(drag)
             Task {
-                let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: workspaceGroup.map(WorkspaceGroupID.init(rawValue:)),
-                                                             index: index, services: services, transaction: transaction)
-                if let key, let state = dropWindow?.state { services.windows.claim(workspaceID: key.rawValue, in: state) }
+                let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
+                if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot) }
                 settle(key != nil)
             }
         case .workspace(let id):
@@ -122,6 +125,20 @@ extension TabDragSession {
     }
 
     // MARK: Lookup
+
+    /// The sidebar gap or collapsed group the drag was dropped on.
+    func gapSlot(_ drag: Drag) -> WorkspaceSlot? {
+        switch (drag.winner?.provider as? SidebarTabDropTarget)?.lastDrop {
+        case .newWorkspace(let section, let group, let index)?: .at(DropPosition(section: section, group: group, index: index))
+        case .intoGroup(let group)?: .endOfGroup(group)
+        case .intoWorkspace?, nil: nil
+        }
+    }
+
+    func claimAndPlace(_ key: WorkspaceKey, in state: WindowState, at slot: WorkspaceSlot?) {
+        services.windows.claim(workspaceID: key.rawValue, in: state)
+        if let slot { services.windows.place(newWorkspace: key.rawValue, in: state.id, at: slot) }
+    }
 
     func paneController(stripID: UUID) -> PaneController? {
         for controller in services.windows.controllers {

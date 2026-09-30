@@ -91,6 +91,16 @@ struct WorkspaceSlotTests {
         #expect(WorkspaceSlot.endOfGroup(GroupID("nope")).position(moving: ["n"], section: Self.section, in: window) == nil)
     }
 
+    /// A tab dropped on a gap with more tabs left in its workspace makes a
+    /// new workspace there, created unplaced and then moved to the gap.
+    @Test func aTabDroppedOnAGapMakesTheNewWorkspaceLandThere() {
+        let window = WorkspaceMovePlanTests.window(["a", "b", "c"])
+        let gap = DropPosition(section: Self.section, index: 2)
+        let result = Self.land("n", at: .at(gap), window: window, daemon: Self.created(WorkspaceMovePlanTests.plain(["a", "b", "c"])))
+        #expect(result.ids(in: nil) == ["a", "b", "n", "c"])
+        #expect(WorkspaceSlot.at(gap).position(moving: ["n"], section: .machine(MachineID("cloud")), in: window) == nil)
+    }
+
     // MARK: Sort
 
     @Test func sortByNameUsesFinderOrder() {

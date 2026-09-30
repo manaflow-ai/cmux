@@ -28,4 +28,12 @@ extension WindowManager {
             pending.then?(id, bridge)
         }
     }
+
+    /// Places a workspace this app just made (by a command whose reply
+    /// names it) at `slot` of window `windowID`: now when it is mirrored,
+    /// else once the daemon reports it.
+    func place(newWorkspace id: String, in windowID: String, at slot: WorkspaceSlot) {
+        pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, then: nil)
+        if services.machines.workspace(id: id) != nil { applyPendingPlacements(live: [id]) }
+    }
 }
