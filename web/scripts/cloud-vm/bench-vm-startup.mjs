@@ -228,7 +228,7 @@ function json(text) {
 
 const vmUrl = (vmId, tail = "") => `${targetUrl}/api/vm/${encodeURIComponent(vmId)}${tail}`;
 
-/** Attach until the daemon answers; a 502 with `retryable` is the documented not-ready contract. */
+/** Request endpoint metadata until the attach contract is issued; this does not dial the daemon. */
 async function attachUntilReady(vmId, stage) {
   const startedAt = performance.now();
   const attempts = [];
@@ -373,11 +373,11 @@ async function runTrial(trial) {
   trial.size = created.size?.name ?? null;
   Object.assign(trial, await rowUntilVisible(vmId));
   trial.createToRowReadyMs = elapsedMs(createStartedAt);
-  Object.assign(trial, await attachUntilReady(vmId, "attach"));
+  Object.assign(trial, await attachUntilReady(vmId, "attachEndpoint"));
   // Row polling is serialized before endpoint issuance. Use one monotonic
   // origin so the totals include both phases; endpoint issuance is not a
   // terminal-ready claim (bench-private-link.ts measures the real prompt).
-  trial.createToAttachReadyMs = elapsedMs(createStartedAt);
+  trial.createToAttachEndpointMs = elapsedMs(createStartedAt);
   Object.assign(trial, await attachUntilReady(vmId, "warmAttach"));
   if (!skipExec) {
     const exec = await fetchTimed(vmUrl(vmId, "/exec"), {
@@ -932,7 +932,7 @@ function emitReport({ results, listMs, startedAt, runError, cleanup }) {
     totalMs: startedAt === null ? null : elapsedMs(startedAt),
     succeeded: ok.length,
     failed: results.length - ok.length,
-    stages: summarizeFields(measured, ["createMs", "rowReadyMs", "createToRowReadyMs", "attachMs", "createToAttachReadyMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
+    stages: summarizeFields(measured, ["createMs", "rowReadyMs", "createToRowReadyMs", "attachEndpointMs", "createToAttachEndpointMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
     attachAttempts: summarizeFields(measured.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
     createServerTiming: summarizeStages(measured.map((trial) => trial.createStages)),
     results,

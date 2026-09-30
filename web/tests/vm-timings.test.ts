@@ -56,4 +56,13 @@ describe("VM timing helpers", () => {
     expect(attributes.filter((attribute) => attribute.key === "cmux.vm.timing.total_ms")).toHaveLength(1);
     expect(attributes.filter((attribute) => attribute.key === "cmux.vm.timing.total_count")).toHaveLength(1);
   });
+
+  test("accepts the phase end timestamp when work settles before its caller records it", () => {
+    const attributes: Array<{ key: string; value: unknown }> = [];
+    const span = { setAttribute: (key: string, value: unknown) => attributes.push({ key, value }) } as unknown as Span;
+    const recorder = new VmTimingRecorder(span, "create", { debugTimings: false });
+    recorder.record("connection_init", 20, { endedAtMs: 1_500 });
+    expect(attributes.find((attribute) => attribute.key === "cmux.vm.timing.connection_init_ended_at_ms")?.value).toBe(1_500);
+    expect(attributes.find((attribute) => attribute.key === "cmux.vm.timing.connection_init_started_at_ms")?.value).toBe(1_480);
+  });
 });
