@@ -67,6 +67,8 @@ const {
   authenticateRouteToken,
   bindRouteTokenToVm,
   issueRouteToken,
+  revokeRouteTokensForTeam,
+  revokeRouteTokensForTeamMember,
   revokeRouteTokensForVm,
   routeTokenHash,
   routeTokenLastUsedWritesSettled,
@@ -198,6 +200,32 @@ describe("coderouter route token VM binding", () => {
     await expect(bindRouteTokenToVm("team-1", "not-a-token", "vm-1")).resolves.toBe(false);
     await expect(bindRouteTokenToVm("team-1", "crt_short", "vm-1")).resolves.toBe(false);
     expect(statements).toHaveLength(0);
+  });
+
+  // A member removed from a team (Stack team_membership.deleted) loses that
+  // team's CLI sessions at once, not when their 30-day lifetime ends.
+  test("revokeRouteTokensForTeamMember revokes that member's live sessions in that team", async () => {
+    const now = new Date("2026-09-30T10:00:00.000Z");
+    await revokeRouteTokensForTeamMember({ teamId: "team-1", userId: "user-1" }, now);
+    const [statement] = statements;
+    expect(statement?.kind).toBe("update");
+    expect(statement?.values).toEqual({ revokedAt: now });
+    const { sql, params } = rendered(statement?.where ?? null);
+    expect(sql).toContain('"coderouter_route_tokens"."team_id" = $1');
+    expect(sql).toContain('"coderouter_route_tokens"."stack_user_id" = $2');
+    expect(sql).toContain('"coderouter_route_tokens"."revoked_at" is null');
+    expect(params).toEqual(["team-1", "user-1"]);
+  });
+
+  test("revokeRouteTokensForTeam revokes every live session of a deleted team", async () => {
+    const now = new Date("2026-09-30T10:00:00.000Z");
+    await revokeRouteTokensForTeam("team-1", now);
+    const [statement] = statements;
+    expect(statement?.values).toEqual({ revokedAt: now });
+    const { sql, params } = rendered(statement?.where ?? null);
+    expect(sql).toContain('"coderouter_route_tokens"."team_id" = $1');
+    expect(sql).toContain('"coderouter_route_tokens"."revoked_at" is null');
+    expect(params).toEqual(["team-1"]);
   });
 
   test("revokeRouteTokensForVm revokes only that VM's live tokens", async () => {

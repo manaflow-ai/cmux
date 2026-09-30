@@ -127,4 +127,30 @@ describe("verifyRequest negative cache", () => {
       globalThis.fetch = realFetch;
     }
   });
+
+  // Durable mutations (device revocation, control-socket setup) must see a
+  // revoked bearer at once, not after the 60-second positive cache.
+  it("a fresh verification ignores a cached success", async () => {
+    const { verifyRequest } = await import("../src/auth");
+    const realFetch = globalThis.fetch;
+    let revoked = false;
+    const token = "opaque-live-token-" + Math.random().toString(36).slice(2);
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (revoked) return new Response("unauthorized", { status: 401 });
+      const url = String(input);
+      return Response.json(url.includes("/teams") ? { items: [] } : { id: "user-1" });
+    }) as unknown as typeof fetch;
+    try {
+      const make = () =>
+        new Request("https://presence.test/v1/control/devices/revoke", {
+          headers: { authorization: `Bearer ${token}` },
+        });
+      expect((await verifyRequest(make(), env))?.id).toBe("user-1");
+      revoked = true;
+      expect((await verifyRequest(make(), env))?.id).toBe("user-1");
+      expect(await verifyRequest(make(), env, { fresh: true })).toBeNull();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 })
