@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8. */
+/* cmux-tui mux protocol 12, IR 8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8" as const;
+export const SDK_IR_SHA256 = "8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -438,10 +438,16 @@ export const COMMAND_METADATA = {
       "by": {
         "since": 12,
         "capability": "shared-sizing-v1"
+      },
+      "surface": {
+        "since": 12,
+        "capability": "shared-sizing-v1"
       }
     },
     "stream": null,
-    "constraints": []
+    "constraints": [
+      "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
+    ]
   },
   "export-layout": {
     "authority": "control",
@@ -814,6 +820,16 @@ export const COMMAND_METADATA = {
       "PTY surfaces only; row indexes are snapshot-relative and not durable."
     ]
   },
+  "reattach-view": {
+    "authority": "control",
+    "since": 12,
+    "capability": "sizing-view-detach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only a view detached by detach-client can be reattached."
+    ]
+  },
   "register-browser-provider": {
     "authority": "local-admin",
     "since": 10,
@@ -1081,6 +1097,10 @@ export const COMMAND_METADATA = {
     "since": 6,
     "capability": null,
     "fields": {
+      "device_id": {
+        "since": 12,
+        "capability": "shared-sizing-v1"
+      },
       "device_kind": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -4388,6 +4408,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ReattachViewResult": {
+    "additional_properties": false,
+    "fields": {
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "SizeState"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "RenderCursor": {
     "additional_properties": false,
     "fields": {
@@ -6038,6 +6080,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "device_id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "device_kind": {
         "nullable": false,
         "presence": "required",
@@ -6230,6 +6280,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "SizingIdentity": {
     "additional_properties": false,
     "fields": {
+      "device_id": {
+        "constraints": [
+          "Stable per-install device id; tells two devices of one user apart."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "device_kind": {
         "constraints": [
           "mac, iphone, ipad, tui, browser; anything else is unknown."
@@ -9118,6 +9180,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "ref",
             "name": "DetachClientTarget"
           }
+        },
+        "surface": {
+          "capability": "shared-sizing-v1",
+          "constraints": [
+            "Resolves a participant id on this terminal only; participant ids are per terminal."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
         }
       },
       "kind": "object"
@@ -10480,6 +10556,38 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "ReadScrollbackResult"
     }
   },
+  "reattach-view": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "counts": {
+          "constraints": [
+            "false reattaches as a viewer; omitted keeps the counts choice."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ReattachViewResult"
+    }
+  },
   "register-browser-provider": {
     "request": {
       "additional_properties": false,
@@ -11493,6 +11601,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "device_id": {
+          "capability": "shared-sizing-v1",
+          "constraints": [
+            "Stable per-install device id; tells two devices of one user apart."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "device_kind": {
@@ -12984,6 +13106,18 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "DetachReason"
+        }
+      },
+      "scope": {
+        "constraints": [
+          "\"view\" when only the client's own view was detached; the connection stays."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "surface": {

@@ -398,6 +398,9 @@ jobs:
             echo "CMUX_HOSTED_SOURCE_PREP_STARTED=$now"
           } >> "$GITHUB_ENV"
 
+      - name: Clear stale compile telemetry sidecar
+        run: rm -f "$RUNNER_TEMP/glaeda-compile-telemetry.json"
+
       # Start from main's git objects, so checkout fetches only what changed
       # since then instead of the whole tree and its submodules
       # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
@@ -924,6 +927,8 @@ jobs:
         env:
           HOSTED_COMPILE_SECONDS: ${{ steps.hosted-compile.outputs.seconds }}
           HOSTED_COMPILE_OUTCOME: ${{ steps.hosted-compile.outcome }}
+          SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance || steps.prefer-seed.outputs.seed_distance }}
+          SEED_SECONDS: ${{ steps.seed-derived-data.outputs.seconds }}
         run: |
           set -euo pipefail
           args=(
@@ -935,6 +940,13 @@ jobs:
           if [ -n "$HOSTED_COMPILE_SECONDS" ]; then
             args+=(--compile-seconds "$HOSTED_COMPILE_SECONDS")
           fi
+          if [[ "$SEED_DISTANCE" =~ ^[0-9]+$ ]]; then
+            args+=(--seed-distance "$SEED_DISTANCE")
+          fi
+          if [[ "$SEED_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+            args+=(--fetch-seconds "$SEED_SECONDS")
+          fi
+          args+=(--host-telemetry "$RUNNER_TEMP/glaeda-compile-telemetry.json")
           python3 scripts/ci/build_metrics.py "${args[@]}"
 
       - name: Upload Xcode build metrics receipt
@@ -2038,9 +2050,8 @@ jobs:
       # On an owned Mac every GUI job shares the one console session, so the
       # tests need glaeda's gui token. glaeda's hook gives this job none at
       # job start (class gui-step), so the product fetch above leaves the
-      # console to other GUI jobs; the token is taken here, before the restore
-      # step takes the producer's canonical root (the order every GUI job
-      # takes them in), and held until the job ends, through the console
+      # console to other GUI jobs; the token is taken here before the tests
+      # start and held until the job ends, through the console
       # session cleanup. An older hook gave the token at job start, so
       # take-gui returns 0 at once; one without take-gui exits 2 and still
       # gave it at job start. Blacksmith has no helper.
