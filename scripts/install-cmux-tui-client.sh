@@ -136,18 +136,21 @@ fi
 
 # A dead HTTP/2 stream holds a transfer open until the server resets it, which
 # took twenty minutes per attempt on a Release job, and curl's own --retry
-# reuses that connection. Bound each attempt by progress and give each its own
-# curl process, so a retry opens a fresh connection (download-with-retry.sh).
+# reuses that connection. Bound each attempt by progress, not total time, so a
+# slow but moving download of a 40 MB slice still finishes, and give each its
+# own curl process, so a retry opens a fresh connection.
 DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
 DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
-[[ "$DOWNLOAD_ATTEMPTS" =~ ^[1-9][0-9]*$ && "$DOWNLOAD_STALL_SECONDS" =~ ^[1-9][0-9]*$ ]] \
-  || { echo "error: download attempts and stall seconds must be positive integers" >&2; exit 64; }
+for budget in CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS="$DOWNLOAD_ATTEMPTS" \
+  CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS"; do
+  [[ "${budget#*=}" =~ ^[1-9][0-9]*$ ]] \
+    || { echo "error: ${budget%%=*} must be a positive integer, got '${budget#*=}'" >&2; exit 64; }
+done
 download() { # <url> <output>
   local attempt=1
   until curl --proto '=https' --tlsv1.2 -fsSL \
       --connect-timeout 30 \
       --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS" \
-      --max-time 600 \
       "$1" -o "$2"; do
     if (( attempt >= DOWNLOAD_ATTEMPTS )); then
       echo "error: could not download $1 after $attempt attempts" >&2
@@ -191,7 +194,7 @@ fetch_slice() { # <artifact-name> -> path
   if [[ -f "$out" ]] && [[ "$(sha256_of "$out")" == "$want" ]]; then
     printf '%s' "$out"; return
   fi
-  download "$BASE/$name" "$out.tmp"
+  download "$BASE/$name" "$out.tmp" || exit 1
   got="$(sha256_of "$out.tmp")"
   [[ "$got" == "$want" ]] || { echo "error: sha256 mismatch for $name (want $want, got $got)" >&2; rm -f "$out.tmp"; exit 1; }
   mv -f "$out.tmp" "$out"

@@ -327,6 +327,8 @@ def stall(connection):
         pass
 while True:
     connection, _ = listener.accept()
+    with open(f"{root}/connections", "a") as handle:
+        handle.write("accepted\n")
     threading.Thread(target=stall, args=(connection,), daemon=True).start()
 PY
 STALL_SERVER_PID=$!
@@ -358,4 +360,11 @@ if [[ "$stall_status" -eq 0 ]]; then
   echo "FAIL: installed from a stalled download" >&2; exit 1
 fi
 [[ ! -e "$TEST_DIR/Stalled.app/Contents/Resources/bin/cmux-tui" ]]
+# The stall bound is what ended each attempt (curl exit 28, twice), the budget
+# is what ended the install, and each attempt dialed its own connection.
+[[ "$(grep -c '^curl: (28)' "$TEST_DIR/stalled.log")" -eq 2 ]] \
+  || { echo "FAIL: the stall bound did not end both attempts" >&2; cat "$TEST_DIR/stalled.log" >&2; exit 1; }
+grep -q "could not download https://127.0.0.1:$STALL_PORT/manifest.json after 2 attempts" "$TEST_DIR/stalled.log"
+[[ "$(wc -l < "$STALL_DIR/connections" | tr -d ' ')" -eq 2 ]] \
+  || { echo "FAIL: a retry reused the stalled connection" >&2; exit 1; }
 echo "PASS: a stalled download fails after $((SECONDS - started)) s instead of hanging"
