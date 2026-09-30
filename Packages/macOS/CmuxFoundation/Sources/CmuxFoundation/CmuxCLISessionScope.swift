@@ -79,4 +79,14 @@ public enum CmuxCLISessionScope {
         if pieces.count == 3, kind == "window" { return false }
         return Int(pieces[pieces.count - 1]) != nil
     }
+
+    /// Whether a listed object's ref names the ref a user typed. With a
+    /// session scope the server lists only that session's objects, so an
+    /// unqualified `workspace:2` names the listed `build-box:workspace:2`.
+    public static func ref(_ listed: String?, matches wanted: String, scoped: Bool) -> Bool {
+        guard let listed else { return false }
+        if listed.lowercased() == wanted.lowercased() { return true }
+        guard scoped, isHandleRef(wanted), wanted.split(separator: ":").count == 2 else { return false }
+        return listed.lowercased().hasSuffix(":" + wanted.lowercased()) && listed.split(separator: ":").count == 3
+    }
 }

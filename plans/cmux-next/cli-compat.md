@@ -12,6 +12,19 @@ The shipped `cmux` CLI (`CLI/cmux.swift`), agent hooks, and shell integration ta
 - Windows: every window's sidebar lists every workspace, so `workspace.list` returns all workspaces and `selected` means "shown in the target window".
 - Action verbs (`cmux tab reload --target …`, `action.run`) take the same refs: `surface:N` (also `tab:N`, the old CLI's display form), `pane:N`, `workspace:N`, `window:N` and old UUIDs resolve to model ids before the handler runs (`CompatActionTargets`); a surface ref names its pane or workspace for pane and workspace actions.
 
+## Sessions and qualified ids (federation stage 1, 2026-09-30)
+
+The app federates many cmux-tui sessions (data-model.md 1.1). The control socket and the CLI name every object of a remote session (SSH, Cloud) with its session first; the home session (this Mac) keeps the old forms.
+
+- Refs: `build-box:workspace:3`, `build-box:pane:7`, `build-box:surface:12`. Numbers are minted per session and kind, so `workspace:1` (home) and `build-box:workspace:1` are different objects. Windows are personal and never qualified. Workspace indexes are per session, home first, so single-session indexes do not change.
+- Qualifier: the session's machine name as one token (lowercase, `[a-z0-9._-]`), or that name plus the first 8 hex digits of its `registry_id` when two sessions share a name or the name is a ref kind (`ControlSessionNaming`). `cmux list-machines` (`system.sessions`) lists sessions with qualifier, machine, transport, state, workspace count and id.
+- Input: every command that takes a ref also takes a qualified ref, a qualified raw id (`build-box:tab_9f…`), or a UUID (global). A session is named by qualifier, `registry_id`, a unique id prefix of 4 or more characters, the App machine id (`ssh-…`, a Cloud `vm-…` id), a unique machine or session name, or `home`/`local`.
+- `--session <name|id>` (alias `--machine`): before any command, or after commands that target app objects (`CmuxCLISessionScope.objectCommands`; other commands such as `vm`, `hooks` and `remote connect` keep their own `--session`). Sent as the `session` param of `workspace.*`, `surface.*`, `pane.*`, `tab.*`, `terminal.*`, `notification.*`, `browser.*`, `system.tree` and `system.identify`, and as a qualifier on `action.run` targets. It scopes unqualified refs, indexes, lists (`list-workspaces`, `tree`, …) and the default workspace; `new-workspace --session X` creates on X. Without it, lists show every session, home first.
+- Routing: each daemon verb goes to the session that owns the object (`CompatService.daemon(session:)`); handles are per daemon and collide across sessions, so lookups by handle are per session. Moving a tab to a pane of another session, or swapping panes across sessions, fails with a typed error; `tab move-to-workspace` across sessions moves the reference (federation stage 2).
+- JSON: workspace, pane and surface objects and the id pairs of every result carry `session_id` (the session UUID, the home session's too), `session` (the qualifier; null for home) and `machine`.
+- Read-your-writes is per session (`ControlSequenceBarrier`).
+- Not covered: v1 text verbs take no `--session` (qualified refs work); `list-notifications` reads the home ledger only; `send`/`read-screen` on a remote-terminal tab (stage 2) answer "not a terminal" (address the terminal on its own session instead); `remote.machines` still prints its own `<label>:workspace:N` index refs.
+
 ## Status by method, ranked by use
 
 Usage columns: tests_v2 calls/files, skills mentions (via the CLI verb), and whether agent hooks or shell integration send it at runtime. Status: **impl** (fully backed), **daemon** (forwarded to a cmux-tui command), **app** (App intent through the work queue), **unsup** (typed unsupported, reason given).

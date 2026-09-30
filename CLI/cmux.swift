@@ -9415,6 +9415,7 @@ struct CMUXCLI {
             return lhsUUID == rhsUUID
         }
         return lhs.lowercased() == rhs.lowercased()
+            || CmuxCLISessionScope.ref(rhs, matches: lhs, scoped: SocketClient.sessionScope != nil)
     }
 
     func normalizeSurfaceHandle(
@@ -17779,7 +17780,7 @@ struct CMUXCLI {
             if let windowHandle {
                 let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle], responseTimeout: responseTimeout, deadline: deadline)
                 let items = listed["workspaces"] as? [[String: Any]] ?? []
-                for item in items where (item["ref"] as? String) == raw {
+                for item in items where CmuxCLISessionScope.ref(item["ref"] as? String, matches: raw, scoped: SocketClient.sessionScope != nil) {
                     if let id = item["id"] as? String { return id }
                 }
             } else {
@@ -17791,7 +17792,7 @@ struct CMUXCLI {
                 // on both the local and the relay path.
                 if let listed = try? client.sendV2(method: "workspace.list", responseTimeout: responseTimeout, deadline: deadline) {
                     let items = listed["workspaces"] as? [[String: Any]] ?? []
-                    for item in items where (item["ref"] as? String) == raw {
+                    for item in items where CmuxCLISessionScope.ref(item["ref"] as? String, matches: raw, scoped: SocketClient.sessionScope != nil) {
                         if let id = item["id"] as? String { return id }
                     }
                 }
@@ -17821,7 +17822,7 @@ struct CMUXCLI {
                             scannedEveryWindow = false
                             continue
                         }
-                        for item in items where (item["ref"] as? String) == raw {
+                        for item in items where CmuxCLISessionScope.ref(item["ref"] as? String, matches: raw, scoped: SocketClient.sessionScope != nil) {
                             if let id = item["id"] as? String { return id }
                         }
                     }

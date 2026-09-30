@@ -53,3 +53,14 @@ struct CmuxCLISessionScopeTests {
         #expect(!CmuxCLISessionScope.isHandleRef("workspace:x"))
     }
 }
+
+@Suite("cmux CLI scoped ref matching")
+struct CmuxCLIScopedRefMatchTests {
+    @Test("an unqualified ref names the scoped session's listed ref")
+    func scopedMatch() {
+        #expect(CmuxCLISessionScope.ref("build-box:workspace:2", matches: "workspace:2", scoped: true))
+        #expect(!CmuxCLISessionScope.ref("build-box:workspace:2", matches: "workspace:2", scoped: false))
+        #expect(CmuxCLISessionScope.ref("workspace:2", matches: "workspace:2", scoped: false))
+        #expect(!CmuxCLISessionScope.ref("build-box:workspace:12", matches: "workspace:2", scoped: true))
+    }
+}
