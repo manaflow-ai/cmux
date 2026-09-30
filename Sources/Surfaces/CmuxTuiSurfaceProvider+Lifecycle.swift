@@ -13,8 +13,8 @@ extension CmuxTuiSurfaceProvider {
     }
 
     /// Retire synchronously, then join mutations before releasing shared transport access.
-    func stop() async {
-        suspendForFeatureFlag()
+    func stop(stopReason: CloudTuiManualMirrorStopReason = .cloudUnavailable) async {
+        suspendForFeatureFlag(stopReason: stopReason)
         await terminalMutationQueue.waitForIdle()
         await portAccessStore.remove(machineID: machineID)
     }

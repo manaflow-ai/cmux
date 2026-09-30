@@ -16810,19 +16810,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-sm",
-      "imageId": "sh-8046431e87fb4fd59a41ea13e826c353",
+      "version": "freestyle-cmux-devbox-tui02dac3c-sm",
+      "imageId": "sh-d3e7c23682794fe8a1d0a38590422ec6",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T08:19:48.694Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -16832,9 +16832,440 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "sm",
+        "cpu": 2,
+        "memoryMb": 4096,
+        "storageMb": 16384,
+        "freestyleBase": "freestyle/ubuntu-sm"
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-md",
+      "imageId": "sh-a8cd0d106c11468986afb6dbf8a8eea5",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "desktop",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "md",
+        "cpu": 4,
+        "memoryMb": 8192,
+        "storageMb": 32768,
+        "freestyleBase": "freestyle/ubuntu"
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-lg",
+      "imageId": "sh-0adbcf552b5e4bd88dd3109a811a7454",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "desktop",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "lg",
+        "cpu": 8,
+        "memoryMb": 16384,
+        "storageMb": 65536,
+        "freestyleBase": "freestyle/ubuntu-lg"
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-lgx",
+      "imageId": "sh-1f4f9afd5d374cbbb83005257c62e354",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "desktop",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "lgx",
+        "cpu": 12,
+        "memoryMb": 24576,
+        "storageMb": 98304
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-xl",
+      "imageId": "sh-8cdff6adfbe14006972b2b4fff454a9a",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "desktop",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "xl",
+        "cpu": 16,
+        "memoryMb": 32768,
+        "storageMb": 131072,
+        "freestyleBase": "freestyle/ubuntu-xl"
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-2xl",
+      "imageId": "sh-1125f0d66d5548f8b492ad88cd29a936",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "desktop",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "2xl",
+        "cpu": 32,
+        "memoryMb": 65536,
+        "storageMb": 131072,
+        "freestyleBase": "freestyle/ubuntu-2xl"
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-sm-base",
+      "imageId": "sh-d3e7c23682794fe8a1d0a38590422ec6",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "sm",
+        "cpu": 2,
+        "memoryMb": 4096,
+        "storageMb": 16384,
+        "freestyleBase": "freestyle/ubuntu-sm"
+      },
+      "defaultForLocalDev": false
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-md-base",
+      "imageId": "sh-a8cd0d106c11468986afb6dbf8a8eea5",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "md",
+        "cpu": 4,
+        "memoryMb": 8192,
+        "storageMb": 32768,
+        "freestyleBase": "freestyle/ubuntu"
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-lg-base",
+      "imageId": "sh-0adbcf552b5e4bd88dd3109a811a7454",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "lg",
+        "cpu": 8,
+        "memoryMb": 16384,
+        "storageMb": 65536,
+        "freestyleBase": "freestyle/ubuntu-lg"
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-lgx-base",
+      "imageId": "sh-1f4f9afd5d374cbbb83005257c62e354",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "lgx",
+        "cpu": 12,
+        "memoryMb": 24576,
+        "storageMb": 98304
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-xl-base",
+      "imageId": "sh-8cdff6adfbe14006972b2b4fff454a9a",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "xl",
+        "cpu": 16,
+        "memoryMb": 32768,
+        "storageMb": 131072,
+        "freestyleBase": "freestyle/ubuntu-xl"
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-tui02dac3c-2xl-base",
+      "imageId": "sh-1125f0d66d5548f8b492ad88cd29a936",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "204b936a2c491670112f3bf5b22f01a66b66b01d",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T08:19:48.694Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 02dac3c179, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-d3e7c23682794fe8a1d0a38590422ec6, md=sh-a8cd0d106c11468986afb6dbf8a8eea5, lg=sh-0adbcf552b5e4bd88dd3109a811a7454, lgx=sh-1f4f9afd5d374cbbb83005257c62e354, xl=sh-8cdff6adfbe14006972b2b4fff454a9a, 2xl=sh-1125f0d66d5548f8b492ad88cd29a936.",
+      "cmuxTuiCommit": "02dac3c179131a35b857035f67a3bb55134db905",
+      "cmuxTuiSha256": "519ef24960b511d8f42ef834b77ccd75a7ae8408b6970e78dfc6acca360afd14",
+      "defaultForKind": false,
+      "size": {
+        "name": "2xl",
+        "cpu": 32,
+        "memoryMb": 65536,
+        "storageMb": 131072,
+        "freestyleBase": "freestyle/ubuntu-2xl"
+      }
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-20260930-153210-sm",
+      "imageId": "sh-5e76d48ea4d64294b68aa0220c941a3e",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "kind": "desktop",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
+      "epoch": "2026-09-10-r2",
+      "devboxSource": {
+        "layers": "desktop",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
+        "schema": 2
+      },
+      "builtAt": "2026-09-30T15:37:23.816Z",
+      "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.267",
+        "@openai/codex": "0.154.0",
+        "opencode-ai": "1.18.30",
+        "@earendil-works/pi-coding-agent": "0.85.1",
+        "agent-browser": "0.37.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "sm",
@@ -16846,19 +17277,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-md",
-      "imageId": "sh-2ec8f42434c1445282e9022d33b0ba90",
+      "version": "freestyle-cmux-devbox-20260930-153210-md",
+      "imageId": "sh-2b1f5e9e9c094ddca30121e690fe0af5",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -16868,9 +17299,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "md",
@@ -16882,19 +17313,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-lg",
-      "imageId": "sh-725a05b44f664415901a9baa82015b76",
+      "version": "freestyle-cmux-devbox-20260930-153210-lg",
+      "imageId": "sh-8dc438fafab949d7a48a022caa1728e2",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -16904,9 +17335,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "lg",
@@ -16918,19 +17349,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-lgx",
-      "imageId": "sh-8580eb26003e41bba1b3e6cc9e3e80d5",
+      "version": "freestyle-cmux-devbox-20260930-153210-lgx",
+      "imageId": "sh-ba216aca499642ca95a5512f4482ca99",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -16940,9 +17371,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "lgx",
@@ -16953,19 +17384,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-xl",
-      "imageId": "sh-91c432732c3345248282c9865a57129b",
+      "version": "freestyle-cmux-devbox-20260930-153210-xl",
+      "imageId": "sh-0712065cf0994c9eb92225d35cbd8265",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -16975,9 +17406,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "xl",
@@ -16989,19 +17420,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-2xl",
-      "imageId": "sh-0a4a8027dba644dba55382658264c15f",
+      "version": "freestyle-cmux-devbox-20260930-153210-2xl",
+      "imageId": "sh-62413f4069bb4033a865a0a21c6e002f",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -17011,9 +17442,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "2xl",
@@ -17025,19 +17456,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-sm-base",
-      "imageId": "sh-8046431e87fb4fd59a41ea13e826c353",
+      "version": "freestyle-cmux-devbox-20260930-153210-sm-base",
+      "imageId": "sh-5e76d48ea4d64294b68aa0220c941a3e",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -17047,9 +17478,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "sm",
@@ -17062,19 +17493,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-md-base",
-      "imageId": "sh-2ec8f42434c1445282e9022d33b0ba90",
+      "version": "freestyle-cmux-devbox-20260930-153210-md-base",
+      "imageId": "sh-2b1f5e9e9c094ddca30121e690fe0af5",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -17084,9 +17515,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "md",
@@ -17098,19 +17529,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-lg-base",
-      "imageId": "sh-725a05b44f664415901a9baa82015b76",
+      "version": "freestyle-cmux-devbox-20260930-153210-lg-base",
+      "imageId": "sh-8dc438fafab949d7a48a022caa1728e2",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -17120,9 +17551,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "lg",
@@ -17134,19 +17565,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-lgx-base",
-      "imageId": "sh-8580eb26003e41bba1b3e6cc9e3e80d5",
+      "version": "freestyle-cmux-devbox-20260930-153210-lgx-base",
+      "imageId": "sh-ba216aca499642ca95a5512f4482ca99",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -17156,9 +17587,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "lgx",
@@ -17169,19 +17600,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-xl-base",
-      "imageId": "sh-91c432732c3345248282c9865a57129b",
+      "version": "freestyle-cmux-devbox-20260930-153210-xl-base",
+      "imageId": "sh-0712065cf0994c9eb92225d35cbd8265",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -17191,9 +17622,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "xl",
@@ -17205,19 +17636,19 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-cmux-devbox-wallpapers-20260929-2xl-base",
-      "imageId": "sh-0a4a8027dba644dba55382658264c15f",
+      "version": "freestyle-cmux-devbox-20260930-153210-2xl-base",
+      "imageId": "sh-62413f4069bb4033a865a0a21c6e002f",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "repoCommit": "ab6d4a5a1f520904445d78fa9a02942c904157e0",
+      "repoCommit": "7ef6d3ae4d48964fb11981fa609c49c2c18dc09e",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
         "layers": "desktop",
-        "digest": "61a06f884539c6a38ba887269f405cbbaf37da0637825086bfe1798ec3f64f6a",
+        "digest": "856925da00e884e270b314fed0326d3dc16331c783ccfbdc7d3dbb487b007994",
         "schema": 2
       },
-      "builtAt": "2026-09-30T05:41:29.754Z",
+      "builtAt": "2026-09-30T15:37:23.816Z",
       "builderScriptVersion": "b57bc01fb5bced06ef4dfa3c73f25e3e1248f063c6ce7e30ea05e3701a6f15af",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.267",
@@ -17227,9 +17658,9 @@
         "agent-browser": "0.37.1"
       },
       "validationStatus": "passed",
-      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ad7906a261, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-8046431e87fb4fd59a41ea13e826c353, md=sh-2ec8f42434c1445282e9022d33b0ba90, lg=sh-725a05b44f664415901a9baa82015b76, xl=sh-91c432732c3345248282c9865a57129b, lgx=sh-8580eb26003e41bba1b3e6cc9e3e80d5, 2xl=sh-0a4a8027dba644dba55382658264c15f.",
-      "cmuxTuiCommit": "ad7906a2611fa3967843049f34d0df9d1cc9c51a",
-      "cmuxTuiSha256": "5bd2ebf8337c0468a6fafe0eac6dd151f3606c368f3cdf479454bbe8511fa13a",
+      "notes": "cmux devbox epoch 2026-09-10-r2 Devbox on the Freestyle public platform (api.freestyle.sh) from freestyle/ubuntu-sm: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as cmux; cmux (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname cmux (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon 7d17754794, identity bound to the instance id, no create-time bootstrap. Validated 2026-09-30 with verify-devbox-image.ts by promote-devbox-image.ts (toolchain, agent pins, daemon contract, desktop on 5901/6901). Sizes derived and re-booted by derive-devbox-sizes.ts: sm=sh-5e76d48ea4d64294b68aa0220c941a3e, md=sh-2b1f5e9e9c094ddca30121e690fe0af5, lg=sh-8dc438fafab949d7a48a022caa1728e2, lgx=sh-ba216aca499642ca95a5512f4482ca99, xl=sh-0712065cf0994c9eb92225d35cbd8265, 2xl=sh-62413f4069bb4033a865a0a21c6e002f.",
+      "cmuxTuiCommit": "7d177547949b4199e23831d78518eba5ce9a5379",
+      "cmuxTuiSha256": "54f2222086854d399b48e8062f3e72d324e8c20dc6b83e1752b4559bf06dad48",
       "defaultForKind": true,
       "size": {
         "name": "2xl",

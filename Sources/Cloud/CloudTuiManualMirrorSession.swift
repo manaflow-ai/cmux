@@ -52,6 +52,7 @@ final class CloudTuiManualMirrorSession {
     private(set) var socketPath: String?
     private var nextRequestID: UInt64 = 1
     var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
+    var pendingReplay: Data?
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
     /// lease-fenced sizing or initial attach dimensions.
@@ -216,10 +217,7 @@ final class CloudTuiManualMirrorSession {
         bindSharing(surfaceID: surface.id)
         surface.hostedView.cloudTerminalOverlay.session = self
         manualMirrorLogger.info("bind terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
-        // A color sidecar that arrived before any surface existed reaches this
-        // one now. The stored sidecar is the remote truth, and the next
-        // identical sidecar would produce an empty delta and leave the pane on
-        // the local theme.
+        // A color sidecar that arrived before any surface existed reaches this one now.
         let pendingColors = appliedRemoteColors.oscBytes
         if !pendingColors.isEmpty {
             surface.processRemoteOutput(pendingColors)
@@ -245,6 +243,7 @@ final class CloudTuiManualMirrorSession {
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
         }
+        flushPendingReplay()
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
@@ -336,7 +335,7 @@ final class CloudTuiManualMirrorSession {
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
-        lastRemoteGrid = nil
+        lastRemoteGrid = nil; pendingReplay = nil
         diagnosticReplayReceived = false
     }
     /// Samples the grid after Ghostty has created its runtime surface. Runtime
@@ -486,11 +485,18 @@ final class CloudTuiManualMirrorSession {
         guard (!geometryClaimed && !claimUnsupported) || geometryClaimBlockedByPeer else { return }
         claimGeometry()
     }
+    /// Why this attachment stopped; nil until ``stop(reason:)`` runs.
+    private(set) var stopReason: CloudTuiManualMirrorStopReason?
     /// Permanently tears down this view's attachment without closing the remote
     /// terminal. Closing the control socket is the cleanup fence for old
     /// servers; newer servers additionally retire the lease with the same close.
-    func stop() {
+    ///
+    /// - Parameter reason: Why the attachment ends. Unless the pane is closing,
+    ///   the pane keeps a card for `reason`, so a stop never leaves a silent
+    ///   frozen frame that drops input.
+    func stop(reason: CloudTuiManualMirrorStopReason = .paneClosed) {
         guard phase != .stopped else { return }
+        stopReason = reason
         unbindSharing()
         let wasAttached = phase == .attached
         transition(to: .stopped)
@@ -523,7 +529,8 @@ final class CloudTuiManualMirrorSession {
         connection = nil
         pendingRequests.removeAll(keepingCapacity: false)
         if let surface, surface.hostedView.cloudTerminalOverlay.session === self {
-            surface.hostedView.cloudTerminalOverlay.unbindSession(self)
+            surface.hostedView.cloudTerminalOverlay.endSession(self, presentation: reason.endedPresentation)
+            surface.hostedView.synchronizeCloudTerminalReconnectOverlay()
             surface.onManualSizeApplied = nil
             surface.onNaturalGridInputsChanged = nil
             surface.onRuntimeReady = nil
@@ -629,6 +636,7 @@ final class CloudTuiManualMirrorSession {
         case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             surface?.processRemoteOutput(bytes)
+            if surface == nil { pendingReplay = (pendingReplay ?? Data()) + bytes }
             applyColors(colors)
         case let .resized(surfaceID, columns, rows, bytes, colors, pending):
             guard surfaceID == remoteSurfaceID else { return }
@@ -698,8 +706,8 @@ final class CloudTuiManualMirrorSession {
         // otherwise land inside it.
         replay.append(pending)
         appliedRemoteColors = replayColors
+        guard let surface else { pendingReplay = replay; return }
         let token = replayFidelity.replayQueued(remote: remote, local: settledGrid())
-        guard let surface else { return }
         surface.processRemoteReplay(replay) { [weak self, weak surface] in
             surface?.forceRefresh(reason: "cloud.replay.applied")
             self?.replayApplied(token: token)
@@ -707,7 +715,6 @@ final class CloudTuiManualMirrorSession {
             self?.replayDiscarded(token: token)
         }
     }
-
     /// The replay is theme-portable: it carries no palette or default-color
     /// OSC state, so the local Ghostty theme stands for every color the
     /// remote PTY did not author. The sidecar restores the authored ones and
@@ -720,11 +727,12 @@ final class CloudTuiManualMirrorSession {
         appliedRemoteColors = colors
         guard !delta.isEmpty else { return }
         surface?.processRemoteOutput(delta)
+        if surface == nil { pendingReplay = (pendingReplay ?? Data()) + delta }
     }
 
     private func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
+        guard phase != .stopped, phase != .disconnected else { return }
         tearDownConnection()
-        guard phase != .stopped else { return }
         let diagnosticError: CloudDiagnosticFailure
         switch reason {
         case .handshakeTimedOut, .livenessTimedOut: diagnosticError = .timeout
@@ -738,8 +746,8 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
+        guard phase != .stopped, phase != .disconnected else { return }
         tearDownConnection()
-        guard phase != .stopped else { return }
         finishDiagnostics(error: error ?? CancellationError())
         transition(to: .disconnected, reason: .transportClosed)
         onNeedsReconnect()
