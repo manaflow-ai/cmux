@@ -53,6 +53,47 @@ final class AgentFanOutOperationTests: XCTestCase {
         XCTAssertEqual(operation.foundationObject["operation_id"] as? String, "f_test")
     }
 
+    func testOperationStoreMergesStaleUpdatesWithoutLosingTerminalReceipt() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-fan-out-merge-\(UUID().uuidString)", isDirectory: true)
+        let file = directory.appendingPathComponent("operations.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = AgentFanOutOperationStore(fileURL: file)
+        try await store.insertIfAbsent(operation())
+        var exited = operation()
+        exited.children[0].state = .exited
+        exited.children[0].exitCode = 0
+        exited.recomputeState(now: Date(timeIntervalSince1970: 2))
+        try await store.update(exited)
+
+        var stale = operation()
+        stale.children[0].terminalID = nil
+        stale.children[0].state = .running
+        try await store.update(stale)
+        let current = try await store.operation(id: "f_test")
+        XCTAssertEqual(current?.children.first?.state, .exited)
+        XCTAssertEqual(current?.children.first?.terminalID, "term_1")
+        XCTAssertEqual(current?.children.first?.exitCode, 0)
+    }
+
+    func testOperationStoreRejectsCorruptLedgerInsteadOfTreatingItAsEmpty() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-fan-out-corrupt-\(UUID().uuidString)", isDirectory: true)
+        let file = directory.appendingPathComponent("operations.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("not-json".utf8).write(to: file)
+
+        let store = AgentFanOutOperationStore(fileURL: file)
+        do {
+            _ = try await store.operation(id: "f_test")
+            XCTFail("corrupt operation ledger must fail closed")
+        } catch {
+            // Expected: callers must not retry work against an unreadable ledger.
+        }
+    }
+
     func testOperationStorePersistsAcrossFreshInstancesAndReservesID() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-fan-out-tests-\(UUID().uuidString)", isDirectory: true)
@@ -60,15 +101,15 @@ final class AgentFanOutOperationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let first = AgentFanOutOperationStore(fileURL: file)
-        let inserted = await first.insertIfAbsent(operation())
+        let inserted = try await first.insertIfAbsent(operation())
         XCTAssertTrue(inserted)
-        let duplicate = await first.insertIfAbsent(operation())
+        let duplicate = try await first.insertIfAbsent(operation())
         XCTAssertFalse(duplicate)
 
         // A new actor models an app restart: it must load the same stable
         // account/team scoped record from disk.
         let afterRestart = AgentFanOutOperationStore(fileURL: file)
-        let restoredValue = await afterRestart.operation(id: "f_test")
+        let restoredValue = try await afterRestart.operation(id: "f_test")
         let restored = try XCTUnwrap(restoredValue)
         XCTAssertEqual(restored.scope, "account:team")
         XCTAssertEqual(restored.remoteWorkspaceID, "ws")

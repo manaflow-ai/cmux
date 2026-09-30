@@ -7,14 +7,14 @@ import Foundation
 /// provider remains the only owner of terminal creation; this layer only
 /// records the operation and coordinates the returned identities.
 extension TerminalController {
-    private nonisolated static func currentFanOutScope() async -> String {
+    private nonisolated static func currentFanOutScope() async -> String? {
         await MainActor.run {
             AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope.map {
                 // Account and team identify the authorization boundary. The
                 // auth generation is intentionally excluded: refreshing a
                 // token or restarting cmux must not hide this user's records.
                 "\($0.session.accountID):\($0.teamID)"
-            } ?? "anonymous"
+            }
         }
     }
 
@@ -24,14 +24,29 @@ extension TerminalController {
         return result.isEmpty ? nil : result
     }
 
-    private nonisolated static func fanOutStringArray(_ value: Any?) -> [String] {
-        (value as? [Any])?.compactMap { $0 as? String } ?? (value as? [String]) ?? []
+    private nonisolated static func fanOutStringArray(_ value: Any?) -> [String]? {
+        guard let values = value as? [Any] else { return value as? [String] }
+        guard values.allSatisfy({ $0 is String }) else { return nil }
+        return values.compactMap { $0 as? String }
     }
 
     private nonisolated static func fanOutInt(_ value: Any?) -> Int? {
         if let number = value as? Int { return number }
-        if let number = value as? NSNumber { return number.intValue }
+        if value is Bool { return nil }
+        if let number = value as? NSNumber {
+            let type = String(cString: number.objCType)
+            guard ["c", "i", "s", "l", "q", "C", "I", "S", "L", "Q"].contains(type) else { return nil }
+            return Int(exactly: number)
+        }
         return (value as? String).flatMap(Int.init)
+    }
+
+    private nonisolated static func fanOutRequestDigest(argv: [String], params: [String: Any]) -> String {
+        let keys = ["cwd", "remote_workspace_id", "open", "focus", "name_prefix", "workspace_id", "pane_id", "surface_id", "direction", "tab_index", "placement"]
+        let identity = keys.reduce(into: [String: String]()) { result, key in
+            if let value = params[key] { result[key] = String(describing: value) }
+        }
+        return AgentFanOutOperation.digest(argv: argv, identity: identity)
     }
 
     /// `vm.agent_fan_out` creates the workspace first, then records the
@@ -43,16 +58,18 @@ extension TerminalController {
               let count = Self.fanOutInt(params["count"]) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.agent_fan_out requires machine, agent, non-empty argv, and count 1…\(AgentFanOutOperation.maximumCount).")
         }
-        let argv = Self.fanOutStringArray(params["argv"])
+        guard let argv = Self.fanOutStringArray(params["argv"]) else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.agent_fan_out: argv must be an array of strings")
+        }
         if let validationError = AgentFanOutOperation.validate(machineID: machineID, agent: agent, argv: argv, count: count) {
             return v2Error(id: id, code: "invalid_params", message: "vm.agent_fan_out: \(validationError)")
         }
-        let digest = AgentFanOutOperation.digest(argv: argv)
+        let digest = Self.fanOutRequestDigest(argv: argv, params: params)
         let requestedOperationID = Self.fanOutString(params["operation_id"])
         if let requestedOperationID {
             return v2VmCall(id: id, timeoutSeconds: 240) {
-                let scope = await Self.currentFanOutScope()
-                if let existing = await AgentFanOutOperationStore.shared.operation(id: requestedOperationID) {
+                guard let scope = await Self.currentFanOutScope() else { throw FanOutSocketError.unauthenticated }
+                if let existing = try await AgentFanOutOperationStore.shared.operation(id: requestedOperationID) {
                     guard existing.scope == scope, existing.machineID == machineID,
                           existing.agent == agent, existing.argvDigest == digest,
                           existing.requestedCount == count else {
@@ -67,7 +84,7 @@ extension TerminalController {
             }
         }
         return v2VmCall(id: id, timeoutSeconds: 240) {
-            let scope = await Self.currentFanOutScope()
+            guard let scope = await Self.currentFanOutScope() else { throw FanOutSocketError.unauthenticated }
             try await Self.createFanOutOperation(
                 operationID: nil, machineID: machineID, scope: scope,
                 agent: agent, argv: argv, count: count, params: params, digest: digest
@@ -104,8 +121,8 @@ extension TerminalController {
             requestedCount: count, createdAt: now, updatedAt: now, state: .creating,
             children: (0..<count).map { AgentFanOutChild(index: $0, terminalID: nil, state: .starting, exitCode: nil, errorCode: nil, startedAt: nil, endedAt: nil) }
         )
-        guard await AgentFanOutOperationStore.shared.insertIfAbsent(operation) else {
-            if let existing = await AgentFanOutOperationStore.shared.operation(id: generatedID) {
+        guard try await AgentFanOutOperationStore.shared.insertIfAbsent(operation) else {
+            if let existing = try await AgentFanOutOperationStore.shared.operation(id: generatedID) {
                 guard existing.scope == scope, existing.machineID == machineID,
                       existing.agent == agent, existing.argvDigest == digest,
                       existing.requestedCount == count else {
@@ -130,12 +147,12 @@ extension TerminalController {
                 operation.children[index].errorCode = "workspace_create_failed"
                 operation.children[index].endedAt = operation.updatedAt
             }
-            await AgentFanOutOperationStore.shared.update(operation)
+            try await AgentFanOutOperationStore.shared.update(operation)
             throw error
         }
         operation.remoteWorkspaceID = remoteWorkspace.id
         operation.updatedAt = Date()
-        await AgentFanOutOperationStore.shared.update(operation)
+        try await AgentFanOutOperationStore.shared.update(operation)
         for index in operation.children.indices {
             do {
                 let childName = "\(namePrefix) [\(index + 1)/\(count)]"
@@ -153,10 +170,10 @@ extension TerminalController {
                 operation.children[index].endedAt = Date()
             }
             operation.recomputeState()
-            await AgentFanOutOperationStore.shared.update(operation)
+            try await AgentFanOutOperationStore.shared.update(operation)
         }
         operation.recomputeState()
-        await AgentFanOutOperationStore.shared.update(operation)
+        try await AgentFanOutOperationStore.shared.update(operation)
         return operation.foundationObject
     }
 
@@ -168,15 +185,18 @@ extension TerminalController {
         return v2VmCall(id: id, timeoutSeconds: TimeInterval(timeoutMs) / 1000 + 30) {
             let deadline = ContinuousClock.now.advanced(by: .milliseconds(timeoutMs))
             while true {
-                guard var operation = await AgentFanOutOperationStore.shared.operation(id: operationID) else {
+                guard var operation = try await AgentFanOutOperationStore.shared.operation(id: operationID) else {
                     throw FanOutSocketError.operationNotFound
                 }
-                let scope = await Self.currentFanOutScope()
+                guard let scope = await Self.currentFanOutScope() else { throw FanOutSocketError.unauthenticated }
                 guard operation.scope == scope else {
                     throw FanOutSocketError.operationNotFound
                 }
                 operation = try await Self.refreshFanOutChildren(operation)
-                await AgentFanOutOperationStore.shared.update(operation)
+                guard let merged = try await AgentFanOutOperationStore.shared.mergeTerminalExits(operation) else {
+                    throw FanOutSocketError.operationNotFound
+                }
+                operation = merged
                 if !wait || operation.settledCount == operation.requestedCount || ContinuousClock.now >= deadline {
                     return operation.foundationObject
                 }
@@ -204,13 +224,14 @@ extension TerminalController {
 }
 
 private enum FanOutSocketError: LocalizedError {
-    case conflictingOperation, machineUnavailable, destinationRequired, operationNotFound
+    case conflictingOperation, machineUnavailable, destinationRequired, operationNotFound, unauthenticated
     var errorDescription: String {
         switch self {
         case .conflictingOperation: return "operation_id already names a different fan-out request"
         case .machineUnavailable: return "Cloud machine is unavailable"
         case .destinationRequired: return "open fan-out requires an explicit workspace_id"
         case .operationNotFound: return "fan-out operation was not found"
+        case .unauthenticated: return "Cloud authentication is required for fan-out operations"
         }
     }
 }

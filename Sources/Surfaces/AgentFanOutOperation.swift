@@ -82,10 +82,13 @@ struct AgentFanOutOperation: Codable, Equatable {
         ]
     }
 
-    static func digest(argv: [String]) -> String {
-        // CryptoKit is available in the macOS target.  Keep the operation model
-        // independent of Foundation's locale/encoding details.
-        let bytes = argv.joined(separator: "\u{0}").data(using: .utf8) ?? Data()
+    static func digest(argv: [String], identity: [String: String] = [:]) -> String {
+        // CryptoKit is available in the macOS target. Keep the operation model
+        // independent of Foundation's locale/encoding details. Sorting keeps
+        // dictionary iteration order from changing idempotency keys.
+        let identityBytes = identity.keys.sorted().map { "\($0)=\(identity[$0] ?? "")" }
+        let bytes = (argv + ["--cmux-request-identity--"] + identityBytes)
+            .joined(separator: "\u{0}").data(using: .utf8) ?? Data()
         #if canImport(CryptoKit)
         return SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
         #else
@@ -130,6 +133,7 @@ actor AgentFanOutOperationStore {
 
     private var operations: [String: AgentFanOutOperation] = [:]
     private var loaded = false
+    private var loadFailure: Error?
     private let configuredFileURL: URL?
 
     init(fileURL: URL? = nil) {
@@ -145,40 +149,94 @@ actor AgentFanOutOperationStore {
             .appendingPathComponent("agent-fan-out-operations.json", isDirectory: false)
     }
 
-    private func loadIfNeeded() {
-        guard !loaded else { return }
+    private func loadIfNeeded() throws {
+        guard !loaded else {
+            if let loadFailure { throw loadFailure }
+            return
+        }
         loaded = true
-        guard let data = try? Data(contentsOf: fileURL),
-              let saved = try? JSONDecoder.cmuxAgentFanOut.decode([String: AgentFanOutOperation].self, from: data) else { return }
-        operations = saved
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            operations = try JSONDecoder.cmuxAgentFanOut.decode([String: AgentFanOutOperation].self, from: data)
+        } catch {
+            // A corrupt ledger must be visible to the caller. Treating it as an
+            // empty store would allow a retry to create duplicate work.
+            loadFailure = error
+            throw error
+        }
     }
 
-    private func persist() {
+    private func persist() throws {
         let url = fileURL
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder.cmuxAgentFanOut.encode(operations) else { return }
-        try? data.write(to: url, options: .atomic)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let data = try JSONEncoder.cmuxAgentFanOut.encode(operations)
+        try data.write(to: url, options: .atomic)
     }
 
-    func operation(id: String) -> AgentFanOutOperation? {
-        loadIfNeeded()
+    func operation(id: String) throws -> AgentFanOutOperation? {
+        try loadIfNeeded()
         return operations[id]
     }
 
     /// Returns false when the id was already present.  Callers must compare the
     /// immutable request fields before reusing an existing operation.
-    func insertIfAbsent(_ operation: AgentFanOutOperation) -> Bool {
-        loadIfNeeded()
+    func insertIfAbsent(_ operation: AgentFanOutOperation) throws -> Bool {
+        try loadIfNeeded()
         guard operations[operation.id] == nil else { return false }
         operations[operation.id] = operation
-        persist()
+        do {
+            try persist()
+        } catch {
+            operations.removeValue(forKey: operation.id)
+            throw error
+        }
         return true
     }
 
-    func update(_ operation: AgentFanOutOperation) {
-        loadIfNeeded()
-        operations[operation.id] = operation
-        persist()
+    /// Merge an observation into the durable record. A creator may be holding
+    /// a stale snapshot while a status waiter records an exited child; terminal
+    /// child identities always win over a stale starting/running observation.
+    func update(_ incoming: AgentFanOutOperation) throws {
+        try loadIfNeeded()
+        let previous = operations[incoming.id]
+        var merged = incoming
+        if let previous {
+            merged.remoteWorkspaceID = incoming.remoteWorkspaceID.isEmpty ? previous.remoteWorkspaceID : incoming.remoteWorkspaceID
+            merged.children = incoming.children.map { candidate in
+                guard let current = previous.children.first(where: { $0.index == candidate.index }) else { return candidate }
+                if current.state == .exited {
+                    return current
+                }
+                if current.state == .failed,
+                   candidate.state == .starting || candidate.state == .running {
+                    return current
+                }
+                if current.terminalID != nil && candidate.terminalID == nil {
+                    return current
+                }
+                return candidate
+            }
+            merged.recomputeState(now: max(incoming.updatedAt, previous.updatedAt))
+        }
+        operations[incoming.id] = merged
+        do {
+            try persist()
+        } catch {
+            if let previous { operations[incoming.id] = previous } else { operations.removeValue(forKey: incoming.id) }
+            throw error
+        }
+    }
+
+    /// Apply terminal observations without replacing fields written by a
+    /// concurrent creator. Refreshers may hold a stale snapshot while they
+    /// await the provider, so only a still-running child with the same
+    /// terminal identity can transition to exited here.
+    func mergeTerminalExits(_ refreshed: AgentFanOutOperation) throws -> AgentFanOutOperation? {
+        try loadIfNeeded()
+        guard operations[refreshed.id] != nil else { return nil }
+        try update(refreshed)
+        return operations[refreshed.id]
     }
 }
 
