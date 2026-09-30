@@ -3744,13 +3744,23 @@ fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() 
         "closed {COUNT} terminals: replies {closed_in:?}, tree {tree_in:?}, hosts {hosts_in:?}"
     );
     // Each reply waits only for its durable commit (one fsync plus a full
-    // resource projection), never for a host exit.
-    assert!(closed_in < test_timeout(Duration::from_secs(15)), "closes took {closed_in:?}");
-    // Hosts were signaled as each close committed and end in parallel.
-    let hosts_after_last_reply = hosts_in.saturating_sub(closed_in);
+    // resource projection, 10-35 ms on hosted Linux), never for the host's
+    // termination receipt or exit. 100 replies take about 1.7 s there; a
+    // reply that waited for a receipt stalled up to 2 s each (8.5-10 s in
+    // runs 36711759589 and 36736552304).
+    assert!(closed_in < test_timeout(Duration::from_secs(5)), "closes took {closed_in:?}");
+    // Hosts were signaled as each close committed and end in parallel, so
+    // all of them end within the cost of ending 100 hosts at once: about 400
+    // fsyncs (see close_tabs_ends_one_hundred_terminals_in_one_commit), about
+    // 1 s on a Mac and several seconds on a CI Linux VM. Ending them one
+    // after another costs a multiple of that. The old bound (3 s after the
+    // last reply) held only while the replies themselves were slow enough to
+    // hide the teardown.
+    let host_bound = if cfg!(target_os = "macos") { 3 } else { 10 };
     assert!(
-        hosts_after_last_reply < test_timeout(Duration::from_secs(3)),
-        "host exits trailed the last close by {hosts_after_last_reply:?}"
+        hosts_in < closed_in + test_timeout(Duration::from_secs(host_bound)),
+        "host exits trailed the last close by {:?}",
+        hosts_in.saturating_sub(closed_in)
     );
 }
 
