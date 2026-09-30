@@ -712,11 +712,29 @@ impl Hub {
         }
     }
 
-    /// Stop every agent at once (each gets SIGTERM, then SIGKILL after
-    /// 300 ms), then save every session and make the log durable.
+    /// Stop every agent at once and save. Each agent's process group gets
+    /// SIGTERM, then SIGKILL after `SHUTDOWN_GRACE`; every wait here has a
+    /// deadline, so this returns within about `SHUTDOWN_GRACE` + 1 s.
     pub async fn shutdown_all(&self) {
+        const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         let sessions = self.sessions();
-        futures::future::join_all(sessions.iter().map(|s| self.detach_child(s))).await;
+        let mut children = Vec::new();
+        for s in &sessions {
+            self.cancel_pending_permissions(s);
+            if let Ok(mut slot) = tokio::time::timeout(LOCK, s.child.lock()).await
+                && let Some(child) = slot.take()
+            {
+                children.push(child);
+            }
+            *s.turn.lock().unwrap() = None;
+            if s.status() != SessionStatus::Closed {
+                self.set_status(s, SessionStatus::Idle);
+            }
+        }
+        let stop = futures::future::join_all(children.iter().map(|c| c.terminate(SHUTDOWN_GRACE)));
+        if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, stop).await.is_err() {
+            tracing::warn!("agents did not stop within {SHUTDOWN_GRACE:?}");
+        }
         self.flush();
     }
 
@@ -730,6 +748,9 @@ impl Hub {
         }
     }
 }
+
+/// How long agents get between SIGTERM and SIGKILL when the daemon stops.
+pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
 /// agent sent.

@@ -62,7 +62,7 @@
   },
   "daemon": {
     "readiness": "acpmux daemon run binds the socket and --listen address before importing the login shell environment or checking launchers. --ready-fd N writes one line {ready: true, pid, socket, listen, webUrl} to descriptor N and closes it; the log also gets \"acpmux ready {...}\". _acpmux/status answers at once and reports ready and loginEnv.",
-    "shutdown": "SIGTERM, SIGINT and _acpmux/shutdown remove the socket, stop every agent at once (SIGTERM to its process group, SIGKILL after 300 ms), save sessions, sync the store and exit, within 5 s."
+    "shutdown": "The daemon clears any signal mask it inherits, so a launcher that blocks SIGTERM cannot keep it alive. SIGTERM, SIGINT and _acpmux/shutdown remove the socket, stop every agent at once (SIGTERM to its process group, SIGKILL to the group after 2 s), save sessions, sync the store and exit, within 5 s."
   },
   "exitCodes": {"0": "ok", "1": "runtime or agent error", "2": "usage", "3": "timeout", "4": "no such session", "5": "every permission in the turn was denied", "130": "interrupted"}
 }

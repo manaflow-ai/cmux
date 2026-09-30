@@ -163,3 +163,127 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     assert!(!socket.exists(), "socket removed on shutdown");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Launched the way an app launcher can leave it: SIGTERM blocked in the
+/// inherited signal mask and set to "ignore", in a new session, with the
+/// readiness line on fd 3. Two agents are live (one mid-turn, one that
+/// ignores SIGTERM), a client is attached and another watches. SIGTERM
+/// must still stop the daemon and every agent within 5 s.
+#[tokio::test]
+async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
+    use std::os::fd::FromRawFd;
+    use std::os::unix::process::CommandExt;
+    let dir = scratch("term");
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    std::fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {
+            "fake": {"argv": ["python3", fake]},
+            "stubborn": {"argv": ["python3", fake], "env": {"FAKE_IGNORE_TERM": "1"}}
+        }, "defaultHarness": "fake", "permissionPolicy": "approve-all"})
+        .to_string(),
+    )
+    .unwrap();
+    let socket = dir.join("s.sock");
+    let mut fds = [0i32; 2];
+    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+    let (rfd, wfd) = (fds[0], fds[1]);
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    cmd.args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "3"])
+        .args(["--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env_remove("XPC_SERVICE_NAME")
+        .env_remove("CLAUDECODE")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    unsafe {
+        cmd.pre_exec(move || {
+            libc::setsid();
+            if libc::dup2(wfd, 3) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            libc::signal(libc::SIGTERM, libc::SIG_IGN);
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::sigaddset(&mut set, libc::SIGTERM);
+            libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn().unwrap();
+    unsafe { libc::close(wfd) };
+    let pid = child.id() as i32;
+    let ready = tokio::task::spawn_blocking(move || {
+        let mut line = String::new();
+        let f = unsafe { std::fs::File::from_raw_fd(rfd) };
+        BufReader::new(f).read_line(&mut line).unwrap();
+        line
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    let ready: Value = serde_json::from_str(&ready).unwrap();
+    assert_eq!(ready["pid"], pid);
+
+    let mut rpc = Rpc::connect(&socket).await;
+    let mut watcher = Rpc::connect(&socket).await;
+    watcher.call("_acpmux/watch", json!({"enabled": true})).await;
+    let mut agents = Vec::new();
+    for (name, harness) in [("busy", "fake"), ("stubborn", "stubborn")] {
+        let s = rpc
+            .call(
+                "session/new",
+                json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": name, "harness": harness}}}),
+            )
+            .await;
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let info = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
+        assert_eq!(info["status"], "ready", "{info}");
+        agents.push(id);
+    }
+    // Agent pids: the daemon's children.
+    let kids = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
+        .ok()
+        .map(|s| s.split_whitespace().filter_map(|p| p.parse::<i32>().ok()).collect::<Vec<_>>());
+    // One agent is mid-turn; the prompt never returns.
+    let line = json!({"jsonrpc": "2.0", "id": 99, "method": "session/prompt", "params": {"sessionId": agents[0], "prompt": [{"type": "text", "text": "hang"}]}});
+    rpc.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    loop {
+        let st = watcher.call("_acpmux/info", json!({"sessionId": agents[0]})).await;
+        if st["status"] == "running" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let term = Instant::now();
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+    let code = loop {
+        if let Some(code) = child.try_wait().unwrap() {
+            break code;
+        }
+        if term.elapsed() > Duration::from_secs(12) {
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+            let _ = child.wait();
+            panic!("daemon still running 12 s after SIGTERM");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let took = term.elapsed();
+    assert!(code.success(), "{code:?}");
+    assert!(took < Duration::from_secs(5), "stopped after {took:?}");
+    // No agent survives the daemon.
+    for k in kids.unwrap_or_default() {
+        let alive = unsafe { libc::kill(k, 0) } == 0
+            && std::fs::read_to_string(format!("/proc/{k}/stat"))
+                .map(|s| !s.contains(") Z "))
+                .unwrap_or(false);
+        assert!(!alive, "agent {k} outlived the daemon");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

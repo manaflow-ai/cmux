@@ -297,6 +297,42 @@ impl ChildAgent {
         *guard = None;
     }
 
+    /// Stop the agent within a bound: SIGTERM to its process group, wait up
+    /// to `grace` for it to exit, then SIGKILL the group (stragglers
+    /// included). Never waits on a lock or a pipe without a deadline.
+    pub async fn terminate(&self, grace: std::time::Duration) {
+        let pgid = self.pid.map(|p| p as i32);
+        if let Some(pg) = pgid {
+            unsafe {
+                libc::killpg(pg, libc::SIGTERM);
+            }
+        }
+        let _ = tokio::time::timeout(grace, async {
+            loop {
+                // The exit watcher may hold the lock while it reaps; treat
+                // that as still running and look again.
+                if let Ok(mut g) = self.child.try_lock() {
+                    let running = g.as_mut().map(|c| matches!(c.try_wait(), Ok(None)));
+                    if running != Some(true) {
+                        return;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        })
+        .await;
+        if let Some(pg) = pgid {
+            unsafe {
+                libc::killpg(pg, libc::SIGKILL);
+            }
+        }
+        if let Ok(mut g) = self.child.try_lock()
+            && let Some(c) = g.as_mut()
+        {
+            let _ = c.start_kill();
+        }
+    }
+
     pub async fn is_alive(&self) -> bool {
         let mut guard = self.child.lock().await;
         match guard.as_mut() {
