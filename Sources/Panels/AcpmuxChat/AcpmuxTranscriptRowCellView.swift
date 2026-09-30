@@ -77,6 +77,7 @@ final class AcpmuxTranscriptRowCellView: NSTableCellView {
             grow.duration = 0.12
             grow.timingFunction = CAMediaTimingFunction(name: .easeOut)
             surfaceLayer.add(grow, forKey: "acpmuxChat.grow")
+            clipText(to: grow, finalFrame: layout.textFrame)
         }
         surfaceLayer.frame = bounds
         CATransaction.commit()
@@ -112,6 +113,7 @@ final class AcpmuxTranscriptRowCellView: NSTableCellView {
         grow.toValue = finalPath
         Self.applyResponse(grow)
         surfaceLayer.add(grow, forKey: "acpmuxChat.fromTyping")
+        clipText(to: grow, finalFrame: textView.frame)
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
@@ -119,6 +121,25 @@ final class AcpmuxTranscriptRowCellView: NSTableCellView {
         fade.beginTime = CACurrentMediaTime() + 0.06
         fade.fillMode = .backwards
         textView.layer?.add(fade, forKey: "acpmuxChat.fromTyping.text")
+    }
+
+    /// Masks the text with the bubble outline for the duration of a shape animation, so
+    /// text laid out at the final width never spills past a bubble that is still growing.
+    private func clipText(to animation: CABasicAnimation, finalFrame: CGRect) {
+        guard let textLayer = textView.layer,
+              let from = animation.fromValue as! CGPath?, let to = animation.toValue as! CGPath? else { return }
+        // The mask lives in the text view's coordinates; the cell is flipped like the text view.
+        var shift = CGAffineTransform(translationX: -finalFrame.minX, y: -finalFrame.minY)
+        let mask = CAShapeLayer()
+        // After the animation the presentation falls back to this model path, which covers
+        // everything: the mask then clips nothing and needs no completion callback.
+        mask.path = CGPath(rect: textLayer.bounds.insetBy(dx: -10_000, dy: -10_000), transform: nil)
+        mask.frame = textLayer.bounds
+        let maskAnimation = animation.copy() as! CABasicAnimation
+        maskAnimation.fromValue = from.copy(using: &shift)
+        maskAnimation.toValue = to.copy(using: &shift)
+        textLayer.mask = mask
+        mask.add(maskAnimation, forKey: "acpmuxChat.clip")
     }
 
     /// Scales the bubble in from 0.9 around its tail and fades it in.

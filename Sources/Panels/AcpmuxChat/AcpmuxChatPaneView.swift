@@ -283,6 +283,10 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
             textWidth: max(1, target.width - 2 * horizontal)
         )
         addSubview(overlay)
+        // Draw the overlay's text now, inside this transaction, so the first frame without
+        // the composer text already shows the overlay.
+        overlay.layoutSubtreeIfNeeded()
+        overlay.displayIfNeeded()
         activeMorph = (rowID, overlay, target)
         overlay.morph(to: target, textOrigin: CGPoint(x: horizontal, y: vertical)) { [weak self, weak overlay] in
             self?.finishMorph(overlay)
