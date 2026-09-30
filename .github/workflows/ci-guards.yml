@@ -168,6 +168,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_build_metrics.py
 
+      - name: Validate fleet compiler-cache wiring
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: bash tests/test_ci_fleet_compilation_cache.sh
+
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_lint_feature_flags_scope.py
