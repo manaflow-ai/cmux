@@ -13,7 +13,8 @@ struct AgentInboxView: View {
     @State private var selectedID: String?
     @State private var replyText = ""
     @State private var questionSelection: String?
-    @State private var readFinishedTurnIDs = Set<String>()
+    @State private var readFinishedTurnIDs = AgentInboxReadStateStore().finishedTurnIDs
+    @State private var replySubmissionGate = AgentInboxReplySubmissionGate()
     @State private var replyError: String?
     @FocusState private var isReplyFieldFocused: Bool
 
@@ -69,6 +70,7 @@ struct AgentInboxView: View {
             markSelectedMessageRead()
         }
         .onChange(of: moveRequest) { oldValue, newValue in
+            guard AgentInboxInteractionPolicy.shouldMoveSelection(isReplyFieldFocused: isReplyFieldFocused) else { return }
             moveSelection(by: newValue - oldValue)
         }
         .onChange(of: submitRequest) { _, _ in
@@ -273,7 +275,7 @@ struct AgentInboxView: View {
                             allowDigitShortcut && index < 9
                                 ? KeyEquivalent(Character(String(index + 1)))
                                 : KeyEquivalent("\0"),
-                            modifiers: allowDigitShortcut ? [.command] : []
+                            modifiers: allowDigitShortcut ? [.command, .option] : []
                         )
                 }
             }
@@ -298,7 +300,10 @@ struct AgentInboxView: View {
                     sendReply(for: item)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    replySubmissionGate.isInFlight ||
+                        replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
             }
             if let replyError {
                 Text(replyError)
@@ -319,6 +324,7 @@ struct AgentInboxView: View {
     private func sendReply(for item: AgentInboxItem) {
         let body = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
+        guard replySubmissionGate.begin() else { return }
         replyError = nil
 
         let senderName = NSFullUserName().isEmpty
@@ -336,6 +342,7 @@ struct AgentInboxView: View {
             Task { @MainActor in
                 guard let target = await FeedCoordinator.shared.resolveTarget(workstreamID) else {
                     replyError = String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
+                    replySubmissionGate.finish()
                     return
                 }
                 finishReply(
@@ -347,6 +354,7 @@ struct AgentInboxView: View {
             }
         case .feed, nil:
             replyError = String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
+            replySubmissionGate.finish()
         }
     }
 
@@ -369,6 +377,7 @@ struct AgentInboxView: View {
         } catch {
             replyError = String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
         }
+        replySubmissionGate.finish()
     }
 
     private func itemID(for item: AgentInboxItem) -> UUID {
@@ -415,6 +424,7 @@ struct AgentInboxView: View {
         guard let item = selectedItem else { return }
         if item.kind == .finishedTurn {
             readFinishedTurnIDs.insert(item.id)
+            AgentInboxReadStateStore().markFinishedTurnRead(item.id)
             return
         }
         guard item.kind == .agentMessage else { return }

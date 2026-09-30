@@ -24,6 +24,65 @@ enum AgentInboxReplyError: Error, Equatable, Sendable {
     case unsupportedTarget
 }
 
+enum AgentInboxInteractionPolicy {
+    static func shouldMoveSelection(isReplyFieldFocused: Bool) -> Bool {
+        !isReplyFieldFocused
+    }
+}
+
+enum AgentInboxQuestionShortcutPolicy {
+    static func accepts(command: Bool, option: Bool, control: Bool, shift: Bool) -> Bool {
+        command && option && !control && !shift
+    }
+}
+
+struct AgentInboxOpenRequest: Equatable, Sendable {
+    let generation: Int
+
+    func isCurrent(generation: Int, isPresented: Bool) -> Bool {
+        isPresented && self.generation == generation
+    }
+}
+
+struct AgentInboxReplySubmissionGate: Equatable, Sendable {
+    private(set) var isInFlight = false
+
+    mutating func begin() -> Bool {
+        guard !isInFlight else { return false }
+        isInFlight = true
+        return true
+    }
+
+    mutating func finish() {
+        isInFlight = false
+    }
+}
+
+struct AgentInboxReadStateStore {
+    private static let finishedTurnIDsKey = "agentInbox.finishedTurnIDs"
+
+    let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    var finishedTurnIDs: Set<String> {
+        guard let data = defaults.data(forKey: Self.finishedTurnIDsKey),
+              let ids = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return Set(ids)
+    }
+
+    func markFinishedTurnRead(_ id: String) {
+        var ids = finishedTurnIDs
+        ids.insert(id)
+        guard let data = try? JSONEncoder().encode(ids.sorted()) else { return }
+        defaults.set(data, forKey: Self.finishedTurnIDsKey)
+    }
+}
+
 enum AgentInboxReplySender {
     static func send(
         body: String,

@@ -961,6 +961,7 @@ struct ContentView: View {
     @State private var agentInboxItems: [AgentInboxItem] = []
     @State private var agentInboxMoveRequest = 0
     @State private var agentInboxSubmitRequest = 0
+    @State private var agentInboxOpenGeneration = 0
     @State private var commandPaletteQuery: String = ""
     @State private var commandPaletteCurrentWorkSnapshot: CurrentWorkSnapshot?
     @State private var commandPaletteCurrentWorkRevision = 0
@@ -10083,6 +10084,8 @@ struct ContentView: View {
 
     private func openAgentInbox() {
         guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+        agentInboxOpenGeneration &+= 1
+        let request = AgentInboxOpenRequest(generation: agentInboxOpenGeneration)
         let workspaces = (AppDelegate.shared?.mainWindowContexts.values.flatMap { $0.tabManager.tabs } ?? tabManager.tabs)
         let workspaceTitles = Dictionary(
             workspaces.map { ($0.id.uuidString, $0.title) },
@@ -10092,9 +10095,19 @@ struct ContentView: View {
         let workstreamIDs = AgentInboxProjection.uniqueWorkstreamIDs(from: feedItems)
         let messages = AgentMessageCenter.store.messages(limit: AgentMessageStore.retainedMessageCount)
 
+        agentInboxItems = AgentInboxProjection.project(
+            messages: messages,
+            workstreamItems: feedItems,
+            workspaceTitles: workspaceTitles
+        )
+        isCommandPalettePresented = true
+        isAgentInboxPresented = true
+
         Task { @MainActor in
             let targets = await FeedCoordinator.shared.resolveTargets(for: workstreamIDs)
-            guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+            guard !Task.isCancelled,
+                  CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled,
+                  request.isCurrent(generation: agentInboxOpenGeneration, isPresented: isAgentInboxPresented) else { return }
             agentInboxItems = AgentInboxProjection.project(
                 messages: messages,
                 workstreamItems: feedItems,
@@ -10103,12 +10116,11 @@ struct ContentView: View {
                     result[entry.key] = entry.value.workspaceId
                 }
             )
-            isCommandPalettePresented = true
-            isAgentInboxPresented = true
         }
     }
 
     private func dismissAgentInbox() {
+        agentInboxOpenGeneration &+= 1
         isAgentInboxPresented = false
         isCommandPalettePresented = false
         agentInboxItems = []
