@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { runAgentProbes } from "../scripts/cloud-vm/dogfood-probes.mjs";
 
 function harness({ failReads = false, echoOnly = false } = {}) {
@@ -26,13 +25,7 @@ function harness({ failReads = false, echoOnly = false } = {}) {
         calls.push(line);
         event = line.includes("--event Stop") ? "idle" : "working";
         if (line.includes("hook status")) {
-          const status = JSON.stringify({ providers: [
-            { provider: "claude", state: "installed" },
-            { provider: "codex", state: "missing" },
-          ] });
-          screen = echoOnly ? line : execFileSync("sh", ["-c",
-            `cmux() { printf '%s' '${status}'; }; ${line}`,
-          ], { encoding: "utf8" });
+          screen = echoOnly ? line : `dogfood-test-hooks-claude:installed\ndogfood-test-hooks-codex:missing\ndogfood-test-hooks-done`;
         }
       },
       waitForScreen: async (_socket: string, _terminal: string, pattern: string, timeout: number) => {
