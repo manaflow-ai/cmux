@@ -157,6 +157,11 @@ while true; do
   if (( SECONDS - LOCK_START > LOCK_TIMEOUT )); then
     echo "==> Lock stale (>${LOCK_TIMEOUT}s), removing and retrying..."
     if ! rmdir "$LOCK_DIR" 2>/dev/null; then
+      # Another waiter may have won the race and removed the stale lock.
+      # Retry the acquisition in that case; report any genuine removal error.
+      if [[ ! -e "$LOCK_DIR" ]]; then
+        continue
+      fi
       echo "error: the stale GhosttyKit cache lock could not be removed automatically." >&2
       echo "Check for another setup process, then remove the stale .lock directory under the GhosttyKit cache." >&2
       exit 1
