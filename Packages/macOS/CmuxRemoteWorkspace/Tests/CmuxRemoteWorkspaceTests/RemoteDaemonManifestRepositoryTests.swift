@@ -152,23 +152,6 @@ struct RemoteDaemonManifestRepositoryTests {
         #expect(rootExists && isDirectory.boolValue, "cache root is created eagerly")
     }
 
-    @Test("fetchManifest decodes a live manifest and returns nil on a non-2xx status")
-    func fetchManifestStatuses() throws {
-        let server = FakeHTTPServer()
-        defer { server.close() }
-        let home = try temporaryHome()
-        let repository = makeRepository(home: home)
-        let manifestJSON = makeManifestJSON(port: server.port, assetPath: "/bin", sha256: "abc123")
-
-        server.setResponse(path: "/cmuxd-remote-manifest.json", body: Data(manifestJSON.utf8))
-        let manifest = repository.fetchManifest(releaseURL: "http://127.0.0.1:\(server.port)", version: "0.99.0")
-        #expect(manifest?.releaseTag == "v0.99.0")
-        #expect(manifest?.entry(goOS: "linux", goArch: "amd64")?.assetName == "cmuxd-remote-linux-amd64")
-
-        server.setResponse(path: "/cmuxd-remote-manifest.json", status: 500, body: Data())
-        #expect(repository.fetchManifest(releaseURL: "http://127.0.0.1:\(server.port)", version: "0.99.0") == nil)
-    }
-
     @Test("downloadBinary verifies the checksum and installs the binary executable at the cache path")
     func downloadHappyPath() throws {
         let server = FakeHTTPServer()
@@ -180,7 +163,6 @@ struct RemoteDaemonManifestRepositoryTests {
         let entry = makeEntry(port: server.port, assetPath: "/cmuxd-remote-linux-amd64", sha256: sha256Hex(binary))
 
         let download = try repository.downloadBinary(entry: entry, version: "0.99.0")
-        #expect(!download.usedLiveManifestChecksumFallback)
         #expect(download.binaryURL == (try repository.cachedBinaryURL(version: "0.99.0", goOS: "linux", goArch: "amd64")))
         #expect(try Data(contentsOf: download.binaryURL) == binary)
         #expect(FileManager.default.isExecutableFile(atPath: download.binaryURL.path))
@@ -229,11 +211,9 @@ struct RemoteDaemonManifestRepositoryTests {
 
         var thrown: NSError?
         do {
-            _ = try repository.downloadBinary(
-                entry: embeddedEntry,
-                version: "0.99.0",
-                releaseURL: "http://127.0.0.1:\(server.port)"
-            )
+            // The live manifest above is still served at the release URL; the
+            // repository must never consult it.
+            _ = try repository.downloadBinary(entry: embeddedEntry, version: "0.99.0")
         } catch {
             thrown = error as NSError
         }
