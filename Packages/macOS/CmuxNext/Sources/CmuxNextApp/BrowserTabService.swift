@@ -23,6 +23,9 @@ final class BrowserTabService {
     let preference = BrowserEnginePreference()
     /// Chromium-to-WebKit fallbacks and the one-time notice.
     let fallbacks = ChromiumFallbackLog()
+    /// The current surface of the tab with durable id `id`, nil when it
+    /// closed.
+    var surface: @MainActor (_ id: String) -> SurfaceID?
     var writeBackDelay: Duration = .milliseconds(500)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private var writers: [String: BrowserRecordWriter] = [:]
@@ -36,6 +39,9 @@ final class BrowserTabService {
             await daemon?.run("update-frontend-browser-tab") { connection in
                 _ = try await connection.updateFrontendBrowserTab(surface, url: update.url, title: update.title, faviconURL: update.favicon)
             } ?? false
+        }
+        surface = { [weak daemon] id in
+            daemon?.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == id }?.surface
         }
         isAvailable = { [weak daemon] in daemon?.supports(DaemonCapabilities.frontendBrowserTabs) ?? false }
         cefUnavailable = { [weak cef] in
@@ -78,11 +84,14 @@ final class BrowserTabService {
     /// tab id; one writer per live page).
     func track(_ page: any BrowserTab, for tab: TabModel) {
         guard tab.isFrontendOwned, writers[tab.id] == nil else { return }
-        let update = update
-        // The surface is read at send time: a moved tab keeps its record.
-        writers[tab.id] = BrowserRecordWriter(tab: page, recorded: BrowserRecord(tab: tab), delay: writeBackDelay, sleep: sleep) { [weak tab] fields in
-            guard let tab else { return false }
-            return await update(tab.surface, fields)
+        let update = update, id = tab.id
+        // The surface is looked up by tab id at send time. A moved tab (a
+        // split, another window) keeps its record, but the store gives it a
+        // new TabModel in the destination pane, so the writer must not hold
+        // the original one.
+        writers[id] = BrowserRecordWriter(tab: page, recorded: BrowserRecord(tab: tab), delay: writeBackDelay, sleep: sleep) { [weak self] fields in
+            guard let surface = self?.surface(id) else { return false }
+            return await update(surface, fields)
         }
     }
 
