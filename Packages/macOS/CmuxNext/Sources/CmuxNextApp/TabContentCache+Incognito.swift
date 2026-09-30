@@ -38,7 +38,9 @@ extension TabContentCache {
     /// The tab title of an incognito page: its title, else its host; nil
     /// (the caller's "New Tab") for a blank page.
     static func incognitoTitle(_ title: String?, url: URL?) -> String? {
-        title.flatMap { $0.isEmpty ? nil : $0 } ?? url?.host()
+        let blank = url == nil || url?.absoluteString == "about:blank"
+        if blank, title == nil || title == "about:blank" || title?.isEmpty == true { return nil }
+        return title.flatMap { $0.isEmpty ? nil : $0 } ?? url?.host()
     }
 
     func resetIncognitoHistory() {
