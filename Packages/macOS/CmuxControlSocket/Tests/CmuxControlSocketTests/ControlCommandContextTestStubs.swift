@@ -260,9 +260,7 @@ extension ControlWorkspaceGroupContext {
     func controlSetWorkspaceGroupPinned(routing: ControlRoutingSelectors, groupID: UUID, isPinned: Bool) -> Bool? { nil }
 
     func controlAddWorkspaceToGroup(routing: ControlRoutingSelectors, groupID: UUID, workspaceID: UUID, placement: WorkspaceGroupNewPlacement?, referenceWorkspaceID: UUID?) -> ControlWorkspaceGroupAddResolution { .tabManagerUnavailable }
-
     func controlJoinWorkspaceGroup(routing: ControlRoutingSelectors, name: String, workspaceID: UUID) -> ControlWorkspaceGroupJoinResolution { .tabManagerUnavailable }
-
     func controlRemoveWorkspaceFromGroup(routing: ControlRoutingSelectors, workspaceID: UUID) -> Bool? { nil }
     func controlSetWorkspaceGroupAnchor(routing: ControlRoutingSelectors, groupID: UUID, workspaceID: UUID) -> Bool? { nil }
 
