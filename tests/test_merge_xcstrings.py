@@ -268,6 +268,9 @@ def test_each_conflict_region_stays_within_its_reported_key_span():
     assert code == 1, stderr
     report = stderr.split("materializing a conflict: ", 1)[1].strip()
     regions = conflict_regions(merged)
+    for name in report.split(", "):
+        key = name.split(".", 1)[1]
+        assert any(f'"{key}"' in region for region in regions), (name, merged)
     catalog_keys = set(base["strings"]) | set(ours["strings"]) | set(theirs["strings"])
     assert len(regions) == len(report.split(", "))
     for region in regions:
