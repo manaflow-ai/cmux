@@ -192,6 +192,8 @@ struct SSHStartupManualReconnectTests {
 
         let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
         var environment = ProcessInfo.processInfo.environment
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] =
+            Self.persistentAttachSupervisorAuthToken
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
@@ -284,6 +286,8 @@ struct SSHStartupManualReconnectTests {
 
         let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
         var environment = ProcessInfo.processInfo.environment
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] =
+            Self.persistentAttachSupervisorAuthToken
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
@@ -374,6 +378,8 @@ struct SSHStartupManualReconnectTests {
 
         let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
         var environment = ProcessInfo.processInfo.environment
+        environment[SSHForegroundAuthenticationLaunch.environmentKey] =
+            Self.persistentAttachSupervisorAuthToken
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
         environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
