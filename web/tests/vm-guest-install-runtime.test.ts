@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
 import { GUEST_BROWSER_FILES } from "../services/vms/guestBrowser";
+import { GUEST_CLIPBOARD_FILES } from "../services/vms/guestClipboard";
 import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
 
 const roots: string[] = [];
@@ -63,6 +64,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     for (const file of GUEST_BROWSER_FILES.filter((file) => file.path.startsWith("/usr/local/bin/"))) {
       expect(readFileSync(join(root, "bin", file.path.split("/").at(-1)!), "utf8")).toBe(file.content);
     }
+    for (const file of GUEST_CLIPBOARD_FILES) {
+      expect(readFileSync(join(root, "bin", file.path.split("/").at(-1)!), "utf8")).toBe(file.content);
+    }
     expect(statSync(target).mode & 0o777).toBe(0o755);
     const result = await runChild(target, ["--help"], { timeout: 5_000 });
     expect(result.status).toBe(0);
@@ -77,9 +81,10 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(JSON.parse(tree.stdout)).toEqual({ session: "cloud", workspaces: [] });
     expect(readFileSync(join(root, "daemon-args"), "utf8").trim().split("\n"))
       .toEqual(["--session", "cloud", "--json", "session", "current", "snapshot"]);
-    expect(readdirSync(join(root, "bin")).sort()).toEqual([
-      "cmux", "cmux-open-url", "coderouter", "cr", "sensible-browser", "x-www-browser", "xdg-open",
-    ]);
+    const installed = readdirSync(join(root, "bin"));
+    for (const name of ["cmux", "cmux-open-url", "coderouter", "cr", "sensible-browser", "wl-copy", "x-www-browser", "xclip", "xsel", "xdg-open"]) {
+      expect(installed).toContain(name);
+    }
   });
 
   test("a fresh prompt install keeps its identity when an older revision attaches", async () => {

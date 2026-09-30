@@ -9,7 +9,6 @@ export const GUEST_CLIPBOARD_MAX_BYTES = 1024 * 1024;
  */
 export const GUEST_CLIPBOARD_WRITER = `#!/bin/sh
 set -eu
-exit 1
 case "\${0##*/}" in
   xclip)
     while [ "\$#" -gt 0 ]; do

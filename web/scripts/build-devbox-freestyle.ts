@@ -85,6 +85,7 @@ import { fileURLToPath } from "node:url";
 import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
 import { guestResourceReporterInstallCommand } from "../services/vms/guestResourceReporter";
 import { guestBrowserInstallCommand } from "../services/vms/guestBrowser";
+import { guestClipboardInstallCommand } from "../services/vms/guestClipboard";
 import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
 import {
@@ -489,7 +490,7 @@ try {
   await vm.fs.writeFile(GUEST_CMUX_SHIM_PATH, GUEST_CMUX_SHIM, { mode: 0o755 });
   await step(
     "guest-cli-integration",
-    `mkdir -p /usr/local/libexec && ${guestBrowserInstallCommand()} && ${guestCliDistributionCommand()} && chmod 0755 ${GUEST_CMUX_SHIM_PATH} && test -x ${GUEST_CMUX_SHIM_PATH} && ${guestCliDistributionCommand(true)} && echo guest-cli-integration-ok`,
+    `mkdir -p /usr/local/libexec && ${guestBrowserInstallCommand()} && ${guestClipboardInstallCommand()} && ${guestCliDistributionCommand()} && chmod 0755 ${GUEST_CMUX_SHIM_PATH} && test -x ${GUEST_CMUX_SHIM_PATH} && ${guestCliDistributionCommand(true)} && echo guest-cli-integration-ok`,
   );
   await step("guest-resource-reporter", guestResourceReporterInstallCommand());
 

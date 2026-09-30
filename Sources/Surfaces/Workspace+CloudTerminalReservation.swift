@@ -97,7 +97,8 @@ extension Workspace {
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
-            keyNameResolver: Self.reservationKeyNameResolver(for: projection.resource.machine)
+            keyNameResolver: Self.reservationKeyNameResolver(for: projection.resource.machine),
+            allowsRemoteClipboardWrites: !projection.resource.machine.isDevice
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
         do {
@@ -142,7 +143,8 @@ extension Workspace {
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
-            keyNameResolver: Self.reservationKeyNameResolver(for: machine)
+            keyNameResolver: Self.reservationKeyNameResolver(for: machine),
+            allowsRemoteClipboardWrites: !machine.isDevice
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
         let reservation = CloudTerminalPaneReservation(

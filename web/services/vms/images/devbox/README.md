@@ -542,3 +542,11 @@ HTTP(S) MIME handlers also use `cmux-open-url`, covering absolute and CLI-bundle
 `xdg-open` and GIO. File associations and direct Chrome launchers are unchanged.
 HTTP(S) の MIME ハンドラーも cmux を使用します。ファイルの関連付けと
 Chrome の直接起動は変更しません。
+
+## Terminal clipboard writes
+
+The image installs `xclip`, `xsel`, and `wl-copy` write shims. They accept
+stdin and emit a bounded OSC 52 write into the terminal stream. Read and paste
+modes fail, and no `wl-paste` helper is installed. Cloud terminal projections
+admit these writes into the Mac clipboard while cmux continues to deny terminal
+clipboard reads.
