@@ -156,11 +156,12 @@ try {
   }
   const replacement = stalled.sockets[1];
   replacement.onopen?.();
+  replacement.onmessage?.({ data: "replacement hello" } as MessageEvent);
   lateOpen();
   lateMessage({ data: "abandoned history" } as MessageEvent);
   lateClose();
   lateDeadline();
-  if (stalled.current() !== replacement.asWebSocket() || stalled.opens() !== 1 || stalled.messages.length !== 0 || timerCount() !== 0) {
+  if (stalled.current() !== replacement.asWebSocket() || stalled.opens() !== 1 || stalled.messages.join(",") !== "replacement hello" || timerCount() !== 0) {
     throw new Error("abandoned socket callbacks interfered with a healthy replacement");
   }
   stalled.disconnect();
@@ -168,6 +169,7 @@ try {
   const healthy = client();
   const queuedDeadline = [...timers.values()][0];
   healthy.sockets[0].onopen?.();
+  healthy.sockets[0].onmessage?.({ data: "hello" } as MessageEvent);
   queuedDeadline(); // Cancellation must also guard a callback already queued.
   if (healthy.sockets[0].closed || healthy.opens() !== 1 || timerCount() !== 0) {
     throw new Error("a cancelled connection deadline closed a healthy socket");
