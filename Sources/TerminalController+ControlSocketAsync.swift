@@ -244,6 +244,12 @@ extension TerminalController {
         if request.method == "agent.restore.release" {
             return try await agentRestoreAdmissionReleaseResponse(request)
         }
+        if request.method == "agent.hibernate" {
+            return try await agentHibernateResponse(request)
+        }
+        if request.method == "agent.wake" {
+            return try await agentWakeResponse(request)
+        }
         if request.method.hasPrefix("agent.message.") {
             if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil,
                let dispatchError = try await v2MainAsync({
