@@ -3829,11 +3829,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var terminalPointerGesture = TerminalPointerGestureState()
     var codexActionCommandHovering = false
     private var pressedCodexActionCommand: CodexActionCommand?
-    private var codexActionCacheSurfaceID: UUID?
-    private var codexActionCacheRuntimeGeneration: UInt64 = .max
-    private var codexActionCacheFrameSequence: UInt64 = .max
-    private var codexActionCacheIsLiveCodexPanel = false
-    private var codexActionCacheRows: [String]?
+    var codexActionCacheSurfaceID: UUID?
+    var codexActionCacheRuntimeGeneration: UInt64 = .max
+    var codexActionCacheFrameSequence: UInt64 = .max
+    var codexActionCacheIsLiveCodexPanel = false
+    var codexActionCacheRows: [String]?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
