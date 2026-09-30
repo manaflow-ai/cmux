@@ -3597,8 +3597,31 @@ mod unix {
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
         group_escalation_complete: AtomicBool,
+        /// Holds a viewer size change back until the child has answered the
+        /// previous one, so a shell never redraws for a width the parser has
+        /// already left. See [`crate::resize_gate`].
+        resize_gate: Mutex<HostResizeGate>,
+        resize_gate_wake: Condvar,
+        output_clock: Instant,
+        /// Nanoseconds after `output_clock` of the latest PTY read, plus one;
+        /// zero before any output.
+        last_output_nanos: AtomicU64,
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool,
+    }
+
+    #[derive(Default)]
+    struct HostResizeGate {
+        gate: crate::resize_gate::ResizeGate,
+        pending: Option<PendingViewerResize>,
+    }
+
+    /// Viewer size requests that arrived while the child was still answering
+    /// the previous size. They apply together, at the latest desired size.
+    #[derive(Default)]
+    struct PendingViewerResize {
+        acknowledge_with_replay: bool,
+        targeted_acks: Vec<(u64, HostTap)>,
     }
 
     struct LaunchOwnerConnection {
@@ -4042,13 +4065,7 @@ mod unix {
         fn remove_client(&self, client: u64) {
             self.taps.lock().unwrap().remove(&client);
             self.smart.remove(client);
-            let _ = mutate_viewer_sizes(
-                &self.viewer_sizes,
-                |viewer_sizes| {
-                    viewer_sizes.remove(&client);
-                },
-                |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
-            );
+            self.remove_viewer_size(client);
         }
 
         fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
@@ -4088,34 +4105,178 @@ mod unix {
             targeted_ack: Option<(u64, &HostTap)>,
         ) -> anyhow::Result<bool> {
             let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
-            let mut acknowledgement_queued = true;
-            mutate_viewer_sizes(
-                &self.viewer_sizes,
-                |viewer_sizes| {
-                    viewer_sizes.insert(client, (cols, rows));
+            self.request_viewer_minimum(
+                |viewer_sizes| viewer_sizes.insert(client, (cols, rows)),
+                |viewer_sizes, previous| match previous {
+                    Some(size) => {
+                        viewer_sizes.insert(client, size);
+                    }
+                    None => {
+                        viewer_sizes.remove(&client);
+                    }
                 },
-                |desired| {
-                    acknowledgement_queued =
-                        self.apply_viewer_minimum(desired, acknowledge_with_replay, targeted_ack)?;
-                    Ok(())
-                },
-            )?;
-            Ok(acknowledgement_queued)
+                acknowledge_with_replay,
+                targeted_ack,
+            )
         }
 
         fn remove_viewer_size(&self, client: u64) {
-            let _ = mutate_viewer_sizes(
-                &self.viewer_sizes,
-                |viewer_sizes| {
-                    viewer_sizes.remove(&client);
+            let _ = self.request_viewer_minimum(
+                |viewer_sizes| viewer_sizes.remove(&client),
+                |viewer_sizes, previous| {
+                    if let Some(size) = previous {
+                        viewer_sizes.insert(client, size);
+                    }
                 },
-                |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
+                false,
+                None,
             );
         }
 
-        fn note_pty_output(&self) {}
+        /// Update the viewer sizes, then apply their minimum now if the child
+        /// has answered the previous size change, or leave it to the gate
+        /// thread. A failed immediate apply restores the viewer sizes.
+        fn request_viewer_minimum<T>(
+            &self,
+            mutation: impl FnOnce(&mut HashMap<u64, (u16, u16)>) -> T,
+            rollback: impl FnOnce(&mut HashMap<u64, (u16, u16)>, T),
+            acknowledge_with_replay: bool,
+            targeted_ack: Option<(u64, &HostTap)>,
+        ) -> anyhow::Result<bool> {
+            let mut gate = self.resize_gate.lock().unwrap();
+            let undo = mutation(&mut self.viewer_sizes.lock().unwrap());
+            let open = gate.pending.is_none()
+                && gate.gate.decide(Instant::now(), self.last_output_at())
+                    == crate::resize_gate::GateDecision::Open;
+            if !open {
+                let pending = gate.pending.get_or_insert_with(PendingViewerResize::default);
+                pending.acknowledge_with_replay |= acknowledge_with_replay;
+                if let Some((request_id, tap)) = targeted_ack {
+                    pending.targeted_acks.push((request_id, tap.clone()));
+                }
+                self.resize_gate_wake.notify_all();
+                return Ok(true);
+            }
+            match self.apply_gated_viewer_minimum(&mut gate, acknowledge_with_replay, targeted_ack)
+            {
+                Ok((acknowledgement_queued, _)) => Ok(acknowledgement_queued),
+                Err(error) => {
+                    rollback(&mut self.viewer_sizes.lock().unwrap(), undo);
+                    Err(error)
+                }
+            }
+        }
 
-        fn start_resize_gate(_host: &Arc<Self>) -> std::io::Result<()> {
+        /// Apply the current minimum viewer size and, when the grid changed,
+        /// start waiting for the child's answer. Returns whether the
+        /// acknowledgement was queued, and the applied size.
+        fn apply_gated_viewer_minimum(
+            &self,
+            gate: &mut HostResizeGate,
+            acknowledge_with_replay: bool,
+            targeted_ack: Option<(u64, &HostTap)>,
+        ) -> anyhow::Result<(bool, (u16, u16))> {
+            let desired = self
+                .viewer_sizes
+                .lock()
+                .unwrap()
+                .values()
+                .copied()
+                .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1)));
+            // Whether the child answers with a prompt redraw depends on where
+            // the cursor is when the size reaches it.
+            let expects_redraw = self.term.lock().unwrap().cursor_is_at_prompt();
+            let before = *self.size.lock().unwrap();
+            let acknowledgement_queued =
+                self.apply_viewer_minimum(desired, acknowledge_with_replay, targeted_ack)?;
+            let after = *self.size.lock().unwrap();
+            if after != before {
+                gate.gate.applied(Instant::now(), expects_redraw);
+            }
+            Ok((acknowledgement_queued, after))
+        }
+
+        fn note_pty_output(&self) {
+            let nanos = u64::try_from(self.output_clock.elapsed().as_nanos())
+                .unwrap_or(u64::MAX - 1)
+                .saturating_add(1);
+            self.last_output_nanos.store(nanos, Ordering::Release);
+        }
+
+        fn last_output_at(&self) -> Option<Instant> {
+            match self.last_output_nanos.load(Ordering::Acquire) {
+                0 => None,
+                nanos => Some(self.output_clock + Duration::from_nanos(nanos - 1)),
+            }
+        }
+
+        /// Applies viewer sizes held back by the gate once the child has
+        /// answered the previous size change.
+        fn start_resize_gate(host: &Arc<Self>) -> std::io::Result<()> {
+            let host = Arc::downgrade(host);
+            thread::Builder::new().name("terminal-host-resize-gate".into()).spawn(move || {
+                loop {
+                    let Some(host) = host.upgrade() else { return };
+                    if host.dead.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let gate = host.resize_gate.lock().unwrap();
+                    if gate.pending.is_none() {
+                        drop(
+                            host.resize_gate_wake
+                                .wait_timeout(gate, Duration::from_millis(500))
+                                .unwrap(),
+                        );
+                        continue;
+                    }
+                    let now = Instant::now();
+                    if let crate::resize_gate::GateDecision::WaitUntil(due) =
+                        gate.gate.decide(now, host.last_output_at())
+                    {
+                        // Output can open the gate before `due`; poll briefly.
+                        let wait = due.saturating_duration_since(now).min(Duration::from_millis(5));
+                        drop(host.resize_gate_wake.wait_timeout(gate, wait).unwrap());
+                        continue;
+                    }
+                    let mut gate = gate;
+                    let pending = gate.pending.take().unwrap_or_default();
+                    let mut acks = pending.targeted_acks.into_iter();
+                    let first = acks.next();
+                    let result = host.apply_gated_viewer_minimum(
+                        &mut gate,
+                        pending.acknowledge_with_replay,
+                        first.as_ref().map(|(request_id, tap)| (*request_id, tap)),
+                    );
+                    drop(gate);
+                    match result {
+                        Ok((true, (cols, rows))) => {
+                            for (request_id, tap) in acks {
+                                let mut frame = Frame::new(
+                                    MessageKind::ResizeAck,
+                                    encode_resize_ack(cols, rows, false),
+                                );
+                                frame.request_id = request_id;
+                                if !publish_host_frames_and_targeted(
+                                    &host.broadcast_lock,
+                                    &host.sequence,
+                                    &host.taps,
+                                    std::iter::empty(),
+                                    Some((&tap, frame)),
+                                ) {
+                                    tap.close();
+                                }
+                            }
+                        }
+                        // Same rule as an immediate apply: a failed transition
+                        // or acknowledgement closes the renderers waiting on it.
+                        _ => {
+                            for (_, tap) in first.into_iter().chain(acks) {
+                                tap.close();
+                            }
+                        }
+                    }
+                }
+            })?;
             Ok(())
         }
 
@@ -4853,29 +5014,6 @@ mod unix {
             .then_some(exit))
     }
 
-    /// Keep viewer mutation, minimum reduction, and the resulting PTY resize
-    /// in one critical section. If the guard were released after reduction,
-    /// an older large resize could run after a newer small resize and leave
-    /// the host at a size that no longer matches its viewer set.
-    fn mutate_viewer_sizes(
-        viewer_sizes: &Mutex<HashMap<u64, (u16, u16)>>,
-        mutation: impl FnOnce(&mut HashMap<u64, (u16, u16)>),
-        apply: impl FnOnce(Option<(u16, u16)>) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
-        let mut viewer_sizes = viewer_sizes.lock().unwrap();
-        let previous = viewer_sizes.clone();
-        mutation(&mut viewer_sizes);
-        let desired = viewer_sizes
-            .values()
-            .copied()
-            .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1)));
-        if let Err(error) = apply(desired) {
-            *viewer_sizes = previous;
-            return Err(error);
-        }
-        Ok(())
-    }
-
     fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
         loop {
             let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
@@ -5418,10 +5556,15 @@ mod unix {
             child_signal_lock: Mutex::new(()),
             child_reaped: AtomicBool::new(false),
             group_escalation_complete: AtomicBool::new(false),
+            resize_gate: Mutex::new(HostResizeGate::default()),
+            resize_gate_wake: Condvar::new(),
+            output_clock: Instant::now(),
+            last_output_nanos: AtomicU64::new(0),
             #[cfg(test)]
             fail_next_resize_publication: AtomicBool::new(false),
         });
         HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
+        HostShared::start_resize_gate(&shared)?;
 
         let parser_host = shared.clone();
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
@@ -5563,6 +5706,7 @@ mod unix {
                     }
                     Err(_) => break,
                 };
+                reader_host.note_pty_output();
                 let bytes = buffer[..count].to_vec();
                 let _source_order = reader_host.source_order_lock.lock().unwrap();
                 reader_host.parser_budget.reserve(count);
@@ -6892,6 +7036,10 @@ mod unix {
                 child_signal_lock: Mutex::new(()),
                 child_reaped: AtomicBool::new(true),
                 group_escalation_complete: AtomicBool::new(false),
+                resize_gate: Mutex::new(HostResizeGate::default()),
+                resize_gate_wake: Condvar::new(),
+                output_clock: Instant::now(),
+                last_output_nanos: AtomicU64::new(0),
                 fail_next_resize_publication: AtomicBool::new(false),
             });
             HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
@@ -6979,6 +7127,10 @@ mod unix {
                 child_signal_lock: Mutex::new(()),
                 child_reaped: AtomicBool::new(false),
                 group_escalation_complete: AtomicBool::new(false),
+                resize_gate: Mutex::new(HostResizeGate::default()),
+                resize_gate_wake: Condvar::new(),
+                output_clock: Instant::now(),
+                last_output_nanos: AtomicU64::new(0),
                 fail_next_resize_publication: AtomicBool::new(false),
             });
             HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
@@ -8280,25 +8432,6 @@ mod unix {
             let _ = fs::remove_dir_all(root);
         }
 
-        #[test]
-        fn geometry_is_bounded_and_failed_apply_rolls_back_viewer_set() {
-            assert_eq!(normalize_terminal_geometry(0, 0).unwrap(), (1, 1));
-            assert_eq!(normalize_terminal_geometry(u16::MAX, 1).unwrap(), (10_000, 1));
-            assert!(normalize_terminal_geometry(10_000, 10_000).is_err());
-
-            let viewers = Mutex::new(HashMap::from([(1, (80, 24))]));
-            let error = mutate_viewer_sizes(
-                &viewers,
-                |sizes| {
-                    sizes.insert(2, (70, 20));
-                },
-                |_| anyhow::bail!("injected PTY resize failure"),
-            )
-            .unwrap_err();
-            assert!(error.to_string().contains("injected PTY"));
-            assert_eq!(*viewers.lock().unwrap(), HashMap::from([(1, (80, 24))]));
-        }
-
         /// Answer every parser resize command like the parser worker does.
         fn spawn_parser_resizer(
             host: Arc<HostShared>,
@@ -8328,6 +8461,21 @@ mod unix {
                     }
                 }
             })
+        }
+
+        #[test]
+        fn geometry_is_bounded_and_failed_apply_rolls_back_viewer_set() {
+            assert_eq!(normalize_terminal_geometry(0, 0).unwrap(), (1, 1));
+            assert_eq!(normalize_terminal_geometry(u16::MAX, 1).unwrap(), (10_000, 1));
+            assert!(normalize_terminal_geometry(10_000, 10_000).is_err());
+
+            let (host, parser_commands) = exited_host_fixture_with_parser();
+            let _parser = spawn_parser_resizer(host.clone(), parser_commands);
+            host.viewer_sizes.lock().unwrap().insert(1, (80, 24));
+            host.fail_next_resize_publication.store(true, Ordering::Release);
+            let error = host.set_viewer_size(2, 70, 20, true, None).unwrap_err();
+            assert!(error.to_string().contains("injected terminal resize publication failure"));
+            assert_eq!(*host.viewer_sizes.lock().unwrap(), HashMap::from([(1, (80, 24))]));
         }
 
         /// A size that arrives while the child is still answering the previous
@@ -9771,73 +9919,6 @@ mod unix {
             observed.recv_timeout(Duration::from_secs(1)).unwrap();
             waiter.join().unwrap();
             assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
-        }
-
-        #[test]
-        fn viewer_resize_apply_order_cannot_invert_reduced_sizes() {
-            let viewer_sizes = Arc::new(Mutex::new(HashMap::new()));
-            let applied = Arc::new(Mutex::new(Vec::new()));
-            let (first_applying_tx, first_applying_rx) = std::sync::mpsc::channel();
-            let (release_first_tx, release_first_rx) = std::sync::mpsc::channel();
-
-            let first = {
-                let viewer_sizes = viewer_sizes.clone();
-                let applied = applied.clone();
-                thread::spawn(move || {
-                    mutate_viewer_sizes(
-                        &viewer_sizes,
-                        |sizes| {
-                            sizes.insert(1, (120, 40));
-                        },
-                        |desired| {
-                            first_applying_tx.send(()).unwrap();
-                            release_first_rx.recv().unwrap();
-                            applied.lock().unwrap().push(desired.unwrap());
-                            Ok(())
-                        },
-                    )
-                    .unwrap();
-                })
-            };
-            first_applying_rx.recv().unwrap();
-
-            let (second_attempting_tx, second_attempting_rx) = std::sync::mpsc::channel();
-            let (second_mutating_tx, second_mutating_rx) = std::sync::mpsc::channel();
-            let second = {
-                let viewer_sizes = viewer_sizes.clone();
-                let applied = applied.clone();
-                thread::spawn(move || {
-                    second_attempting_tx.send(()).unwrap();
-                    mutate_viewer_sizes(
-                        &viewer_sizes,
-                        |sizes| {
-                            second_mutating_tx.send(()).unwrap();
-                            sizes.insert(2, (80, 24));
-                        },
-                        |desired| {
-                            applied.lock().unwrap().push(desired.unwrap());
-                            Ok(())
-                        },
-                    )
-                    .unwrap();
-                })
-            };
-            second_attempting_rx.recv().unwrap();
-            assert!(second_mutating_rx.try_recv().is_err());
-            release_first_tx.send(()).unwrap();
-            first.join().unwrap();
-            second.join().unwrap();
-
-            assert_eq!(*applied.lock().unwrap(), vec![(120, 40), (80, 24)]);
-            assert_eq!(
-                viewer_sizes
-                    .lock()
-                    .unwrap()
-                    .values()
-                    .copied()
-                    .reduce(|left, right| (left.0.min(right.0), left.1.min(right.1))),
-                Some((80, 24))
-            );
         }
 
         #[test]

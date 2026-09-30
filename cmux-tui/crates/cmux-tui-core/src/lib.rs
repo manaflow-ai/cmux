@@ -36,6 +36,7 @@ pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
 pub mod resource;
+mod resize_gate;
 mod resource_api;
 mod resource_mutation;
 pub mod resource_name;
