@@ -62,8 +62,10 @@ public final class CloudSessionController {
     /// How many successful provisioning polls are allowed before the list
     /// shows a retryable failure instead of polling forever.
     static let defaultProvisioningPollLimit = 60
+    static let defaultListRetryLimit = 8
     private let tunnelStartupTimeout: Duration
     private let provisioningPollLimit: Int
+    private let listRetryLimit: Int
     private var provisioningPollCount = 0
     private var connections: [String: CloudMachineConnection] = [:]
     private var pendingCreate: (options: CloudMachineCreateOptions, idempotencyKey: String)?
@@ -82,6 +84,8 @@ public final class CloudSessionController {
     ///     tunnel startup as one recoverable operation.
     ///   - provisioningPollLimit: Bounds the number of five-second reads made
     ///     while a machine remains in `provisioning`.
+    ///   - listRetryLimit: Bounds automatic retry reads after retryable list
+    ///     failures; the visible Retry action remains available afterwards.
     public init(
         service: any CloudVMServing,
         identityStore: any CloudDeviceIdentityStoring,
@@ -92,7 +96,8 @@ public final class CloudSessionController {
         approvalClock: any Clock<Duration> = ContinuousClock(),
         visibilityDefaults: UserDefaults = .standard,
         tunnelStartupTimeout: Duration = .seconds(30),
-        provisioningPollLimit: Int = 60
+        provisioningPollLimit: Int = 60,
+        listRetryLimit: Int = 8
     ) {
         self.service = service
         self.identityResolver = CloudDeviceIdentityResolver(store: identityStore)
@@ -104,6 +109,7 @@ public final class CloudSessionController {
         self.visibilityDefaults = visibilityDefaults
         self.tunnelStartupTimeout = max(.milliseconds(1), tunnelStartupTimeout)
         self.provisioningPollLimit = max(1, provisioningPollLimit)
+        self.listRetryLimit = max(1, listRetryLimit)
     }
 
     // MARK: - Lifecycle
@@ -383,7 +389,7 @@ public final class CloudSessionController {
                     return
                 }
                 self.machines = .failed(failure, previous: self.machines.elements)
-                if failure.isRetryable {
+                if failure.isRetryable, self.listFailureCount < self.listRetryLimit {
                     self.scheduleListRead(after: Self.listRetryDelay(afterFailures: self.listFailureCount))
                 }
             }

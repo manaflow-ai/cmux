@@ -86,6 +86,11 @@ let package = Package(
                     .linkedFramework("SystemConfiguration"),
                 ]
             ),
+            .testTarget(
+                name: "CmuxTerminalClientKitTests",
+                dependencies: ["CmuxTerminalClientKit"],
+                swiftSettings: swiftSettings
+            ),
             ffiBinary,
         ])
 )

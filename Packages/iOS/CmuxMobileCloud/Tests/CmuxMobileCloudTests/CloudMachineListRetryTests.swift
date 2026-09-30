@@ -73,6 +73,34 @@ import Testing
         #expect(service.calls.list == 3)
     }
 
+    @Test func retryableFailuresStopAfterTheAutomaticBudget() async {
+        let service = FakeCloudVMService()
+        service.machines = .failure(CloudAPIError.httpStatus(503, message: "provider down", action: nil))
+        let clock = TestClock()
+        let controller = CloudSessionController(
+            service: service,
+            identityStore: InMemoryCloudDeviceIdentityStore(),
+            tunnelStarter: FakeTunnelStarter(),
+            connector: FakeConnector(),
+            stateDirectory: Fixtures.stateDirectory(),
+            deviceName: "iPhone",
+            approvalClock: clock,
+            listRetryLimit: 3
+        )
+        controller.sceneWillEnterForeground()
+
+        controller.refreshMachines()
+        await settle { clock.sleepers == 1 }
+        clock.advance(by: .seconds(2))
+        await settle { clock.sleepers == 1 && service.calls.list == 2 }
+        clock.advance(by: .seconds(5))
+        await settle { if case .failed = controller.machines { return service.calls.list == 3 } else { return false } }
+
+        for _ in 0 ..< 200 { await Task.yield() }
+        #expect(clock.sleepers == 0)
+        #expect(service.calls.list == 3)
+    }
+
     @Test func aSignOutIsShownAndNotRetried() async {
         let service = FakeCloudVMService()
         service.machines = .failure(CloudAPIError.notSignedIn)

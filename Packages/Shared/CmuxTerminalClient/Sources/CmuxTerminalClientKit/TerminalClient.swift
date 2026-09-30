@@ -66,8 +66,11 @@ public final class TerminalClient: @unchecked Sendable {
             guard invitation == nil else {
                 throw TerminalClientError.failed("Trusted Cloud access cannot also use an invitation")
             }
+            guard let wireGuard else {
+                throw TerminalClientError.failed("Trusted Cloud access requires a WireGuard tunnel")
+            }
             raw = cmux_terminal_client_connect_trusted_route(
-                route, stateDirectory.path, deviceName, wireGuard?.raw,
+                route, stateDirectory.path, deviceName, wireGuard.raw,
                 &error, error.count, timeout.milliseconds)
         } else {
             raw = invitation.withOptionalCString { invitationPointer in
