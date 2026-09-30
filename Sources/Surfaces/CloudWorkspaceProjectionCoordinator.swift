@@ -43,8 +43,7 @@ final class CloudWorkspaceProjectionCoordinator {
             guard let self else { return }
             defer { if self.tasks[machine]?.id == id { self.tasks[machine] = nil } }
             guard let catalog else { return }
-            var reconciled: CloudVMState?
-            var passes = 0
+            var budget = CloudWorkspaceReconcileBudget()
             while self.requested.remove(machine) != nil {
                 guard !Task.isCancelled, self.localMutations[machine] == nil else { return }
                 await catalog.cloudPlacementCoordinator.waitForPendingMutations()
@@ -53,9 +52,13 @@ final class CloudWorkspaceProjectionCoordinator {
                       let state = catalog.cloudStates[machine],
                       catalog.cloudStateObservations[machine]?.freshness == .current,
                       catalog.cloudPlacementCoordinator.allowsNativeReconciliation(state) else { return }
-                if reconciled == state { passes += 1 } else { reconciled = state; passes = 1 }
-                guard passes <= Self.maxPassesPerState else {
-                    Self.reportNonConvergence(machine: machine, passes: passes)
+                let progress = CloudWorkspaceReconcileBudget.Mark(
+                    state: state,
+                    projectionVersion: catalog.projectionVersions[machine, default: 0],
+                    bindings: self.environment.bindings().filter { $0.value.vmID == machine.rawValue }
+                )
+                guard budget.admit(progress) else {
+                    self.reportNonConvergence(machine: machine, state: state, budget: budget)
                     return
                 }
                 await self.reconcile(state: state, catalog: catalog)
@@ -64,20 +67,20 @@ final class CloudWorkspaceProjectionCoordinator {
         tasks[machine] = CloudWorkspaceProjectionTask(id: id, task: task)
     }
 
-    /// One accepted graph reaches its fixed point in a few passes: materialize,
-    /// then confirm. More passes over an unchanged graph mean some consumer
-    /// requests reconciliation without progress, which would otherwise hold
-    /// the main actor forever. A new graph or a later request starts a new count.
-    static let maxPassesPerState = 8
+    private var reportedNonConvergence: [SurfaceMachineID: CloudVMState] = [:]
 
-    private static func reportNonConvergence(machine: SurfaceMachineID, passes: Int) {
+    /// Reports each non-converging graph once, so a trigger outside this loop
+    /// that keeps restarting it cannot flood crash reporting.
+    private func reportNonConvergence(machine: SurfaceMachineID, state: CloudVMState, budget: CloudWorkspaceReconcileBudget) {
 #if DEBUG
-        cmuxDebugLog("cloudWorkspace.projection.nonConvergent machine=\(machine.rawValue) passes=\(passes)")
+        cmuxDebugLog("cloudWorkspace.projection.nonConvergent machine=\(machine.rawValue) passes=\(budget.passes) idle=\(budget.idlePasses)")
 #endif
+        guard reportedNonConvergence[machine] != state else { return }
+        reportedNonConvergence[machine] = state
         sentryCaptureWarning(
             "Cloud workspace projection did not converge",
             category: "cloud.projection",
-            data: ["passes": passes]
+            data: ["passes": budget.passes, "idlePasses": budget.idlePasses]
         )
     }
 
@@ -192,5 +195,34 @@ final class CloudWorkspaceProjectionCoordinator {
         }
         let live = Set(environment.bindings().keys)
         failures = failures.filter { live.contains($0.key) }
+    }
+}
+
+/// Bounds reconciliation of one accepted graph. A pass that changes nothing
+/// (same graph, projections and bindings as the pass before) cannot make the
+/// next one different, so a few in a row mean a consumer is requesting passes
+/// without progress. The hard ceiling also stops a loop that rewrites the same
+/// projections every pass, which looks like progress.
+struct CloudWorkspaceReconcileBudget {
+    struct Mark: Equatable {
+        let state: CloudVMState
+        let projectionVersion: UInt64
+        let bindings: [UUID: WorkspaceCloudVMBinding]
+    }
+
+    static let maxIdlePasses = 3
+    static let maxPassesPerState = 64
+
+    private var last: Mark?
+    private(set) var passes = 0
+    private(set) var idlePasses = 0
+
+    /// Records the catalog before a pass; false means stop reconciling this graph.
+    mutating func admit(_ mark: Mark) -> Bool {
+        if last?.state != mark.state { passes = 0; idlePasses = 0 }
+        idlePasses = last == mark ? idlePasses + 1 : 0
+        passes += 1
+        last = mark
+        return idlePasses < Self.maxIdlePasses && passes <= Self.maxPassesPerState
     }
 }

@@ -306,8 +306,43 @@ struct CloudWorkspaceLiveProjectionTests {
         await coordinator.waitForIdle()
 
         #expect(passes > 0, "The fixture must reach the layout step")
-        #expect(passes <= CloudWorkspaceProjectionCoordinator.maxPassesPerState)
+        #expect(passes <= CloudWorkspaceReconcileBudget.maxIdlePasses + 2)
         #expect(catalog.projections.contains { $0.workspaceID == fixture.workspace.id && $0.remoteTabID == "first" })
+    }
+
+    /// The nightly b36a9b3 shape: every pass rewrote the same projection, which
+    /// advances the projection revision and so looks like progress.
+    @Test("Reconciling one graph stops when every pass rewrites projections and requests another")
+    func reconcileThatOnlyLooksBusyIsBounded() async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        let coordinator = fixture.coordinator
+        let machine = self.machine
+        var passes = 0
+        coordinator.environment.applyLayout = { [unowned catalog, unowned coordinator] _, _, _ in
+            passes += 1
+            catalog.projectionVersions[machine, default: 0] &+= 1
+            if passes < 1_000 { coordinator.request(machine: machine, catalog: catalog) }
+        }
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+
+        #expect(passes > 0, "The fixture must reach the layout step")
+        #expect(passes <= CloudWorkspaceReconcileBudget.maxPassesPerState)
+    }
+
+    @Test("A reconcile that keeps making progress is not cut short by the idle limit")
+    func progressingPassesStayAdmitted() throws {
+        let state = try graph(["first": "a"], revision: 1)
+        var budget = CloudWorkspaceReconcileBudget()
+        for version in 0..<UInt64(CloudWorkspaceReconcileBudget.maxPassesPerState) {
+            #expect(budget.admit(.init(state: state, projectionVersion: version, bindings: [:])))
+        }
+        #expect(!budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:])))
+        let next = try graph(["first": "a"], revision: 2)
+        #expect(budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:])), "A new graph starts a new budget")
     }
 
     @Test("Lifecycle cancellation is not retained as a projection failure")
