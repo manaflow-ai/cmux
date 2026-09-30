@@ -116,6 +116,192 @@ npx cmux machine-agent --session agents
 
 Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ ssh host` on cmux.cloud.
 
+## Packaged installs and updates
+
+Japanese: [パッケージのインストールと更新](getting-started.ja.md)
+
+The `cmux` npm package is a small launcher with no dependencies. On first run it downloads the prebuilt `cmux-tui-<platform>` package for your platform from the npm registry, verifies the registry's sha512 integrity for the tarball, and caches the binaries in a versioned launcher cache (`~/Library/Caches/cmux-tui-launcher` on macOS, `$XDG_CACHE_HOME/cmux-tui-launcher` or `~/.cache/cmux-tui-launcher` on Linux). Later runs start instantly from that cache.
+
+Writable cache entries fetch fresh authenticated package metadata and compare the publisher's binary digest before they run, so a normal cache hit can use the network without downloading the tarball again. If the registry does not provide that digest, the launcher falls back to full tarball verification for each writable hit. A fully read-only cache is treated as administrator-provisioned and can run offline after its binary and manifest have been verified.
+
+Update with the launcher itself:
+
+```bash
+npx cmux update           # download the latest published version
+npx cmux update --check   # report whether a newer version exists
+```
+
+`cmux update` talks only to the npm registry and writes only the launcher cache. It does not rewrite npm's `_npx` cache, but `npx` can still touch that cache, or fail before cmux starts, while resolving the launcher. Use `cmux update` for routine platform-binary updates. Use `npx cmux@latest` when you need to update the npm launcher itself.
+
+For offline or air-gapped machines, install the platform package next to the launcher; the launcher prefers a matching installed package and needs no network:
+
+```bash
+npm install -g cmux@0.11.0 cmux-tui-darwin-arm64@0.11.0   # pick your platform package and version
+```
+
+For a machine without registry access, download both matching tarballs first
+and install their local paths. The launcher then uses the installed platform
+package without resolving a different version:
+
+```bash
+npm install -g ./cmux-0.11.0.tgz ./cmux-tui-darwin-arm64-0.11.0.tgz
+```
+
+Alternatively, populate the launcher cache itself and set
+`CMUX_TUI_LAUNCHER_CACHE` to that directory. npm's download cache is not read
+by the launcher. A verified executable in a read-only launcher cache can run
+without network access; the launcher skips leases and pruning in that mode, so
+keep the cached binary executable and let the cache administrator update it.
+
+## Troubleshooting npx installs
+
+`npx cmux@latest` can fail inside npm before cmux runs:
+
+```text
+npm error code ENOTEMPTY
+npm error syscall rename
+npm error path ~/.npm/_npx/<hash>/node_modules/cmux-tui-darwin-arm64
+npm error ENOTEMPTY: directory not empty, rename ...
+```
+
+This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits per-platform binary packages most often. cmux 0.11.0 and older shipped the platform binaries as optional dependencies of the launcher, so upgrading over a cached 0.11.0 can still fail this way once. Stop every `npx` process first. The command below takes a recovery lock, checks that the selected entry is not open, refuses the newest entry, and moves only the exact cache hash shown in the error to a quarantine directory. It never deletes an active cache tree:
+
+```bash
+set -eu
+
+npm_cache="$(npm config get cache)"
+target="$npm_cache/_npx"
+case "$npm_cache" in
+  ""|/|.|./*|../*|*/./*|*/../*|*/.|*/..) echo "Refusing an unsafe npm cache path" >&2; exit 1 ;;
+  /*) ;;
+  *) echo "Refusing a relative npm cache path" >&2; exit 1 ;;
+esac
+if [ ! -d "$target" ]; then
+  echo "No npx cache directory: $target" >&2
+  exit 1
+fi
+if [ -L "$target" ]; then
+  echo "Refusing a symlinked npx cache directory: $target" >&2
+  exit 1
+fi
+
+lock="$npm_cache/.cmux-npx-recovery.lock"
+if ! (umask 077 && mkdir "$lock" 2>/dev/null); then
+  echo "Another npx recovery is active, or this lock needs manual inspection: $lock" >&2
+  exit 1
+fi
+unlock() {
+  rmdir "$lock" 2>/dev/null || true
+}
+abort() {
+  unlock
+  exit 1
+}
+trap unlock EXIT
+trap abort HUP INT TERM
+
+printf 'Available npx entries:\n'
+newest_entry=""
+newest_mtime=""
+entry_mtime() {
+  value="$(stat -f %m "$1" 2>/dev/null || true)"
+  case "$value" in
+    ''|*[!0-9]*) ;;
+    *) printf '%s\n' "$value"; return 0 ;;
+  esac
+  value="$(stat -c %Y "$1" 2>/dev/null || true)"
+  case "$value" in
+    ''|*[!0-9]*) return 1 ;;
+    *) printf '%s\n' "$value"; return 0 ;;
+  esac
+}
+for candidate in "$target"/*; do
+  [ -d "$candidate" ] || continue
+  [ ! -L "$candidate" ] || { echo "Refusing a symlinked npx entry: $candidate" >&2; exit 1; }
+  name="${candidate##*/}"
+  case "$name" in
+    ''|*[!A-Za-z0-9_-]*) echo "Refusing an unexpected npx entry: $candidate" >&2; exit 1 ;;
+  esac
+  mtime="$(entry_mtime "$candidate")" || {
+    echo "Cannot inspect npx entry time: $candidate" >&2
+    exit 1
+  }
+  printf '%s\n' "$candidate"
+  if [ -z "$newest_mtime" ] || [ "$mtime" -gt "$newest_mtime" ]; then
+    newest_entry="$candidate"
+    newest_mtime="$mtime"
+  fi
+done
+read -r -p 'Enter the exact npx cache hash to quarantine: ' hash
+case "$hash" in
+  ""|[-.]*|*[!A-Za-z0-9_-]*)
+    echo "Refusing an invalid npx cache hash" >&2
+    exit 1
+    ;;
+esac
+entry="$target/$hash"
+if [ ! -d "$entry" ]; then
+  echo "npx cache entry not found: $hash" >&2
+  exit 1
+fi
+if [ -L "$entry" ]; then
+  echo "Refusing a symlinked npx cache entry: $entry" >&2
+  exit 1
+fi
+entry_mtime="$(entry_mtime "$entry")" || {
+  echo "Cannot inspect the selected npx entry: $entry" >&2
+  exit 1
+}
+if [ "$entry" = "$newest_entry" ] || [ "$entry_mtime" -ge "$newest_mtime" ]; then
+  echo "Refusing to move the newest npx entry; use the exact stale hash from the error" >&2
+  exit 1
+fi
+if ! command -v lsof >/dev/null 2>&1; then
+  echo "lsof is required to check whether the npx entry is active" >&2
+  exit 1
+fi
+assert_entry_inactive() {
+  if [ ! -d "$entry" ] || [ -L "$entry" ]; then
+    echo "The selected npx entry changed or became a symlink: $entry" >&2
+    exit 1
+  fi
+  if open_pids="$(lsof -nP -t +D "$entry" 2>&1)"; then
+    [ -z "$open_pids" ] || {
+      echo "Refusing an npx entry opened by process(es): $open_pids" >&2
+      exit 1
+    }
+  else
+    lsof_status=$?
+    if [ "$lsof_status" -ne 1 ] || [ -n "$open_pids" ]; then
+      echo "Could not prove that the npx entry is inactive: $entry" >&2
+      exit 1
+    fi
+  fi
+}
+assert_entry_inactive
+printf 'About to quarantine only: %s\n' "$entry"
+read -r -p 'Type yes to continue: ' confirm
+[ "$confirm" = yes ] || exit 1
+quarantine="$npm_cache/.cmux-npx-quarantine"
+if [ -L "$quarantine" ] || { [ -e "$quarantine" ] && [ ! -d "$quarantine" ]; }; then
+  echo "Refusing an unsafe quarantine path: $quarantine" >&2
+  exit 1
+fi
+mkdir -p "$quarantine"
+destination="$quarantine/${hash}-$(date +%s)-$$"
+[ ! -e "$destination" ] || {
+  echo "Refusing to overwrite an existing quarantine entry: $destination" >&2
+  exit 1
+}
+# Recheck after confirmation, immediately before the atomic quarantine move.
+assert_entry_inactive
+mv "$entry" "$destination"
+printf 'Quarantined at: %s\n' "$destination"
+npx cmux@latest
+```
+
+The move is reversible while the quarantine entry remains. Leave it in place until all `npx` processes have stopped and the new launcher works, then remove it with your normal file manager. Newer launchers keep platform binaries out of npm's cache entirely (see the previous section). `npx cmux update` is the routine platform-binary upgrade path; `npx cmux@latest` remains the npm-launcher upgrade path.
+
 ## Sessions and sockets
 
 The default socket path is:
