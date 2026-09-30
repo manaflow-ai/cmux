@@ -9,10 +9,12 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.account", defaultValue: "auth authentication login logout sign in sign out email user profile team")
         case .app:
             return localized("settings.search.alias.section.app", defaultValue: "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry")
+        case .themes:
+            return localized("settings.search.alias.section.themes", defaultValue: "theme themes color scheme colors palette ghostty light dark mode accent")
         case .terminal:
             return localized("settings.search.alias.section.terminal", defaultValue: "shell scrollback scrollbar scroll bar ghostty tty pty")
         case .textBox:
-            return localized("settings.search.alias.section.textBox", defaultValue: "textbox text box rich input prompt beta focus composer compose attachments")
+            return localized("settings.search.alias.section.textBox", defaultValue: "textbox text box rich input prompt focus composer compose attachments")
         case .sleepyMode:
             return localized("settings.search.alias.section.sleepyMode", defaultValue: "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night")
         case .mobile:
@@ -26,7 +28,7 @@ enum SettingsSearchAliasIndex {
         case .customSidebars:
             return localized("settings.search.alias.section.customSidebars", defaultValue: "custom sidebars vibe code swift json interpreted renderer in-process remote worker isolated")
         case .betaFeatures:
-            return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed dock right sidebar")
+            return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed right sidebar")
         case .automation:
             return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp agents hooks ports")
         case .computerUse:
@@ -59,8 +61,8 @@ enum SettingsSearchAliasIndex {
     private static let settingAliases: [String: String] = [
         "account:account": localized("settings.search.alias.setting.account.account", defaultValue: "auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
         "app:language": localized("settings.search.alias.setting.app.language", defaultValue: "app.language locale l10n localization translation japanese english ja en nihongo restart"),
-        "app:accent-color": localized("settings.search.alias.setting.app.accent-color", defaultValue: "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"),
-        "app:appearance": localized("settings.search.alias.setting.app.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode"),
+        "themes:accent-color": localized("settings.search.alias.setting.app.accent-color", defaultValue: "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"),
+        "themes:appearance": localized("settings.search.alias.setting.app.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode"),
         "app:app-icon": localized("settings.search.alias.setting.app.app-icon", defaultValue: "app.appIcon dock icon application icon app switcher alternate icon"),
         "app:default-terminal": localized("settings.search.alias.setting.app.default-terminal", defaultValue: "app.defaultTerminal default terminal ssh links command tool unix executable launch services handler"),
         "app:new-workspace-placement": localized("settings.search.alias.setting.app.new-workspace-placement", defaultValue: "app.newWorkspacePlacement new tab insert position order top bottom end"),
@@ -118,7 +120,7 @@ enum SettingsSearchAliasIndex {
         "app:palette-search-all": localized("settings.search.alias.setting.app.palette-search-all", defaultValue: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
         "app:canvas-pane-gap": localized("settings.search.alias.setting.app.canvas-pane-gap", defaultValue: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         "app:canvas-snapping": localized("settings.search.alias.setting.app.canvas-snapping", defaultValue: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
-        "terminal:adaptive-default-theme": localized("settings.search.alias.setting.terminal.adaptive-default-theme", defaultValue: "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"),
+        "themes:adaptive-default-theme": localized("settings.search.alias.setting.terminal.adaptive-default-theme", defaultValue: "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
         "terminal:session-content-width": localized("settings.search.alias.setting.terminal.session-content-width", defaultValue: "terminal.sessionContentMaxWidth terminal agent chat max width readable line length points pt narrow wide"),
         "terminal:session-content-alignment": localized("settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position"),
@@ -130,10 +132,10 @@ enum SettingsSearchAliasIndex {
         "terminal:password-input-dots": localized("settings.search.alias.setting.terminal.password-input-dots", defaultValue: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
         "terminal:tab-bar-font-size": localized("settings.search.alias.setting.terminal.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title"),
         "terminal:resume-commands": localized("settings.search.alias.setting.terminal.resume-commands", defaultValue: "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"),
-        "textBox:show-textbox-new-terminals": localized("settings.search.alias.setting.textBox.show-textbox-new-terminals", defaultValue: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
-        "textBox:focus-textbox-new-terminals": localized("settings.search.alias.setting.textBox.focus-textbox-new-terminals", defaultValue: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"),
+        "textBox:show-textbox-new-terminals": localized("settings.search.alias.setting.textBox.show-textbox-new-terminals", defaultValue: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab"),
+        "textBox:focus-textbox-new-terminals": localized("settings.search.alias.setting.textBox.focus-textbox-new-terminals", defaultValue: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab"),
         "textBox:default-submit-action": localized("settings.search.alias.setting.textBox.default-submit-action", defaultValue: "terminal.textBoxDefaultSubmitAction submit action shift tab claude codex opencode pi agent route provider icon new session"),
-        "textBox:textbox-max-lines": localized("settings.search.alias.setting.textBox.textbox-max-lines", defaultValue: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
+        "textBox:textbox-max-lines": localized("settings.search.alias.setting.textBox.textbox-max-lines", defaultValue: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll"),
         "sidebarAppearance:match-terminal": localized("settings.search.alias.setting.sidebarAppearance.match-terminal", defaultValue: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
         "sidebarAppearance:font-size": localized("settings.search.alias.setting.sidebarAppearance.font-size", defaultValue: "sidebar-font-size sidebar font size text scale workspace title badge metadata shortcut hint"),
         "sidebarAppearance:hide-sidebar-details": localized("settings.search.alias.setting.app.hide-sidebar-details", defaultValue: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
@@ -160,13 +162,14 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:loading-spinner-position": localized("settings.search.alias.setting.app.loading-spinner-position", defaultValue: "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace"),
         "sidebarAppearance:notification-badge-position": localized("settings.search.alias.setting.app.notification-badge-position", defaultValue: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+        "sidebarAppearance:compact-agent-status": localized("settings.search.alias.setting.app.compact-agent-status", defaultValue: "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"),
         "sidebarAppearance:right-max-width": localized("settings.search.alias.setting.sidebarAppearance.right-max-width", defaultValue: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
         "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
-        "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
         "mobile:iOSPairingHost": localized("settings.search.alias.setting.mobile.iOSPairingHost", defaultValue: "ios iphone ipad mobile pairing local network permission sync"),
         "mobile:iOSPairingPort": localized("settings.search.alias.setting.mobile.iOSPairingPort", defaultValue: "mobile ios iphone pairing port tcp listener firewall conflict bind"),
         "mobile:iOSPairingDisplayName": localized("settings.search.alias.setting.mobile.iOSPairingDisplayName", defaultValue: "mobile ios iphone pairing display name mac hostname device label"),
         "mobile:artifactFolderAccess": localized("settings.search.alias.setting.mobile.artifactFolderAccess", defaultValue: "mobile ios iphone files folders directory subtree one level authorization security"),
+        "mobile:browserTunnelAllowOtherHosts": localized("settings.search.alias.setting.mobile.browserTunnelAllowOtherHosts", defaultValue: "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security"),
         "networking:relayPreference": localized("settings.search.alias.setting.networking.relayPreference", defaultValue: "iroh relay preference automatic managed selected cmux fleet provider region account"),
         "networking:customRelays": localized("settings.search.alias.setting.networking.customRelays", defaultValue: "iroh custom relay self hosted server url secret credential device authentication"),
         "networking:privateNetworks": localized("settings.search.alias.setting.networking.privateNetworks", defaultValue: "private network lan vpn direct peer path local address generic provider automatic"),
@@ -193,7 +196,7 @@ enum SettingsSearchAliasIndex {
         "browser:enable-browser": localized("settings.search.alias.setting.browser.enable-browser", defaultValue: "browser.enabled enable disable webview embedded browser tabs links"),
         "browser:search-engine": localized("settings.search.alias.setting.browser.search-engine", defaultValue: "browser.defaultSearchEngine browser.customSearchEngineName browser.customSearchEngineURLTemplate omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
         "browser:search-suggestions": localized("settings.search.alias.setting.browser.search-suggestions", defaultValue: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
-        "browser:theme": localized("settings.search.alias.setting.browser.theme", defaultValue: "browser.theme web page theme color scheme light dark system"),
+        "themes:browser-theme": localized("settings.search.alias.setting.browser.theme", defaultValue: "browser.theme web page theme color scheme light dark system"),
         "browser:hidden-webview-discard": localized("settings.search.alias.setting.browser.hidden-webview-discard", defaultValue: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
         "browser:hidden-webview-discard-delay": localized("settings.search.alias.setting.browser.hidden-webview-discard-delay", defaultValue: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
         "browser:ask-where-to-save-downloads": localized("settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail"),

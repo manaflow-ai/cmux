@@ -9,15 +9,20 @@ The relay on the remote host authenticates but does not trust:
 (`Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/`) denies
 every method by default and only forwards an allowlist, scoped to objects the
 remote session owns. Command-bearing params (`initial_command`, `command`,
-`tmux_start_command`, `pane_start_command`) are denied on every method except
-`surface.resume.set`.
+`tmux_start_command`, `pane_start_command`) are denied on every method, with no
+exceptions.
 
-That one exception records an agent's resume command on a surface the remote
-session owns. It is safe only because the app drops relay-originated resume
-bindings (`ControlSurfaceResumeTarget.registeredBinding` returns `nil` when the
-request carries a remote workspace ID), so the stored command never runs on the
-Mac. Keep that check if you touch either side, and do not add another exception
-without the same analysis and tests.
+The `surface.resume.*` methods are not relay methods: a resume binding holds a
+command that runs on the Mac, and no remote flow needs to read, write or clear
+one. The app also drops relay-originated bindings
+(`ControlSurfaceResumeTarget.registeredBinding` returns `nil` when the request
+carries a remote workspace ID); keep that check as a second layer.
+
+Relay callers see only what they need. `notification.create_for_target` takes no
+`reply_shape`, and the app delivers it with the relay origin, no reply and the
+remote destination in the title. `workspace.remote.status` and the
+`terminal_session_*` lifecycle methods return only `enabled`, `state` and
+`connected` in `remote` for a relay caller.
 
 ## Checklist
 

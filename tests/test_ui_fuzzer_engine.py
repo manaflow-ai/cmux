@@ -17,6 +17,7 @@ from cmuxfuzz.app import LaunchError  # noqa: E402
 from cmuxfuzz.minimize import ddmin  # noqa: E402
 from cmuxfuzz.signature import Signature, hang_signature, normalize  # noqa: E402
 
+REPO = Path(__file__).resolve().parents[1]
 PANE_A = "999149DB-B3D6-48F7-817D-06CF744052C2"
 PANE_B = "4FDBE39E-10F4-48BF-82A2-DDCB725A07E3"
 
@@ -107,6 +108,22 @@ class GenerationTest(unittest.TestCase):
         run = lambda seed: [actions.generate(random.Random(seed), {}, pointer=True) for _ in range(50)]
         self.assertEqual(run(3), run(3))
         self.assertNotEqual(run(3), run(4))
+
+    def test_window_resizes_stay_at_or_above_the_main_window_minimum(self) -> None:
+        # Smaller frames are raised to the minimum, so the step would not test the size it names.
+        rng = random.Random(2)
+        for _ in range(2000):
+            step = actions.generate(rng, {"window": 50.0}, pointer=False)
+            if step["do"] == "window_resize":
+                self.assertGreaterEqual(step["w"], actions.MIN_WINDOW_WIDTH)
+                self.assertGreaterEqual(step["h"], actions.MIN_WINDOW_HEIGHT)
+
+    def test_checked_in_repros_resize_within_the_main_window_minimum(self) -> None:
+        for path in sorted((REPO / "dogfood/fuzz/regressions").glob("*.json")):
+            for step in json.loads(path.read_text())["steps"]:
+                if step["do"] == "window_resize":
+                    self.assertGreaterEqual(step["h"], actions.MIN_WINDOW_HEIGHT, path.name)
+                    self.assertGreaterEqual(step["w"], actions.MIN_WINDOW_WIDTH, path.name)
 
     def test_socket_only_runs_never_plan_pointer_actions(self) -> None:
         rng = random.Random(1)
@@ -200,6 +217,46 @@ class LaunchFailureTest(unittest.TestCase):
         self.assertEqual(plan, [])
         self.assertEqual(summary["sessions"], 5)
         self.assertIn("launch_failed", summary)
+
+
+class RegressionsCommandTest(unittest.TestCase):
+    def run_regressions(self, steps: list, planned: int | None = None) -> tuple[int, str]:
+        import argparse
+        import contextlib
+        import io
+        import tempfile
+        from unittest import mock
+        from cmuxfuzz import cli
+
+        result = runner.SessionResult()
+        result.steps = [runner.StepRecord(index, {"do": "split"}, outcome, "why")
+                        for index, outcome in enumerate(steps, start=1)]
+        with tempfile.TemporaryDirectory() as directory:
+            repros = Path(directory) / "regressions"
+            repros.mkdir()
+            count = len(steps) if planned is None else planned
+            (repros / "a.json").write_text(json.dumps({"steps": [{"do": "split"}] * count}))
+            args = argparse.Namespace(app="/x.app", out=str(Path(directory) / "out"), no_pointer=True)
+            output = io.StringIO()
+            with mock.patch.object(cli, "REGRESSIONS", repros), \
+                    mock.patch.object(runner, "replay", return_value=result), contextlib.redirect_stdout(output):
+                status = cli.cmd_regressions(args)
+        return status, output.getvalue()
+
+    def test_a_repro_whose_steps_ran_passes(self) -> None:
+        self.assertEqual(self.run_regressions(["ok", "skip", "ok"]), (0, "ok a.json\n"))
+
+    def test_a_step_the_app_refused_fails_instead_of_passing_silently(self) -> None:
+        for outcome in ("error", "timeout", "pointer-error", "io-error", "internal-error"):
+            with self.subTest(outcome=outcome):
+                status, output = self.run_regressions(["ok", outcome])
+                self.assertEqual(status, 1)
+                self.assertIn(f"FAIL a.json: step 2 ended {outcome}", output)
+
+    def test_a_repro_that_stopped_early_fails(self) -> None:
+        status, output = self.run_regressions(["ok"], planned=3)
+        self.assertEqual(status, 1)
+        self.assertIn("FAIL a.json: stopped after step 1 of 3", output)
 
 
 class IssueTextTest(unittest.TestCase):

@@ -669,7 +669,7 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         env["CMUX_NOTIFICATION_BODY"] = envelope.notification.body
         env["CMUX_NOTIFICATION_WORKSPACE_ID"] = envelope.notification.workspaceId
         env["CMUX_NOTIFICATION_SURFACE_ID"] = envelope.notification.surfaceId ?? ""
-        // `local`, `ssh-relay:<workspace>`, or `cloud-vm:<machine>`: lets a hook treat
+        // `local`, `ssh-relay:<workspace>`, `cloud-vm:<machine>`, or `device-mac:<device>`: lets a hook treat
         // remote-origin title/body as untrusted text (never interpolate into code).
         env["CMUX_NOTIFICATION_ORIGIN"] = envelope.origin?.value ?? TerminalNotificationOrigin.localWireValue
         env["CMUX_NOTIFICATION_POLICY_JSON"] = String(data: inputData, encoding: .utf8) ?? ""

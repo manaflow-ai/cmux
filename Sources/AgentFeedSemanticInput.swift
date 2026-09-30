@@ -51,7 +51,11 @@ struct AgentFeedSemanticInput: Sendable {
             source: event.source, agentKey: agentKey,
             sessionId: sessionID, workspaceId: workspace, surfaceId: surface,
             pendingWork: resolvesRequest,
-            nativeEvent: event.hookEventName.rawValue, declaredPhase: resolved ? .running : nil,
+            // A post-tool hook resolves an attention request but does not by
+            // itself prove that a settled turn resumed. Only an explicit
+            // reply carrying pending work should reopen the lifecycle.
+            nativeEvent: event.hookEventName.rawValue,
+            declaredPhase: resolvesRequest ? .running : nil,
             attention: AgentAttentionContext(eventIdentity: extra["event_id"] as? String,
                 turnIdentity: extra["turn_id"] as? String, requestIdentity: identity, notification: notification))
     }
