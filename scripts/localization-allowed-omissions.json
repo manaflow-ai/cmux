@@ -1,4 +1,16 @@
 {
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": "Actions has the same spelling in French; cmux.json and the punctuation are invariant. The translated entry is still required."
+    }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": "Actions has the same spelling in French; cmux.json and the punctuation are invariant. The translated entry is still required."
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {
