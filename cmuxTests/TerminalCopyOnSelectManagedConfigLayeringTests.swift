@@ -103,7 +103,7 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
         ])
 
         #expect(effectiveValues["copy-on-select"] == "clipboard")
-        #expect(effectiveValues["clipboard-read"] == "allow")
+        #expect(effectiveValues["clipboard-read"] == "deny")
         #expect(effectiveValues["clipboard-write"] == "allow")
         #expect(effectiveValues["selection-clear-on-copy"] == "true")
         #expect(effectiveValues["selection-clear-on-typing"] == "false")
