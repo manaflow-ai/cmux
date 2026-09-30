@@ -237,4 +237,31 @@ struct ACPSessionUpdateMapperTests {
         skipped(mapper.mapping(for: ["kind": ["type": "future_event"]]), reason: "unsupported")
         skipped(mapper.mapping(for: [:]), reason: "unsupported")
     }
+
+    @Test("A file edit with no recorded path gets no location")
+    func fileEditWithoutPathHasNoLocation() throws {
+        let mapper = ACPSessionUpdateMapper(sessionID: "session-1", cwd: "/tmp/session")
+        let value = try update(mapper.mapping(for: [
+            "kind": ["type": "file_edit", "operation": "edit"],
+        ]))
+        #expect(value["title"] as? String == "edit (file)")
+        #expect(value.keys.contains("locations") == false)
+    }
+
+    @Test("Drops paths that escape the session cwd or name an unknown home")
+    func dropsPathsOutsideTheSessionRoot() throws {
+        let mapper = ACPSessionUpdateMapper(sessionID: "session-1", cwd: "/tmp/session")
+        let value = try update(mapper.mapping(for: [
+            "kind": [
+                "type": "tool_use",
+                "referenced_paths": [
+                    "../../../../etc/passwd",
+                    "~/.ssh/id_rsa",
+                    "nested/../kept.swift",
+                ],
+            ],
+        ]))
+        #expect((value["locations"] as? [[String: Any]])?.map { $0["path"] as? String }
+            == ["/tmp/session/kept.swift"])
+    }
 }
