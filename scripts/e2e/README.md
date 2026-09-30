@@ -35,6 +35,9 @@ simulator explicitly through flags.
 
 | Env | Meaning |
 | --- | --- |
+| `CMUX_E2E_TAG` | Same shared tag as the Mac host. Pairing is tag-scoped, so a tag mismatch cannot pair. |
+| `CMUX_E2E_SIM_UDID` | The freshly created, booted simulator this run owns. Pass it to every simctl and AXe call; never resolve by name. |
+| `CMUX_E2E_EVIDENCE_DIR` | Directory for screenshots, streamed-grid text dumps, device logs, and step timings. The workflow uploads it verbatim, including on failure. |
 | `CMUX_IROH_V2_BASE_URL`, `CMUX_PRESENCE_BASE_URL` | This run's backend origins from `backend-env.sh env`, baked into both app builds. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Same account used by the Mac and simulator. The workflow stores it as `CMUX_UITEST_*` in a mode `0600` file for the `agent` profile. |
 | `CMUX_E2E_BACKGROUND_SECONDS` | Optional background interval for the replay step. Set to `120` or more to enforce the two-second resume-to-Mac-input budget and write `background.json`. |
