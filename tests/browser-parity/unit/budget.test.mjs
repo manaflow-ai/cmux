@@ -132,6 +132,13 @@ test("repl output: a call over its cap prints the head and spills everything to 
   assert.equal(file, Array.from({ length: 100 }, (_, i) => line(i)).join("\n") + "\n");
   // The end of the output shows too.
   assert.match(shown, /line 99 /);
+  // One line longer than the cap prints its start.
+  printed.length = 0;
+  const long = ns.replHost.createOutputGate(host, { maxOutput: 5000 });
+  long.print("log", "z".repeat(60000));
+  long.finish();
+  assert.match(printed[0], /^z{3000,4000}…$/);
+  assert.match(printed.at(-1), /# output truncated: [\d,]+ of 60,001 characters shown/);
   // No cap: everything prints.
   printed.length = 0;
   const open = ns.replHost.createOutputGate(host, { maxOutput: 0 });
