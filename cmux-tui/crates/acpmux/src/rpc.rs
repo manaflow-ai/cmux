@@ -11,20 +11,9 @@ pub type Id = Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
-    Request {
-        id: Id,
-        method: String,
-        params: Option<Value>,
-    },
-    Notification {
-        method: String,
-        params: Option<Value>,
-    },
-    Response {
-        id: Id,
-        result: Option<Value>,
-        error: Option<RpcError>,
-    },
+    Request { id: Id, method: String, params: Option<Value> },
+    Notification { method: String, params: Option<Value> },
+    Response { id: Id, result: Option<Value>, error: Option<RpcError> },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,11 +26,7 @@ pub struct RpcError {
 
 impl RpcError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-            data: None,
-        }
+        Self { code, message: message.into(), data: None }
     }
     pub fn with_data(mut self, data: Value) -> Self {
         self.data = Some(data);
@@ -83,15 +68,12 @@ impl Message {
         let method = obj.get("method").and_then(Value::as_str).map(str::to_owned);
         let id = obj.get("id").cloned().filter(|v| !v.is_null());
         match (method, id) {
-            (Some(method), Some(id)) => Ok(Message::Request {
-                id,
-                method,
-                params: obj.get("params").cloned(),
-            }),
-            (Some(method), None) => Ok(Message::Notification {
-                method,
-                params: obj.get("params").cloned(),
-            }),
+            (Some(method), Some(id)) => {
+                Ok(Message::Request { id, method, params: obj.get("params").cloned() })
+            }
+            (Some(method), None) => {
+                Ok(Message::Notification { method, params: obj.get("params").cloned() })
+            }
             (None, Some(id)) => {
                 let error = match obj.get("error") {
                     Some(e) if !e.is_null() => Some(
@@ -100,11 +82,7 @@ impl Message {
                     ),
                     _ => None,
                 };
-                Ok(Message::Response {
-                    id,
-                    result: obj.get("result").cloned(),
-                    error,
-                })
+                Ok(Message::Response { id, result: obj.get("result").cloned(), error })
             }
             (None, None) => Err(RpcError::new(-32600, "Invalid request: no method or id")),
         }
@@ -128,7 +106,9 @@ impl Message {
             }
             Message::Response { id, result, error } => match error {
                 Some(e) => json!({"jsonrpc": "2.0", "id": id, "error": e}),
-                None => json!({"jsonrpc": "2.0", "id": id, "result": result.clone().unwrap_or(Value::Null)}),
+                None => {
+                    json!({"jsonrpc": "2.0", "id": id, "result": result.clone().unwrap_or(Value::Null)})
+                }
             },
         }
     }
@@ -140,34 +120,19 @@ impl Message {
     }
 
     pub fn request(id: impl Into<Id>, method: &str, params: Value) -> Self {
-        Message::Request {
-            id: id.into(),
-            method: method.to_owned(),
-            params: Some(params),
-        }
+        Message::Request { id: id.into(), method: method.to_owned(), params: Some(params) }
     }
 
     pub fn notification(method: &str, params: Value) -> Self {
-        Message::Notification {
-            method: method.to_owned(),
-            params: Some(params),
-        }
+        Message::Notification { method: method.to_owned(), params: Some(params) }
     }
 
     pub fn ok(id: Id, result: Value) -> Self {
-        Message::Response {
-            id,
-            result: Some(result),
-            error: None,
-        }
+        Message::Response { id, result: Some(result), error: None }
     }
 
     pub fn err(id: Id, error: RpcError) -> Self {
-        Message::Response {
-            id,
-            result: None,
-            error: Some(error),
-        }
+        Message::Response { id, result: None, error: Some(error) }
     }
 
     pub fn method(&self) -> Option<&str> {
@@ -264,8 +229,8 @@ mod tests {
 
     #[test]
     fn notification_has_no_id() {
-        let m = Message::parse(r#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#)
-            .unwrap();
+        let m =
+            Message::parse(r#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#).unwrap();
         assert!(matches!(m, Message::Notification { .. }));
     }
 }

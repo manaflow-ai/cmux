@@ -19,7 +19,8 @@ pub fn locate(meta: &SessionMeta) -> Vec<(String, PathBuf)> {
             // ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
             let root = home.join(".codex").join("sessions");
             for p in walk(&root, 4) {
-                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let name =
+                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 if name.ends_with(".jsonl") && name.contains(sid) {
                     out.push(("codex-rollout".to_owned(), p));
                 }
@@ -29,7 +30,8 @@ pub fn locate(meta: &SessionMeta) -> Vec<(String, PathBuf)> {
             // ~/.claude/projects/<cwd-with-dashes>/<session-id>.jsonl
             let root = home.join(".claude").join("projects");
             for p in walk(&root, 2) {
-                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let name =
+                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 if name == format!("{sid}.jsonl") {
                     out.push(("claude-project".to_owned(), p));
                 }

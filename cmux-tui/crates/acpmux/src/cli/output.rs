@@ -1,6 +1,5 @@
 //! Printing helpers and the streaming/attach views for the CLI.
 
-
 use acpmux::client::Client;
 use acpmux::rpc::{Message, method};
 use acpmux::transcript::{Item, Transcript};
@@ -75,7 +74,10 @@ impl OnPermission {
             "wait" => Ok(Self::Wait),
             "deny" => Ok(Self::Deny),
             "fail" => Ok(Self::Fail),
-            other => Err(crate::cli::errors::AppError::usage(format!("--on-permission must be wait, deny or fail, got {other:?}")).into()),
+            other => Err(crate::cli::errors::AppError::usage(format!(
+                "--on-permission must be wait, deny or fail, got {other:?}"
+            ))
+            .into()),
         }
     }
 }
@@ -100,19 +102,41 @@ pub(crate) struct CollectResult {
 /// says so. Returns true when the turn should be treated as failed.
 async fn auto_answer(client: &Arc<Client>, id: &str, p: &Value, mode: OnPermission) -> bool {
     let pid = p.get("permissionId").and_then(Value::as_str).unwrap_or("");
-    let options = p.pointer("/request/options").and_then(Value::as_array).cloned().unwrap_or_default();
-    let reject = options.iter().find(|o| o.get("kind").and_then(Value::as_str).map(|k| k.starts_with("reject")).unwrap_or(false)).and_then(|o| o.get("optionId").and_then(Value::as_str)).map(str::to_owned);
+    let options =
+        p.pointer("/request/options").and_then(Value::as_array).cloned().unwrap_or_default();
+    let reject = options
+        .iter()
+        .find(|o| {
+            o.get("kind").and_then(Value::as_str).map(|k| k.starts_with("reject")).unwrap_or(false)
+        })
+        .and_then(|o| o.get("optionId").and_then(Value::as_str))
+        .map(str::to_owned);
     match mode {
         OnPermission::Wait => false,
         OnPermission::Deny | OnPermission::Fail => {
-            let _ = client.request(method::MUX_PERMISSION_RESPOND, json!({"sessionId": id, "permissionId": pid, "optionId": reject})).await;
+            let _ = client
+                .request(
+                    method::MUX_PERMISSION_RESPOND,
+                    json!({"sessionId": id, "permissionId": pid, "optionId": reject}),
+                )
+                .await;
             mode == OnPermission::Fail
         }
     }
 }
 
-pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, steer: bool, quiet: bool, json_out: bool, opts: CollectOpts, suppress_reads: bool) -> Result<()> {
-    let mut notes = client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
+pub(crate) async fn stream_prompt(
+    client: Arc<Client>,
+    id: &str,
+    text: &str,
+    steer: bool,
+    quiet: bool,
+    json_out: bool,
+    opts: CollectOpts,
+    suppress_reads: bool,
+) -> Result<()> {
+    let mut notes =
+        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
     let id2 = id.to_owned();
@@ -137,7 +161,11 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
     let mut fail_permission = false;
     let mut suppressor = crate::cli::orchestrate::ReadSuppressor::default();
     let result = loop {
-        let stall_at = if opts.stall_secs > 0 && !activity { Some(started + std::time::Duration::from_secs(opts.stall_secs)) } else { None };
+        let stall_at = if opts.stall_secs > 0 && !activity {
+            Some(started + std::time::Duration::from_secs(opts.stall_secs))
+        } else {
+            None
+        };
         let next_tick = match (deadline, stall_at) {
             (Some(d), Some(s)) => Some(d.min(s)),
             (Some(d), None) => Some(d),
@@ -219,13 +247,22 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
             }
         }
     };
-    if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny) {
-        return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::PermissionDenied, "all_denied", format!("every permission in the turn was denied ({denied}/{asked})")).with_session(id).into());
+    if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny)
+    {
+        return Err(crate::cli::errors::AppError::new(
+            crate::cli::errors::Code::PermissionDenied,
+            "all_denied",
+            format!("every permission in the turn was denied ({denied}/{asked})"),
+        )
+        .with_session(id)
+        .into());
     }
     match result {
         Ok(v) => {
             if quiet {
-                if let Some(Item::Assistant { text }) = t.items.iter().rev().find(|i| matches!(i, Item::Assistant { .. })) {
+                if let Some(Item::Assistant { text }) =
+                    t.items.iter().rev().find(|i| matches!(i, Item::Assistant { .. }))
+                {
                     println!("{text}");
                 }
             } else if json_out {
@@ -246,7 +283,8 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
 
 /// Plain streaming attach: prints everything that happens in the session.
 pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
-    let mut notes = client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
+    let mut notes =
+        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 200})).await?;
     let mut t = Transcript::default();
     for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
@@ -278,36 +316,48 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
             assistant_len = 0;
         }
         if let Some(last) = t.items.last()
-            && printed == t.items.len() - 1 {
-                match last {
-                    Item::Assistant { text } => {
-                        if assistant_len == 0 {
-                            print!("\x1b[1massistant:\x1b[0m ");
-                        }
-                        if text.len() > assistant_len {
-                            print!("{}", &text[assistant_len..]);
-                            let _ = std::io::stdout().flush();
-                            assistant_len = text.len();
-                        }
+            && printed == t.items.len() - 1
+        {
+            match last {
+                Item::Assistant { text } => {
+                    if assistant_len == 0 {
+                        print!("\x1b[1massistant:\x1b[0m ");
                     }
-                    Item::Thought { .. } => {}
-                    other => {
-                        print_item(other);
-                        printed += 1;
-                        assistant_len = 0;
+                    if text.len() > assistant_len {
+                        print!("{}", &text[assistant_len..]);
+                        let _ = std::io::stdout().flush();
+                        assistant_len = text.len();
                     }
                 }
+                Item::Thought { .. } => {}
+                other => {
+                    print_item(other);
+                    printed += 1;
+                    assistant_len = 0;
+                }
             }
+        }
     }
     Ok(())
 }
 
 pub(crate) fn print_item(item: &Item) {
     match item {
-        Item::User { text, steer, queued } => println!("\x1b[36muser{}:\x1b[0m {text}", if *steer { " (steer)" } else if *queued { " (queued)" } else { "" }),
+        Item::User { text, steer, queued } => println!(
+            "\x1b[36muser{}:\x1b[0m {text}",
+            if *steer {
+                " (steer)"
+            } else if *queued {
+                " (queued)"
+            } else {
+                ""
+            }
+        ),
         Item::Assistant { text } => println!("\x1b[1massistant:\x1b[0m {text}"),
         Item::Thought { text } => println!("\x1b[2mthought: {}\x1b[0m", short(text, 200)),
-        Item::Tool { title, kind, status, .. } => println!("\x1b[2m[{kind} {status}] {title}\x1b[0m"),
+        Item::Tool { title, kind, status, .. } => {
+            println!("\x1b[2m[{kind} {status}] {title}\x1b[0m")
+        }
         Item::Plan { entries } => {
             println!("\x1b[35mplan:\x1b[0m");
             for (s, c) in entries {
@@ -330,18 +380,28 @@ pub(crate) fn print_item(item: &Item) {
 /// reject; fail also ends the turn, exit 5), stall detection, and retries:
 /// a turn is retried only on an agent-internal error and only if nothing
 /// was produced, with backoff capped at 10 s.
-pub(crate) async fn collect_reply(client: Arc<Client>, id: &str, text: &str, opts: CollectOpts) -> Result<CollectResult> {
+pub(crate) async fn collect_reply(
+    client: Arc<Client>,
+    id: &str,
+    text: &str,
+    opts: CollectOpts,
+) -> Result<CollectResult> {
     let mut attempt = 0u32;
     loop {
         match collect_once(client.clone(), id, text, opts).await {
             Ok(r) => return Ok(r),
             Err(e) => {
-                let retryable = e.downcast_ref::<crate::cli::errors::AppError>().map(|a| a.retryable).unwrap_or(false);
+                let retryable = e
+                    .downcast_ref::<crate::cli::errors::AppError>()
+                    .map(|a| a.retryable)
+                    .unwrap_or(false);
                 if !retryable || attempt >= opts.retries {
                     return Err(e);
                 }
                 attempt += 1;
-                let backoff = std::time::Duration::from_millis((1000u64 * 2u64.pow(attempt.min(4))).min(10_000));
+                let backoff = std::time::Duration::from_millis(
+                    (1000u64 * 2u64.pow(attempt.min(4))).min(10_000),
+                );
                 eprintln!("acpmux: agent error, retry {attempt}/{} in {:?}", opts.retries, backoff);
                 tokio::time::sleep(backoff).await;
             }
@@ -349,13 +409,25 @@ pub(crate) async fn collect_reply(client: Arc<Client>, id: &str, text: &str, opt
     }
 }
 
-async fn collect_once(client: Arc<Client>, id: &str, text: &str, opts: CollectOpts) -> Result<CollectResult> {
-    let mut notes = client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
+async fn collect_once(
+    client: Arc<Client>,
+    id: &str,
+    text: &str,
+    opts: CollectOpts,
+) -> Result<CollectResult> {
+    let mut notes =
+        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
     let id2 = id.to_owned();
     let text2 = text.to_owned();
-    let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, json!({"sessionId": id2, "prompt": [{"type": "text", "text": text2}]})).await });
+    let mut turn = tokio::spawn(async move {
+        c.request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id2, "prompt": [{"type": "text", "text": text2}]}),
+        )
+        .await
+    });
     let mut t = Transcript::default();
     let started = tokio::time::Instant::now();
     let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
@@ -365,7 +437,11 @@ async fn collect_once(client: Arc<Client>, id: &str, text: &str, opts: CollectOp
     let mut denied = 0u64;
     let mut fail_permission = false;
     let result = loop {
-        let stall_at = if opts.stall_secs > 0 && !activity { Some(started + std::time::Duration::from_secs(opts.stall_secs)) } else { None };
+        let stall_at = if opts.stall_secs > 0 && !activity {
+            Some(started + std::time::Duration::from_secs(opts.stall_secs))
+        } else {
+            None
+        };
         let next_tick = [deadline, stall_at].into_iter().flatten().min();
         let tick = async {
             match next_tick {
@@ -429,8 +505,15 @@ async fn collect_once(client: Arc<Client>, id: &str, text: &str, opts: CollectOp
             }
         }
     };
-    if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny) {
-        return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::PermissionDenied, "all_denied", format!("every permission in the turn was denied ({denied}/{asked})")).with_session(id).into());
+    if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny)
+    {
+        return Err(crate::cli::errors::AppError::new(
+            crate::cli::errors::Code::PermissionDenied,
+            "all_denied",
+            format!("every permission in the turn was denied ({denied}/{asked})"),
+        )
+        .with_session(id)
+        .into());
     }
     let result = match result {
         Ok(v) => v,
@@ -438,27 +521,57 @@ async fn collect_once(client: Arc<Client>, id: &str, text: &str, opts: CollectOp
             // ACP internal (-32603) or parse (-32700) errors with nothing
             // produced are the only retryable failures.
             let msg = e.to_string();
-            let retryable = !produced && (msg.contains("-32603") || msg.contains("-32700") || msg.to_lowercase().contains("internal error"));
-            let mut app = crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "agent_error", msg).with_session(id);
+            let retryable = !produced
+                && (msg.contains("-32603")
+                    || msg.contains("-32700")
+                    || msg.to_lowercase().contains("internal error"));
+            let mut app = crate::cli::errors::AppError::new(
+                crate::cli::errors::Code::Runtime,
+                "agent_error",
+                msg,
+            )
+            .with_session(id);
             if retryable {
                 app = app.retryable();
             }
             return Err(app.into());
         }
     };
-    let reply = t.items.iter().rev().find_map(|i| match i { Item::Assistant { text } => Some(text.clone()), _ => None }).unwrap_or_default();
-    let stop_reason = result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
+    let reply = t
+        .items
+        .iter()
+        .rev()
+        .find_map(|i| match i {
+            Item::Assistant { text } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let stop_reason =
+        result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
 }
 
 /// The last `count` assistant replies of a session, oldest first.
-pub(crate) async fn last_replies(client: &Arc<Client>, id: &str, count: usize) -> Result<Vec<String>> {
+pub(crate) async fn last_replies(
+    client: &Arc<Client>,
+    id: &str,
+    count: usize,
+) -> Result<Vec<String>> {
     let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
     let mut t = Transcript::default();
     for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
         t.apply_event(&e);
     }
-    let mut out: Vec<String> = t.items.iter().rev().filter_map(|i| match i { Item::Assistant { text } => Some(text.clone()), _ => None }).take(count.max(1)).collect();
+    let mut out: Vec<String> = t
+        .items
+        .iter()
+        .rev()
+        .filter_map(|i| match i {
+            Item::Assistant { text } => Some(text.clone()),
+            _ => None,
+        })
+        .take(count.max(1))
+        .collect();
     out.reverse();
     Ok(out)
 }

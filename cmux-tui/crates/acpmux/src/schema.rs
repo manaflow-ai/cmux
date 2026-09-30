@@ -15,10 +15,28 @@ mod tests {
         let methods = v["methods"].as_object().expect("methods");
         let notes = v["notifications"].as_object().expect("notifications");
         for m in [
-            method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_DEFAULTS, method::MUX_ATTACH, method::MUX_DETACH, method::MUX_WATCH,
-            method::MUX_RENAME, method::MUX_KILL, method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND, method::MUX_SET_POLICY,
-            method::MUX_SET_RULES, method::MUX_TAG, method::MUX_WAIT, method::MUX_HISTORY, method::MUX_SCHEMA, method::MUX_EXPORT,
-            method::MUX_IMPORT, method::MUX_SHUTDOWN,
+            method::MUX_STATUS,
+            method::MUX_SESSIONS,
+            method::MUX_HARNESSES,
+            method::MUX_RELOAD_CONFIG,
+            method::MUX_DEFAULTS,
+            method::MUX_ATTACH,
+            method::MUX_DETACH,
+            method::MUX_WATCH,
+            method::MUX_RENAME,
+            method::MUX_KILL,
+            method::MUX_INFO,
+            method::MUX_EVENTS,
+            method::MUX_PERMISSION_RESPOND,
+            method::MUX_SET_POLICY,
+            method::MUX_SET_RULES,
+            method::MUX_TAG,
+            method::MUX_WAIT,
+            method::MUX_HISTORY,
+            method::MUX_SCHEMA,
+            method::MUX_EXPORT,
+            method::MUX_IMPORT,
+            method::MUX_SHUTDOWN,
         ] {
             assert!(methods.contains_key(m), "schema is missing method {m}");
         }

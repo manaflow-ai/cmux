@@ -5,7 +5,11 @@ use super::*;
 impl Hub {
     // ------------------------------------------------------------- inbound
 
-    pub(super) async fn inbound_loop(self: Arc<Self>, session: Arc<Session>, mut rx: mpsc::Receiver<Inbound>) {
+    pub(super) async fn inbound_loop(
+        self: Arc<Self>,
+        session: Arc<Session>,
+        mut rx: mpsc::Receiver<Inbound>,
+    ) {
         while let Some(item) = rx.recv().await {
             match item {
                 Inbound::Notification { method: m, params } => {
@@ -33,8 +37,14 @@ impl Hub {
                 Inbound::Exited(code) => {
                     *session.child.lock().await = None;
                     self.cancel_pending_permissions(&session);
-                    let intentional = matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
-                    self.append(&session, "mux", if intentional { "stopped" } else { "exited" }, json!({"code": code}));
+                    let intentional =
+                        matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    self.append(
+                        &session,
+                        "mux",
+                        if intentional { "stopped" } else { "exited" },
+                        json!({"code": code}),
+                    );
                     if !intentional {
                         self.set_status(&session, SessionStatus::Disconnected);
                     }
@@ -51,7 +61,9 @@ impl Hub {
         let mut m = session.meta.lock().unwrap();
         match kind {
             "agent_message_chunk" => {
-                if let Some(text) = update.get("content").and_then(|c| c.get("text")).and_then(Value::as_str) {
+                if let Some(text) =
+                    update.get("content").and_then(|c| c.get("text")).and_then(Value::as_str)
+                {
                     let mut preview = m.preview.clone().unwrap_or_default();
                     preview.push_str(text);
                     if preview.len() > 2000 {
@@ -68,9 +80,10 @@ impl Hub {
             "usage_update" => m.usage = Some(update.clone()),
             "current_mode_update" => {
                 if let Some(mode_id) = update.get("currentModeId").cloned()
-                    && let Some(modes) = m.modes.as_mut() {
-                        modes["currentModeId"] = mode_id;
-                    }
+                    && let Some(modes) = m.modes.as_mut()
+                {
+                    modes["currentModeId"] = mode_id;
+                }
             }
             "config_option_update" => {
                 if let Some(opts) = update.get("configOptions") {
@@ -86,7 +99,13 @@ impl Hub {
         }
     }
 
-    pub(super) async fn on_agent_request(self: Arc<Self>, session: Arc<Session>, id: Id, m: String, params: Option<Value>) {
+    pub(super) async fn on_agent_request(
+        self: Arc<Self>,
+        session: Arc<Session>,
+        id: Id,
+        m: String,
+        params: Option<Value>,
+    ) {
         let Some(child) = session.child.lock().await.clone() else {
             return;
         };
@@ -113,12 +132,19 @@ impl Hub {
     }
 
     fn fs_path(session: &Session, params: &Value) -> Result<std::path::PathBuf, RpcError> {
-        let raw = params.get("path").and_then(Value::as_str).ok_or_else(|| RpcError::invalid_params("path is required"))?;
+        let raw = params
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid_params("path is required"))?;
         let p = std::path::PathBuf::from(raw);
         Ok(if p.is_absolute() { p } else { session.meta().cwd.join(p) })
     }
 
-    async fn handle_fs_write(&self, session: &Arc<Session>, params: Value) -> Result<Value, RpcError> {
+    async fn handle_fs_write(
+        &self,
+        session: &Arc<Session>,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         let path = Self::fs_path(session, &params)?;
         let content = params.get("content").and_then(Value::as_str).unwrap_or("").to_owned();
         // Show the path relative to the session directory; the harness may
@@ -139,28 +165,47 @@ impl Hub {
             ]
         });
         let outcome = self.handle_permission(session, request).await;
-        let allowed = outcome.pointer("/outcome/optionId").and_then(Value::as_str).map(|o| o.starts_with("allow")).unwrap_or(false);
+        let allowed = outcome
+            .pointer("/outcome/optionId")
+            .and_then(Value::as_str)
+            .map(|o| o.starts_with("allow"))
+            .unwrap_or(false);
         if !allowed {
-            return Err(RpcError::new(-32000, format!("write to {shown} rejected by the acpmux permission policy")));
+            return Err(RpcError::new(
+                -32000,
+                format!("write to {shown} rejected by the acpmux permission policy"),
+            ));
         }
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
         }
-        std::fs::write(&path, content.as_bytes()).map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))?;
+        std::fs::write(&path, content.as_bytes())
+            .map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))?;
         Ok(Value::Null)
     }
 
-    async fn handle_fs_read(&self, session: &Arc<Session>, params: Value) -> Result<Value, RpcError> {
+    async fn handle_fs_read(
+        &self,
+        session: &Arc<Session>,
+        params: Value,
+    ) -> Result<Value, RpcError> {
         let path = Self::fs_path(session, &params)?;
         let config_policy = self.config.read().await.permission_policy;
         let policy = self.policy_for(session, config_policy);
         let probe = json!({"toolCall": {"title": format!("Read {}", path.display()), "kind": "read", "rawInput": {"path": path}}});
-        let rule = session.meta().permission_rules.as_ref().and_then(|r| super::rules::decide(r, &probe));
-        let denied = matches!(rule, Some(super::rules::RuleDecision::Deny)) || (rule.is_none() && policy == PermissionPolicy::DenyAll);
+        let rule =
+            session.meta().permission_rules.as_ref().and_then(|r| super::rules::decide(r, &probe));
+        let denied = matches!(rule, Some(super::rules::RuleDecision::Deny))
+            || (rule.is_none() && policy == PermissionPolicy::DenyAll);
         if denied {
-            return Err(RpcError::new(-32000, format!("read of {} rejected by the acpmux permission policy", path.display())));
+            return Err(RpcError::new(
+                -32000,
+                format!("read of {} rejected by the acpmux permission policy", path.display()),
+            ));
         }
-        let text = std::fs::read_to_string(&path).map_err(|e| RpcError::new(-32000, format!("read {}: {e}", path.display())))?;
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| RpcError::new(-32000, format!("read {}: {e}", path.display())))?;
         let line = params.get("line").and_then(Value::as_u64).map(|l| l.max(1) as usize);
         let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
         let content = match (line, limit) {
@@ -175,7 +220,11 @@ impl Hub {
         Ok(json!({"content": content}))
     }
 
-    pub(super) fn policy_for(&self, session: &Session, config_policy: PermissionPolicy) -> PermissionPolicy {
+    pub(super) fn policy_for(
+        &self,
+        session: &Session,
+        config_policy: PermissionPolicy,
+    ) -> PermissionPolicy {
         session
             .meta()
             .permission_policy
@@ -187,14 +236,12 @@ impl Hub {
     pub(super) async fn handle_permission(&self, session: &Arc<Session>, request: Value) -> Value {
         let config_policy = self.config.read().await.permission_policy;
         let policy = self.policy_for(session, config_policy);
-        let options = request
-            .get("options")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let options = request.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
         let pick = |kinds: &[&str]| -> Option<String> {
             for k in kinds {
-                if let Some(o) = options.iter().find(|o| o.get("kind").and_then(Value::as_str) == Some(k)) {
+                if let Some(o) =
+                    options.iter().find(|o| o.get("kind").and_then(Value::as_str) == Some(k))
+                {
                     return o.get("optionId").and_then(Value::as_str).map(str::to_owned);
                 }
             }
@@ -205,29 +252,33 @@ impl Hub {
             .and_then(|t| t.get("kind"))
             .and_then(Value::as_str)
             .unwrap_or("");
-        let rule = session.meta().permission_rules.as_ref().and_then(|r| super::rules::decide(r, &request));
+        let rule = session
+            .meta()
+            .permission_rules
+            .as_ref()
+            .and_then(|r| super::rules::decide(r, &request));
         let auto = match rule {
             Some(super::rules::RuleDecision::Approve) => pick(&["allow_once", "allow_always"]),
             Some(super::rules::RuleDecision::Deny) => pick(&["reject_once", "reject_always"]),
             Some(super::rules::RuleDecision::Ask) => None,
             None => match policy {
-            PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
-            PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-            PermissionPolicy::ApproveReads => {
-                if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
-                    pick(&["allow_once", "allow_always"])
-                } else {
-                    None
+                PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
+                PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
+                PermissionPolicy::ApproveReads => {
+                    if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
+                        pick(&["allow_once", "allow_always"])
+                    } else {
+                        None
+                    }
                 }
-            }
-            PermissionPolicy::ApproveEdits => {
-                if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
-                    pick(&["allow_once", "allow_always"])
-                } else {
-                    None
+                PermissionPolicy::ApproveEdits => {
+                    if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
+                        pick(&["allow_once", "allow_always"])
+                    } else {
+                        None
+                    }
                 }
-            }
-            PermissionPolicy::Ask => None,
+                PermissionPolicy::Ask => None,
             },
         };
         let permission_id = uuid::Uuid::now_v7().to_string();
@@ -243,10 +294,7 @@ impl Hub {
         let (tx, rx) = oneshot::channel();
         session.pending_permissions.lock().unwrap().insert(
             permission_id.clone(),
-            PendingPermission {
-                request: request.clone(),
-                reply: tx,
-            },
+            PendingPermission { request: request.clone(), reply: tx },
         );
         self.append(
             session,
@@ -281,19 +329,24 @@ impl Hub {
     /// Answer a pending permission. `option_id = None` cancels. `answers`
     /// carries user input for interactive tools (AskUserQuestion), keyed by
     /// question text.
-    pub fn respond_permission(&self, session: &Session, permission_id: &str, option_id: Option<String>, answers: Option<Value>) -> Result<(), RpcError> {
-        let pending = session
-            .pending_permissions
-            .lock()
-            .unwrap()
-            .remove(permission_id)
-            .ok_or_else(|| RpcError::not_found(format!("no pending permission {permission_id}")))?;
+    pub fn respond_permission(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        option_id: Option<String>,
+        answers: Option<Value>,
+    ) -> Result<(), RpcError> {
+        let pending =
+            session.pending_permissions.lock().unwrap().remove(permission_id).ok_or_else(|| {
+                RpcError::not_found(format!("no pending permission {permission_id}"))
+            })?;
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
             None => json!({"outcome": "cancelled"}),
         };
         if let Some(a) = answers {
-            let mut input = pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
+            let mut input =
+                pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
             input["answers"] = a;
             outcome["_meta"] = json!({"updatedInput": input});
         }
@@ -307,5 +360,4 @@ impl Hub {
             let _ = p.reply.send(json!({"outcome": "cancelled"}));
         }
     }
-
 }

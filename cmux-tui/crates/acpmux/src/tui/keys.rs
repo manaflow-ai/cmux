@@ -13,10 +13,22 @@ impl App {
             Overlay::Menu(mut m) => {
                 match key.code {
                     KeyCode::Esc | KeyCode::Char('q') => {}
-                    KeyCode::Up | KeyCode::Char('k') => { m.cursor = m.cursor.saturating_sub(1); self.overlay = Overlay::Menu(m); }
-                    KeyCode::Down | KeyCode::Char('j') => { m.cursor = (m.cursor + 1).min(m.items.len().saturating_sub(1)); self.overlay = Overlay::Menu(m); }
-                    KeyCode::Char('n') if ctrl => { m.cursor = (m.cursor + 1).min(m.items.len().saturating_sub(1)); self.overlay = Overlay::Menu(m); }
-                    KeyCode::Char('p') if ctrl => { m.cursor = m.cursor.saturating_sub(1); self.overlay = Overlay::Menu(m); }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        m.cursor = m.cursor.saturating_sub(1);
+                        self.overlay = Overlay::Menu(m);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        m.cursor = (m.cursor + 1).min(m.items.len().saturating_sub(1));
+                        self.overlay = Overlay::Menu(m);
+                    }
+                    KeyCode::Char('n') if ctrl => {
+                        m.cursor = (m.cursor + 1).min(m.items.len().saturating_sub(1));
+                        self.overlay = Overlay::Menu(m);
+                    }
+                    KeyCode::Char('p') if ctrl => {
+                        m.cursor = m.cursor.saturating_sub(1);
+                        self.overlay = Overlay::Menu(m);
+                    }
                     KeyCode::Enter => {
                         if let Some(it) = m.items.get(m.cursor) {
                             let a = it.action.clone();
@@ -33,9 +45,24 @@ impl App {
                     KeyCode::Enter => {
                         let host = text.text().trim().to_owned();
                         if !host.is_empty() {
-                            let name = host.rsplit('@').next().unwrap_or(&host).split(':').next().unwrap_or(&host).to_owned();
-                            let url = if host.contains("://") { host.clone() } else { format!("ssh://{host}") };
-                            self.request_bg("_acpmux/peer_add", json!({"name": name, "url": url}), Some(format!("adding host {name}…")));
+                            let name = host
+                                .rsplit('@')
+                                .next()
+                                .unwrap_or(&host)
+                                .split(':')
+                                .next()
+                                .unwrap_or(&host)
+                                .to_owned();
+                            let url = if host.contains("://") {
+                                host.clone()
+                            } else {
+                                format!("ssh://{host}")
+                            };
+                            self.request_bg(
+                                "_acpmux/peer_add",
+                                json!({"name": name, "url": url}),
+                                Some(format!("adding host {name}…")),
+                            );
                             let c = self.client.clone();
                             let tx = self.tx.clone();
                             tokio::spawn(async move {
@@ -72,12 +99,30 @@ impl App {
             Overlay::Help => {
                 match key.code {
                     KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Enter => {}
-                    KeyCode::Up | KeyCode::Char('k') => { self.dialog.wheel(-1); self.overlay = Overlay::Help; }
-                    KeyCode::Down | KeyCode::Char('j') => { self.dialog.wheel(1); self.overlay = Overlay::Help; }
-                    KeyCode::PageUp => { self.dialog.viewport.page_up(); self.overlay = Overlay::Help; }
-                    KeyCode::PageDown => { self.dialog.viewport.page_down(); self.overlay = Overlay::Help; }
-                    KeyCode::Home => { self.dialog.viewport.to_top(); self.overlay = Overlay::Help; }
-                    KeyCode::End => { self.dialog.viewport.to_bottom(); self.overlay = Overlay::Help; }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.dialog.wheel(-1);
+                        self.overlay = Overlay::Help;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.dialog.wheel(1);
+                        self.overlay = Overlay::Help;
+                    }
+                    KeyCode::PageUp => {
+                        self.dialog.viewport.page_up();
+                        self.overlay = Overlay::Help;
+                    }
+                    KeyCode::PageDown => {
+                        self.dialog.viewport.page_down();
+                        self.overlay = Overlay::Help;
+                    }
+                    KeyCode::Home => {
+                        self.dialog.viewport.to_top();
+                        self.overlay = Overlay::Help;
+                    }
+                    KeyCode::End => {
+                        self.dialog.viewport.to_bottom();
+                        self.overlay = Overlay::Help;
+                    }
                     _ => self.overlay = Overlay::Help,
                 }
                 true
@@ -86,7 +131,11 @@ impl App {
                 match key.code {
                     KeyCode::Char('y') | KeyCode::Enter => match action {
                         ConfirmAction::Kill { id, purge } => {
-                            self.request_bg(method::MUX_KILL, json!({"sessionId": id, "purge": purge}), Some(if purge { "deleted".into() } else { "stopped".into() }));
+                            self.request_bg(
+                                method::MUX_KILL,
+                                json!({"sessionId": id, "purge": purge}),
+                                Some(if purge { "deleted".into() } else { "stopped".into() }),
+                            );
                             if purge {
                                 self.refresh_sessions();
                             }
@@ -101,15 +150,36 @@ impl App {
                 let is_agent = matches!(p.on_pick, PickTarget::Agent);
                 match key.code {
                     KeyCode::Esc => {
-                        if matches!(p.on_pick, PickTarget::Skill { replace_prefix: true }) { self.editor_mut().insert_str(&p.filter.text()); }
+                        if matches!(p.on_pick, PickTarget::Skill { replace_prefix: true }) {
+                            self.editor_mut().insert_str(&p.filter.text());
+                        }
                     }
-                    KeyCode::Up => { p.move_by(-1); self.overlay = Overlay::Picker(p); }
-                    KeyCode::Down => { p.move_by(1); self.overlay = Overlay::Picker(p); }
-                    KeyCode::Char('n') if ctrl => { p.move_by(1); self.overlay = Overlay::Picker(p); }
-                    KeyCode::Char('p') if ctrl => { p.move_by(-1); self.overlay = Overlay::Picker(p); }
+                    KeyCode::Up => {
+                        p.move_by(-1);
+                        self.overlay = Overlay::Picker(p);
+                    }
+                    KeyCode::Down => {
+                        p.move_by(1);
+                        self.overlay = Overlay::Picker(p);
+                    }
+                    KeyCode::Char('n') if ctrl => {
+                        p.move_by(1);
+                        self.overlay = Overlay::Picker(p);
+                    }
+                    KeyCode::Char('p') if ctrl => {
+                        p.move_by(-1);
+                        self.overlay = Overlay::Picker(p);
+                    }
                     KeyCode::Enter => {
                         let filter = p.filter.text();
-                        if matches!(p.on_pick, PickTarget::Action) && (filter.contains(' ') || filter.chars().next().map(|c| self.palette_trigger(c)).unwrap_or(false)) {
+                        if matches!(p.on_pick, PickTarget::Action)
+                            && (filter.contains(' ')
+                                || filter
+                                    .chars()
+                                    .next()
+                                    .map(|c| self.palette_trigger(c))
+                                    .unwrap_or(false))
+                        {
                             // "rename foo" typed into the palette runs as a command line.
                             self.run_command(&filter);
                         } else if let Some(row) = p.selected().cloned() {
@@ -121,8 +191,18 @@ impl App {
                             self.overlay = Overlay::Picker(p);
                         }
                     }
-                    KeyCode::PageUp => { for _ in 0..8 { p.move_by(-1); } self.overlay = Overlay::Picker(p); }
-                    KeyCode::PageDown => { for _ in 0..8 { p.move_by(1); } self.overlay = Overlay::Picker(p); }
+                    KeyCode::PageUp => {
+                        for _ in 0..8 {
+                            p.move_by(-1);
+                        }
+                        self.overlay = Overlay::Picker(p);
+                    }
+                    KeyCode::PageDown => {
+                        for _ in 0..8 {
+                            p.move_by(1);
+                        }
+                        self.overlay = Overlay::Picker(p);
+                    }
                     _ => {
                         if editor::handle_key(&mut p.filter, key) {
                             p.refilter();
@@ -130,10 +210,12 @@ impl App {
                         self.overlay = Overlay::Picker(p);
                     }
                 }
-                if is_agent && matches!(self.overlay, Overlay::None)
-                    && let Some(form) = self.parked_form.take() {
-                        self.overlay = form;
-                    }
+                if is_agent
+                    && matches!(self.overlay, Overlay::None)
+                    && let Some(form) = self.parked_form.take()
+                {
+                    self.overlay = form;
+                }
                 true
             }
             Overlay::NewSession(mut f) => {
@@ -149,22 +231,46 @@ impl App {
                     }
                     KeyCode::Enter => {
                         if f.field == 0 && !f.harnesses.is_empty() {
-                            let rows: Vec<PickRow> = f.harnesses.iter().map(|a| PickRow { value: a.clone(), label: a.clone(), header: false, group: String::new(), note: String::new() }).collect();
+                            let rows: Vec<PickRow> = f
+                                .harnesses
+                                .iter()
+                                .map(|a| PickRow {
+                                    value: a.clone(),
+                                    label: a.clone(),
+                                    header: false,
+                                    group: String::new(),
+                                    note: String::new(),
+                                })
+                                .collect();
                             let cur = f.harnesses.get(f.agent).cloned();
                             self.parked_form = Some(Overlay::NewSession(f));
-                            self.overlay = Overlay::Picker(Picker::new("Agent", rows, cur.as_deref(), PickTarget::Agent, "↑↓ · Enter or click picks · Esc"));
+                            self.overlay = Overlay::Picker(Picker::new(
+                                "Agent",
+                                rows,
+                                cur.as_deref(),
+                                PickTarget::Agent,
+                                "↑↓ · Enter or click picks · Esc",
+                            ));
                         } else {
                             self.submit_new_session(&f);
                         }
                     }
                     KeyCode::Left | KeyCode::Right if f.field == 0 => {
                         if !f.harnesses.is_empty() {
-                            f.agent = if key.code == KeyCode::Right { (f.agent + 1) % f.harnesses.len() } else { (f.agent + f.harnesses.len() - 1) % f.harnesses.len() };
+                            f.agent = if key.code == KeyCode::Right {
+                                (f.agent + 1) % f.harnesses.len()
+                            } else {
+                                (f.agent + f.harnesses.len() - 1) % f.harnesses.len()
+                            };
                         }
                         self.overlay = Overlay::NewSession(f);
                     }
                     KeyCode::Left | KeyCode::Right if f.field == 3 => {
-                        f.policy = if key.code == KeyCode::Right { (f.policy + 1) % POLICIES.len() } else { (f.policy + POLICIES.len() - 1) % POLICIES.len() };
+                        f.policy = if key.code == KeyCode::Right {
+                            (f.policy + 1) % POLICIES.len()
+                        } else {
+                            (f.policy + POLICIES.len() - 1) % POLICIES.len()
+                        };
                         self.overlay = Overlay::NewSession(f);
                     }
                     KeyCode::Char(c) if f.field == 0 && !ctrl => {
@@ -180,14 +286,26 @@ impl App {
                         self.overlay = Overlay::NewSession(f);
                     }
                     // Session names take only name characters; other fields take anything.
-                    KeyCode::Char(c) if f.field == 1 && !ctrl && !key.modifiers.contains(KeyModifiers::ALT) && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_' | '.') => {
+                    KeyCode::Char(c)
+                        if f.field == 1
+                            && !ctrl
+                            && !key.modifiers.contains(KeyModifiers::ALT)
+                            && !c.is_ascii_alphanumeric()
+                            && !matches!(c, '-' | '_' | '.') =>
+                    {
                         self.overlay = Overlay::NewSession(f);
                     }
                     _ => {
                         match f.field {
-                            1 => { editor::handle_key(&mut f.name, key); }
-                            2 => { editor::handle_key(&mut f.cwd, key); }
-                            4 => { editor::handle_key(&mut f.prompt, key); }
+                            1 => {
+                                editor::handle_key(&mut f.name, key);
+                            }
+                            2 => {
+                                editor::handle_key(&mut f.cwd, key);
+                            }
+                            4 => {
+                                editor::handle_key(&mut f.prompt, key);
+                            }
                             _ => {}
                         }
                         self.overlay = Overlay::NewSession(f);
@@ -244,30 +362,85 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match self.keymap.feed(key) {
             keymap::Match::Run(command) => {
-                if let Some(n) = command.strip_prefix("session-").and_then(|s| s.parse().ok()) { self.select_numbered(n); }
-                else { self.run_command(&command); }
+                if let Some(n) = command.strip_prefix("session-").and_then(|s| s.parse().ok()) {
+                    self.select_numbered(n);
+                } else {
+                    self.run_command(&command);
+                }
                 return;
             }
-            keymap::Match::Pending(hint) => { self.status = format!("chord · {hint}"); return; }
-            keymap::Match::Cancelled => { self.status = DEFAULT_STATUS.into(); return; }
+            keymap::Match::Pending(hint) => {
+                self.status = format!("chord · {hint}");
+                return;
+            }
+            keymap::Match::Cancelled => {
+                self.status = DEFAULT_STATUS.into();
+                return;
+            }
             keymap::Match::Pass => {}
         }
-        let plain = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
-        if plain && self.focus == Focus::Input
+        let plain = !key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
+        if plain
+            && self.focus == Focus::Input
             && let KeyCode::Char(c) = key.code
-                && self.skill_prefix.starts_with(c) && (self.editor().cursor() == 0 || self.editor().text().chars().nth(self.editor().cursor()-1).map(char::is_whitespace).unwrap_or(false)) {
-                    self.editor_mut().insert(c);
-                    self.open_skill_picker();
-                    if let Overlay::Picker(p) = &mut self.overlay { p.on_pick = PickTarget::Skill { replace_prefix: true }; }
-                    return;
-                }
+            && self.skill_prefix.starts_with(c)
+            && (self.editor().cursor() == 0
+                || self
+                    .editor()
+                    .text()
+                    .chars()
+                    .nth(self.editor().cursor() - 1)
+                    .map(char::is_whitespace)
+                    .unwrap_or(false))
+        {
+            self.editor_mut().insert(c);
+            self.open_skill_picker();
+            if let Overlay::Picker(p) = &mut self.overlay {
+                p.on_pick = PickTarget::Skill { replace_prefix: true };
+            }
+            return;
+        }
         match key.code {
-            KeyCode::Char('n') if ctrl => { match self.focus { Focus::Input => self.editor_mut().down(), Focus::Transcript => self.with_viewport(|v| v.scroll_by(1)), _ => self.select_step(1) }; return; }
-            KeyCode::Char('p') if ctrl => { match self.focus { Focus::Input => self.editor_mut().up(), Focus::Transcript => self.with_viewport(|v| v.scroll_by(-1)), _ => self.select_step(-1) }; return; }
-            KeyCode::Left if key.modifiers == KeyModifiers::ALT && (self.focus == Focus::Sidebar || self.editor().is_empty()) => { self.run_action(Action::SidebarNarrow, &[]); return; }
-            KeyCode::Right if key.modifiers == KeyModifiers::ALT && (self.focus == Focus::Sidebar || self.editor().is_empty()) => { self.run_action(Action::SidebarWiden, &[]); return; }
-            KeyCode::Home if self.focus != Focus::Input && self.editor().is_empty() => { self.with_viewport(|v| v.to_top()); return; }
-            KeyCode::End if self.editor().is_empty() => { self.with_viewport(|v| v.to_bottom()); return; }
+            KeyCode::Char('n') if ctrl => {
+                match self.focus {
+                    Focus::Input => self.editor_mut().down(),
+                    Focus::Transcript => self.with_viewport(|v| v.scroll_by(1)),
+                    _ => self.select_step(1),
+                };
+                return;
+            }
+            KeyCode::Char('p') if ctrl => {
+                match self.focus {
+                    Focus::Input => self.editor_mut().up(),
+                    Focus::Transcript => self.with_viewport(|v| v.scroll_by(-1)),
+                    _ => self.select_step(-1),
+                };
+                return;
+            }
+            KeyCode::Left
+                if key.modifiers == KeyModifiers::ALT
+                    && (self.focus == Focus::Sidebar || self.editor().is_empty()) =>
+            {
+                self.run_action(Action::SidebarNarrow, &[]);
+                return;
+            }
+            KeyCode::Right
+                if key.modifiers == KeyModifiers::ALT
+                    && (self.focus == Focus::Sidebar || self.editor().is_empty()) =>
+            {
+                self.run_action(Action::SidebarWiden, &[]);
+                return;
+            }
+            KeyCode::Home if self.focus != Focus::Input && self.editor().is_empty() => {
+                self.with_viewport(|v| v.to_top());
+                return;
+            }
+            KeyCode::End if self.editor().is_empty() => {
+                self.with_viewport(|v| v.to_bottom());
+                return;
+            }
             _ => {}
         }
         // Typing clears a selection, as in cmux.
@@ -298,14 +471,18 @@ impl App {
                 }
             },
             Focus::Transcript => match key.code {
-                KeyCode::Esc | KeyCode::Enter | KeyCode::Tab | KeyCode::Char('i') => self.focus = Focus::Input,
+                KeyCode::Esc | KeyCode::Enter | KeyCode::Tab | KeyCode::Char('i') => {
+                    self.focus = Focus::Input
+                }
                 KeyCode::Char('j') | KeyCode::Down => self.with_viewport(|v| v.scroll_by(1)),
                 KeyCode::Char('k') | KeyCode::Up => self.with_viewport(|v| v.scroll_by(-1)),
                 KeyCode::Char('d') => self.with_viewport(|v| v.page_down()),
                 KeyCode::Char('u') => self.with_viewport(|v| v.page_up()),
                 KeyCode::Char('g') | KeyCode::Home => self.with_viewport(|v| v.to_top()),
                 KeyCode::Char('G') | KeyCode::End => self.with_viewport(|v| v.to_bottom()),
-                    KeyCode::Char(c) if plain && self.palette_trigger(c) => self.run_action(Action::Palette, &[]),
+                KeyCode::Char(c) if plain && self.palette_trigger(c) => {
+                    self.run_action(Action::Palette, &[])
+                }
                 KeyCode::Char('?') => self.run_action(Action::Help, &[]),
                 KeyCode::Char('y') => self.run_action(Action::Allow, &[]),
                 KeyCode::Char('n') => self.run_action(Action::Deny, &[]),
@@ -317,7 +494,9 @@ impl App {
                 KeyCode::Char('j') | KeyCode::Down => self.select_step(1),
                 KeyCode::Char('k') | KeyCode::Up => self.select_step(-1),
                 KeyCode::Enter => self.focus = Focus::Input,
-                KeyCode::Char(c) if plain && self.palette_trigger(c) => self.run_action(Action::Palette, &[]),
+                KeyCode::Char(c) if plain && self.palette_trigger(c) => {
+                    self.run_action(Action::Palette, &[])
+                }
                 KeyCode::Char('?') => self.run_action(Action::Help, &[]),
                 KeyCode::Char('n') => self.run_action(Action::NewDraft, &[]),
                 KeyCode::Char('x') => self.run_action(Action::Stop, &[]),
@@ -342,7 +521,8 @@ impl App {
                         KeyCode::Char('y') => return self.answer_permission(PermChoice::Allow),
                         KeyCode::Char('n') => return self.answer_permission(PermChoice::Deny),
                         KeyCode::Char(c) if c.is_ascii_digit() && c != '0' => {
-                            return self.answer_permission(PermChoice::Index(c as usize - '1' as usize));
+                            return self
+                                .answer_permission(PermChoice::Index(c as usize - '1' as usize));
                         }
                         _ => {}
                     }
@@ -353,8 +533,16 @@ impl App {
                     KeyCode::Tab => self.focus = Focus::Sidebar,
                     // Esc interrupts a running agent first, like Claude Code.
                     KeyCode::Esc => {
-                        let list_running = self.selected_session().and_then(|s| s.get("status")).and_then(Value::as_str) == Some("running");
-                        let transcript_running = self.selected_id().and_then(|id| self.transcripts.get(&id)).map(|t| t.status == "running").unwrap_or(false);
+                        let list_running = self
+                            .selected_session()
+                            .and_then(|s| s.get("status"))
+                            .and_then(Value::as_str)
+                            == Some("running");
+                        let transcript_running = self
+                            .selected_id()
+                            .and_then(|id| self.transcripts.get(&id))
+                            .map(|t| t.status == "running")
+                            .unwrap_or(false);
                         if list_running || transcript_running {
                             self.run_action(Action::Cancel, &[]);
                         } else if !self.editor().is_empty() {
@@ -363,8 +551,14 @@ impl App {
                             self.discard_draft();
                         }
                     }
-                    KeyCode::Char(c) if plain && self.editor().is_empty() && self.palette_trigger(c) => self.run_action(Action::Palette, &[]),
-                    KeyCode::Char('?') if self.editor().is_empty() => self.run_action(Action::Help, &[]),
+                    KeyCode::Char(c)
+                        if plain && self.editor().is_empty() && self.palette_trigger(c) =>
+                    {
+                        self.run_action(Action::Palette, &[])
+                    }
+                    KeyCode::Char('?') if self.editor().is_empty() => {
+                        self.run_action(Action::Help, &[])
+                    }
                     KeyCode::Enter if alt || shift => self.editor_mut().insert('\n'),
                     KeyCode::Char('j') if ctrl => self.editor_mut().insert('\n'),
                     KeyCode::Enter => {
@@ -381,5 +575,4 @@ impl App {
             }
         }
     }
-
 }

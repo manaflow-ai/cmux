@@ -195,9 +195,10 @@ impl Chrome {
         }
         if let Ok(v) = std::env::var("COLORFGBG")
             && let Some(bg) = v.rsplit(';').next().and_then(|s| s.trim().parse::<u8>().ok())
-                && (bg == 7 || bg == 15) {
-                    return Self::light();
-                }
+            && (bg == 7 || bg == 15)
+        {
+            return Self::light();
+        }
         Self::dark()
     }
 
@@ -219,7 +220,10 @@ impl Chrome {
         self.status().fg(self.status_dim_fg)
     }
     pub fn status_active(&self) -> Style {
-        Style::default().bg(self.status_active_bg).fg(self.status_active_fg).add_modifier(Modifier::BOLD)
+        Style::default()
+            .bg(self.status_active_bg)
+            .fg(self.status_active_fg)
+            .add_modifier(Modifier::BOLD)
     }
     pub fn prompt(&self) -> Style {
         Style::default().bg(self.prompt_bg).fg(self.prompt_fg)
@@ -237,7 +241,10 @@ impl Chrome {
         // Filled chips: the accent one bright on a raised ground, the plain
         // one on the hover ground; hover brightens either.
         let mut s = if accent {
-            Style::default().bg(self.status_active_bg).fg(self.status_active_fg).add_modifier(Modifier::BOLD)
+            Style::default()
+                .bg(self.status_active_bg)
+                .fg(self.status_active_fg)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().bg(self.prompt_button_hover_bg).fg(self.prompt_fg)
         };
@@ -247,7 +254,10 @@ impl Chrome {
         s
     }
     pub fn selected_row(&self) -> Style {
-        Style::default().bg(self.sidebar_selected_bg).fg(self.sidebar_selected_fg).add_modifier(Modifier::BOLD)
+        Style::default()
+            .bg(self.sidebar_selected_bg)
+            .fg(self.sidebar_selected_fg)
+            .add_modifier(Modifier::BOLD)
     }
     pub fn rule(&self, focused: bool) -> (&'static str, Style) {
         if focused {

@@ -38,13 +38,18 @@ pub(crate) fn expand_session_key(key: &str) -> Result<String> {
 pub(crate) fn terminal_notify(title: &str, body: &str) {
     let clean = |s: &str| s.chars().filter(|c| !c.is_control()).collect::<String>();
     let (title, body) = (clean(title), clean(body));
-    let kitty = std::env::var("KITTY_WINDOW_ID").is_ok() || std::env::var("TERM").map(|t| t.contains("kitty")).unwrap_or(false);
+    let kitty = std::env::var("KITTY_WINDOW_ID").is_ok()
+        || std::env::var("TERM").map(|t| t.contains("kitty")).unwrap_or(false);
     let seq = if kitty {
         format!("\x1b]99;i=1:d=0;{title}\x1b\\\x1b]99;i=1:p=body;{body}\x1b\\")
     } else {
         format!("\x1b]9;{title}: {body}\x1b\\")
     };
-    let seq = if std::env::var("TMUX").is_ok() { format!("\x1bPtmux;{}\x1b\\", seq.replace('\x1b', "\x1b\x1b")) } else { seq };
+    let seq = if std::env::var("TMUX").is_ok() {
+        format!("\x1bPtmux;{}\x1b\\", seq.replace('\x1b', "\x1b\x1b"))
+    } else {
+        seq
+    };
     let mut out = std::io::stderr();
     let _ = out.write_all(seq.as_bytes());
     let _ = out.flush();
@@ -77,7 +82,12 @@ impl Matcher {
 /// What the agent produced (replies, tool output, thoughts), for --match.
 /// Your own prompts are left out so a wait cannot match its own words.
 fn transcript_text(t: &Transcript) -> String {
-    t.items.iter().filter(|i| !matches!(i, acpmux::transcript::Item::User { .. })).map(acpmux::transcript::item_text).collect::<Vec<_>>().join("\n")
+    t.items
+        .iter()
+        .filter(|i| !matches!(i, acpmux::transcript::Item::User { .. }))
+        .map(acpmux::transcript::item_text)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// `acpmux wait`: server-side state wait, or a client-side text match.
@@ -91,7 +101,9 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
     }
     if let Some(matcher) = &opts.matcher {
         if ids.is_empty() {
-            return Err(AppError::usage("--match and --regex need at least one session name").into());
+            return Err(
+                AppError::usage("--match and --regex need at least one session name").into()
+            );
         }
         return wait_match(client, &ids, matcher, opts.timeout, opts.notify, json_out).await;
     }
@@ -121,13 +133,24 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         let name = s.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
         let status = s.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
         let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
-        let reply = if opts.print || json_out { last_replies(&client, &id, 1).await.unwrap_or_default().pop().unwrap_or_default() } else { String::new() };
+        let reply = if opts.print || json_out {
+            last_replies(&client, &id, 1).await.unwrap_or_default().pop().unwrap_or_default()
+        } else {
+            String::new()
+        };
         if pending > 0 {
             code = code.max(2);
         }
         rows.push(json!({"name": name, "sessionId": id, "status": status, "pendingPermissions": pending, "unread": s.get("unread"), "matched": s.get("matched"), "reply": reply}));
         if opts.notify {
-            terminal_notify("acpmux", &if pending > 0 { format!("{name} needs a permission") } else { format!("{name} finished") });
+            terminal_notify(
+                "acpmux",
+                &if pending > 0 {
+                    format!("{name} needs a permission")
+                } else {
+                    format!("{name} finished")
+                },
+            );
         }
     }
     if timed_out {
@@ -139,7 +162,8 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         for r in &rows {
             let g = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
             let pend = r.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
-            let state = if pend > 0 { format!("waiting for permission ({pend})") } else { g("status") };
+            let state =
+                if pend > 0 { format!("waiting for permission ({pend})") } else { g("status") };
             println!("{:<24} {}", g("name"), state);
             if opts.print && !g("reply").is_empty() {
                 println!("{}", g("reply"));
@@ -158,8 +182,16 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
 
 /// Resolve when a session's transcript contains the text. Existing text
 /// matches at once; then live updates are followed.
-async fn wait_match(client: Arc<Client>, ids: &[(String, String)], matcher: &Matcher, timeout: Option<u64>, notify: bool, json_out: bool) -> Result<()> {
-    let mut notes = client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
+async fn wait_match(
+    client: Arc<Client>,
+    ids: &[(String, String)],
+    matcher: &Matcher,
+    timeout: Option<u64>,
+    notify: bool,
+    json_out: bool,
+) -> Result<()> {
+    let mut notes =
+        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     let mut transcripts: Vec<(String, String, Transcript)> = Vec::new();
     for (name, id) in ids {
         let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
@@ -171,12 +203,17 @@ async fn wait_match(client: Arc<Client>, ids: &[(String, String)], matcher: &Mat
     }
     let report = |name: &str, id: &str, line: &str| {
         if json_out {
-            print_json(&json!({"sessions": [{"name": name, "sessionId": id, "matched": ["text"], "line": line}], "timedOut": false}));
+            print_json(
+                &json!({"sessions": [{"name": name, "sessionId": id, "matched": ["text"], "line": line}], "timedOut": false}),
+            );
         } else {
             println!("{name:<24} matched: {line}");
         }
         if notify {
-            terminal_notify("acpmux", &format!("{name}: {}", line.chars().take(80).collect::<String>()));
+            terminal_notify(
+                "acpmux",
+                &format!("{name}: {}", line.chars().take(80).collect::<String>()),
+            );
         }
     };
     for (name, id, t) in &transcripts {
@@ -191,15 +228,23 @@ async fn wait_match(client: Arc<Client>, ids: &[(String, String)], matcher: &Mat
         let m = match deadline {
             Some(d) => match tokio::time::timeout_at(d, next).await {
                 Ok(m) => m,
-                Err(_) => return Err(AppError::timeout("no session produced the text in time").into()),
+                Err(_) => {
+                    return Err(AppError::timeout("no session produced the text in time").into());
+                }
             },
             None => next.await,
         };
-        let Some(Message::Notification { method: m, params }) = m else { return Err(client.closed("following the session events")) };
-        if m == method::MUX_DISCONNECTED { return Err(client.closed("following the session events")); }
+        let Some(Message::Notification { method: m, params }) = m else {
+            return Err(client.closed("following the session events"));
+        };
+        if m == method::MUX_DISCONNECTED {
+            return Err(client.closed("following the session events"));
+        }
         let p = params.unwrap_or(Value::Null);
         let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-        let Some((name, id, t)) = transcripts.iter_mut().find(|(_, id, _)| *id == sid) else { continue };
+        let Some((name, id, t)) = transcripts.iter_mut().find(|(_, id, _)| *id == sid) else {
+            continue;
+        };
         match m.as_str() {
             method::SESSION_UPDATE => t.apply_update(&p),
             method::MUX_EVENT => t.apply_event(&p),
@@ -223,12 +268,33 @@ pub(crate) fn split_target(spec: &str) -> (String, Option<String>) {
     }
 }
 
-pub(crate) async fn ensure(client: Arc<Client>, name: &str, target: Option<String>, preset: Option<String>, host: Option<String>, cwd: Option<std::path::PathBuf>, policy: Option<String>, effort: Option<String>, json_out: bool) -> Result<()> {
-    let (agent, model) = match &target { Some(t) => { let (h, m) = split_target(t); (Some(h), m) } None => (None, None) };
+pub(crate) async fn ensure(
+    client: Arc<Client>,
+    name: &str,
+    target: Option<String>,
+    preset: Option<String>,
+    host: Option<String>,
+    cwd: Option<std::path::PathBuf>,
+    policy: Option<String>,
+    effort: Option<String>,
+    json_out: bool,
+) -> Result<()> {
+    let (agent, model) = match &target {
+        Some(t) => {
+            let (h, m) = split_target(t);
+            (Some(h), m)
+        }
+        None => (None, None),
+    };
     acpmux::session_name::validate(name).map_err(AppError::usage)?;
     let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
-    let full = match &host { Some(h) => format!("{h}/{name}"), None => name.to_owned() };
-    let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| a.iter().find(|s| s.get("name").and_then(Value::as_str) == Some(full.as_str())).cloned());
+    let full = match &host {
+        Some(h) => format!("{h}/{name}"),
+        None => name.to_owned(),
+    };
+    let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| {
+        a.iter().find(|s| s.get("name").and_then(Value::as_str) == Some(full.as_str())).cloned()
+    });
     let (v, created) = match found {
         Some(s) => (s, false),
         None => {
@@ -268,13 +334,22 @@ pub(crate) async fn ensure(client: Arc<Client>, name: &str, target: Option<Strin
         out["created"] = json!(created);
         print_json(&out);
     } else {
-        println!("{} {name} ({})", if created { "created" } else { "found" }, &id[..8.min(id.len())]);
+        println!(
+            "{} {name} ({})",
+            if created { "created" } else { "found" },
+            &id[..8.min(id.len())]
+        );
     }
     Ok(())
 }
 
 /// `acpmux history NAME`.
-pub(crate) async fn history(client: Arc<Client>, key: &str, limit: usize, json_out: bool) -> Result<()> {
+pub(crate) async fn history(
+    client: Arc<Client>,
+    key: &str,
+    limit: usize,
+    json_out: bool,
+) -> Result<()> {
     let id = resolve_id(&client, &expand_session_key(key)?).await?;
     let v = client.request(method::MUX_HISTORY, json!({"sessionId": id, "limit": limit})).await?;
     if json_out {
@@ -289,42 +364,84 @@ pub(crate) async fn history(client: Arc<Client>, key: &str, limit: usize, json_o
     println!("{:<5} {:<10} {:>7} {:>5} {:>8} PROMPT", "SEQ", "STATUS", "WALL", "TOOLS", "TOKENS");
     for t in turns {
         let g = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-        let wall = t.get("wallMs").and_then(Value::as_u64).map(|ms| format!("{:.1}s", ms as f64 / 1000.0)).unwrap_or_else(|| "-".into());
-        let tokens = t.get("tokens").and_then(Value::as_u64).map(|n| n.to_string()).unwrap_or_else(|| "-".into());
-        println!("{:<5} {:<10} {:>7} {:>5} {:>8} {}", t.get("seq").and_then(Value::as_u64).unwrap_or(0), g("status"), wall, t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0), tokens, short(&g("prompt"), 60));
+        let wall = t
+            .get("wallMs")
+            .and_then(Value::as_u64)
+            .map(|ms| format!("{:.1}s", ms as f64 / 1000.0))
+            .unwrap_or_else(|| "-".into());
+        let tokens = t
+            .get("tokens")
+            .and_then(Value::as_u64)
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "-".into());
+        println!(
+            "{:<5} {:<10} {:>7} {:>5} {:>8} {}",
+            t.get("seq").and_then(Value::as_u64).unwrap_or(0),
+            g("status"),
+            wall,
+            t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0),
+            tokens,
+            short(&g("prompt"), 60)
+        );
     }
     Ok(())
 }
 
 /// `acpmux session tag NAME k=v… [--remove k] [--ttl S]`.
-pub(crate) async fn tag(client: Arc<Client>, key: &str, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64>, json_out: bool) -> Result<()> {
+pub(crate) async fn tag(
+    client: Arc<Client>,
+    key: &str,
+    assignments: Vec<String>,
+    remove: Vec<String>,
+    ttl: Option<u64>,
+    json_out: bool,
+) -> Result<()> {
     let id = resolve_id(&client, &expand_session_key(key)?).await?;
     let mut set = serde_json::Map::new();
     for a in &assignments {
-        let (k, v) = a.split_once('=').ok_or_else(|| AppError::usage(format!("tag must be key=value, got {a:?}")))?;
+        let (k, v) = a
+            .split_once('=')
+            .ok_or_else(|| AppError::usage(format!("tag must be key=value, got {a:?}")))?;
         set.insert(k.to_owned(), json!(v));
     }
-    let v = client.request(method::MUX_TAG, json!({"sessionId": id, "set": set, "remove": remove, "ttlSeconds": ttl})).await?;
+    let v = client
+        .request(
+            method::MUX_TAG,
+            json!({"sessionId": id, "set": set, "remove": remove, "ttlSeconds": ttl}),
+        )
+        .await?;
     if json_out {
         print_json(&v);
     } else {
         let tags = v.get("tags").and_then(Value::as_object).cloned().unwrap_or_default();
-        let list: Vec<String> = tags.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or(""))).collect();
+        let list: Vec<String> =
+            tags.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or(""))).collect();
         println!("{}", if list.is_empty() { "no tags".to_owned() } else { list.join(" ") });
     }
     Ok(())
 }
 
 /// `acpmux session rules NAME '{json}' | @file | --clear`.
-pub(crate) async fn rules(client: Arc<Client>, key: &str, rules: Option<String>, clear: bool, json_out: bool) -> Result<()> {
+pub(crate) async fn rules(
+    client: Arc<Client>,
+    key: &str,
+    rules: Option<String>,
+    clear: bool,
+    json_out: bool,
+) -> Result<()> {
     let id = resolve_id(&client, &expand_session_key(key)?).await?;
     let value: Value = if clear {
         Value::Null
     } else {
         match rules {
             Some(r) => {
-                let text = if let Some(path) = r.strip_prefix('@') { std::fs::read_to_string(path)? } else { r };
-                serde_json::from_str(&text).map_err(|e| AppError::usage(format!("rules must be JSON: {e}")))?
+                let text = if let Some(path) = r.strip_prefix('@') {
+                    std::fs::read_to_string(path)?
+                } else {
+                    r
+                };
+                serde_json::from_str(&text)
+                    .map_err(|e| AppError::usage(format!("rules must be JSON: {e}")))?
             }
             None => {
                 let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
@@ -344,14 +461,29 @@ pub(crate) async fn rules(client: Arc<Client>, key: &str, rules: Option<String>,
     if json_out {
         print_json(&v);
     } else {
-        println!("{}", if v.get("rules").and_then(Value::as_bool).unwrap_or(false) { "rules set" } else { "rules cleared" });
+        println!(
+            "{}",
+            if v.get("rules").and_then(Value::as_bool).unwrap_or(false) {
+                "rules set"
+            } else {
+                "rules cleared"
+            }
+        );
     }
     Ok(())
 }
 
 /// `acpmux compare a b "prompt"`: one temporary session per harness, run
 /// one after another in the same directory so writes cannot race.
-pub(crate) async fn compare(client: Arc<Client>, harnesses: Vec<String>, prompt: String, cwd: Option<std::path::PathBuf>, policy: Option<String>, timeout: Option<u64>, json_out: bool) -> Result<()> {
+pub(crate) async fn compare(
+    client: Arc<Client>,
+    harnesses: Vec<String>,
+    prompt: String,
+    cwd: Option<std::path::PathBuf>,
+    policy: Option<String>,
+    timeout: Option<u64>,
+    json_out: bool,
+) -> Result<()> {
     let agents = harnesses;
     if agents.is_empty() {
         return Err(AppError::usage("compare needs at least one harness").into());
@@ -362,7 +494,11 @@ pub(crate) async fn compare(client: Arc<Client>, harnesses: Vec<String>, prompt:
     for spec in &agents {
         let (agent, model) = split_target(spec);
         let agent = &agent;
-        let name = format!("compare-{}-{}", agent.replace('/', "-"), &uuid::Uuid::now_v7().to_string()[..8]);
+        let name = format!(
+            "compare-{}-{}",
+            agent.replace('/', "-"),
+            &uuid::Uuid::now_v7().to_string()[..8]
+        );
         let mut meta = json!({"name": name, "harness": agent});
         if let Some(m) = &model {
             meta["model"] = json!(m);
@@ -371,17 +507,36 @@ pub(crate) async fn compare(client: Arc<Client>, harnesses: Vec<String>, prompt:
             meta["policy"] = json!(p);
         }
         let started = std::time::Instant::now();
-        let created = client.request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}})).await;
+        let created = client
+            .request(
+                method::SESSION_NEW,
+                json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+            )
+            .await;
         let row = match created {
             Err(e) => json!({"harness": spec, "status": "error", "error": e.to_string()}),
             Ok(v) => {
                 let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-                let outcome = collect_reply(client.clone(), &id, &prompt, CollectOpts { timeout, on_permission: OnPermission::Wait, stall_secs: 0, retries: 0 }).await;
+                let outcome = collect_reply(
+                    client.clone(),
+                    &id,
+                    &prompt,
+                    CollectOpts {
+                        timeout,
+                        on_permission: OnPermission::Wait,
+                        stall_secs: 0,
+                        retries: 0,
+                    },
+                )
+                .await;
                 let wall = started.elapsed().as_millis() as u64;
                 let stats = turn_stats(&client, &id).await;
-                let _ = client.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await;
+                let _ =
+                    client.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await;
                 match outcome {
-                    Ok(r) => json!({"harness": spec, "status": if r.stop_reason == "cancelled" { "cancelled" } else { "ok" }, "stopReason": r.stop_reason, "wallMs": wall, "tokens": stats.0, "toolCalls": stats.1, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "reply": r.reply.chars().take(200).collect::<String>()}),
+                    Ok(r) => {
+                        json!({"harness": spec, "status": if r.stop_reason == "cancelled" { "cancelled" } else { "ok" }, "stopReason": r.stop_reason, "wallMs": wall, "tokens": stats.0, "toolCalls": stats.1, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "reply": r.reply.chars().take(200).collect::<String>()})
+                    }
                     Err(e) => {
                         let app = crate::cli::errors::classify(&e);
                         worst = worst.max(app.code as i32);
@@ -395,13 +550,34 @@ pub(crate) async fn compare(client: Arc<Client>, harnesses: Vec<String>, prompt:
     if json_out {
         print_json(&json!({"prompt": prompt, "results": rows}));
     } else {
-        println!("{:<10} {:<10} {:>8} {:>7} {:>5} {:>5} REPLY", "AGENT", "STATUS", "WALL", "TOKENS", "TOOLS", "PERMS");
+        println!(
+            "{:<10} {:<10} {:>8} {:>7} {:>5} {:>5} REPLY",
+            "AGENT", "STATUS", "WALL", "TOKENS", "TOOLS", "PERMS"
+        );
         for r in &rows {
             let g = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-            let n = |k: &str| r.get(k).and_then(Value::as_u64).map(|v| v.to_string()).unwrap_or_else(|| "-".into());
-            let wall = r.get("wallMs").and_then(Value::as_u64).map(|ms| format!("{:.1}s", ms as f64 / 1000.0)).unwrap_or_else(|| "-".into());
+            let n = |k: &str| {
+                r.get(k)
+                    .and_then(Value::as_u64)
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".into())
+            };
+            let wall = r
+                .get("wallMs")
+                .and_then(Value::as_u64)
+                .map(|ms| format!("{:.1}s", ms as f64 / 1000.0))
+                .unwrap_or_else(|| "-".into());
             let text = if g("reply").is_empty() { g("error") } else { g("reply") };
-            println!("{:<10} {:<10} {:>8} {:>7} {:>5} {:>5} {}", short(&g("harness"), 10), g("status"), wall, n("tokens"), n("toolCalls"), n("permissions"), short(&text.replace('\n', " "), 60));
+            println!(
+                "{:<10} {:<10} {:>8} {:>7} {:>5} {:>5} {}",
+                short(&g("harness"), 10),
+                g("status"),
+                wall,
+                n("tokens"),
+                n("toolCalls"),
+                n("permissions"),
+                short(&text.replace('\n', " "), 60)
+            );
         }
     }
     if worst != 0 {
@@ -412,24 +588,49 @@ pub(crate) async fn compare(client: Arc<Client>, harnesses: Vec<String>, prompt:
 
 /// (tokens, tool calls) of the last turn, from history.
 async fn turn_stats(client: &Arc<Client>, id: &str) -> (Option<u64>, u64) {
-    let h = client.request(method::MUX_HISTORY, json!({"sessionId": id, "limit": 1})).await.unwrap_or(Value::Null);
-    let t = h.get("turns").and_then(Value::as_array).and_then(|a| a.last()).cloned().unwrap_or(Value::Null);
-    (t.get("tokens").and_then(Value::as_u64), t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0))
+    let h = client
+        .request(method::MUX_HISTORY, json!({"sessionId": id, "limit": 1}))
+        .await
+        .unwrap_or(Value::Null);
+    let t = h
+        .get("turns")
+        .and_then(Value::as_array)
+        .and_then(|a| a.last())
+        .cloned()
+        .unwrap_or(Value::Null);
+    (
+        t.get("tokens").and_then(Value::as_u64),
+        t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0),
+    )
 }
 
 /// `acpmux session tail NAME [--since CURSOR] [--last N] [-f]`.
-pub(crate) async fn tail(client: Arc<Client>, key: &str, last: u64, since: Option<String>, follow: bool, suppress_reads: bool) -> Result<()> {
+pub(crate) async fn tail(
+    client: Arc<Client>,
+    key: &str,
+    last: u64,
+    since: Option<String>,
+    follow: bool,
+    suppress_reads: bool,
+) -> Result<()> {
     let id = resolve_id(&client, &expand_session_key(key)?).await?;
-    let mut notes = client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
+    let mut notes =
+        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     let events: Vec<Value> = match since {
         Some(cursor) => {
             let seq = parse_cursor(&cursor, &id)?;
-            let v = client.request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": seq, "limit": 100000})).await?;
+            let v = client
+                .request(
+                    method::MUX_EVENTS,
+                    json!({"sessionId": id, "afterSeq": seq, "limit": 100000}),
+                )
+                .await?;
             client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
             v.get("events").and_then(Value::as_array).cloned().unwrap_or_default()
         }
         None => {
-            let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": last})).await?;
+            let v =
+                client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": last})).await?;
             v.get("events").and_then(Value::as_array).cloned().unwrap_or_default()
         }
     };
@@ -453,7 +654,11 @@ pub(crate) async fn tail(client: Arc<Client>, key: &str, last: u64, since: Optio
                 continue;
             }
             let mut lock = stdout.lock();
-            let line = if m == method::MUX_EVENT { with_cursor(&id, filter(&mut sup, p)) } else { json!({"method": m, "params": p}) };
+            let line = if m == method::MUX_EVENT {
+                with_cursor(&id, filter(&mut sup, p))
+            } else {
+                json!({"method": m, "params": p})
+            };
             let _ = writeln!(lock, "{line}");
         }
     }
@@ -467,10 +672,23 @@ pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
         None => (None, cursor),
     };
     if let Some(s) = sid
-        && s != id {
-            return Err(AppError::new(Code::Usage, "cursor_foreign", format!("cursor belongs to session {s}, not {id}")).into());
-        }
-    seq.parse::<u64>().map_err(|_| AppError::new(Code::Usage, "cursor_invalid", format!("cursor {cursor:?} is not <sessionId>:<seq>")).into())
+        && s != id
+    {
+        return Err(AppError::new(
+            Code::Usage,
+            "cursor_foreign",
+            format!("cursor belongs to session {s}, not {id}"),
+        )
+        .into());
+    }
+    seq.parse::<u64>().map_err(|_| {
+        AppError::new(
+            Code::Usage,
+            "cursor_invalid",
+            format!("cursor {cursor:?} is not <sessionId>:<seq>"),
+        )
+        .into()
+    })
 }
 
 fn with_cursor(id: &str, mut e: Value) -> Value {
@@ -495,27 +713,34 @@ impl ReadSuppressor {
         let kind = e.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
         let placeholder = "[read output suppressed]";
         if kind == "tool_call" || kind == "tool_call_update" {
-            let id = e.pointer("/msg/params/update/toolCallId").and_then(Value::as_str).map(str::to_owned);
-            let is_read_kind = e.pointer("/msg/params/update/kind").and_then(Value::as_str).map(|k| matches!(k, "read" | "search" | "fetch")).unwrap_or(false);
-            if is_read_kind
-                && let Some(id) = &id {
-                    self.read_ids.insert(id.clone());
+            let id = e
+                .pointer("/msg/params/update/toolCallId")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let is_read_kind = e
+                .pointer("/msg/params/update/kind")
+                .and_then(Value::as_str)
+                .map(|k| matches!(k, "read" | "search" | "fetch"))
+                .unwrap_or(false);
+            if is_read_kind && let Some(id) = &id {
+                self.read_ids.insert(id.clone());
+            }
+            let is_read =
+                is_read_kind || id.as_ref().map(|i| self.read_ids.contains(i)).unwrap_or(false);
+            if is_read && let Some(u) = e.pointer_mut("/msg/params/update") {
+                if u.get("content").is_some() {
+                    u["content"] = json!([{"type": "content", "content": {"type": "text", "text": placeholder}}]);
                 }
-            let is_read = is_read_kind || id.as_ref().map(|i| self.read_ids.contains(i)).unwrap_or(false);
-            if is_read
-                && let Some(u) = e.pointer_mut("/msg/params/update") {
-                    if u.get("content").is_some() {
-                        u["content"] = json!([{"type": "content", "content": {"type": "text", "text": placeholder}}]);
-                    }
-                    if u.get("rawOutput").is_some() {
-                        u["rawOutput"] = json!(placeholder);
-                    }
+                if u.get("rawOutput").is_some() {
+                    u["rawOutput"] = json!(placeholder);
                 }
+            }
         } else if kind == "claude.user" && e.pointer("/msg/tool_use_result/file").is_some() {
             if let Some(f) = e.pointer_mut("/msg/tool_use_result/file")
-                && f.get("content").is_some() {
-                    f["content"] = json!(placeholder);
-                }
+                && f.get("content").is_some()
+            {
+                f["content"] = json!(placeholder);
+            }
             if let Some(arr) = e.pointer_mut("/msg/message/content").and_then(Value::as_array_mut) {
                 for c in arr {
                     if c.get("content").is_some() {
@@ -547,14 +772,29 @@ mod tests {
         sup.apply(announce);
         let update = json!({"kind": "tool_call_update", "msg": {"params": {"update": {"toolCallId": "t1", "content": [{"type": "content", "content": {"type": "text", "text": "secret"}}], "rawOutput": "secret"}}}});
         let out = sup.apply(update);
-        assert_eq!(out.pointer("/msg/params/update/rawOutput").unwrap(), "[read output suppressed]");
-        assert!(out.pointer("/msg/params/update/content/0/content/text").unwrap().as_str().unwrap().contains("suppressed"));
+        assert_eq!(
+            out.pointer("/msg/params/update/rawOutput").unwrap(),
+            "[read output suppressed]"
+        );
+        assert!(
+            out.pointer("/msg/params/update/content/0/content/text")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .contains("suppressed")
+        );
         let exec = json!({"kind": "tool_call_update", "msg": {"params": {"update": {"toolCallId": "t2", "kind": "execute", "rawOutput": "kept"}}}});
         assert_eq!(sup.apply(exec).pointer("/msg/params/update/rawOutput").unwrap(), "kept");
         let raw = json!({"kind": "claude.user", "msg": {"tool_use_result": {"file": {"content": "secret"}}, "message": {"content": [{"type": "tool_result", "content": "secret"}]}}});
         let out = sup.apply(raw);
-        assert_eq!(out.pointer("/msg/tool_use_result/file/content").unwrap(), "[read output suppressed]");
-        assert_eq!(out.pointer("/msg/message/content/0/content").unwrap(), "[read output suppressed]");
+        assert_eq!(
+            out.pointer("/msg/tool_use_result/file/content").unwrap(),
+            "[read output suppressed]"
+        );
+        assert_eq!(
+            out.pointer("/msg/message/content/0/content").unwrap(),
+            "[read output suppressed]"
+        );
     }
 
     #[test]
@@ -566,7 +806,13 @@ mod tests {
 }
 
 /// `acpmux defaults [FAMILY [key=value…]] [--clear]`.
-pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs: Vec<String>, clear: bool, json_out: bool) -> Result<()> {
+pub(crate) async fn defaults(
+    client: Arc<Client>,
+    family: Option<String>,
+    pairs: Vec<String>,
+    clear: bool,
+    json_out: bool,
+) -> Result<()> {
     let mut req = json!({});
     if let Some(f) = &family {
         req["family"] = json!(f);
@@ -579,23 +825,45 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
     }
     if !pairs.is_empty() {
         if family.is_none() {
-            return Err(AppError::usage("key=value pairs need a family: acpmux defaults claude model=…").into());
+            return Err(AppError::usage(
+                "key=value pairs need a family: acpmux defaults claude model=…",
+            )
+            .into());
         }
         let mut set = serde_json::Map::new();
         let mut env = serde_json::Map::new();
         for pair in &pairs {
-            let (k, v) = pair.split_once('=').ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
+            let (k, v) = pair
+                .split_once('=')
+                .ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
             match k {
                 "model" | "effort" | "policy" => {
                     set.insert(k.into(), if v.is_empty() { Value::Null } else { json!(v) });
                 }
                 "prefer" => {
-                    set.insert(k.into(), if v.is_empty() { Value::Null } else { json!(v.split(',').map(str::trim).filter(|s| !s.is_empty()).collect::<Vec<_>>()) });
+                    set.insert(
+                        k.into(),
+                        if v.is_empty() {
+                            Value::Null
+                        } else {
+                            json!(
+                                v.split(',')
+                                    .map(str::trim)
+                                    .filter(|s| !s.is_empty())
+                                    .collect::<Vec<_>>()
+                            )
+                        },
+                    );
                 }
                 _ if k.starts_with("env.") => {
                     env.insert(k[4..].into(), json!(v));
                 }
-                _ => return Err(AppError::usage(format!("unknown key {k:?}; use model, effort, policy, prefer, env.KEY")).into()),
+                _ => {
+                    return Err(AppError::usage(format!(
+                        "unknown key {k:?}; use model, effort, policy, prefer, env.KEY"
+                    ))
+                    .into());
+                }
             }
         }
         if !env.is_empty() {
@@ -610,12 +878,36 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
     }
     let row = |f: &str, d: &Value| {
         let g = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or("-").to_owned();
-        let prefer = d.get("prefer").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(",")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".into());
-        let env = d.get("env").and_then(Value::as_object).map(|o| o.keys().cloned().collect::<Vec<_>>().join(",")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".into());
-        let profile = d.get("profile").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| "? (ambiguous)".into());
-        println!("{f:<12} {:<14} {:<34} {:<8} {:<14} {:<20} {env}", profile, g("model"), g("effort"), g("policy"), prefer);
+        let prefer = d
+            .get("prefer")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(","))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "-".into());
+        let env = d
+            .get("env")
+            .and_then(Value::as_object)
+            .map(|o| o.keys().cloned().collect::<Vec<_>>().join(","))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "-".into());
+        let profile = d
+            .get("profile")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| "? (ambiguous)".into());
+        println!(
+            "{f:<12} {:<14} {:<34} {:<8} {:<14} {:<20} {env}",
+            profile,
+            g("model"),
+            g("effort"),
+            g("policy"),
+            prefer
+        );
     };
-    println!("{:<12} {:<14} {:<34} {:<8} {:<14} {:<20} ENV", "FAMILY", "PROFILE", "MODEL", "EFFORT", "POLICY", "PREFER");
+    println!(
+        "{:<12} {:<14} {:<34} {:<8} {:<14} {:<20} ENV",
+        "FAMILY", "PROFILE", "MODEL", "EFFORT", "POLICY", "PREFER"
+    );
     match (&family, v.get("families").and_then(Value::as_object)) {
         (Some(f), _) => row(f, &v),
         (None, Some(fams)) => {
@@ -629,7 +921,13 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
 }
 
 /// `acpmux preset [NAME [key=value…]] [--clear]`.
-pub(crate) async fn preset(client: Arc<Client>, name: Option<String>, pairs: Vec<String>, clear: bool, json_out: bool) -> Result<()> {
+pub(crate) async fn preset(
+    client: Arc<Client>,
+    name: Option<String>,
+    pairs: Vec<String>,
+    clear: bool,
+    json_out: bool,
+) -> Result<()> {
     let mut req = json!({});
     if let Some(n) = &name {
         req["name"] = json!(n);
@@ -642,12 +940,17 @@ pub(crate) async fn preset(client: Arc<Client>, name: Option<String>, pairs: Vec
     }
     if !pairs.is_empty() {
         if name.is_none() {
-            return Err(AppError::usage("key=value pairs need a preset name: acpmux preset NAME harness=…").into());
+            return Err(AppError::usage(
+                "key=value pairs need a preset name: acpmux preset NAME harness=…",
+            )
+            .into());
         }
         let mut set = serde_json::Map::new();
         let mut env = serde_json::Map::new();
         for pair in &pairs {
-            let (k, v) = pair.split_once('=').ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
+            let (k, v) = pair
+                .split_once('=')
+                .ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
             match k {
                 "harness" | "model" | "effort" | "policy" | "description" => {
                     set.insert(k.into(), if v.is_empty() { Value::Null } else { json!(v) });
@@ -658,7 +961,10 @@ pub(crate) async fn preset(client: Arc<Client>, name: Option<String>, pairs: Vec
                 "env" if v.is_empty() => {
                     set.insert("env".into(), Value::Null);
                 }
-                _ => return Err(AppError::usage(format!("unknown key {k:?}; use harness, model, effort, policy, description, env.KEY")).into()),
+                _ => return Err(AppError::usage(format!(
+                    "unknown key {k:?}; use harness, model, effort, policy, description, env.KEY"
+                ))
+                .into()),
             }
         }
         if !env.is_empty() {
@@ -673,11 +979,35 @@ pub(crate) async fn preset(client: Arc<Client>, name: Option<String>, pairs: Vec
     }
     let row = |p: &Value| {
         let g = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("-").to_owned();
-        let env = p.get("env").and_then(Value::as_object).map(|o| o.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or(""))).collect::<Vec<_>>().join(" ")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".into());
-        let profile = p.get("profile").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| format!("? ({})", p.get("error").and_then(Value::as_str).unwrap_or("unresolved")));
-        println!("{:<12} {:<12} {:<14} {:<34} {:<8} {:<14} {env}", g("name"), g("harness"), profile, g("model"), g("effort"), g("policy"));
+        let env = p
+            .get("env")
+            .and_then(Value::as_object)
+            .map(|o| {
+                o.iter()
+                    .map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or("")))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "-".into());
+        let profile =
+            p.get("profile").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| {
+                format!("? ({})", p.get("error").and_then(Value::as_str).unwrap_or("unresolved"))
+            });
+        println!(
+            "{:<12} {:<12} {:<14} {:<34} {:<8} {:<14} {env}",
+            g("name"),
+            g("harness"),
+            profile,
+            g("model"),
+            g("effort"),
+            g("policy")
+        );
     };
-    println!("{:<12} {:<12} {:<14} {:<34} {:<8} {:<14} ENV", "PRESET", "HARNESS", "PROFILE", "MODEL", "EFFORT", "POLICY");
+    println!(
+        "{:<12} {:<12} {:<14} {:<34} {:<8} {:<14} ENV",
+        "PRESET", "HARNESS", "PROFILE", "MODEL", "EFFORT", "POLICY"
+    );
     match v.get("presets").and_then(Value::as_array) {
         Some(list) => {
             for p in list {
@@ -695,8 +1025,14 @@ mod target_tests {
     fn splits_on_the_first_slash_only() {
         assert_eq!(super::split_target("claude"), ("claude".into(), None));
         assert_eq!(super::split_target("claude/opus"), ("claude".into(), Some("opus".into())));
-        assert_eq!(super::split_target("opencode/zai/glm-5.1"), ("opencode".into(), Some("zai/glm-5.1".into())));
-        assert_eq!(super::split_target("pi/openrouter/deepseek/deepseek-v4"), ("pi".into(), Some("openrouter/deepseek/deepseek-v4".into())));
+        assert_eq!(
+            super::split_target("opencode/zai/glm-5.1"),
+            ("opencode".into(), Some("zai/glm-5.1".into()))
+        );
+        assert_eq!(
+            super::split_target("pi/openrouter/deepseek/deepseek-v4"),
+            ("pi".into(), Some("openrouter/deepseek/deepseek-v4".into()))
+        );
         assert_eq!(super::split_target("codex/"), ("codex".into(), None));
     }
 }

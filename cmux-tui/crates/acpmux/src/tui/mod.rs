@@ -13,43 +13,45 @@
 pub mod actions;
 mod events;
 mod run;
-mod terminal;
 mod scheduler;
 mod state;
+mod terminal;
 pub use run::run;
 pub use state::*;
+mod collapse;
 pub mod dialog;
 pub mod editor;
 mod keys;
-mod mouse;
-mod picker;
-pub mod render;
-mod collapse;
 pub mod links;
 pub mod menu;
+mod mouse;
 pub mod notify;
+mod picker;
+pub mod render;
 pub use menu::{Menu, MenuAction};
+pub(crate) mod directory;
+mod keymap;
 pub mod markdown;
 pub mod scroll;
-pub mod shimmer;
 mod session_ops;
-pub mod theme;
+pub mod shimmer;
 pub mod skills;
-mod keymap;
-pub(crate) mod directory;
+pub mod theme;
 
-pub use mouse::{ButtonAction, PermChoice};
 pub use actions::Action;
+pub use mouse::{ButtonAction, PermChoice};
 pub use picker::{PickRow, Picker};
 
 use crate::client::Client;
 use crate::rpc::{Message, method};
 use crate::transcript::{Item, Transcript};
 use anyhow::Result;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    Event, EventStream, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use editor::Editor;
 use futures_util::StreamExt;
 use ratatui::layout::Rect;
-use editor::Editor;
 use render::{SelectMode, Selection, word_bounds};
 use scroll::Viewport;
 use serde_json::{Value, json};
@@ -183,7 +185,11 @@ impl App {
         if let Some(d) = self.draft_mut() {
             d.errors.push(e);
         } else if let Some(id) = self.selected_id() {
-            self.transcripts.entry(id).or_default().items.push(crate::transcript::Item::Error { text: e });
+            self.transcripts
+                .entry(id)
+                .or_default()
+                .items
+                .push(crate::transcript::Item::Error { text: e });
         }
     }
 
@@ -209,8 +215,13 @@ impl App {
             self.select(next);
             return;
         }
-        let current = self.sidebar_nav.iter().position(|item| matches!(item, SidebarNav::Session(i) if *i == self.selected)).unwrap_or(self.sidebar_nav_pos);
-        let next = (current as isize + delta).clamp(0, self.sidebar_nav.len() as isize - 1) as usize;
+        let current = self
+            .sidebar_nav
+            .iter()
+            .position(|item| matches!(item, SidebarNav::Session(i) if *i == self.selected))
+            .unwrap_or(self.sidebar_nav_pos);
+        let next =
+            (current as isize + delta).clamp(0, self.sidebar_nav.len() as isize - 1) as usize;
         self.sidebar_nav_pos = next;
         match self.sidebar_nav[next].clone() {
             SidebarNav::Session(idx) => self.select(idx),
@@ -236,9 +247,10 @@ impl App {
         self.host_filter = filter;
         let visible: Vec<usize> = (0..self.row_count()).filter(|&i| self.row_visible(i)).collect();
         if !visible.contains(&self.selected)
-            && let Some(&i) = visible.first() {
-                self.select(i);
-            }
+            && let Some(&i) = visible.first()
+        {
+            self.select(i);
+        }
     }
     pub fn row_visible(&self, i: usize) -> bool {
         if i < self.drafts.len() {
@@ -271,12 +283,18 @@ impl App {
     }
 
     fn take_prompt_images(&mut self) -> Vec<PromptImage> {
-        if self.on_draft() { std::mem::take(&mut self.drafts[self.selected].images) } else { std::mem::take(&mut self.input_images) }
+        if self.on_draft() {
+            std::mem::take(&mut self.drafts[self.selected].images)
+        } else {
+            std::mem::take(&mut self.input_images)
+        }
     }
 
     fn prompt_blocks(text: &str, images: &[PromptImage]) -> Vec<Value> {
         let mut blocks = Vec::with_capacity(images.len() + usize::from(!text.is_empty()));
-        if !text.is_empty() { blocks.push(json!({"type": "text", "text": text})); }
+        if !text.is_empty() {
+            blocks.push(json!({"type": "text", "text": text}));
+        }
         blocks.extend(images.iter().map(|image| json!({"type": "image", "mimeType": image.mime_type, "data": image.data, "name": image.name})));
         blocks
     }
@@ -300,17 +318,35 @@ impl App {
             let path = std::path::Path::new(path);
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             let mime = match ext.as_str() {
-                "png" => "image/png", "jpg" | "jpeg" => "image/jpeg", "gif" => "image/gif",
-                "webp" => "image/webp", "bmp" => "image/bmp", "tif" | "tiff" => "image/tiff", "svg" => "image/svg+xml", _ => continue,
+                "png" => "image/png",
+                "jpg" | "jpeg" => "image/jpeg",
+                "gif" => "image/gif",
+                "webp" => "image/webp",
+                "bmp" => "image/bmp",
+                "tif" | "tiff" => "image/tiff",
+                "svg" => "image/svg+xml",
+                _ => continue,
             };
             let Ok(meta) = std::fs::metadata(path) else { continue };
-            if !meta.is_file() || meta.len() > 8 * 1024 * 1024 { continue; }
+            if !meta.is_file() || meta.len() > 8 * 1024 * 1024 {
+                continue;
+            }
             let Ok(bytes) = std::fs::read(path) else { continue };
             use base64::Engine;
-            found.push(PromptImage { name: path.file_name().and_then(|n| n.to_str()).unwrap_or("image").to_owned(), mime_type: mime.to_owned(), data: base64::engine::general_purpose::STANDARD.encode(bytes) });
+            found.push(PromptImage {
+                name: path.file_name().and_then(|n| n.to_str()).unwrap_or("image").to_owned(),
+                mime_type: mime.to_owned(),
+                data: base64::engine::general_purpose::STANDARD.encode(bytes),
+            });
         }
-        if found.is_empty() { return false; }
-        if self.on_draft() { self.drafts[self.selected].images.extend(found); } else { self.input_images.extend(found); }
+        if found.is_empty() {
+            return false;
+        }
+        if self.on_draft() {
+            self.drafts[self.selected].images.extend(found);
+        } else {
+            self.input_images.extend(found);
+        }
         let count = self.prompt_images().len();
         self.status = format!("{count} image{} attached", if count == 1 { "" } else { "s" });
         true
@@ -339,7 +375,11 @@ impl App {
         }
         self.selected = idx.min(self.row_count() - 1);
         self.transcript_anchor = None;
-        if let Some(pos) = self.sidebar_nav.iter().position(|item| matches!(item, SidebarNav::Session(i) if *i == self.selected)) {
+        if let Some(pos) = self
+            .sidebar_nav
+            .iter()
+            .position(|item| matches!(item, SidebarNav::Session(i) if *i == self.selected))
+        {
             self.sidebar_nav_pos = pos;
         }
         self.selection = None;
@@ -357,8 +397,15 @@ impl App {
         let tx = self.tx.clone();
         tokio::spawn(async move {
             if let Ok(v) = client.request(method::MUX_HARNESSES, json!({})).await {
-                let names: Vec<String> = v.get("harnesses").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
-                let _ = tx.send(AppMsg::Agents(names, v.get("defaultHarness").and_then(Value::as_str).map(str::to_owned)));
+                let names: Vec<String> = v
+                    .get("harnesses")
+                    .and_then(Value::as_object)
+                    .map(|o| o.keys().cloned().collect())
+                    .unwrap_or_default();
+                let _ = tx.send(AppMsg::Agents(
+                    names,
+                    v.get("defaultHarness").and_then(Value::as_str).map(str::to_owned),
+                ));
             }
             if let Ok(v) = client.request(method::MUX_STATUS, json!({})).await {
                 let _ = tx.send(AppMsg::Status(v));
@@ -372,9 +419,11 @@ impl App {
         let tx = self.tx.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            match client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 3000})).await {
+            match client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 3000})).await
+            {
                 Ok(v) => {
-                    let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let events =
+                        v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
                     let detail = v.get("session").cloned().unwrap_or(Value::Null);
                     let _ = tx.send(AppMsg::Attached { id, detail, events });
                 }
@@ -390,7 +439,9 @@ impl App {
         let tx = self.tx.clone();
         tokio::spawn(async move {
             if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
-                let _ = tx.send(AppMsg::Sessions(v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default()));
+                let _ = tx.send(AppMsg::Sessions(
+                    v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
+                ));
             }
         });
     }
@@ -413,10 +464,13 @@ impl App {
         tokio::spawn(async move {
             match client.request(m, params).await {
                 Ok(v) => {
-                    if (m == method::SESSION_NEW || m == method::SESSION_FORK || m == method::MUX_IMPORT)
-                        && let Some(id) = v.get("sessionId").and_then(Value::as_str) {
-                            let _ = tx.send(AppMsg::Created(id.to_owned()));
-                        }
+                    if (m == method::SESSION_NEW
+                        || m == method::SESSION_FORK
+                        || m == method::MUX_IMPORT)
+                        && let Some(id) = v.get("sessionId").and_then(Value::as_str)
+                    {
+                        let _ = tx.send(AppMsg::Created(id.to_owned()));
+                    }
                     if let Some(msg) = ok_msg {
                         let _ = tx.send(AppMsg::Info(msg));
                     }
@@ -433,15 +487,25 @@ impl App {
             return;
         }
         let raw = self.editor().text().trim().to_owned();
-        if !steer
-            && let Some(arg) = directory::cd_argument(&raw) {
-                self.open_directory_dialog_at(arg.to_owned());
-                return;
-            }
+        if !steer && let Some(arg) = directory::cd_argument(&raw) {
+            self.open_directory_dialog_at(arg.to_owned());
+            return;
+        }
         let text = if !self.remote_directory() && raw.contains(&self.skill_prefix) {
-            self.skills = skills::Skill::discover(std::path::Path::new(&self.current_directory()), &self.skill_paths);
-            match skills::expand(&raw, &self.skills, &self.skill_prefix) { Ok(text) => text, Err(e) => { self.report_error(format!("Skill: {e}")); return; } }
-        } else { raw };
+            self.skills = skills::Skill::discover(
+                std::path::Path::new(&self.current_directory()),
+                &self.skill_paths,
+            );
+            match skills::expand(&raw, &self.skills, &self.skill_prefix) {
+                Ok(text) => text,
+                Err(e) => {
+                    self.report_error(format!("Skill: {e}"));
+                    return;
+                }
+            }
+        } else {
+            raw
+        };
 
         let images = self.take_prompt_images();
         if self.on_draft() {
@@ -459,10 +523,18 @@ impl App {
         // Show the message at once; the daemon's echo is matched, not added.
         if let Some(t) = self.transcripts.get_mut(&id) {
             let queued = t.status == "running" && !steer;
-            let shown = if images.is_empty() { text.clone() } else if text.is_empty() {
-                format!("[image: {}]", images.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", "))
+            let shown = if images.is_empty() {
+                text.clone()
+            } else if text.is_empty() {
+                format!(
+                    "[image: {}]",
+                    images.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", ")
+                )
             } else {
-                format!("{text}\n[image: {}]", images.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", "))
+                format!(
+                    "{text}\n[image: {}]",
+                    images.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", ")
+                )
             };
             t.items.push(crate::transcript::Item::User { text: shown, steer, queued });
             t.optimistic.push(text.clone());
@@ -515,7 +587,6 @@ impl App {
             None,
         );
     }
-
 }
 
 #[cfg(test)]
@@ -529,20 +600,31 @@ mod interaction_tests {
         let (sent, requests) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
-            let (reader, mut writer) = stream.into_split(); let mut lines = BufReader::new(reader).lines();
+            let (reader, mut writer) = stream.into_split();
+            let mut lines = BufReader::new(reader).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 let msg: Value = serde_json::from_str(&line).unwrap();
                 let _ = sent.send(msg.clone());
-                let result = if msg["method"] == "session/new" { json!({"sessionId":"test-session"}) } else { json!({}) };
-                let reply = json!({"jsonrpc":"2.0","id":msg["id"],"result":result}).to_string()+"\n";
-                if writer.write_all(reply.as_bytes()).await.is_err() { break; }
+                let result = if msg["method"] == "session/new" {
+                    json!({"sessionId":"test-session"})
+                } else {
+                    json!({})
+                };
+                let reply =
+                    json!({"jsonrpc":"2.0","id":msg["id"],"result":result}).to_string() + "\n";
+                if writer.write_all(reply.as_bytes()).await.is_err() {
+                    break;
+                }
             }
         });
-        let client = Client::connect(&socket).await.unwrap(); let _ = std::fs::remove_file(socket);
+        let client = Client::connect(&socket).await.unwrap();
+        let _ = std::fs::remove_file(socket);
         let (tx, _) = mpsc::unbounded_channel();
         let mut app = run::make_app(client, tx, vec![], crate::config::Config::default()).unwrap();
-        app.default_harness = Some("codex".into()); app.harnesses = vec!["codex".into(), "claude".into()];
-        app.open_draft(); (app, requests)
+        app.default_harness = Some("codex".into());
+        app.harnesses = vec!["codex".into(), "claude".into()];
+        app.open_draft();
+        (app, requests)
     }
     #[tokio::test]
     async fn refreshed_peer_harness_is_searchable_and_selectable() {
@@ -551,13 +633,15 @@ mod interaction_tests {
         if let Overlay::Picker(ref mut picker) = app.overlay {
             picker.filter.insert_str("deepseek harness");
             picker.refilter();
-            assert_eq!(picker.visible.len(),1);
-            assert_eq!(picker.selected().unwrap().value,"providers/deepseek");
-        } else { panic!("harness picker missing"); }
-        app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE));
+            assert_eq!(picker.visible.len(), 1);
+            assert_eq!(picker.selected().unwrap().value, "providers/deepseek");
+        } else {
+            panic!("harness picker missing");
+        }
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let draft = app.draft().unwrap();
-        assert_eq!(draft.peer.as_deref(),Some("providers"));
-        assert_eq!(draft.harness,"deepseek");
+        assert_eq!(draft.peer.as_deref(), Some("providers"));
+        assert_eq!(draft.harness, "deepseek");
     }
 
     #[tokio::test]
@@ -566,70 +650,123 @@ mod interaction_tests {
         let root = std::env::temp_dir().join(format!("acpmux-ui-dirs-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(root.join("My Project")).unwrap();
         app.draft_mut().unwrap().cwd = root.to_string_lossy().into_owned();
-        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(140,40)).unwrap();
-        terminal.draw(|f| render::draw(f,&mut app)).unwrap();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(140, 40)).unwrap();
+        terminal.draw(|f| render::draw(f, &mut app)).unwrap();
         let buttons = app.buttons.clone();
-        let find = |a: ButtonAction| buttons.iter().find(|(_,b)| *b==a).unwrap().0;
-        let harness = find(ButtonAction::DraftHarness); let model=find(ButtonAction::DraftModel); let policy=find(ButtonAction::DraftPolicy);
-        assert!(harness.x+harness.width <= model.x && model.x+model.width <= policy.x);
-        app.press(harness.x,harness.y,KeyModifiers::NONE);
-        assert!(matches!(app.overlay, Overlay::Picker(ref p) if matches!(p.on_pick, PickTarget::DraftHarness)));
-        app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE));
-        app.editor_mut().insert_str("cd 'My Project'"); app.send_prompt(false);
-        assert!(matches!(app.overlay,Overlay::Directory{..}));
-        terminal.draw(|f| render::draw(f,&mut app)).unwrap();
-        assert!(!app.buttons.iter().any(|(_,b)| *b==ButtonAction::DraftHarness));
-        app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE));
-        assert_eq!(app.editor().text(),"cd 'My Project'");
-        app.send_prompt(false); app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE));
-        assert_eq!(app.current_directory(), std::fs::canonicalize(root.join("My Project")).unwrap().to_string_lossy());
-        assert!(app.editor().is_empty());
-        app.editor_mut().insert_str("cd .."); app.send_prompt(false); app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE));
-        assert_eq!(app.current_directory(),std::fs::canonicalize(&root).unwrap().to_string_lossy());
-        app.on_key(KeyEvent::new(KeyCode::Char('x'),KeyModifiers::CONTROL));
-        app.on_key(KeyEvent::new(KeyCode::Char('p'),KeyModifiers::NONE));
-        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.title=="Commands"));
-        app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE));
-        app.palette_prefix = ":".into(); app.palette_aliases = vec![];
-        app.on_key(KeyEvent::new(KeyCode::Char('/'),KeyModifiers::NONE));
-        assert_eq!(app.editor().text(),"/"); app.editor_mut().clear();
-        app.on_key(KeyEvent::new(KeyCode::Char(':'),KeyModifiers::NONE));
-        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.title=="Commands"));
-        app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE));
-        let skill_dir=root.join(".agents/skills/acpmux-ui-test"); std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(skill_dir.join("SKILL.md"),"---\nname: UI test\ndescription: test only\n---\nCheck this test fixture.").unwrap();
-        app.skill_prefix = "%".into();
-        app.editor_mut().insert_str("Review with "); app.on_key(KeyEvent::new(KeyCode::Char('%'),KeyModifiers::NONE));
-        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.rows.iter().any(|r|r.value=="acpmux-ui-test")));
-        app.overlay=Overlay::None;
-        app.apply_pick(PickTarget::Skill { replace_prefix:true }, "acpmux-ui-test".into(), String::new());
-        assert_eq!(app.editor().text(),"Review with %acpmux-ui-test ");
-        app.draft_mut().unwrap().model=Some("test-model".into());
-        app.draft_mut().unwrap().effort=Some("high".into());
+        let find = |a: ButtonAction| buttons.iter().find(|(_, b)| *b == a).unwrap().0;
+        let harness = find(ButtonAction::DraftHarness);
+        let model = find(ButtonAction::DraftModel);
+        let policy = find(ButtonAction::DraftPolicy);
+        assert!(harness.x + harness.width <= model.x && model.x + model.width <= policy.x);
+        app.press(harness.x, harness.y, KeyModifiers::NONE);
+        assert!(
+            matches!(app.overlay, Overlay::Picker(ref p) if matches!(p.on_pick, PickTarget::DraftHarness))
+        );
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.editor_mut().insert_str("cd 'My Project'");
         app.send_prompt(false);
-        let mut saw_new=false;
+        assert!(matches!(app.overlay, Overlay::Directory { .. }));
+        terminal.draw(|f| render::draw(f, &mut app)).unwrap();
+        assert!(!app.buttons.iter().any(|(_, b)| *b == ButtonAction::DraftHarness));
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.editor().text(), "cd 'My Project'");
+        app.send_prompt(false);
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(
+            app.current_directory(),
+            std::fs::canonicalize(root.join("My Project")).unwrap().to_string_lossy()
+        );
+        assert!(app.editor().is_empty());
+        app.editor_mut().insert_str("cd ..");
+        app.send_prompt(false);
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(
+            app.current_directory(),
+            std::fs::canonicalize(&root).unwrap().to_string_lossy()
+        );
+        app.on_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        app.on_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.title=="Commands"));
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.palette_prefix = ":".into();
+        app.palette_aliases = vec![];
+        app.on_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert_eq!(app.editor().text(), "/");
+        app.editor_mut().clear();
+        app.on_key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE));
+        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.title=="Commands"));
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let skill_dir = root.join(".agents/skills/acpmux-ui-test");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: UI test\ndescription: test only\n---\nCheck this test fixture.",
+        )
+        .unwrap();
+        app.skill_prefix = "%".into();
+        app.editor_mut().insert_str("Review with ");
+        app.on_key(KeyEvent::new(KeyCode::Char('%'), KeyModifiers::NONE));
+        assert!(
+            matches!(app.overlay,Overlay::Picker(ref p) if p.rows.iter().any(|r|r.value=="acpmux-ui-test"))
+        );
+        app.overlay = Overlay::None;
+        app.apply_pick(
+            PickTarget::Skill { replace_prefix: true },
+            "acpmux-ui-test".into(),
+            String::new(),
+        );
+        assert_eq!(app.editor().text(), "Review with %acpmux-ui-test ");
+        app.draft_mut().unwrap().model = Some("test-model".into());
+        app.draft_mut().unwrap().effort = Some("high".into());
+        app.send_prompt(false);
+        let mut saw_new = false;
         loop {
-            let msg=tokio::time::timeout(std::time::Duration::from_secs(5),requests.recv()).await.unwrap().unwrap();
-            if msg["method"]=="session/new" { assert_eq!(msg["params"]["_meta"]["acpmux"]["model"],"test-model"); assert_eq!(msg["params"]["_meta"]["acpmux"]["effort"],"high"); saw_new=true; }
-            if msg["method"]=="session/prompt" {
-                let text=msg["params"]["prompt"][0]["text"].as_str().unwrap();
-                assert!(saw_new && text.contains("Check this test fixture.") && text.contains("Base directory:")); break;
+            let msg = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if msg["method"] == "session/new" {
+                assert_eq!(msg["params"]["_meta"]["acpmux"]["model"], "test-model");
+                assert_eq!(msg["params"]["_meta"]["acpmux"]["effort"], "high");
+                saw_new = true;
+            }
+            if msg["method"] == "session/prompt" {
+                let text = msg["params"]["prompt"][0]["text"].as_str().unwrap();
+                assert!(
+                    saw_new
+                        && text.contains("Check this test fixture.")
+                        && text.contains("Base directory:")
+                );
+                break;
             }
         }
-        app.drafts.clear(); app.sessions=vec![json!({"sessionId":"test-session","harness":"fake","cwd":root})]; app.selected=0;
-        let mut transcript=Transcript::default(); transcript.available_commands=vec!["compact".into()]; app.transcripts.insert("test-session".into(), transcript);
+        app.drafts.clear();
+        app.sessions = vec![json!({"sessionId":"test-session","harness":"fake","cwd":root})];
+        app.selected = 0;
+        let mut transcript = Transcript::default();
+        transcript.available_commands = vec!["compact".into()];
+        app.transcripts.insert("test-session".into(), transcript);
         app.open_palette();
-        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.rows.iter().any(|r|r.value=="agent:/compact")));
-        app.overlay=Overlay::None; app.apply_pick(PickTarget::Action,"agent:/compact".into(),String::new());
-        let msg=tokio::time::timeout(std::time::Duration::from_secs(5),requests.recv()).await.unwrap().unwrap();
-        assert_eq!(msg["method"],"session/prompt"); assert_eq!(msg["params"]["prompt"][0]["text"],"/compact");
+        assert!(
+            matches!(app.overlay,Overlay::Picker(ref p) if p.rows.iter().any(|r|r.value=="agent:/compact"))
+        );
+        app.overlay = Overlay::None;
+        app.apply_pick(PickTarget::Action, "agent:/compact".into(), String::new());
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(msg["method"], "session/prompt");
+        assert_eq!(msg["params"]["prompt"][0]["text"], "/compact");
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
     async fn dropped_image_becomes_an_acp_image_block() {
         let (mut app, _) = app().await;
-        let path = std::env::temp_dir().join(format!("acpmux-ui-image-{}.png", uuid::Uuid::now_v7()));
+        let path =
+            std::env::temp_dir().join(format!("acpmux-ui-image-{}.png", uuid::Uuid::now_v7()));
         std::fs::write(&path, [137, 80, 78, 71]).unwrap();
         assert!(app.paste_images(&path.to_string_lossy()));
         assert_eq!(app.prompt_images().len(), 1);

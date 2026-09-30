@@ -30,7 +30,15 @@ type Frag = (String, Style);
 
 /// Greedy word wrap over styled fragments. The first row gets `first`,
 /// later rows `cont`, both drawn in `gutter_style`.
-pub fn wrap_frags(frags: &[Frag], width: usize, first: &str, cont: &str, gutter_style: Style, item: usize, out: &mut Vec<Row>) {
+pub fn wrap_frags(
+    frags: &[Frag],
+    width: usize,
+    first: &str,
+    cont: &str,
+    gutter_style: Style,
+    item: usize,
+    out: &mut Vec<Row>,
+) {
     let width = width.max(4);
     // Break fragments into words that keep their style; spaces are words too.
     let mut words: Vec<Frag> = Vec::new();
@@ -115,16 +123,36 @@ pub fn wrap_frags(frags: &[Frag], width: usize, first: &str, cont: &str, gutter_
 
 /// A fenced code block: one row per line on the code background, cut
 /// (not wrapped) at the width, highlighted when the language is known.
-fn code_rows(code: &str, lang: &str, width: usize, indent: &str, c: &Chrome, item: usize, out: &mut Vec<Row>) {
+fn code_rows(
+    code: &str,
+    lang: &str,
+    width: usize,
+    indent: &str,
+    c: &Chrome,
+    item: usize,
+    out: &mut Vec<Row>,
+) {
     let width = width.max(4);
     let bg = Style::default().bg(c.code_bg);
     let ss = syntaxes();
-    let syntax = if lang.is_empty() { None } else { ss.find_syntax_by_token(lang.split(|ch: char| !ch.is_alphanumeric()).next().unwrap_or(lang)) };
+    let syntax = if lang.is_empty() {
+        None
+    } else {
+        ss.find_syntax_by_token(lang.split(|ch: char| !ch.is_alphanumeric()).next().unwrap_or(lang))
+    };
     let mut hl = syntax.map(|s| syntect::easy::HighlightLines::new(s, theme(c.code_theme)));
     if !lang.is_empty() {
         let label = format!("{indent} {lang}");
         let pad = width.saturating_sub(label.width());
-        out.push(Row { line: Line::from(vec![Span::styled(label.clone(), bg.fg(c.status_dim_fg)), Span::styled(" ".repeat(pad), bg)]), text: label, item, toggle: None });
+        out.push(Row {
+            line: Line::from(vec![
+                Span::styled(label.clone(), bg.fg(c.status_dim_fg)),
+                Span::styled(" ".repeat(pad), bg),
+            ]),
+            text: label,
+            item,
+            toggle: None,
+        });
     }
     for raw in code.lines() {
         let line_nl = format!("{raw}\n");
@@ -133,7 +161,20 @@ fn code_rows(code: &str, lang: &str, width: usize, indent: &str, c: &Chrome, ite
         let pieces: Vec<(Style, String)> = match hl.as_mut() {
             Some(h) => h
                 .highlight_line(&line_nl, ss)
-                .map(|v| v.into_iter().map(|(st, s)| (bg.fg(Color::Rgb(st.foreground.r, st.foreground.g, st.foreground.b)), s.trim_end_matches('\n').to_owned())).collect())
+                .map(|v| {
+                    v.into_iter()
+                        .map(|(st, s)| {
+                            (
+                                bg.fg(Color::Rgb(
+                                    st.foreground.r,
+                                    st.foreground.g,
+                                    st.foreground.b,
+                                )),
+                                s.trim_end_matches('\n').to_owned(),
+                            )
+                        })
+                        .collect()
+                })
                 .unwrap_or_else(|_| vec![(bg.fg(c.code_fg), raw.to_owned())]),
             None => vec![(bg.fg(c.code_fg), raw.to_owned())],
         };
@@ -156,7 +197,12 @@ fn code_rows(code: &str, lang: &str, width: usize, indent: &str, c: &Chrome, ite
         if used < width {
             spans.push(Span::styled(" ".repeat(width - used), bg));
         }
-        out.push(Row { line: Line::from(spans), text: format!("{indent} {raw}"), item, toggle: None });
+        out.push(Row {
+            line: Line::from(spans),
+            text: format!("{indent} {raw}"),
+            item,
+            toggle: None,
+        });
     }
 }
 
@@ -166,7 +212,15 @@ fn code_rows(code: &str, lang: &str, width: usize, indent: &str, c: &Chrome, ite
 /// list items kept together, `- ` bullets indented four columns per level,
 /// `N. ` for ordered lists. Styles: h1 bold underlined, h2 bold, h3 bold
 /// italic, h4+ italic, code cyan, links cyan underlined, quotes green.
-pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, item: usize, out: &mut Vec<Row>) {
+pub fn render(
+    text: &str,
+    width: usize,
+    indent: &str,
+    base: Style,
+    c: &Chrome,
+    item: usize,
+    out: &mut Vec<Row>,
+) {
     let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
     let parser = Parser::new_ext(text, opts);
     let gutter = Style::default();
@@ -198,7 +252,11 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
         let depth = lists.len().max(1);
         " ".repeat(depth * 4 - 4)
     };
-    let flush_para = |frags: &mut Vec<Frag>, item_first_prefix: &mut Option<String>, lists: &Vec<Option<u64>>, quote: usize, out: &mut Vec<Row>| {
+    let flush_para = |frags: &mut Vec<Frag>,
+                      item_first_prefix: &mut Option<String>,
+                      lists: &Vec<Option<u64>>,
+                      quote: usize,
+                      out: &mut Vec<Row>| {
         if frags.is_empty() {
             return;
         }
@@ -216,10 +274,9 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
     for ev in parser {
         match ev {
             Event::Start(tag) => match tag {
-                Tag::Paragraph
-                    if (lists.is_empty() || item_first_prefix.is_none()) => {
-                        blank(out, &mut needs_blank);
-                    }
+                Tag::Paragraph if (lists.is_empty() || item_first_prefix.is_none()) => {
+                    blank(out, &mut needs_blank);
+                }
                 Tag::Heading { level, .. } => {
                     blank(out, &mut needs_blank);
                     let st = match level as u8 {
@@ -313,9 +370,11 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                     styles.pop();
                     // Keep the URL visible after the text unless the text is the URL.
                     if let Some(url) = link_url.take()
-                        && link_text.trim() != url.trim() && !url.is_empty() {
-                            frags.push((format!(" ({url})"), base.fg(c.status_dim_fg)));
-                        }
+                        && link_text.trim() != url.trim()
+                        && !url.is_empty()
+                    {
+                        frags.push((format!(" ({url})"), base.fg(c.status_dim_fg)));
+                    }
                 }
                 TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {
                     styles.pop();
@@ -323,8 +382,17 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 TagEnd::TableCell => table_row.push(std::mem::take(&mut cell)),
                 TagEnd::TableHead | TagEnd::TableRow => {
                     let text = format!("{indent}{}", table_row.join("  │  "));
-                    let style = if matches!(tag, TagEnd::TableHead) { base.add_modifier(Modifier::BOLD) } else { base };
-                    out.push(Row { line: Line::from(Span::styled(text.clone(), style)), text, item, toggle: None });
+                    let style = if matches!(tag, TagEnd::TableHead) {
+                        base.add_modifier(Modifier::BOLD)
+                    } else {
+                        base
+                    };
+                    out.push(Row {
+                        line: Line::from(Span::styled(text.clone(), style)),
+                        text,
+                        item,
+                        toggle: None,
+                    });
                 }
                 TagEnd::Table => {
                     in_table = false;
@@ -365,7 +433,12 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
                 blank(out, &mut needs_blank);
                 let text = format!("{indent}———");
-                out.push(Row { line: Line::from(Span::styled(text.clone(), base.fg(c.status_dim_fg))), text, item, toggle: None });
+                out.push(Row {
+                    line: Line::from(Span::styled(text.clone(), base.fg(c.status_dim_fg))),
+                    text,
+                    item,
+                    toggle: None,
+                });
                 needs_blank = true;
             }
             Event::TaskListMarker(done) => {

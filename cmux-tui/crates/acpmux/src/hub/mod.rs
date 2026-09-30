@@ -7,16 +7,15 @@
 
 mod lifecycle;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
-pub mod rules;
 mod peers;
 mod permissions;
+pub mod rules;
 mod transfer;
 mod turns;
 mod views;
 
-
 use crate::agent::{ChildAgent, Direction, Inbound};
-use crate::config::{HarnessProfile, Config, PermissionPolicy};
+use crate::config::{Config, HarnessProfile, PermissionPolicy};
 use crate::rpc::{Id, Message, RpcError, method};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
@@ -215,10 +214,11 @@ impl Hub {
             // Meta is saved less often than events; after a hard stop the
             // log can be ahead of it. Never hand out a sequence twice.
             if let Ok(extra) = self.store.events(&meta.id, meta.last_seq, 1_000_000)
-                && let Some(last) = extra.last() {
-                    meta.event_count += extra.len() as u64;
-                    meta.last_seq = last.seq;
-                }
+                && let Some(last) = extra.last()
+            {
+                meta.event_count += extra.len() as u64;
+                meta.last_seq = last.seq;
+            }
             let session = self.make_session(meta);
             sessions.insert(session.id.clone(), session);
         }
@@ -265,11 +265,8 @@ impl Hub {
         if let Some(s) = sessions.get(key) {
             return Ok(s.clone());
         }
-        let mut by_name: Vec<_> = sessions
-            .values()
-            .filter(|s| s.meta().name == key)
-            .cloned()
-            .collect();
+        let mut by_name: Vec<_> =
+            sessions.values().filter(|s| s.meta().name == key).cloned().collect();
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
@@ -281,23 +278,21 @@ impl Hub {
         match by_prefix.len() {
             1 => Ok(by_prefix.into_iter().next().unwrap()),
             0 => Err(RpcError::not_found(format!("no session matches {key:?}"))),
-            n => Err(RpcError::invalid_params(format!(
-                "{key:?} matches {n} sessions; use the id"
-            ))),
+            n => Err(RpcError::invalid_params(format!("{key:?} matches {n} sessions; use the id"))),
         }
     }
 
     // ------------------------------------------------------------ logging
 
-    pub(super) fn append(&self, session: &Session, dir: &str, kind: &str, msg: Value) -> EventRecord {
+    pub(super) fn append(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+    ) -> EventRecord {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let record = EventRecord {
-            seq,
-            at: now_ms(),
-            dir: dir.into(),
-            kind: kind.into(),
-            msg,
-        };
+        let record = EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg };
         if session.purged.load(Ordering::SeqCst) {
             return record;
         }
@@ -310,7 +305,21 @@ impl Hub {
             m.event_count += 1;
             m.updated_at = record.at;
         }
-        if matches!(kind, "status" | "permission_request" | "permission_decision" | "permission_auto" | "turn_started" | "turn_result" | "turn_end" | "turn_error" | "queued" | "created" | "tags" | "rules") {
+        if matches!(
+            kind,
+            "status"
+                | "permission_request"
+                | "permission_decision"
+                | "permission_auto"
+                | "turn_started"
+                | "turn_result"
+                | "turn_end"
+                | "turn_error"
+                | "queued"
+                | "created"
+                | "tags"
+                | "rules"
+        ) {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
         }
         let _ = self.events.send(HubEvent {
@@ -333,22 +342,38 @@ impl Hub {
             };
             if was_unread {
                 self.save_meta(session);
-                self.append(session, "mux", "status", json!({"status": session.status().to_string(), "read": true}));
+                self.append(
+                    session,
+                    "mux",
+                    "status",
+                    json!({"status": session.status().to_string(), "read": true}),
+                );
             }
         } else {
             let d = (-delta) as usize;
-            let _ = session.attached.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(d)));
+            let _ = session
+                .attached
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(d)));
         }
     }
 
     /// Orchestrator tags with optional expiry.
-    pub fn set_tags(&self, session: &Session, set: Option<&serde_json::Map<String, Value>>, remove: &[String], ttl_seconds: Option<u64>) {
+    pub fn set_tags(
+        &self,
+        session: &Session,
+        set: Option<&serde_json::Map<String, Value>>,
+        remove: &[String],
+        ttl_seconds: Option<u64>,
+    ) {
         {
             let mut m = session.meta.lock().unwrap();
             let expires_at = ttl_seconds.map(|t| now_ms() + t * 1000);
             if let Some(set) = set {
                 for (k, v) in set {
-                    let value = match v { Value::String(s) => s.clone(), other => other.to_string() };
+                    let value = match v {
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
                     m.tags.insert(k.clone(), crate::store::Tag { value, expires_at });
                 }
             }
@@ -383,7 +408,13 @@ impl Hub {
                     let mut t = serde_json::Map::new();
                     t.insert("seq".into(), json!(e.seq));
                     t.insert("startedAt".into(), json!(e.at));
-                    t.insert("prompt".into(), json!(short_text(e.msg.get("text").and_then(Value::as_str).unwrap_or(""), 120)));
+                    t.insert(
+                        "prompt".into(),
+                        json!(short_text(
+                            e.msg.get("text").and_then(Value::as_str).unwrap_or(""),
+                            120
+                        )),
+                    );
                     t.insert("toolCalls".into(), json!(0));
                     t.insert("permissions".into(), json!(0));
                     t.insert("status".into(), json!("running"));
@@ -403,14 +434,22 @@ impl Hub {
                 }
                 "usage_update" => {
                     if let Some(t) = cur.as_mut()
-                        && let Some(u) = e.msg.pointer("/params/update/used").and_then(Value::as_u64) {
-                            t.insert("tokens".into(), json!(u));
-                        }
+                        && let Some(u) =
+                            e.msg.pointer("/params/update/used").and_then(Value::as_u64)
+                    {
+                        t.insert("tokens".into(), json!(u));
+                    }
                 }
                 "turn_result" => {
                     if let Some(t) = cur.as_mut() {
-                        t.insert("status".into(), e.msg.get("status").cloned().unwrap_or(json!("completed")));
-                        t.insert("stopReason".into(), e.msg.get("stopReason").cloned().unwrap_or(Value::Null));
+                        t.insert(
+                            "status".into(),
+                            e.msg.get("status").cloned().unwrap_or(json!("completed")),
+                        );
+                        t.insert(
+                            "stopReason".into(),
+                            e.msg.get("stopReason").cloned().unwrap_or(Value::Null),
+                        );
                         t.insert("endedAt".into(), json!(e.at));
                         let started = t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
                         t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
@@ -422,14 +461,21 @@ impl Hub {
                 "turn_end" | "turn_error" => {
                     // Older logs without turn_result.
                     if let Some(t) = cur.as_mut()
-                        && t.get("endedAt").is_none() {
-                            let failed = e.kind == "turn_error";
-                            t.insert("status".into(), json!(if failed { "failed" } else { "completed" }));
-                            t.insert("stopReason".into(), e.msg.get("stopReason").cloned().unwrap_or(Value::Null));
-                            t.insert("endedAt".into(), json!(e.at));
-                            let started = t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
-                            t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
-                        }
+                        && t.get("endedAt").is_none()
+                    {
+                        let failed = e.kind == "turn_error";
+                        t.insert(
+                            "status".into(),
+                            json!(if failed { "failed" } else { "completed" }),
+                        );
+                        t.insert(
+                            "stopReason".into(),
+                            e.msg.get("stopReason").cloned().unwrap_or(Value::Null),
+                        );
+                        t.insert("endedAt".into(), json!(e.at));
+                        let started = t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
+                        t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
+                    }
                 }
                 _ => {}
             }
@@ -492,9 +538,7 @@ impl Hub {
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
     }
-
 }
-
 
 /// Browser URL for the dashboard, with the token in the query string.
 pub fn web_url(w: &crate::config::WebSocketConfig) -> String {
@@ -521,7 +565,11 @@ pub fn resolve_config_id(m: &SessionMeta, id: &str) -> String {
         .config_options
         .as_ref()
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(|o| o.get("id").and_then(Value::as_str).map(str::to_owned)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|o| o.get("id").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default();
     if ids.iter().any(|x| x == id) {
         return id.to_owned();
@@ -543,9 +591,10 @@ pub fn current_model(m: &SessionMeta) -> Option<String> {
     if let Some(opts) = m.config_options.as_ref().and_then(Value::as_array) {
         for o in opts {
             if o.get("id").and_then(Value::as_str) == Some("model")
-                && let Some(v) = o.get("currentValue").and_then(Value::as_str) {
-                    return Some(v.to_owned());
-                }
+                && let Some(v) = o.get("currentValue").and_then(Value::as_str)
+            {
+                return Some(v.to_owned());
+            }
         }
     }
     m.models

@@ -15,7 +15,10 @@ pub struct Link {
 }
 
 fn is_url_start(s: &str) -> bool {
-    s.starts_with("http://") || s.starts_with("https://") || s.starts_with("file://") || s.starts_with("ssh://")
+    s.starts_with("http://")
+        || s.starts_with("https://")
+        || s.starts_with("file://")
+        || s.starts_with("ssh://")
 }
 
 /// Does this token read as a file path? Absolute, home, relative with a
@@ -25,7 +28,11 @@ fn looks_like_path(tok: &str) -> bool {
     if core.len() < 2 {
         return false;
     }
-    if core.starts_with('/') || core.starts_with("~/") || core.starts_with("./") || core.starts_with("../") {
+    if core.starts_with('/')
+        || core.starts_with("~/")
+        || core.starts_with("./")
+        || core.starts_with("../")
+    {
         return core.len() > 1 && !core.ends_with('/');
     }
     if core.contains('/') && !core.contains("//") {
@@ -35,11 +42,18 @@ fn looks_like_path(tok: &str) -> bool {
         let has_alpha = core.chars().any(|c| c.is_alphabetic());
         return has_alpha
             && (has_ext || segs.len() >= 3)
-            && core.chars().all(|c| c.is_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+' | '@'));
+            && core
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+' | '@'));
     }
     if let Some(ext) = Path::new(core).extension().and_then(|e| e.to_str()) {
-        let known = ["rs", "ts", "tsx", "js", "jsx", "py", "go", "md", "json", "toml", "yaml", "yml", "html", "css", "sh", "swift", "c", "h", "cpp", "hpp", "java", "kt", "rb", "sql", "txt", "lock", "mjs", "cjs"];
-        return known.contains(&ext) && core.chars().all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-'));
+        let known = [
+            "rs", "ts", "tsx", "js", "jsx", "py", "go", "md", "json", "toml", "yaml", "yml",
+            "html", "css", "sh", "swift", "c", "h", "cpp", "hpp", "java", "kt", "rb", "sql", "txt",
+            "lock", "mjs", "cjs",
+        ];
+        return known.contains(&ext)
+            && core.chars().all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-'));
     }
     false
 }
@@ -47,7 +61,7 @@ fn looks_like_path(tok: &str) -> bool {
 /// Trim punctuation that a sentence leaves stuck to a token.
 fn trim_token(tok: &str) -> &str {
     let t = tok.trim_end_matches(['.', ',', ';', ':', ')', ']', '}', '"', '\'', '>', '`']);
-    
+
     (t.trim_start_matches(['(', '[', '{', '"', '\'', '<', '`'])) as _
 }
 
@@ -66,7 +80,11 @@ pub fn find(text: &str) -> Vec<Link> {
         if !t.is_empty() && (is_url_start(t) || looks_like_path(t)) {
             let lead_cols = unicode_width::UnicodeWidthStr::width(&tok[..lead]);
             let w = unicode_width::UnicodeWidthStr::width(t);
-            out.push(Link { start: start_col + lead_cols, end: start_col + lead_cols + w, target: t.to_owned() });
+            out.push(Link {
+                start: start_col + lead_cols,
+                end: start_col + lead_cols + w,
+                target: t.to_owned(),
+            });
         }
         tok.clear();
     };

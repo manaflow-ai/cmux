@@ -95,7 +95,8 @@ impl Client {
                 json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}}),
             )
             .await?;
-        *client.daemon_build.lock().unwrap() = init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
+        *client.daemon_build.lock().unwrap() =
+            init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         Ok(client)
     }
 
@@ -141,7 +142,9 @@ impl Client {
             .map_err(|_| self.closed(&context))?;
         match rx.await {
             Ok(Ok(v)) => Ok(v),
-            Ok(Err(e)) if e.message == "daemon connection closed" => Err(self.closed(&format!("waiting for the reply to {m}"))),
+            Ok(Err(e)) if e.message == "daemon connection closed" => {
+                Err(self.closed(&format!("waiting for the reply to {m}")))
+            }
             Ok(Err(e)) => Err(anyhow!("{}", e.message)),
             Err(_) => Err(self.closed(&format!("waiting for the reply to {m}"))),
         }
@@ -160,21 +163,32 @@ impl Client {
 /// internal error), died without cleanup (a crash), or was shut down.
 pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error {
     let home = crate::config::home();
-    let pid = std::fs::read_to_string(home.join("daemon.pid")).ok().and_then(|s| s.trim().parse::<i32>().ok());
+    let pid = std::fs::read_to_string(home.join("daemon.pid"))
+        .ok()
+        .and_then(|s| s.trim().parse::<i32>().ok());
     #[cfg(unix)]
     let alive = pid.map(|p| unsafe { libc::kill(p, 0) } == 0).unwrap_or(false);
     #[cfg(not(unix))]
     let alive = pid.is_some();
     let socket = crate::config::socket_path().exists();
     let why = match (pid, alive, socket) {
-        (Some(p), true, _) => format!("the daemon (pid {p}) is still running but dropped this connection, usually because it was restarted (`acpmux daemon shutdown`, `acpmux host update`, a reinstall) or hit an internal error"),
-        (Some(p), false, _) => format!("the daemon (pid {p}) exited without cleaning up, most likely a crash"),
+        (Some(p), true, _) => format!(
+            "the daemon (pid {p}) is still running but dropped this connection, usually because it was restarted (`acpmux daemon shutdown`, `acpmux host update`, a reinstall) or hit an internal error"
+        ),
+        (Some(p), false, _) => {
+            format!("the daemon (pid {p}) exited without cleaning up, most likely a crash")
+        }
         (None, _, true) => "the daemon stopped and left its socket behind".to_owned(),
         (None, _, false) => "the daemon was shut down".to_owned(),
     };
     let build = match daemon_build {
-        Some(b) if b != crate::hub::BUILD => format!(" It ran build {b}; this command is build {}.", crate::hub::BUILD),
+        Some(b) if b != crate::hub::BUILD => {
+            format!(" It ran build {b}; this command is build {}.", crate::hub::BUILD)
+        }
         _ => String::new(),
     };
-    anyhow!("daemon connection closed while {context}: {why}.{build} The next acpmux command starts a daemon; its log is {}", home.join("daemon.log").display())
+    anyhow!(
+        "daemon connection closed while {context}: {why}.{build} The next acpmux command starts a daemon; its log is {}",
+        home.join("daemon.log").display()
+    )
 }

@@ -16,7 +16,8 @@ pub(super) fn draw_status(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     }
     // Host chips: local first, then every peer, then [+ host]. Click filters.
     let mut chips: Vec<(Rect, Option<String>)> = Vec::new();
-    let mut hosts: Vec<(Option<String>, String, bool)> = vec![(Some("local".into()), "mac".into(), true)];
+    let mut hosts: Vec<(Option<String>, String, bool)> =
+        vec![(Some("local".into()), "mac".into(), true)];
     for (name, connected, _) in &app.hosts {
         hosts.push((Some(name.clone()), name.clone(), *connected));
     }
@@ -25,8 +26,17 @@ pub(super) fn draw_status(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         let dot = if connected { "●" } else { "○" };
         let text = format!(" {dot} {label} ");
         let start = x;
-        let hovered = app.hover.map(|(hx, hy)| hy == area.y && hx >= start && hx < start + text.width() as u16).unwrap_or(false);
-        let style = if active { c.status_active() } else if hovered { c.status().bg(c.status_active_bg) } else { c.status() };
+        let hovered = app
+            .hover
+            .map(|(hx, hy)| hy == area.y && hx >= start && hx < start + text.width() as u16)
+            .unwrap_or(false);
+        let style = if active {
+            c.status_active()
+        } else if hovered {
+            c.status().bg(c.status_active_bg)
+        } else {
+            c.status()
+        };
         let dot_style = style.fg(if connected { c.ok_fg } else { c.error_fg });
         put_at(buf, area, &mut x, " ", style);
         put_at(buf, area, &mut x, dot, dot_style);
@@ -35,15 +45,29 @@ pub(super) fn draw_status(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     }
     put_at(buf, area, &mut x, "│ ", c.status_dim());
     let is_error = app.status.starts_with("error: ");
-    let status_style = if is_error { c.status().fg(c.error_fg).add_modifier(Modifier::BOLD) } else { c.status() };
+    let status_style =
+        if is_error { c.status().fg(c.error_fg).add_modifier(Modifier::BOLD) } else { c.status() };
     put_at(buf, area, &mut x, &app.status, status_style);
     if is_error {
         let label = " [copy] ";
         let lw = label.width() as u16;
         if x + lw < area.x + area.width {
             let r = Rect { x, y: area.y, width: lw, height: 1 };
-            let hovered = app.hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
-            put_at(buf, area, &mut x, label, if hovered { c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg) } else { c.status_dim() });
+            let hovered = app
+                .hover
+                .map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width)
+                .unwrap_or(false);
+            put_at(
+                buf,
+                area,
+                &mut x,
+                label,
+                if hovered {
+                    c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg)
+                } else {
+                    c.status_dim()
+                },
+            );
             app.buttons.push((r, ButtonAction::CopyStatus));
         }
     }
@@ -55,8 +79,21 @@ pub(super) fn draw_status(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         let rw = right.width() as u16;
         if x + rw < right_x {
             let r = Rect { x: right_x - rw, y: area.y, width: rw, height: 1 };
-            let hovered = app.hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
-            buf.set_stringn(r.x, r.y, right, rw as usize, if hovered { c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg) } else { c.status_dim() });
+            let hovered = app
+                .hover
+                .map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width)
+                .unwrap_or(false);
+            buf.set_stringn(
+                r.x,
+                r.y,
+                right,
+                rw as usize,
+                if hovered {
+                    c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg)
+                } else {
+                    c.status_dim()
+                },
+            );
             app.buttons.push((r, ButtonAction::Web));
             right_x = r.x;
         }
@@ -66,11 +103,23 @@ pub(super) fn draw_status(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         let kw = keys.width() as u16;
         if x + kw < right_x {
             let r = Rect { x: right_x - kw, y: area.y, width: kw, height: 1 };
-            let hovered = app.hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
-            buf.set_stringn(r.x, r.y, &keys, kw as usize, if hovered { c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg) } else { c.status_dim() });
+            let hovered = app
+                .hover
+                .map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width)
+                .unwrap_or(false);
+            buf.set_stringn(
+                r.x,
+                r.y,
+                &keys,
+                kw as usize,
+                if hovered {
+                    c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg)
+                } else {
+                    c.status_dim()
+                },
+            );
             app.buttons.push((r, ButtonAction::Help));
         }
     }
     app.host_chips = chips;
 }
-

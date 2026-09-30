@@ -9,9 +9,7 @@ pub fn home() -> PathBuf {
     if let Ok(v) = std::env::var("ACPMUX_HOME") {
         return PathBuf::from(v);
     }
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".acpmux")
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 
 /// Unix socket path. macOS limits socket paths to about 100 bytes, so a
@@ -85,7 +83,11 @@ pub struct HarnessProfile {
 #[serde(untagged)]
 pub enum DeclaredModel {
     Id(String),
-    Full { id: String, #[serde(default, skip_serializing_if = "Option::is_none")] name: Option<String> },
+    Full {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
 }
 
 impl DeclaredModel {
@@ -184,10 +186,20 @@ pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
     let words: Vec<String> = profile
         .argv
         .iter()
-        .map(|a| Path::new(a).file_name().map(|f| f.to_string_lossy().to_lowercase()).unwrap_or_default())
+        .map(|a| {
+            Path::new(a).file_name().map(|f| f.to_string_lossy().to_lowercase()).unwrap_or_default()
+        })
         .collect();
     // A fork is its own family (omp, prime): `-m pi` never lands on one.
-    for (needle, family) in [("codex", "codex"), ("opencode", "opencode"), ("gemini", "gemini"), ("pi-acp", "pi"), ("omp", "omp"), ("prime-agent", "prime"), ("claude", "claude")] {
+    for (needle, family) in [
+        ("codex", "codex"),
+        ("opencode", "opencode"),
+        ("gemini", "gemini"),
+        ("pi-acp", "pi"),
+        ("omp", "omp"),
+        ("prime-agent", "prime"),
+        ("claude", "claude"),
+    ] {
         if words.iter().any(|w| w.contains(needle)) {
             return family.into();
         }
@@ -203,7 +215,6 @@ pub enum StoreMode {
     #[default]
     Local,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -221,10 +232,7 @@ fn default_segment_bytes() -> u64 {
 
 impl Default for StoreConfig {
     fn default() -> Self {
-        Self {
-            mode: StoreMode::Local,
-            segment_bytes: default_segment_bytes(),
-        }
+        Self { mode: StoreMode::Local, segment_bytes: default_segment_bytes() }
     }
 }
 
@@ -278,10 +286,18 @@ pub struct WebSocketConfig {
     pub token: Option<String>,
 }
 
-fn default_palette_prefix() -> String { "/".into() }
-fn default_skill_prefix() -> String { "$".into() }
-fn default_leader() -> String { "ctrl+x".into() }
-fn default_leader_timeout_ms() -> u64 { 2000 }
+fn default_palette_prefix() -> String {
+    "/".into()
+}
+fn default_skill_prefix() -> String {
+    "$".into()
+}
+fn default_leader() -> String {
+    "ctrl+x".into()
+}
+fn default_leader_timeout_ms() -> u64 {
+    2000
+}
 
 /// TUI interaction settings. These deliberately live in acpmux's config so
 /// the same preferences apply to the native TUI and future clients.
@@ -312,7 +328,15 @@ pub struct TuiConfig {
 
 impl Default for TuiConfig {
     fn default() -> Self {
-        Self { palette_prefix: default_palette_prefix(), palette_aliases: vec![], skill_prefix: default_skill_prefix(), leader: default_leader(), leader_timeout_ms: default_leader_timeout_ms(), keybinds: BTreeMap::new(), skill_paths: vec![] }
+        Self {
+            palette_prefix: default_palette_prefix(),
+            palette_aliases: vec![],
+            skill_prefix: default_skill_prefix(),
+            leader: default_leader(),
+            leader_timeout_ms: default_leader_timeout_ms(),
+            keybinds: BTreeMap::new(),
+            skill_paths: vec![],
+        }
     }
 }
 
@@ -411,7 +435,11 @@ impl Config {
         if let Some(members) = fams.get(head) {
             if let Some(d) = self.defaults.get(head) {
                 // An unavailable profile is skipped; the next preference serves.
-                if let Some(p) = d.prefer.iter().find(|p| self.harnesses.contains_key(*p) && !self.unavailable.contains_key(*p)) {
+                if let Some(p) = d
+                    .prefer
+                    .iter()
+                    .find(|p| self.harnesses.contains_key(*p) && !self.unavailable.contains_key(*p))
+                {
                     return Ok(p.clone());
                 }
             }
@@ -433,7 +461,11 @@ impl Config {
             "unknown harness {head:?}; families: {}; profiles: {}; presets: {}",
             fams.keys().cloned().collect::<Vec<_>>().join(", "),
             self.harnesses.keys().cloned().collect::<Vec<_>>().join(", "),
-            if self.presets.is_empty() { "none".to_owned() } else { self.presets.keys().cloned().collect::<Vec<_>>().join(", ") }
+            if self.presets.is_empty() {
+                "none".to_owned()
+            } else {
+                self.presets.keys().cloned().collect::<Vec<_>>().join(", ")
+            }
         ))
     }
 
@@ -447,12 +479,19 @@ impl Config {
                 d.overlay(fd);
             }
             if f != profile
-                && let Some(pd) = self.defaults.get(profile) {
-                    d.overlay(pd);
-                }
+                && let Some(pd) = self.defaults.get(profile)
+            {
+                d.overlay(pd);
+            }
         }
         if let Some(p) = self.harnesses.get(profile) {
-            d.overlay(&SessionDefaults { model: p.model.clone(), effort: p.effort.clone(), policy: p.policy, prefer: vec![], env: BTreeMap::new() });
+            d.overlay(&SessionDefaults {
+                model: p.model.clone(),
+                effort: p.effort.clone(),
+                policy: p.policy,
+                prefer: vec![],
+                env: BTreeMap::new(),
+            });
         }
         d
     }
@@ -487,22 +526,30 @@ impl Config {
         }
         if cfg.harnesses.contains_key("claude-sr") {
             if let Some(c) = cfg.harnesses.get_mut("claude")
-                && c.fallback.is_none() && c.kind == HarnessKind::ClaudeStdio {
-                    c.fallback = Some("claude-sr".into());
-                    cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
-                }
+                && c.fallback.is_none()
+                && c.kind == HarnessKind::ClaudeStdio
+            {
+                c.fallback = Some("claude-sr".into());
+                cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
+            }
             // `-m claude` goes to the pool first, then the direct login, and
             // the pool falls back to the direct login. Only when the user
             // wrote no preference of their own.
             if cfg.discovered.contains("claude-sr") {
                 let has_direct = cfg.harnesses.contains_key("claude");
                 if let Some(p) = cfg.harnesses.get_mut("claude-sr")
-                    && p.fallback.is_none() && has_direct {
-                        p.fallback = Some("claude".into());
-                    }
+                    && p.fallback.is_none()
+                    && has_direct
+                {
+                    p.fallback = Some("claude".into());
+                }
                 let entry = cfg.defaults.entry("claude".into()).or_default();
                 if entry.prefer.is_empty() {
-                    entry.prefer = ["claude-sr", "claude"].iter().filter(|n| has_direct || **n != "claude").map(|n| n.to_string()).collect();
+                    entry.prefer = ["claude-sr", "claude"]
+                        .iter()
+                        .filter(|n| has_direct || **n != "claude")
+                        .map(|n| n.to_string())
+                        .collect();
                     cfg.auto_prefer = true;
                 }
             }
@@ -528,19 +575,21 @@ impl Config {
         on_disk.harnesses.retain(|n, _| !self.discovered.contains(n));
         if let Some((p, f)) = &self.auto_fallback
             && let Some(prof) = on_disk.harnesses.get_mut(p)
-                && prof.fallback.as_deref() == Some(f.as_str()) {
-                    prof.fallback = None;
-                }
+            && prof.fallback.as_deref() == Some(f.as_str())
+        {
+            prof.fallback = None;
+        }
         if self.auto_default {
             on_disk.default_harness = None;
         }
         if self.auto_prefer
-            && let Some(d) = on_disk.defaults.get_mut("claude") {
-                d.prefer.clear();
-                if d.is_empty() {
-                    on_disk.defaults.remove("claude");
-                }
+            && let Some(d) = on_disk.defaults.get_mut("claude")
+        {
+            d.prefer.clear();
+            if d.is_empty() {
+                on_disk.defaults.remove("claude");
             }
+        }
         write_atomic(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
     }
 
@@ -556,27 +605,32 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
         let acpx = home.join(".acpx").join("config.json");
         if let Ok(text) = std::fs::read_to_string(&acpx)
             && let Ok(v) = serde_json::from_str::<serde_json::Value>(&text)
-                && let Some(map) = v.get("agents").and_then(|a| a.as_object()) {
-                    for (name, profile) in map {
-                        if let Some(argv) = profile.get("argv").and_then(|a| a.as_array()) {
-                            let argv: Vec<String> = argv
-                                .iter()
-                                .filter_map(|s| s.as_str().map(str::to_owned))
-                                .collect();
-                            if !argv.is_empty() {
-                                agents.insert(
-                                    name.clone(),
-                                    HarnessProfile {
-                                        kind: HarnessKind::Acp,
-                                        argv,
-                                        env: BTreeMap::new(),
-                                        description: Some("imported from ~/.acpx".into()), fallback: None, family: None, models: vec![], model: None, effort: None, policy: None,
-                                    },
-                                );
-                            }
-                        }
+            && let Some(map) = v.get("agents").and_then(|a| a.as_object())
+        {
+            for (name, profile) in map {
+                if let Some(argv) = profile.get("argv").and_then(|a| a.as_array()) {
+                    let argv: Vec<String> =
+                        argv.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect();
+                    if !argv.is_empty() {
+                        agents.insert(
+                            name.clone(),
+                            HarnessProfile {
+                                kind: HarnessKind::Acp,
+                                argv,
+                                env: BTreeMap::new(),
+                                description: Some("imported from ~/.acpx".into()),
+                                fallback: None,
+                                family: None,
+                                models: vec![],
+                                model: None,
+                                effort: None,
+                                policy: None,
+                            },
+                        );
                     }
                 }
+            }
+        }
     }
     for (name, bin) in [
         ("codex", "codex-acp"),
@@ -616,8 +670,21 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
                     kind,
                     argv,
                     env: BTreeMap::new(),
-                    description: Some(if bin == "sr" { "Claude through the subrouter account pool".into() } else { "found on PATH".into() }),
-                    fallback: None, family: if matches!(bin, "dsh" | "opencode2") { Some(name.into()) } else { None }, models: vec![], model: None, effort: None, policy: None,
+                    description: Some(if bin == "sr" {
+                        "Claude through the subrouter account pool".into()
+                    } else {
+                        "found on PATH".into()
+                    }),
+                    fallback: None,
+                    family: if matches!(bin, "dsh" | "opencode2") {
+                        Some(name.into())
+                    } else {
+                        None
+                    },
+                    models: vec![],
+                    model: None,
+                    effort: None,
+                    policy: None,
                 },
             );
         }
@@ -625,9 +692,10 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
     // A direct Claude falls over to the pool when its account is exhausted.
     if agents.contains_key("claude-sr")
         && let Some(c) = agents.get_mut("claude")
-            && c.fallback.is_none() {
-                c.fallback = Some("claude-sr".into());
-            }
+        && c.fallback.is_none()
+    {
+        c.fallback = Some("claude-sr".into());
+    }
     agents
 }
 
@@ -639,7 +707,10 @@ pub fn verify_launchers(cfg: &mut Config) {
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
         .iter()
-        .filter(|(_, p)| p.argv.get(1).map(String::as_str) == Some("claude") && p.argv.get(2).map(String::as_str) == Some("proxy"))
+        .filter(|(_, p)| {
+            p.argv.get(1).map(String::as_str) == Some("claude")
+                && p.argv.get(2).map(String::as_str) == Some("proxy")
+        })
         .map(|(n, p)| (n.clone(), p.argv.clone()))
         .collect();
     for (name, argv) in candidates {
@@ -657,14 +728,20 @@ pub fn verify_launchers(cfg: &mut Config) {
 
 fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     let mut cmd = std::process::Command::new(&argv[0]);
-    cmd.args(&argv[1..]).arg("--version").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    cmd.args(&argv[1..])
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     scrub_nested_claude_env(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", argv[0]))?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
-            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(100)),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(100))
+            }
             Ok(None) => {
                 let _ = child.kill();
                 return Err(format!("{} claude proxy --version did not finish in 20s", argv[0]));
@@ -673,11 +750,24 @@ fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
         }
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let text =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     // Warnings (a peer that could not be reached) are not failures.
-    let first = text.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with("warning:")).unwrap_or("").to_owned();
-    if !out.status.success() || first.starts_with("subrouter:") || text.to_lowercase().contains("unknown command") {
-        return Err(format!("`{} claude proxy --version` failed: {}", argv[0], if first.is_empty() { out.status.to_string() } else { first }));
+    let first = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("warning:"))
+        .unwrap_or("")
+        .to_owned();
+    if !out.status.success()
+        || first.starts_with("subrouter:")
+        || text.to_lowercase().contains("unknown command")
+    {
+        return Err(format!(
+            "`{} claude proxy --version` failed: {}",
+            argv[0],
+            if first.is_empty() { out.status.to_string() } else { first }
+        ));
     }
     Ok(())
 }
@@ -718,7 +808,12 @@ pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
     }
     for (k, _) in std::env::vars_os() {
         let key = k.to_string_lossy();
-        if key.starts_with("CLAUDE") || key.starts_with("ANTHROPIC_") || key.starts_with("CMUX_CLAUDE_") || key.starts_with("SUBROUTER_CLAUDE_") || key == "NODE_OPTIONS" {
+        if key.starts_with("CLAUDE")
+            || key.starts_with("ANTHROPIC_")
+            || key.starts_with("CMUX_CLAUDE_")
+            || key.starts_with("SUBROUTER_CLAUDE_")
+            || key == "NODE_OPTIONS"
+        {
             cmd.env_remove(&k);
         }
     }
@@ -731,7 +826,12 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
     }
     for (k, _) in std::env::vars_os() {
         let key = k.to_string_lossy();
-        if key.starts_with("CLAUDE") || key.starts_with("ANTHROPIC_") || key.starts_with("CMUX_CLAUDE_") || key.starts_with("SUBROUTER_CLAUDE_") || key == "NODE_OPTIONS" {
+        if key.starts_with("CLAUDE")
+            || key.starts_with("ANTHROPIC_")
+            || key.starts_with("CMUX_CLAUDE_")
+            || key.starts_with("SUBROUTER_CLAUDE_")
+            || key == "NODE_OPTIONS"
+        {
             cmd.env_remove(&k);
         }
     }
@@ -742,19 +842,36 @@ mod tests {
     use super::*;
 
     fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
-        HarnessProfile { kind, argv: argv.iter().map(|s| s.to_string()).collect(), env: BTreeMap::new(), description: None, fallback: None, family: None, models: vec![], model: None, effort: None, policy: None }
+        HarnessProfile {
+            kind,
+            argv: argv.iter().map(|s| s.to_string()).collect(),
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        }
     }
 
     #[test]
     fn families_are_derived_and_resolved() {
         let mut cfg = Config::default();
-        cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["/usr/local/bin/claude"]));
-        cfg.harnesses.insert("claude-sr".into(), prof(HarnessKind::ClaudeStdio, &["/Users/x/bin/sr", "claude", "proxy"]));
-        cfg.harnesses.insert("codex".into(), prof(HarnessKind::Acp, &["/opt/homebrew/bin/codex-acp"]));
+        cfg.harnesses
+            .insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["/usr/local/bin/claude"]));
+        cfg.harnesses.insert(
+            "claude-sr".into(),
+            prof(HarnessKind::ClaudeStdio, &["/Users/x/bin/sr", "claude", "proxy"]),
+        );
+        cfg.harnesses
+            .insert("codex".into(), prof(HarnessKind::Acp, &["/opt/homebrew/bin/codex-acp"]));
         cfg.harnesses.insert("oc".into(), prof(HarnessKind::Acp, &["opencode", "acp"]));
         cfg.harnesses.insert("pi".into(), prof(HarnessKind::Acp, &["/x/pi-acp"]));
         cfg.harnesses.insert("omp".into(), prof(HarnessKind::Acp, &["/x/omp", "acp"]));
-        cfg.harnesses.insert("prime".into(), prof(HarnessKind::Acp, &["/x/prime-agent", "--mode", "acp"]));
+        cfg.harnesses
+            .insert("prime".into(), prof(HarnessKind::Acp, &["/x/prime-agent", "--mode", "acp"]));
         let mut tagged = prof(HarnessKind::Acp, &["python3", "agent.py"]);
         tagged.family = Some("codex".into());
         cfg.harnesses.insert("router-codex".into(), tagged);
@@ -779,8 +896,20 @@ mod tests {
         two.harnesses.insert("omp-b".into(), prof(HarnessKind::Acp, &["/y/omp", "acp"]));
         assert!(two.resolve_harness("omp").unwrap_err().contains("no preference"));
         // prefer decides, skipping profiles that are not installed.
-        cfg.defaults.insert("claude".into(), SessionDefaults { model: Some("claude-opus-5".into()), effort: Some("high".into()), policy: Some(PermissionPolicy::ApproveEdits), prefer: vec!["missing".into(), "claude-sr".into()], env: BTreeMap::from([("A".to_owned(), "1".to_owned())]) });
-        cfg.defaults.insert("claude-sr".into(), SessionDefaults { effort: Some("max".into()), ..Default::default() });
+        cfg.defaults.insert(
+            "claude".into(),
+            SessionDefaults {
+                model: Some("claude-opus-5".into()),
+                effort: Some("high".into()),
+                policy: Some(PermissionPolicy::ApproveEdits),
+                prefer: vec!["missing".into(), "claude-sr".into()],
+                env: BTreeMap::from([("A".to_owned(), "1".to_owned())]),
+            },
+        );
+        cfg.defaults.insert(
+            "claude-sr".into(),
+            SessionDefaults { effort: Some("max".into()), ..Default::default() },
+        );
         assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude-sr");
         // Defaults chain: family, then the profile entry, then inline profile fields.
         cfg.harnesses.get_mut("claude-sr").unwrap().policy = Some(PermissionPolicy::Ask);
@@ -791,8 +920,21 @@ mod tests {
         assert_eq!(d.env["A"], "1");
         assert!(cfg.defaults_for("codex").is_empty());
         // Presets and declared models round-trip as camelCase JSON.
-        cfg.presets.insert("deepseek".into(), Preset { harness: "opencode".into(), model: Some("opencode-go/deepseek-v4-pro".into()), effort: Some("low".into()), policy: None, env: BTreeMap::new(), description: None });
-        cfg.harnesses.get_mut("prime").unwrap().models = vec![DeclaredModel::Id("subrouter/gpt-5.6-sol".into()), DeclaredModel::Full { id: "x".into(), name: Some("X".into()) }];
+        cfg.presets.insert(
+            "deepseek".into(),
+            Preset {
+                harness: "opencode".into(),
+                model: Some("opencode-go/deepseek-v4-pro".into()),
+                effort: Some("low".into()),
+                policy: None,
+                env: BTreeMap::new(),
+                description: None,
+            },
+        );
+        cfg.harnesses.get_mut("prime").unwrap().models = vec![
+            DeclaredModel::Id("subrouter/gpt-5.6-sol".into()),
+            DeclaredModel::Full { id: "x".into(), name: Some("X".into()) },
+        ];
         let text = serde_json::to_string(&cfg).unwrap();
         assert!(text.contains("\"presets\":{\"deepseek\":{\"harness\":\"opencode\""), "{text}");
         let back: Config = serde_json::from_str(&text).unwrap();
@@ -809,17 +951,24 @@ mod tests {
         let mut claude = prof(HarnessKind::ClaudeStdio, &["claude"]);
         claude.fallback = Some("claude-sr".into());
         cfg.harnesses.insert("claude".into(), claude);
-        cfg.harnesses.insert("claude-sr".into(), prof(HarnessKind::ClaudeStdio, &["sr", "claude", "proxy"]));
+        cfg.harnesses
+            .insert("claude-sr".into(), prof(HarnessKind::ClaudeStdio, &["sr", "claude", "proxy"]));
         cfg.harnesses.insert("pi".into(), prof(HarnessKind::Acp, &["pi-acp"]));
         cfg.discovered = ["claude-sr".to_owned(), "pi".to_owned()].into_iter().collect();
         cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
         cfg.default_harness = Some("pi".into());
         cfg.auto_default = true;
-        cfg.defaults.insert("claude".into(), SessionDefaults { model: Some("m".into()), ..Default::default() });
+        cfg.defaults.insert(
+            "claude".into(),
+            SessionDefaults { model: Some("m".into()), ..Default::default() },
+        );
         cfg.save().unwrap();
         let text = std::fs::read_to_string(dir.join("config.json")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(v["harnesses"].as_object().unwrap().keys().cloned().collect::<Vec<_>>(), vec!["claude".to_owned()]);
+        assert_eq!(
+            v["harnesses"].as_object().unwrap().keys().cloned().collect::<Vec<_>>(),
+            vec!["claude".to_owned()]
+        );
         assert!(v["harnesses"]["claude"].get("fallback").is_none(), "{text}");
         assert!(v.get("defaultHarness").map(|d| d.is_null()).unwrap_or(true), "{text}");
         assert_eq!(v["defaults"]["claude"]["model"], "m");
@@ -832,7 +981,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("acpmux-launcher-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let old = dir.join("sr-old");
-        std::fs::write(&old, "#!/bin/sh\necho 'subrouter: unknown command: sr claude proxy' >&2\nexit 1\n").unwrap();
+        std::fs::write(
+            &old,
+            "#!/bin/sh\necho 'subrouter: unknown command: sr claude proxy' >&2\nexit 1\n",
+        )
+        .unwrap();
         let broken = dir.join("sr-broken");
         std::fs::write(&broken, "#!/bin/sh\necho 'subrouter: prepare shared Claude proxy history: file exists' >&2\nexit 0\n").unwrap();
         let good = dir.join("sr-good");
@@ -841,20 +994,56 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let argv = |p: &std::path::Path| vec![p.to_string_lossy().into_owned(), "claude".into(), "proxy".into()];
+        let argv = |p: &std::path::Path| {
+            vec![p.to_string_lossy().into_owned(), "claude".into(), "proxy".into()]
+        };
         assert!(launcher_ok(&argv(&old)).unwrap_err().contains("unknown command"));
         assert!(launcher_ok(&argv(&broken)).unwrap_err().contains("prepare shared"));
         assert!(launcher_ok(&argv(&good)).is_ok());
         let mut cfg = Config::default();
-        cfg.harnesses.insert("claude-sr".into(), HarnessProfile { kind: HarnessKind::ClaudeStdio, argv: argv(&old), env: BTreeMap::new(), description: None, fallback: None, family: None, models: vec![], model: None, effort: None, policy: None });
-        cfg.harnesses.insert("claude".into(), HarnessProfile { kind: HarnessKind::ClaudeStdio, argv: vec!["claude".into()], env: BTreeMap::new(), description: None, fallback: Some("claude-sr".into()), family: None, models: vec![], model: None, effort: None, policy: None });
+        cfg.harnesses.insert(
+            "claude-sr".into(),
+            HarnessProfile {
+                kind: HarnessKind::ClaudeStdio,
+                argv: argv(&old),
+                env: BTreeMap::new(),
+                description: None,
+                fallback: None,
+                family: None,
+                models: vec![],
+                model: None,
+                effort: None,
+                policy: None,
+            },
+        );
+        cfg.harnesses.insert(
+            "claude".into(),
+            HarnessProfile {
+                kind: HarnessKind::ClaudeStdio,
+                argv: vec!["claude".into()],
+                env: BTreeMap::new(),
+                description: None,
+                fallback: Some("claude-sr".into()),
+                family: None,
+                models: vec![],
+                model: None,
+                effort: None,
+                policy: None,
+            },
+        );
         verify_launchers(&mut cfg);
         // The profile stays (sessions on it keep working or fail with the
         // reason); nothing routes new work to it.
         assert!(cfg.harnesses.contains_key("claude-sr"));
         assert!(cfg.unavailable.get("claude-sr").unwrap().contains("unknown command"));
         assert_eq!(cfg.harnesses["claude"].fallback, None);
-        cfg.defaults.insert("claude".into(), SessionDefaults { prefer: vec!["claude-sr".into(), "claude".into()], ..Default::default() });
+        cfg.defaults.insert(
+            "claude".into(),
+            SessionDefaults {
+                prefer: vec!["claude-sr".into(), "claude".into()],
+                ..Default::default()
+            },
+        );
         assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
         let _ = std::fs::remove_dir_all(&dir);
     }

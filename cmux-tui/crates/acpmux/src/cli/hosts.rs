@@ -10,7 +10,10 @@ use std::process::Command;
 use std::sync::Arc;
 
 fn ssh(host: &str, script: &str) -> Result<String> {
-    let out = Command::new("ssh").args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", host, script]).output().with_context(|| format!("ssh {host}"))?;
+    let out = Command::new("ssh")
+        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", host, script])
+        .output()
+        .with_context(|| format!("ssh {host}"))?;
     if !out.status.success() {
         return Err(anyhow!("ssh {host} failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
@@ -22,11 +25,23 @@ fn ssh(host: &str, script: &str) -> Result<String> {
 fn push_binary(host: &str) -> Result<String> {
     let exe = std::env::current_exe()?;
     ssh(host, "mkdir -p ~/.local/bin ~/.acpmux")?;
-    let status = Command::new("scp").args(["-q", "-o", "BatchMode=yes", &exe.to_string_lossy(), &format!("{host}:.local/bin/acpmux.new")]).status().context("scp")?;
+    let status = Command::new("scp")
+        .args([
+            "-q",
+            "-o",
+            "BatchMode=yes",
+            &exe.to_string_lossy(),
+            &format!("{host}:.local/bin/acpmux.new"),
+        ])
+        .status()
+        .context("scp")?;
     if !status.success() {
         return Err(anyhow!("scp to {host} failed"));
     }
-    ssh(host, "rm -f ~/.local/bin/acpmux && mv ~/.local/bin/acpmux.new ~/.local/bin/acpmux && chmod +x ~/.local/bin/acpmux && ~/.local/bin/acpmux --version")
+    ssh(
+        host,
+        "rm -f ~/.local/bin/acpmux && mv ~/.local/bin/acpmux.new ~/.local/bin/acpmux && chmod +x ~/.local/bin/acpmux && ~/.local/bin/acpmux --version",
+    )
 }
 
 const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -47,26 +62,43 @@ const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 fn restart_daemon(host: &str) -> Result<String> {
     let os = ssh(host, "uname -s")?;
     if os == "Darwin" {
-        ssh(host, "launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || (launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist && echo bootstrapped)")?;
+        ssh(
+            host,
+            "launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || (launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist && echo bootstrapped)",
+        )?;
     } else {
-        ssh(host, "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; sleep 1; nohup ~/.local/bin/acpmux daemon run >> ~/.acpmux/launchd.log 2>&1 &")?;
+        ssh(
+            host,
+            "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; sleep 1; nohup ~/.local/bin/acpmux daemon run >> ~/.acpmux/launchd.log 2>&1 &",
+        )?;
     }
     // Let it come up, then report.
     std::thread::sleep(std::time::Duration::from_secs(2));
     ssh(host, "~/.local/bin/acpmux --json daemon status 2>/dev/null | head -c 400 || echo starting")
 }
 
-pub(crate) async fn setup(client: Arc<Client>, host: &str, name: Option<String>, port: u16, json_out: bool) -> Result<()> {
-    let name = name.unwrap_or_else(|| host.split('@').next_back().unwrap_or(host).split('.').next().unwrap_or(host).to_owned());
+pub(crate) async fn setup(
+    client: Arc<Client>,
+    host: &str,
+    name: Option<String>,
+    port: u16,
+    json_out: bool,
+) -> Result<()> {
+    let name = name.unwrap_or_else(|| {
+        host.split('@').next_back().unwrap_or(host).split('.').next().unwrap_or(host).to_owned()
+    });
     let version = push_binary(host)?;
     // Config: keep an existing one, but make sure the websocket listener and token exist.
     let existing = ssh(host, "cat ~/.acpmux/config.json 2>/dev/null || echo '{}'")?;
     let mut cfg: Value = serde_json::from_str(&existing).unwrap_or_else(|_| json!({}));
-    let token = cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| {
-        let mut b = [0u8; 24];
-        getrandom_fill(&mut b);
-        b.iter().map(|x| format!("{x:02x}")).collect()
-    });
+    let token =
+        cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(
+            || {
+                let mut b = [0u8; 24];
+                getrandom_fill(&mut b);
+                b.iter().map(|x| format!("{x:02x}")).collect()
+            },
+        );
     cfg["websocket"] = json!({"listen": format!("127.0.0.1:{port}"), "token": token});
     if cfg.get("store").is_none() {
         cfg["store"] = json!({"mode": "local"});
@@ -80,44 +112,77 @@ pub(crate) async fn setup(client: Arc<Client>, host: &str, name: Option<String>,
     if os == "Darwin" {
         let home = ssh(host, "echo $HOME")?;
         let plist = PLIST.replace("__HOME__", &home);
-        ssh(host, &format!("mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\nlaunchctl bootout gui/$(id -u)/com.acpmux.daemon 2>/dev/null || true; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"))?;
+        ssh(
+            host,
+            &format!(
+                "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\nlaunchctl bootout gui/$(id -u)/com.acpmux.daemon 2>/dev/null || true; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"
+            ),
+        )?;
     } else {
-        ssh(host, "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; sleep 1; nohup ~/.local/bin/acpmux daemon run >> ~/.acpmux/launchd.log 2>&1 &")?;
+        ssh(
+            host,
+            "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; sleep 1; nohup ~/.local/bin/acpmux daemon run >> ~/.acpmux/launchd.log 2>&1 &",
+        )?;
     }
     std::thread::sleep(std::time::Duration::from_secs(2));
     let status = ssh(host, "~/.local/bin/acpmux daemon status 2>/dev/null | head -3")?;
     // Register (or re-register) the peer.
     let url = if port == 47811 { format!("ssh://{host}") } else { format!("ssh://{host}:{port}") };
     let peers = client.request("_acpmux/peers", json!({})).await?;
-    let known = peers.get("peers").and_then(Value::as_array).map(|a| a.iter().any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str()))).unwrap_or(false);
+    let known = peers
+        .get("peers")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str())))
+        .unwrap_or(false);
     if !known {
         client.request("_acpmux/peer_add", json!({"name": name, "url": url})).await?;
     }
     tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
     let peers = client.request("_acpmux/peers", json!({})).await?;
     if json_out {
-        print_json(&json!({"host": host, "name": name, "remoteVersion": version, "status": status, "peers": peers.get("peers")}));
+        print_json(
+            &json!({"host": host, "name": name, "remoteVersion": version, "status": status, "peers": peers.get("peers")}),
+        );
     } else {
         println!("{host}: {version}");
         for l in status.lines() {
             println!("  {l}");
         }
-        let p = peers.get("peers").and_then(Value::as_array).and_then(|a| a.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str())).cloned());
-        println!("peer {name}: {}", p.as_ref().and_then(|p| p.get("connected")).and_then(Value::as_bool).map(|c| if c { "connected" } else { "connecting…" }).unwrap_or("unknown"));
+        let p = peers.get("peers").and_then(Value::as_array).and_then(|a| {
+            a.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str())).cloned()
+        });
+        println!(
+            "peer {name}: {}",
+            p.as_ref()
+                .and_then(|p| p.get("connected"))
+                .and_then(Value::as_bool)
+                .map(|c| if c { "connected" } else { "connecting…" })
+                .unwrap_or("unknown")
+        );
     }
     Ok(())
 }
 
 /// Update one ssh peer, or every one, to this binary and restart it.
-pub(crate) async fn update(client: Arc<Client>, name: Option<String>, all: bool, json_out: bool) -> Result<()> {
+pub(crate) async fn update(
+    client: Arc<Client>,
+    name: Option<String>,
+    all: bool,
+    json_out: bool,
+) -> Result<()> {
     let peers = client.request("_acpmux/peers", json!({})).await?;
-    let list: Vec<Value> = peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
+    let list: Vec<Value> =
+        peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
     let targets: Vec<(String, String)> = list
         .iter()
         .filter_map(|p| {
             let n = p.get("name").and_then(Value::as_str)?;
             let url = p.get("url").and_then(Value::as_str)?;
-            let host = url.strip_prefix("ssh://")?.rsplit_once(':').map(|(h, _)| h).unwrap_or(url.strip_prefix("ssh://")?);
+            let host = url
+                .strip_prefix("ssh://")?
+                .rsplit_once(':')
+                .map(|(h, _)| h)
+                .unwrap_or(url.strip_prefix("ssh://")?);
             Some((n.to_owned(), host.to_owned()))
         })
         .filter(|(n, _)| all || name.as_deref() == Some(n.as_str()))
@@ -149,7 +214,16 @@ pub(crate) async fn update(client: Arc<Client>, name: Option<String>, all: bool,
         print_json(&json!({"updated": rows, "peers": peers.get("peers")}));
     } else {
         for p in peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
-            println!("{:<16} {:<10} {}", p.get("name").and_then(Value::as_str).unwrap_or(""), if p.get("connected").and_then(Value::as_bool).unwrap_or(false) { "connected" } else { "offline" }, p.get("remoteBuild").and_then(Value::as_str).unwrap_or("?"));
+            println!(
+                "{:<16} {:<10} {}",
+                p.get("name").and_then(Value::as_str).unwrap_or(""),
+                if p.get("connected").and_then(Value::as_bool).unwrap_or(false) {
+                    "connected"
+                } else {
+                    "offline"
+                },
+                p.get("remoteBuild").and_then(Value::as_str).unwrap_or("?")
+            );
         }
     }
     if rows.iter().any(|r| r.get("ok") == Some(&json!(false))) {

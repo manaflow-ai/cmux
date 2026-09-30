@@ -6,9 +6,10 @@ use super::*;
 /// as attached (remote sessions are not counted; their host does that).
 fn attach(hub: &Hub, conn: &Conn, id: &str) {
     if conn.subscribe(id)
-        && let Ok(s) = hub.resolve(id) {
-            hub.attach_count(&s, 1);
-        }
+        && let Ok(s) = hub.resolve(id)
+    {
+        hub.attach_count(&s, 1);
+    }
 }
 
 pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) {
@@ -47,44 +48,59 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/peer_remove",
 ];
 
-pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) -> Result<Value, RpcError> {
+pub(super) async fn handle_request(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+) -> Result<Value, RpcError> {
     // A session that lives on a peer: forward the whole request there.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && let Ok(key) = session_key(&params)
-            && hub.resolve(key).is_err()
-                && let Some((peer, id, _)) = hub.resolve_remote(key) {
-                    let mut p = if params.is_null() { json!({}) } else { params.clone() };
-                    if let Some(obj) = p.as_object_mut() {
-                        obj.remove("session");
-                        obj.remove("name");
-                        obj.insert("sessionId".into(), Value::String(id.clone()));
-                    }
-                    if matches!(m, method::MUX_ATTACH | method::SESSION_PROMPT | method::SESSION_LOAD | method::SESSION_RESUME | method::SESSION_FORK) {
-                        attach(hub, conn, &id);
-                        if peer.mark_attached(&id) && m != method::MUX_ATTACH {
-                            let _ = peer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
-                        }
-                    }
-                    let mut result = peer.request(m, p).await.map_err(|e| {
+        && hub.resolve(key).is_err()
+        && let Some((peer, id, _)) = hub.resolve_remote(key)
+    {
+        let mut p = if params.is_null() { json!({}) } else { params.clone() };
+        if let Some(obj) = p.as_object_mut() {
+            obj.remove("session");
+            obj.remove("name");
+            obj.insert("sessionId".into(), Value::String(id.clone()));
+        }
+        if matches!(
+            m,
+            method::MUX_ATTACH
+                | method::SESSION_PROMPT
+                | method::SESSION_LOAD
+                | method::SESSION_RESUME
+                | method::SESSION_FORK
+        ) {
+            attach(hub, conn, &id);
+            if peer.mark_attached(&id) && m != method::MUX_ATTACH {
+                let _ =
+                    peer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
+            }
+        }
+        let mut result = peer.request(m, p).await.map_err(|e| {
                         if e.message.contains("Method not found") {
                             RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
                         } else {
                             e
                         }
                     })?;
-                    if m == method::SESSION_FORK
-                        && let Some(new_id) = result.get("sessionId").and_then(Value::as_str) {
-                            attach(hub, conn, new_id);
-                            peer.mark_attached(new_id);
-                        }
-                    if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {
-                        hub.forget_remote(&id);
-                    }
-                    if let Some(obj) = result.as_object_mut() {
-                        obj.insert("peer".into(), Value::String(peer.name.clone()));
-                    }
-                    return Ok(result);
-                }
+        if m == method::SESSION_FORK
+            && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
+        {
+            attach(hub, conn, new_id);
+            peer.mark_attached(new_id);
+        }
+        if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {
+            hub.forget_remote(&id);
+        }
+        if let Some(obj) = result.as_object_mut() {
+            obj.insert("peer".into(), Value::String(peer.name.clone()));
+        }
+        return Ok(result);
+    }
     match m {
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
@@ -110,27 +126,40 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         method::AUTHENTICATE => Ok(json!({})),
         method::SESSION_NEW => {
             // A peer name in _meta.acpmux.peer creates the session on that daemon.
-            if let Some(peer_name) = mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
-                && !peer_name.is_empty() {
-                    let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
-                    let mut p = params.clone();
-                    if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
-                        m.remove("peer");
-                    }
-                    let mut result = peer.request(method::SESSION_NEW, p).await?;
-                    if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
-                        attach(hub, conn, id);
-                        peer.mark_attached(id);
-                    }
-                    if let Some(obj) = result.as_object_mut() {
-                        obj.insert("peer".into(), Value::String(peer.name.clone()));
-                    }
-                    return Ok(result);
+            if let Some(peer_name) =
+                mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
+                && !peer_name.is_empty()
+            {
+                let peer = hub
+                    .peer_by_name(peer_name)
+                    .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
+                let mut p = params.clone();
+                if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+                    m.remove("peer");
                 }
-            let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default()));
+                let mut result = peer.request(method::SESSION_NEW, p).await?;
+                if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+                    attach(hub, conn, id);
+                    peer.mark_attached(id);
+                }
+                if let Some(obj) = result.as_object_mut() {
+                    obj.insert("peer".into(), Value::String(peer.name.clone()));
+                }
+                return Ok(result);
+            }
+            let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| {
+                dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+            });
             let meta = mux_meta(&params);
-            let pick = |key: &str| meta.and_then(|m| m.get(key)).and_then(Value::as_str).map(str::to_owned).or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned));
-            let policy = pick("policy").map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params)).transpose()?;
+            let pick = |key: &str| {
+                meta.and_then(|m| m.get(key))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned))
+            };
+            let policy = pick("policy")
+                .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
+                .transpose()?;
             let req = crate::hub::NewRequest {
                 harness: pick("harness"),
                 preset: pick("preset"),
@@ -154,7 +183,8 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let s = hub.resolve(session_key(&params)?)?;
             attach(hub, conn, &s.id);
             // Replay history as ACP updates, then answer.
-            let events = hub.events(&s.id, 0, 100_000).map_err(|e| RpcError::internal(e.to_string()))?;
+            let events =
+                hub.events(&s.id, 0, 100_000).map_err(|e| RpcError::internal(e.to_string()))?;
             for rec in events {
                 if rec.dir == "mux" && rec.kind == "user_message" {
                     let text = rec.msg.get("text").and_then(Value::as_str).unwrap_or("");
@@ -162,16 +192,20 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                         method::SESSION_UPDATE,
                         json!({"sessionId": s.id, "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}, "_meta": {"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}}}),
                     ));
-                } else if rec.dir == "in" && !rec.kind.ends_with(".replay")
-                    && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE) {
-                        let mut p = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                        p["sessionId"] = Value::String(s.id.clone());
-                        p["_meta"] = json!({"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}});
-                        conn.send(&Message::notification(method::SESSION_UPDATE, p));
-                    }
+                } else if rec.dir == "in"
+                    && !rec.kind.ends_with(".replay")
+                    && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+                {
+                    let mut p = rec.msg.get("params").cloned().unwrap_or(json!({}));
+                    p["sessionId"] = Value::String(s.id.clone());
+                    p["_meta"] = json!({"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}});
+                    conn.send(&Message::notification(method::SESSION_UPDATE, p));
+                }
             }
             let meta = s.meta();
-            Ok(json!({"modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&s)}}))
+            Ok(
+                json!({"modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&s)}}),
+            )
         }
         method::SESSION_LIST => {
             let sessions: Vec<Value> = hub
@@ -196,8 +230,15 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 .get("prompt")
                 .and_then(Value::as_array)
                 .cloned()
-                .or_else(|| params.get("text").and_then(Value::as_str).map(|t| vec![json!({"type": "text", "text": t})]))
-                .ok_or_else(|| RpcError::invalid_params("prompt must be an array of content blocks"))?;
+                .or_else(|| {
+                    params
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .map(|t| vec![json!({"type": "text", "text": t})])
+                })
+                .ok_or_else(|| {
+                    RpcError::invalid_params("prompt must be an array of content blocks")
+                })?;
             let steer = mux_meta(&params)
                 .and_then(|m| m.get("steer"))
                 .and_then(Value::as_bool)
@@ -216,22 +257,30 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let new = hub.fork(&s, name, cwd).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
-            Ok(json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&new)}}))
+            Ok(
+                json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&new)}}),
+            )
         }
         method::SESSION_SET_MODE => {
             let s = hub.resolve(session_key(&params)?)?;
-            let mode = str_param(&params, "modeId").ok_or_else(|| RpcError::invalid_params("modeId is required"))?;
+            let mode = str_param(&params, "modeId")
+                .ok_or_else(|| RpcError::invalid_params("modeId is required"))?;
             hub.set_mode(&s, mode).await
         }
         method::SESSION_SET_CONFIG_OPTION => {
             let s = hub.resolve(session_key(&params)?)?;
-            let id = str_param(&params, "configId").ok_or_else(|| RpcError::invalid_params("configId is required"))?;
-            let value = params.get("value").cloned().ok_or_else(|| RpcError::invalid_params("value is required"))?;
+            let id = str_param(&params, "configId")
+                .ok_or_else(|| RpcError::invalid_params("configId is required"))?;
+            let value = params
+                .get("value")
+                .cloned()
+                .ok_or_else(|| RpcError::invalid_params("value is required"))?;
             hub.set_config(&s, id, value).await
         }
         method::SESSION_SET_MODEL => {
             let s = hub.resolve(session_key(&params)?)?;
-            let model = str_param(&params, "modelId").ok_or_else(|| RpcError::invalid_params("modelId is required"))?;
+            let model = str_param(&params, "modelId")
+                .ok_or_else(|| RpcError::invalid_params("modelId is required"))?;
             hub.set_model(&s, model).await
         }
         method::SESSION_CLOSE => {
@@ -248,7 +297,10 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
         "_acpmux/set_default_policy" => {
-            let policy: PermissionPolicy = str_param(&params, "policy").ok_or_else(|| RpcError::invalid_params("policy is required"))?.parse().map_err(RpcError::invalid_params)?;
+            let policy: PermissionPolicy = str_param(&params, "policy")
+                .ok_or_else(|| RpcError::invalid_params("policy is required"))?
+                .parse()
+                .map_err(RpcError::invalid_params)?;
             let mut cfg = hub.config.write().await;
             cfg.permission_policy = policy;
             cfg.save().map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
@@ -259,7 +311,8 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
             let value = str_param(&params, "path").unwrap_or("");
-            let path = crate::tui::directory::resolve(&base, value, &home, None).map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            let path = crate::tui::directory::resolve(&base, value, &home, None)
+                .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             let result = tokio::task::spawn_blocking(move || -> Result<Value, std::io::Error> {
                 let path = std::fs::canonicalize(path)?;
                 if !path.is_dir() { return Err(std::io::Error::other("not a directory")); }
@@ -276,30 +329,35 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             // Remote harnesses, labelled peer/agent, from each connected peer.
             for peer in hub.connected_peers() {
                 if let Ok(remote) = peer.request("_acpmux/models", json!({})).await
-                    && let Some(hs) = remote.get("harnesses").and_then(Value::as_array) {
-                        for h in hs {
-                            let mut h = h.clone();
-                            let agent = h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
-                            h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
-                            h["peer"] = Value::String(peer.name.clone());
-                            h["isDefault"] = Value::Bool(false);
-                            if let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) {
-                                arr.push(h);
-                            }
+                    && let Some(hs) = remote.get("harnesses").and_then(Value::as_array)
+                {
+                    for h in hs {
+                        let mut h = h.clone();
+                        let agent =
+                            h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
+                        h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
+                        h["peer"] = Value::String(peer.name.clone());
+                        h["isDefault"] = Value::Bool(false);
+                        if let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) {
+                            arr.push(h);
                         }
                     }
+                }
             }
             Ok(cat)
         }
         "_acpmux/peer_add" => {
-            let name = str_param(&params, "name").ok_or_else(|| RpcError::invalid_params("name is required"))?;
-            let url = str_param(&params, "url").ok_or_else(|| RpcError::invalid_params("url is required"))?;
+            let name = str_param(&params, "name")
+                .ok_or_else(|| RpcError::invalid_params("name is required"))?;
+            let url = str_param(&params, "url")
+                .ok_or_else(|| RpcError::invalid_params("url is required"))?;
             let token = str_param(&params, "token").map(str::to_owned);
             hub.add_peer(name, url, token).await?;
             Ok(json!({"peers": hub.peers()}))
         }
         "_acpmux/peer_remove" => {
-            let name = str_param(&params, "name").ok_or_else(|| RpcError::invalid_params("name is required"))?;
+            let name = str_param(&params, "name")
+                .ok_or_else(|| RpcError::invalid_params("name is required"))?;
             hub.remove_peer(name).await?;
             Ok(json!({"peers": hub.peers()}))
         }
@@ -320,7 +378,9 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 }
                 agents.insert(name.clone(), v);
             }
-            Ok(json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets}))
+            Ok(
+                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets}),
+            )
         }
         method::MUX_RELOAD_CONFIG => hub.reload_catalog().await,
         // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
@@ -329,12 +389,15 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let set = params.get("set").filter(|v| v.is_object());
             let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
             if set.is_some() || clear {
-                let family = family.clone().ok_or_else(|| RpcError::invalid_params("family is required to change defaults"))?;
+                let family = family.clone().ok_or_else(|| {
+                    RpcError::invalid_params("family is required to change defaults")
+                })?;
                 let mut cfg = hub.config.write().await;
                 if clear {
                     cfg.defaults.remove(&family);
                 } else if let Some(set) = set {
-                    let patch: crate::config::SessionDefaults = serde_json::from_value(set.clone()).map_err(|e| RpcError::invalid_params(format!("defaults: {e}")))?;
+                    let patch: crate::config::SessionDefaults = serde_json::from_value(set.clone())
+                        .map_err(|e| RpcError::invalid_params(format!("defaults: {e}")))?;
                     let entry = cfg.defaults.entry(family.clone()).or_default();
                     let mut merged = entry.clone();
                     // A JSON null clears one field.
@@ -350,11 +413,21 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                             }
                         }
                     }
-                    if patch.model.is_some() { merged.model = patch.model; }
-                    if patch.effort.is_some() { merged.effort = patch.effort; }
-                    if patch.policy.is_some() { merged.policy = patch.policy; }
-                    if !patch.prefer.is_empty() { merged.prefer = patch.prefer; }
-                    for (k, v) in patch.env { merged.env.insert(k, v); }
+                    if patch.model.is_some() {
+                        merged.model = patch.model;
+                    }
+                    if patch.effort.is_some() {
+                        merged.effort = patch.effort;
+                    }
+                    if patch.policy.is_some() {
+                        merged.policy = patch.policy;
+                    }
+                    if !patch.prefer.is_empty() {
+                        merged.prefer = patch.prefer;
+                    }
+                    for (k, v) in patch.env {
+                        merged.env.insert(k, v);
+                    }
                     if merged.is_empty() {
                         cfg.defaults.remove(&family);
                     } else {
@@ -369,14 +442,28 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let mut resolved = serde_json::Map::new();
             let fams = cfg.families();
             for f in fams.keys().chain(cfg.defaults.keys()) {
-                if resolved.contains_key(f) { continue; }
-                let (profile, error) = match cfg.resolve_harness(f) { Ok(p) => (Some(p), None), Err(e) => (None, Some(e)) };
+                if resolved.contains_key(f) {
+                    continue;
+                }
+                let (profile, error) = match cfg.resolve_harness(f) {
+                    Ok(p) => (Some(p), None),
+                    Err(e) => (None, Some(e)),
+                };
                 let d = profile.as_deref().map(|p| cfg.defaults_for(p)).unwrap_or_default();
-                let kind = if fams.contains_key(f) { "family" } else if cfg.harnesses.contains_key(f) { "profile" } else { "unused" };
+                let kind = if fams.contains_key(f) {
+                    "family"
+                } else if cfg.harnesses.contains_key(f) {
+                    "profile"
+                } else {
+                    "unused"
+                };
                 resolved.insert(f.clone(), json!({"kind": kind, "profile": profile, "error": error, "profiles": fams.get(f).cloned().unwrap_or_default(), "model": d.model, "effort": d.effort, "policy": d.policy, "prefer": d.prefer, "env": d.env}));
             }
             match family {
-                Some(f) => Ok(resolved.get(&f).cloned().unwrap_or(json!({"profile": null, "profiles": []}))),
+                Some(f) => Ok(resolved
+                    .get(&f)
+                    .cloned()
+                    .unwrap_or(json!({"profile": null, "profiles": []}))),
                 None => Ok(json!({"families": resolved, "defaults": cfg.defaults})),
             }
         }
@@ -386,16 +473,32 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let set = params.get("set").filter(|v| v.is_object());
             let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
             if set.is_some() || clear {
-                let name = name.clone().ok_or_else(|| RpcError::invalid_params("name is required to change a preset"))?;
+                let name = name.clone().ok_or_else(|| {
+                    RpcError::invalid_params("name is required to change a preset")
+                })?;
                 let mut cfg = hub.config.write().await;
                 if clear {
                     cfg.presets.remove(&name);
                 } else if let Some(set) = set {
                     let obj = set.as_object().unwrap();
                     let mut merged = cfg.presets.get(&name).cloned();
-                    let harness = obj.get("harness").and_then(Value::as_str).map(str::to_owned).or_else(|| merged.as_ref().map(|p| p.harness.clone())).ok_or_else(|| RpcError::invalid_params("a preset needs harness=FAMILY-or-PROFILE"))?;
+                    let harness = obj
+                        .get("harness")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .or_else(|| merged.as_ref().map(|p| p.harness.clone()))
+                        .ok_or_else(|| {
+                            RpcError::invalid_params("a preset needs harness=FAMILY-or-PROFILE")
+                        })?;
                     cfg.resolve_harness(&harness).map_err(RpcError::invalid_params)?;
-                    let p = merged.get_or_insert_with(|| crate::config::Preset { harness: harness.clone(), model: None, effort: None, policy: None, env: std::collections::BTreeMap::new(), description: None });
+                    let p = merged.get_or_insert_with(|| crate::config::Preset {
+                        harness: harness.clone(),
+                        model: None,
+                        effort: None,
+                        policy: None,
+                        env: std::collections::BTreeMap::new(),
+                        description: None,
+                    });
                     p.harness = harness;
                     for (k, v) in obj {
                         match (k.as_str(), v) {
@@ -405,20 +508,37 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                             ("effort", Value::Null) => p.effort = None,
                             ("effort", Value::String(e)) => p.effort = Some(e.clone()),
                             ("policy", Value::Null) => p.policy = None,
-                            ("policy", Value::String(pol)) => p.policy = Some(pol.parse::<PermissionPolicy>().map_err(RpcError::invalid_params)?),
+                            ("policy", Value::String(pol)) => {
+                                p.policy = Some(
+                                    pol.parse::<PermissionPolicy>()
+                                        .map_err(RpcError::invalid_params)?,
+                                )
+                            }
                             ("description", Value::Null) => p.description = None,
                             ("description", Value::String(d)) => p.description = Some(d.clone()),
                             ("env", Value::Null) => p.env.clear(),
                             ("env", Value::Object(map)) => {
                                 for (ek, ev) in map {
                                     match ev {
-                                        Value::Null => { p.env.remove(ek); }
-                                        Value::String(s) => { p.env.insert(ek.clone(), s.clone()); }
-                                        _ => return Err(RpcError::invalid_params(format!("env.{ek} must be a string"))),
+                                        Value::Null => {
+                                            p.env.remove(ek);
+                                        }
+                                        Value::String(s) => {
+                                            p.env.insert(ek.clone(), s.clone());
+                                        }
+                                        _ => {
+                                            return Err(RpcError::invalid_params(format!(
+                                                "env.{ek} must be a string"
+                                            )));
+                                        }
                                     }
                                 }
                             }
-                            (other, _) => return Err(RpcError::invalid_params(format!("unknown preset key {other:?}; use harness, model, effort, policy, env, description"))),
+                            (other, _) => {
+                                return Err(RpcError::invalid_params(format!(
+                                    "unknown preset key {other:?}; use harness, model, effort, policy, env, description"
+                                )));
+                            }
                         }
                     }
                     let p = merged.unwrap();
@@ -430,12 +550,21 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             }
             let cfg = hub.config.read().await;
             let view = |n: &str, p: &crate::config::Preset| {
-                let (profile, error) = match cfg.resolve_harness(&p.harness) { Ok(x) => (Some(x), None), Err(e) => (None, Some(e)) };
+                let (profile, error) = match cfg.resolve_harness(&p.harness) {
+                    Ok(x) => (Some(x), None),
+                    Err(e) => (None, Some(e)),
+                };
                 json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "description": p.description})
             };
             match name {
-                Some(n) if !clear => cfg.presets.get(&n).map(|p| view(&n, p)).ok_or_else(|| RpcError::not_found(format!("no preset {n:?}"))),
-                _ => Ok(json!({"presets": cfg.presets.iter().map(|(n, p)| view(n, p)).collect::<Vec<_>>()})),
+                Some(n) if !clear => cfg
+                    .presets
+                    .get(&n)
+                    .map(|p| view(&n, p))
+                    .ok_or_else(|| RpcError::not_found(format!("no preset {n:?}"))),
+                _ => Ok(
+                    json!({"presets": cfg.presets.iter().map(|(n, p)| view(n, p)).collect::<Vec<_>>()}),
+                ),
             }
         }
         method::MUX_INFO => {
@@ -443,7 +572,9 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             Ok(hub.session_detail(&s))
         }
         method::MUX_WAIT => wait::wait(hub, &params).await,
-        method::MUX_SCHEMA => Ok(serde_json::from_str(crate::schema::SCHEMA).unwrap_or(Value::Null)),
+        method::MUX_SCHEMA => {
+            Ok(serde_json::from_str(crate::schema::SCHEMA).unwrap_or(Value::Null))
+        }
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -451,8 +582,17 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         }
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
-            let remove: Vec<String> = params.get("remove").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
-            hub.set_tags(&s, params.get("set").and_then(Value::as_object), &remove, params.get("ttlSeconds").and_then(Value::as_u64));
+            let remove: Vec<String> = params
+                .get("remove")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
+            hub.set_tags(
+                &s,
+                params.get("set").and_then(Value::as_object),
+                &remove,
+                params.get("ttlSeconds").and_then(Value::as_u64),
+            );
             Ok(hub.session_summary(&s))
         }
         method::MUX_SET_RULES => {
@@ -471,7 +611,9 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
             let detail = hub.session_detail(&s);
             let events = match after {
-                Some(a) => hub.events(&s.id, a, limit).map_err(|e| RpcError::internal(e.to_string()))?,
+                Some(a) => {
+                    hub.events(&s.id, a, limit).map_err(|e| RpcError::internal(e.to_string()))?
+                }
                 None => {
                     // Last `limit` records.
                     let last = s.meta().last_seq;
@@ -500,14 +642,19 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
             let last = s.meta().last_seq;
             if after > last {
-                return Err(RpcError::invalid_params(format!("cursor_future: afterSeq {after} is beyond the last event {last}")));
+                return Err(RpcError::invalid_params(format!(
+                    "cursor_future: afterSeq {after} is beyond the last event {last}"
+                )));
             }
-            let events = hub.events(&s.id, after, limit).map_err(|e| RpcError::internal(e.to_string()))?;
+            let events =
+                hub.events(&s.id, after, limit).map_err(|e| RpcError::internal(e.to_string()))?;
             Ok(json!({"events": events.iter().map(|r| event_value(&s.id, r)).collect::<Vec<_>>()}))
         }
         method::MUX_RENAME => {
             let s = hub.resolve(session_key(&params)?)?;
-            let name = str_param(&params, "newName").or_else(|| str_param(&params, "to")).ok_or_else(|| RpcError::invalid_params("newName is required"))?;
+            let name = str_param(&params, "newName")
+                .or_else(|| str_param(&params, "to"))
+                .ok_or_else(|| RpcError::invalid_params("newName is required"))?;
             crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
             hub.rename(&s, name.to_owned()).await?;
             Ok(hub.session_summary(&s))
@@ -520,7 +667,8 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         }
         method::MUX_PERMISSION_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
-            let pid = str_param(&params, "permissionId").ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
+            let pid = str_param(&params, "permissionId")
+                .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
             hub.respond_permission(&s, pid, option, answers)?;
@@ -537,12 +685,16 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         }
         method::MUX_EXPORT => {
             let s = hub.resolve(session_key(&params)?)?;
-            let dest = str_param(&params, "dest").map(PathBuf::from).unwrap_or_else(|| crate::config::home().join("bundles"));
+            let dest = str_param(&params, "dest")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| crate::config::home().join("bundles"));
             let path = hub.export(&s, &dest).map_err(|e| RpcError::internal(e.to_string()))?;
             Ok(json!({"path": path}))
         }
         method::MUX_IMPORT => {
-            let path = str_param(&params, "path").map(PathBuf::from).ok_or_else(|| RpcError::invalid_params("path is required"))?;
+            let path = str_param(&params, "path")
+                .map(PathBuf::from)
+                .ok_or_else(|| RpcError::invalid_params("path is required"))?;
             let name = str_param(&params, "name").map(str::to_owned);
             let s = hub.import(&path, name).await?;
             attach(hub, conn, &s.id);

@@ -42,7 +42,11 @@ pub fn spans(text: &str, base: (u8, u8, u8), bright: (u8, u8, u8)) -> Vec<Span<'
         .enumerate()
         .map(|(i, ch)| {
             let dist = ((i + padding) as isize - pos).abs() as f32;
-            let t = if dist <= half { 0.5 * (1.0 + (std::f32::consts::PI * dist / half).cos()) } else { 0.0 };
+            let t = if dist <= half {
+                0.5 * (1.0 + (std::f32::consts::PI * dist / half).cos())
+            } else {
+                0.0
+            };
             let style = if tc {
                 let (r, g, b) = blend(base, bright, (t * 0.9).clamp(0.0, 1.0));
                 Style::default().fg(Color::Rgb(r, g, b)).add_modifier(Modifier::BOLD)

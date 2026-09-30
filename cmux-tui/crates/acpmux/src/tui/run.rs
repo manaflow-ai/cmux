@@ -8,22 +8,36 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
     let path = crate::config::Config::path();
     let cfg: crate::config::Config = if path.exists() {
         serde_json::from_str(&std::fs::read_to_string(&path)?)?
-    } else { Default::default() };
+    } else {
+        Default::default()
+    };
     let mut notes = client
         .notifications()
         .await
         .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
     let (tx, mut rx) = mpsc::unbounded_channel::<AppMsg>();
     let watch = client.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-    let mut app = make_app(client.clone(), tx.clone(), watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(), cfg)?;
+    let mut app = make_app(
+        client.clone(),
+        tx.clone(),
+        watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
+        cfg,
+    )?;
     app.sort_sessions();
     {
         let c = client.clone();
         let tx = tx.clone();
         tokio::spawn(async move {
             if let Ok(v) = c.request(method::MUX_HARNESSES, json!({})).await {
-                let names: Vec<String> = v.get("harnesses").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
-                let _ = tx.send(AppMsg::Agents(names, v.get("defaultHarness").and_then(Value::as_str).map(str::to_owned)));
+                let names: Vec<String> = v
+                    .get("harnesses")
+                    .and_then(Value::as_object)
+                    .map(|o| o.keys().cloned().collect())
+                    .unwrap_or_default();
+                let _ = tx.send(AppMsg::Agents(
+                    names,
+                    v.get("defaultHarness").and_then(Value::as_str).map(str::to_owned),
+                ));
             }
             if let Ok(v) = c.request(method::MUX_STATUS, json!({})).await {
                 let _ = tx.send(AppMsg::Status(v));
@@ -31,7 +45,11 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         });
     }
     if let Some(id) = initial {
-        if let Some(i) = app.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)) {
+        if let Some(i) = app
+            .sessions
+            .iter()
+            .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+        {
             app.select(i);
         }
     } else if !app.sessions.is_empty() {
@@ -44,7 +62,9 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         crossterm::event::EnableMouseCapture,
         crossterm::event::EnableBracketedPaste,
         crossterm::event::EnableFocusChange,
-        crossterm::event::PushKeyboardEnhancementFlags(crossterm::event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        crossterm::event::PushKeyboardEnhancementFlags(
+            crossterm::event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+        )
     );
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(80));
@@ -177,7 +197,11 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             }
         }
         if let Some(id) = app.pending_select.take() {
-            if let Some(i) = app.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)) {
+            if let Some(i) = app
+                .sessions
+                .iter()
+                .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+            {
                 app.drafts.retain(|d| !d.creating);
                 app.select(i + app.drafts.len());
                 app.focus = Focus::Input;
@@ -205,12 +229,26 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
     result
 }
 
-pub(super) fn make_app(client: Arc<Client>, tx: mpsc::UnboundedSender<AppMsg>, sessions: Vec<Value>, cfg: crate::config::Config) -> Result<App> {
+pub(super) fn make_app(
+    client: Arc<Client>,
+    tx: mpsc::UnboundedSender<AppMsg>,
+    sessions: Vec<Value>,
+    cfg: crate::config::Config,
+) -> Result<App> {
     let tui = cfg.tui.clone();
-    for p in std::iter::once(&tui.palette_prefix).chain(tui.palette_aliases.iter()).chain(std::iter::once(&tui.skill_prefix)) {
-        anyhow::ensure!(p.chars().count() == 1 && !p.chars().next().unwrap().is_whitespace(), "TUI prefixes must each be one non-space character");
+    for p in std::iter::once(&tui.palette_prefix)
+        .chain(tui.palette_aliases.iter())
+        .chain(std::iter::once(&tui.skill_prefix))
+    {
+        anyhow::ensure!(
+            p.chars().count() == 1 && !p.chars().next().unwrap().is_whitespace(),
+            "TUI prefixes must each be one non-space character"
+        );
     }
-    anyhow::ensure!(tui.palette_prefix != tui.skill_prefix && !tui.palette_aliases.contains(&tui.skill_prefix), "Skill and palette prefixes must differ");
+    anyhow::ensure!(
+        tui.palette_prefix != tui.skill_prefix && !tui.palette_aliases.contains(&tui.skill_prefix),
+        "Skill and palette prefixes must differ"
+    );
     let keymap = keymap::Keymap::new(&tui)?;
     let palette_aliases = tui.palette_aliases.clone();
     Ok(App {
@@ -238,9 +276,19 @@ pub(super) fn make_app(client: Arc<Client>, tx: mpsc::UnboundedSender<AppMsg>, s
         default_harness: None,
         model_picker_current_only: false,
         skills: Vec::new(),
-        palette_prefix: tui.palette_prefix.chars().next().map(|c| c.to_string()).unwrap_or_else(|| "/".into()),
+        palette_prefix: tui
+            .palette_prefix
+            .chars()
+            .next()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "/".into()),
         palette_aliases,
-        skill_prefix: tui.skill_prefix.chars().next().map(|c| c.to_string()).unwrap_or_else(|| "$".into()),
+        skill_prefix: tui
+            .skill_prefix
+            .chars()
+            .next()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "$".into()),
         keymap,
         skill_paths: tui.skill_paths,
         previous_directory: None,
@@ -272,7 +320,12 @@ pub(super) fn make_app(client: Arc<Client>, tx: mpsc::UnboundedSender<AppMsg>, s
         link_cells: Vec::new(),
         cursor_pos: None,
         drag_autoscroll: None,
-        composer_max_rows: std::env::var("ACPMUX_COMPOSER_ROWS").ok().and_then(|v| v.parse().ok()).or(cfg.composer_max_rows).unwrap_or(12).clamp(1, 40),
+        composer_max_rows: std::env::var("ACPMUX_COMPOSER_ROWS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .or(cfg.composer_max_rows)
+            .unwrap_or(12)
+            .clamp(1, 40),
         sidebar_rows: Vec::new(),
         expanded_groups: std::collections::HashSet::new(),
         sidebar_order: Vec::new(),
@@ -300,10 +353,14 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
             Ok(c) => {
                 c.request(method::MUX_WATCH, json!({"enabled": true})).await?;
                 let sessions = c.request(method::MUX_SESSIONS, json!({})).await?;
-                let notes = c.notifications().await.ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
+                let notes = c
+                    .notifications()
+                    .await
+                    .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
                 let build = c.daemon_build().unwrap_or_else(|| "?".into());
                 app.client = c;
-                app.sessions = sessions.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+                app.sessions =
+                    sessions.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
                 app.sort_sessions();
                 app.refresh_harnesses();
                 if let Some(id) = app.selected_id() {
@@ -314,7 +371,9 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
             }
             Err(e) => {
                 if std::time::Instant::now() > deadline {
-                    return Err(anyhow::anyhow!("daemon connection closed and no daemon came back within 60s: {e}"));
+                    return Err(anyhow::anyhow!(
+                        "daemon connection closed and no daemon came back within 60s: {e}"
+                    ));
                 }
                 delay = (delay * 2).min(std::time::Duration::from_secs(3));
             }

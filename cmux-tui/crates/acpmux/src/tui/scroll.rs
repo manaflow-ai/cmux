@@ -8,7 +8,12 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 
 /// Thumb position and length (in track cells) for a row-based viewport.
-pub fn thumb_geometry(total_rows: usize, visible_rows: usize, offset: usize, track_height: u16) -> (u16, u16) {
+pub fn thumb_geometry(
+    total_rows: usize,
+    visible_rows: usize,
+    offset: usize,
+    track_height: u16,
+) -> (u16, u16) {
     if track_height == 0 || total_rows <= visible_rows {
         return (0, 0);
     }
@@ -26,7 +31,12 @@ pub fn thumb_geometry(total_rows: usize, visible_rows: usize, offset: usize, tra
 }
 
 /// Viewport offset produced by clicking a scrollbar track.
-pub fn jump_offset(total_rows: usize, visible_rows: usize, track_height: u16, relative_y: u16) -> usize {
+pub fn jump_offset(
+    total_rows: usize,
+    visible_rows: usize,
+    track_height: u16,
+    relative_y: u16,
+) -> usize {
     if track_height == 0 {
         return 0;
     }
@@ -42,7 +52,13 @@ pub fn jump_offset(total_rows: usize, visible_rows: usize, track_height: u16, re
 }
 
 /// Viewport offset produced by moving an anchored scrollbar thumb.
-pub fn drag_offset(total_rows: usize, visible_rows: usize, track_height: u16, anchor_offset: usize, delta_y: i128) -> usize {
+pub fn drag_offset(
+    total_rows: usize,
+    visible_rows: usize,
+    track_height: u16,
+    anchor_offset: usize,
+    delta_y: i128,
+) -> usize {
     let (_, thumb_height) = thumb_geometry(total_rows, visible_rows, anchor_offset, track_height);
     let travel = track_height.saturating_sub(thumb_height).max(1) as i128;
     let max_scroll = total_rows.saturating_sub(visible_rows) as i128;
@@ -59,7 +75,14 @@ pub enum ThumbState {
 
 /// Draw the thumb into `track` (a one-column rect). Nothing is drawn when
 /// every row fits.
-pub fn draw_thumb(buf: &mut Buffer, track: Rect, thumb: (u16, u16), idle: Color, active: Color, state: ThumbState) {
+pub fn draw_thumb(
+    buf: &mut Buffer,
+    track: Rect,
+    thumb: (u16, u16),
+    idle: Color,
+    active: Color,
+    state: ThumbState,
+) {
     let (thumb_y, thumb_height) = thumb;
     if track.height == 0 || thumb_height == 0 {
         return;
@@ -90,7 +113,15 @@ pub struct Viewport {
 
 impl Default for Viewport {
     fn default() -> Self {
-        Self { offset: 0, visible: 0, total: 0, follow: true, track: Rect::default(), drag: None, hover: false }
+        Self {
+            offset: 0,
+            visible: 0,
+            total: 0,
+            follow: true,
+            track: Rect::default(),
+            drag: None,
+            hover: false,
+        }
     }
 }
 
@@ -155,7 +186,10 @@ impl Viewport {
     }
 
     pub fn track_contains(&self, x: u16, y: u16) -> bool {
-        self.has_scrollbar() && x == self.track.x && y >= self.track.y && y < self.track.y + self.track.height
+        self.has_scrollbar()
+            && x == self.track.x
+            && y >= self.track.y
+            && y < self.track.y + self.track.height
     }
 
     /// Mouse press on the track column. Track click jumps, thumb click anchors.
@@ -174,7 +208,13 @@ impl Viewport {
 
     pub fn drag_to(&mut self, y: u16) {
         let Some((anchor_y, anchor_offset)) = self.drag else { return };
-        self.offset = drag_offset(self.total, self.visible, self.track.height, anchor_offset, y as i128 - anchor_y as i128);
+        self.offset = drag_offset(
+            self.total,
+            self.visible,
+            self.track.height,
+            anchor_offset,
+            y as i128 - anchor_y as i128,
+        );
         self.follow = self.offset >= self.max_offset();
     }
 
