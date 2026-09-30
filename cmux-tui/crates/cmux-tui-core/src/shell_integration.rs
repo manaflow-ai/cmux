@@ -391,7 +391,9 @@ mod tests {
             fs::remove_file(root.join("zsh/.zshenv")).unwrap();
             std::os::unix::fs::symlink(&decoy, root.join("zsh/.zshenv")).unwrap();
             materialize(&root).unwrap();
-            assert!(!fs::symlink_metadata(root.join("zsh/.zshenv")).unwrap().file_type().is_symlink());
+            assert!(
+                !fs::symlink_metadata(root.join("zsh/.zshenv")).unwrap().file_type().is_symlink()
+            );
             assert_eq!(fs::read_to_string(&decoy).unwrap(), "echo hijacked\n");
         }
         fs::remove_dir_all(&base).unwrap();
