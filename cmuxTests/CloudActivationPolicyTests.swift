@@ -11,7 +11,7 @@ import Testing
 
 /// The one launch-time decision for Cloud, as behavior: a Mac that never opted
 /// in and never had a machine is inert (no fleet polling, no tunnel start, no
-/// NetworkExtension preferences read); the Beta Features toggle plus a machine
+/// NetworkExtension preferences read); the persisted activation marker plus a machine
 /// admits the tunnel; prior Cloud use never bypasses a disabled remote gate.
 @Suite
 struct CloudActivationPolicyTests {
@@ -294,8 +294,8 @@ struct CloudActivationPolicyTests {
         #expect(cache.hasAnyMachine == nil)
     }
 
-    @Test("Cloud requires the remote gate and Beta toggle, and never bypasses managed DisableCloud")
-    func cloudMachinesGateRequiresRemoteAndBeta() throws {
+    @Test("Cloud requires the remote gate and activation marker, and never bypasses managed DisableCloud")
+    func cloudMachinesGateRequiresRemoteAndActivation() throws {
         let suiteName = "cmux.cloud.feature.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }

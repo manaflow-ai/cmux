@@ -17,8 +17,6 @@ struct MachinesPanelView: View {
     @State private var devicesModel: DevicesPanelViewModel
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
     @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
-    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-    private var cloudBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @State private var expansionStore = CloudTreeExpansionStore()
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
@@ -31,17 +29,20 @@ struct MachinesPanelView: View {
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
     let teamPickerPresentation: CloudTeamPickerPresentation?
+    let activationCoordinator: CloudActivationCoordinator
 
     init(
         chromeBackgroundColor: NSColor,
         machinePinStore: CloudMachinePinStore? = nil,
         devicesModel: DevicesPanelViewModel? = nil,
         tabManager: TabManager? = nil,
-        teamPickerPresentation: CloudTeamPickerPresentation? = nil
+        teamPickerPresentation: CloudTeamPickerPresentation? = nil,
+        activationCoordinator: CloudActivationCoordinator
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         self.teamPickerPresentation = teamPickerPresentation
+        self.activationCoordinator = activationCoordinator
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
@@ -73,7 +74,6 @@ struct MachinesPanelView: View {
     }
 
     private var includesCloud: Bool {
-        _ = cloudBetaEnabled
         return CloudMachinesFeature.isEnabled
     }
 
@@ -93,19 +93,13 @@ struct MachinesPanelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            switch authState {
-            case .checking:
-                authCheckingState
-            case .signedOut:
-                authGate
-            case .signedIn:
-                authenticatedContent
-            }
+        activationContent
+        .onAppear {
+            activationCoordinator.reconcile()
+            syncPolling(for: authState)
         }
-        .onAppear { syncPolling(for: authState) }
         .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
-        .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
+        .onChange(of: activationCoordinator.state) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
             devicesModel.consumePendingReveal()
         }

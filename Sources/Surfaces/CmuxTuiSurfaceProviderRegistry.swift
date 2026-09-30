@@ -10,7 +10,7 @@ import Foundation
 /// cadence the Machines panel uses. Signing out tears everything down.
 ///
 /// Authenticated fleet discovery also prepares the shared terminal carrier, even for
-/// an empty fleet. Both follow the Cloud flag and Beta Features opt-in; disabling
+/// an empty fleet. Both follow the Cloud rollout and activation marker; disabling
 /// Cloud or signing out stops the carrier without deleting persisted identities.
 @MainActor
 final class CmuxTuiSurfaceProviderRegistry {
@@ -41,7 +41,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Whether an account is signed in. Activation prepares the carrier before
     /// the fleet read only for a signed-in account; a signed-out Mac must not
     /// enroll or start a hub from a config a previous account left on disk.
-    private let hasCloudSession: @MainActor () -> Bool
+    let hasCloudSession: @MainActor () -> Bool
     private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool
     private let closeTransports: @MainActor () async -> Void
     private var refreshInFlight: Task<Bool, Never>?
@@ -243,7 +243,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             guard let self else { return }
             Task { await self.links.pushHostThemeToConnectedLinks() }
         }
-        // The Beta Features toggle can change while the app runs; the poll
+        // The Cloud activation marker can change while the app runs; the poll
         // follows it without a relaunch in both directions.
         if let activationObserver { notificationCenter.removeObserver(activationObserver) }
         activationObserver = notificationCenter.addObserver(

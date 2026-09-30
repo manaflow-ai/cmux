@@ -5,7 +5,7 @@ import Foundation
 /// Cloud Settings routes through the app's shared presenters.
 extension HostSettingsActions {
     var isCloudMachinesAvailable: Bool {
-        CloudMachinesFeature.isEnabled
+        CloudMachinesFeature.isAvailable
     }
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {
         guard CloudMachinesFeature.isEnabled else { return nil }

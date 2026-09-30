@@ -29,7 +29,7 @@ extension RightSidebarMode {
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
+            machinesEnabled: CloudMachinesFeature.offMainIsAvailable(defaults: defaults),
             devicesEnabled: false
         )
     }
@@ -51,7 +51,7 @@ extension RightSidebarMode {
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
+            machinesEnabled: CloudMachinesFeature.offMainIsAvailable(defaults: defaults),
             devicesEnabled: false
         )
     }

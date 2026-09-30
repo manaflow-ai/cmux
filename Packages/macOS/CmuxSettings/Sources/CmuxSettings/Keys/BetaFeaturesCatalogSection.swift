@@ -56,11 +56,10 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
     )
 
-    /// Cloud Machines: the Cloud tab in the right sidebar plus every other
-    /// Cloud VM surface (Settings section, palette commands), and the gate
-    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Dev
-    /// builds default on for dogfood; release builds stay opt-in. An explicit
-    /// setting still wins on either build.
+    /// Cloud Machines' persisted first-use activation marker. The row moved out
+    /// of Beta Features when Cloud graduated; this storage key remains stable
+    /// so installed users keep their activation and existing configuration
+    /// domains migrate without a destructive reset.
     public let cloudMachines = DefaultsKey<Bool>(
         id: "cloud.beta.machines.enabled",
         defaultValue: Self.cloudMachinesDefault,

@@ -81,14 +81,14 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            // Files/Find/Vault and the graduated Dock are always present;
-            // Machines follows the Cloud Machines beta toggle (pinned off above).
+            // Files/Find/Vault, the graduated Dock, and the Cloud tab are
+            // discoverable before the local activation marker is set.
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
-            XCTAssertFalse(machinesAvailable)
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertTrue(machinesAvailable)
+            XCTAssertEqual(contributions.count, 5)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
         }
     }
 

@@ -490120,55 +490120,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines is turned off. Turn it on in Settings › Beta Features, then retry."
+            "value": "Cloud Machines is turned off. Open the Cloud tab and enable Cloud, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドマシンはオフになっています。設定 › ベータ機能でオンにしてから、もう一度お試しください。"
+            "value": "Cloud Machines はオフになっています。Cloud タブを開いて Cloud を有効にしてから、もう一度お試しください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Maschinen sind ausgeschaltet. Aktivieren Sie sie unter Einstellungen › Beta-Funktionen und versuchen Sie es erneut."
+            "value": "Cloud Machines sind ausgeschaltet. Öffne den Cloud-Tab, aktiviere Cloud und versuche es erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les machines cloud sont désactivées. Activez-les dans Réglages › Fonctionnalités bêta, puis réessayez."
+            "value": "Les machines Cloud sont désactivées. Ouvrez l’onglet Cloud, activez Cloud, puis réessayez."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الأجهزة السحابية متوقفة. فعّلها من الإعدادات › ميزات تجريبية، ثم حاول مرة أخرى."
+            "value": "أجهزة Cloud متوقفة. افتح علامة تبويب Cloud، وفعّل Cloud، ثم حاول مرة أخرى."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las máquinas en la nube están desactivadas. Actívalas en Ajustes › Características beta y vuelve a intentarlo."
+            "value": "Cloud Machines están desactivadas. Abre la pestaña Cloud, activa Cloud y vuelve a intentarlo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "雲端機器已關閉。請在「設定 › Beta 功能」中開啟，再重試。"
+            "value": "Cloud Machines 已關閉。請開啟 Cloud 分頁、啟用 Cloud，然後重試。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端机器已关闭。请在“设置 › 测试版功能”中启用，然后重试。"
+            "value": "Cloud Machines 已关闭。请打开 Cloud 标签页，启用 Cloud，然后重试。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 머신이 꺼져 있습니다. 설정 › 베타 기능에서 켠 후 다시 시도하세요."
+            "value": "Cloud Machines가 꺼져 있습니다. Cloud 탭을 열어 Cloud를 켠 후 다시 시도하세요."
           }
         }
       }
@@ -562215,55 +562215,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn on Cloud Machines in Settings › Beta Features to use My Devices."
+            "value": "Enable Cloud Machines in the Cloud tab to use My Devices."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فعّل «أجهزة سحابية» في الإعدادات › ميزات تجريبية لاستخدام «أجهزتي»."
+            "value": "فعّل «أجهزة Cloud» في علامة تبويب Cloud لاستخدام «أجهزتي»."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktiviere Cloud-Maschinen unter Einstellungen › Beta-Funktionen, um Meine Geräte zu verwenden."
+            "value": "Aktiviere Cloud Machines im Cloud-Tab, um Meine Geräte zu verwenden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activa Máquinas en la nube en Ajustes › Características beta para usar Mis dispositivos."
+            "value": "Activa Máquinas en la nube en la pestaña Cloud para usar Mis dispositivos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activez Machines cloud dans Réglages › Fonctionnalités bêta pour utiliser Mes appareils."
+            "value": "Activez Machines cloud dans l’onglet Cloud pour utiliser Mes appareils."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マイデバイスを使うには、設定 › ベータ機能でクラウドマシンをオンにしてください。"
+            "value": "マイデバイスを使うには、Cloud タブで Cloud Machines を有効にしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내 기기를 사용하려면 설정 › 베타 기능에서 클라우드 머신을 켜세요."
+            "value": "내 기기를 사용하려면 Cloud 탭에서 Cloud Machines를 켜세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在设置 › 测试版功能中打开“云端机器”以使用“我的设备”。"
+            "value": "请在 Cloud 标签页中启用“Cloud Machines”以使用“我的设备”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請在設定 › Beta 功能中開啟「雲端機器」以使用「我的裝置」。"
+            "value": "請在 Cloud 分頁中開啟「Cloud Machines」以使用「我的裝置」。"
           }
         }
       }
@@ -579770,6 +579770,891 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "cloud.enable.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمكين Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud aktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Habilitar Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud を有効にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 활성화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用 Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用 Cloud"
+          }
+        }
+      }
+    },
+    "cloud.enable.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "cloud.enable.cancelled.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud was not enabled. You can start setup again whenever you are ready."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تمكين Cloud. يمكنك بدء الإعداد مرة أخرى متى شئت."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud wurde nicht aktiviert. Du kannst die Einrichtung jederzeit erneut starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud no se habilitó. Puedes iniciar la configuración de nuevo cuando quieras."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud n’a pas été activé. Vous pouvez recommencer la configuration quand vous le souhaitez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud は有効になっていません。準備ができたらいつでも設定をやり直せます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud가 활성화되지 않았습니다. 준비가 되면 언제든지 설정을 다시 시작할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 尚未启用。准备好后可以再次开始设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 尚未啟用。準備好後可再次開始設定。"
+          }
+        }
+      }
+    },
+    "cloud.enable.failed.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر الوصول إلى خدمة Cloud. تحقق من اتصالك وأعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Cloud-Dienst ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo acceder al servicio Cloud. Comprueba tu conexión y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service Cloud est inaccessible. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud サービスに接続できません。接続を確認して再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 서비스에 연결할 수 없습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法访问 Cloud 服务。请检查连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線至 Cloud 服務。請檢查連線後重試。"
+          }
+        }
+      }
+    },
+    "cloud.enable.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعداد Cloud غير متاح مؤقتًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Einrichtung ist vorübergehend nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración de Cloud no está disponible temporalmente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration Cloud est temporairement indisponible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud の設定は一時的に利用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 설정을 일시적으로 사용할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 设置暂时不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 設定暫時無法使用"
+          }
+        }
+      }
+    },
+    "cloud.enable.loading.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجهّز cmux اتصال Cloud المشترك. قد يستغرق ذلك لحظة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bereitet die gemeinsame Cloud-Verbindung vor. Das kann einen Moment dauern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux está preparando la conexión compartida de Cloud. Esto puede tardar un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux prépare la connexion Cloud partagée. Cela peut prendre un moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が共有 Cloud 接続を準備しています。少し時間がかかる場合があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 공유 Cloud 연결을 준비하고 있습니다. 잠시 걸릴 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在准备共享 Cloud 连接。这可能需要一点时间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在準備共用的 Cloud 連線。這可能需要一些時間。"
+          }
+        }
+      }
+    },
+    "cloud.enable.loading.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ إعداد Cloud Machines…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines werden eingerichtet …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurando Cloud Machines…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration de Cloud Machines…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines を設定中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 설정 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在设置 Cloud Machines…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在設定 Cloud Machines…"
+          }
+        }
+      }
+    },
+    "cloud.enable.requiresPro.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تتضمن خطة هذا الحساب الوصول إلى أجهزة Cloud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Plan dieses Kontos umfasst keinen Zugriff auf Cloud-Maschinen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El plan de esta cuenta no incluye acceso a máquinas Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le forfait de ce compte n’inclut pas l’accès aux machines Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントのプランには Cloud マシンへのアクセスが含まれていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정의 요금제에는 Cloud 머신 액세스가 포함되어 있지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帐户的套餐不包含 Cloud 机器访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳戶的方案不包含 Cloud 機器存取權。"
+          }
+        }
+      }
+    },
+    "cloud.enable.requiresPro.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines require cmux Pro"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب Cloud Machines خطة cmux Pro"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines erfordern cmux Pro"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines requieren cmux Pro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines nécessitent cmux Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines には cmux Pro が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines에는 cmux Pro가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 需要 cmux Pro"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 需要 cmux Pro"
+          }
+        }
+      }
+    },
+    "cloud.enable.signIn.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى حساب cmux ثم أعد محاولة إعداد Cloud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich bei deinem cmux-Konto an und versuche die Cloud-Einrichtung erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en tu cuenta de cmux y vuelve a intentar la configuración de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à votre compte cmux, puis réessayez la configuration Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux アカウントにサインインしてから Cloud の設定を再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 계정에 로그인한 후 Cloud 설정을 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 cmux 帐户后重试 Cloud 设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 cmux 帳戶後再試一次 Cloud 設定。"
+          }
+        }
+      }
+    },
+    "cloud.enable.signIn.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول لاستخدام Cloud Machines"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich an, um Cloud Machines zu verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión para usar Cloud Machines"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous pour utiliser Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインして Cloud Machines を使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인하여 Cloud Machines 사용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录以使用 Cloud Machines"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入以使用 Cloud Machines"
+          }
+        }
+      }
+    },
+    "cloud.enable.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create persistent cloud computers whose files stay available when they sleep."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنشئ أجهزة كمبيوتر سحابية دائمة، وتظل ملفاتها متاحة أثناء السكون."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstelle dauerhafte Cloud-Computer, deren Dateien auch im Ruhezustand verfügbar bleiben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea ordenadores Cloud persistentes cuyos archivos siguen disponibles cuando están en reposo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créez des ordinateurs Cloud persistants dont les fichiers restent disponibles pendant la veille."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ中もファイルを利用できる永続的な Cloud コンピュータを作成します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일을 절전 상태에서도 사용할 수 있는 영구 클라우드 컴퓨터를 만드세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建持久的云电脑，即使休眠时文件仍可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立持久的雲端電腦，即使休眠時檔案仍可使用。"
+          }
+        }
+      }
+    },
+    "cloud.enable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام Cloud Machines"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar Cloud Machines"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines を使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 사용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 Cloud Machines"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 Cloud Machines"
+          }
+        }
+      }
+    },
+    "cloud.enable.unavailable.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines غير متاحة على هذا الـMac حاليًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines sind auf diesem Mac derzeit nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines no están disponibles en este Mac ahora mismo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines ne sont pas disponibles sur ce Mac pour le moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac では現在 Cloud Machines を利用できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 이 Mac에서 Cloud Machines를 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 目前在此 Mac 上不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 目前在此 Mac 上無法使用。"
+          }
+        }
+      }
+    },
+    "cloud.enable.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترقية إلى Pro"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Pro upgraden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mejorar a Pro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro にアップグレード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro로 업그레이드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级到 Pro"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級至 Pro"
           }
         }
       }

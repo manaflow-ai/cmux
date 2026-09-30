@@ -835,13 +835,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // duplicated payload that the jump-unread XCUITest asserts on, so they are left app-side per
     // the wave brief's escape hatch. The coordinator's `onDidFocusForJumpUnread` hook is therefore
     // left unwired (wiring it would double-record). The recorder-FREE members of the open/click
-    // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in
-    // `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
+    // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
     /// Explicit Cloud machine pins and stable fleet order, built by the composition root.
     private(set) var cloudMachinePinStore: CloudMachinePinStore?
+    private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() })
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
     var deviceWorkspaceCreationCoordinator: DeviceWorkspaceCreationCoordinator?
