@@ -144,6 +144,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "cookies.clear": return try await clearCookies()
         case "clipboard.read": return try readClipboard(params)
         case "clipboard.write": return try writeClipboard(params)
+        case "auth.request":
+            // sites.browserAuth: a native sheet collects credentials; see BrowserReplCredentialRequest.
+            let panel = try panel(params)
+            let frameInfo = try await frame(panel, params).info
+            return await BrowserReplCredentialRequest.run(
+                webView: panel.webView, frameInfo: frameInfo, params: params,
+                fillSource: bundle.readResource("sites/auth-fill.js")
+            )
         default:
             throw Self.error("unsupported", "Unsupported driver method \(method)")
         }

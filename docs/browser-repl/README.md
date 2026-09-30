@@ -42,6 +42,7 @@ reference ([parity-report.md](parity-report.md)).
 | `fetch` | Standard `fetch` that sends the current tab's cookies. |
 | `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd) and the system temp directory. `import("node:fs")` and friends return the same modules. |
 | `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
+| `sites` | Site tools that run through the signed-in browser session: Google Docs/Sheets/Slides/Drive, Gmail, Calendar, Search, YouTube, Slack, Notion, LinkedIn, X, GitHub, Linear, Jira, page assets, WebMCP and a secure sign-in sheet. Writes to other people are drafts until confirmed. See [site-tools.md](site-tools.md). |
 | `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). |
 
 ### Page additions beyond Playwright
@@ -292,8 +293,10 @@ rest. Measurements: [performance.md](performance.md).
 
 ## Excluded from the references
 
-- **Site integrations** (Aside `gmail`, `slack`, `notion`, `imessage`, …),
-  password managers, CAPTCHA solving, `aside exec`: outside browser operation.
+- **Site integrations** are `sites` ([site-tools.md](site-tools.md)); its
+  "Decisions for the user" lists what is left out (password managers,
+  CAPTCHA solving, `imessage`, image generation). `aside exec` is outside
+  browser operation.
 - **Raw CDP** (ChatGPT `browser.capabilities`' `cdp`) and request interception:
   WebKit has no DevTools protocol. ChatGPT for Chrome withholds both by
   default too (`browser.capabilities` in the parity cases records that). A
