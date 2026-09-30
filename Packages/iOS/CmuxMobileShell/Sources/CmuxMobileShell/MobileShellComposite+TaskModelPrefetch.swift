@@ -70,6 +70,7 @@ extension MobileShellComposite {
            now.timeIntervalSince(catalog.startedAt) < 300 {
             return catalog
         }
+        taskModelPrefetchCatalog?.cancel()
         let catalog = MobileTaskModelPrefetchCatalog(client: taskModelCatalogClient, startedAt: now)
         taskModelPrefetchCatalog = catalog
         return catalog
