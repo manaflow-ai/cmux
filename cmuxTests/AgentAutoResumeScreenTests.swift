@@ -32,6 +32,7 @@ struct AgentAutoResumeScreenTests {
         let frame = try screen([
             "Selected model is at capacity",
             "› ",
+            "",
             "GPT-5.6-Sol · /tmp/project     Goal stalled (/goal resume)"
         ], cursorRow: 1)
         #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .codexGoalResume)
@@ -45,7 +46,7 @@ struct AgentAutoResumeScreenTests {
         #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .unknown)
     }
 
-    @Test func wrappedDraftWithCursorOnContinuationDoesNotResume() throws {
+    @Test func wrappedDraftWithCursorOnPromptDoesNotResume() throws {
         let frame = try screen([
             "› ",
             "  draft text on a second line",
@@ -60,6 +61,39 @@ struct AgentAutoResumeScreenTests {
             "────────────────────────",
             "Sonnet 4.5 · ctx 12%"
         ], cursorRow: 0)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .emptyPrompt)
+    }
+
+    @Test func unseparatedStalledFooterDoesNotAuthorizeResume() throws {
+        let frame = try screen([
+            "› ",
+            "Goal stalled (/goal resume)"
+        ], cursorRow: 0)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .draft)
+    }
+
+    @Test(arguments: [
+        "please inspect ctx ",
+        "⏵⏵ auto mode on (shift+tab to cycle)",
+        "gpt-5.5 high · 98% context left · /tmp/repo",
+        "Sonnet 4.5 · ctx 12%"
+    ])
+    func footerShapedWrappedDraftsStillBlockResume(text: String) throws {
+        let frame = try screen(["› ", text], cursorRow: 0)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .draft)
+    }
+
+    @Test func emptyPromptWithoutFooterDoesNotCrash() throws {
+        let frame = try screen(["› "], cursorRow: 0)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .emptyPrompt)
+    }
+
+    @Test(arguments: [
+        "gpt-5.5 high · Context 98% left · /tmp/repo · app · main",
+        "gpt-5.5 high · 98% context left · /tmp/repo"
+    ])
+    func separatedCodexFootersDoNotLookLikeDrafts(footer: String) throws {
+        let frame = try screen(["› ", "", footer], cursorRow: 0)
         #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .emptyPrompt)
     }
 
