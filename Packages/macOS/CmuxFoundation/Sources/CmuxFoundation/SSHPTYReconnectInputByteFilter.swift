@@ -1,6 +1,7 @@
 public import Foundation
 
-/// Removes terminal probe replies queued while an SSH PTY bridge reconnects.
+/// Removes terminal probe and OSC 52 clipboard replies queued while an SSH PTY
+/// bridge reconnects.
 ///
 /// Filtering remains active only while input consists entirely of recognized
 /// terminal replies or EOT bytes. The first ordinary key byte ends filtering,
@@ -22,10 +23,18 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
         case strip(length: Int)
         case incomplete
         case passThrough
+        /// An OSC 52 clipboard reply whose terminator has not arrived yet.
+        case unterminatedClipboardReply
     }
 
     private var isFiltering: Bool
     private var pending = [UInt8]()
+    /// Whether the rest of an OSC 52 clipboard reply is being discarded.
+    ///
+    /// Clipboard replies carry the user's clipboard and can exceed the
+    /// pending-probe bound, so their bytes are dropped as they stream in
+    /// instead of being buffered and later flushed to the remote PTY.
+    private var discardingClipboardReply = false
 
     /// Creates a reconnect-input filter.
     ///
@@ -54,6 +63,14 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
 
         var output = Data()
         var index = 0
+        if discardingClipboardReply {
+            guard let end = Self.stringTerminatorEnd(in: bytes, from: 0) else {
+                retainTrailingEscapeOfDiscardedReply(bytes)
+                return output
+            }
+            discardingClipboardReply = false
+            index = end
+        }
         while index < bytes.count {
             if bytes[index] == Self.endOfTransmission {
                 index += 1
@@ -81,16 +98,33 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
                 isFiltering = false
                 output.append(contentsOf: bytes[index...])
                 return output
+            case .unterminatedClipboardReply:
+                discardingClipboardReply = true
+                retainTrailingEscapeOfDiscardedReply(bytes)
+                return output
             }
         }
 
         return output
     }
 
+    /// Keeps a trailing ESC so a string terminator split across reads is seen.
+    private mutating func retainTrailingEscapeOfDiscardedReply(_ bytes: [UInt8]) {
+        if bytes.last == Self.escape {
+            pending.append(Self.escape)
+        }
+    }
+
     /// Returns any incomplete escape sequence retained by the filter.
     ///
     /// - Returns: Pending bytes in their original order.
     public mutating func finish() -> Data {
+        if discardingClipboardReply {
+            // Never forward any part of a clipboard reply.
+            discardingClipboardReply = false
+            pending.removeAll(keepingCapacity: false)
+            return Data()
+        }
         guard !pending.isEmpty else {
             return Data()
         }
@@ -110,12 +144,12 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
 
     /// Whether an incomplete recognized sequence is awaiting more bytes.
     public var hasPendingInput: Bool {
-        isFiltering && !pending.isEmpty
+        isFiltering && (!pending.isEmpty || discardingClipboardReply)
     }
 
     /// Whether filtering is active with no partial sequence buffered.
     public var isFilteringAtProbeBoundary: Bool {
-        isFiltering && pending.isEmpty
+        isFiltering && pending.isEmpty && !discardingClipboardReply
     }
 
     /// Whether recognized reconnect-time replies are still being removed.
@@ -136,7 +170,7 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
 
         switch bytes[start + 1] {
         case rightBracket:
-            return oscColorReplySequence(in: bytes, at: start)
+            return oscReplySequence(in: bytes, at: start)
         case leftBracket:
             return csiProbeReplySequence(in: bytes, at: start)
         case dcs:
@@ -169,7 +203,7 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
         return .incomplete
     }
 
-    private static func oscColorReplySequence(
+    private static func oscReplySequence(
         in bytes: [UInt8],
         at start: Int
     ) -> SequenceMatch {
@@ -189,32 +223,37 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
         }
 
         guard cursor < bytes.count else {
-            return isOSCColorReplyCommandPrefix(command) ? .incomplete : .passThrough
+            return isOSCReplyCommandPrefix(command) ? .incomplete : .passThrough
         }
         guard bytes[cursor] == semicolon else {
             return .passThrough
         }
-        guard command == [0x31, 0x30] || command == [0x31, 0x31] || command == [0x31, 0x32] else {
+        let isClipboardReply = command == [0x35, 0x32]
+        guard isClipboardReply ||
+            command == [0x31, 0x30] || command == [0x31, 0x31] || command == [0x31, 0x32] else {
             return .passThrough
         }
 
-        cursor += 1
+        guard let end = stringTerminatorEnd(in: bytes, from: cursor + 1) else {
+            return isClipboardReply ? .unterminatedClipboardReply : .incomplete
+        }
+        return .strip(length: end - start)
+    }
+
+    /// Returns the index just past the first BEL or ST at or after `start`.
+    private static func stringTerminatorEnd(in bytes: [UInt8], from start: Int) -> Int? {
+        var cursor = start
         while cursor < bytes.count {
             let byte = bytes[cursor]
             if byte == bell {
-                return .strip(length: cursor - start + 1)
+                return cursor + 1
             }
-            if byte == escape {
-                guard cursor + 1 < bytes.count else {
-                    return .incomplete
-                }
-                if bytes[cursor + 1] == backslash {
-                    return .strip(length: cursor - start + 2)
-                }
+            if byte == escape, cursor + 1 < bytes.count, bytes[cursor + 1] == backslash {
+                return cursor + 2
             }
             cursor += 1
         }
-        return .incomplete
+        return nil
     }
 
     private static func csiProbeReplySequence(
@@ -237,8 +276,10 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
         return .incomplete
     }
 
-    private static func isOSCColorReplyCommandPrefix(_ command: [UInt8]) -> Bool {
+    private static func isOSCReplyCommandPrefix(_ command: [UInt8]) -> Bool {
         command.isEmpty ||
+            command == [0x35] ||
+            command == [0x35, 0x32] ||
             command == [0x31] ||
             command == [0x31, 0x30] ||
             command == [0x31, 0x31] ||

@@ -16,6 +16,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
     private static let bell: UInt8 = 0x07
     private static let backslash: UInt8 = 0x5C
     private static let semicolon: UInt8 = 0x3B
+    private static let questionMark: UInt8 = 0x3F
     private static let maxPendingBytes = 4 * 1024
 
     private enum SequenceMatch {
@@ -231,34 +232,41 @@ public struct SSHPTYReplayOutputFilter: Sendable {
             return cursor == bytes.count ? .incomplete : .passThrough
         }
         cursor += 1
-        var payloadFirst: UInt8?
+        let payloadStart = cursor
         while cursor < bytes.count {
             guard cursor - start <= Self.maxPendingBytes else { return .passThrough }
-            if payloadFirst == nil { payloadFirst = bytes[cursor] }
+            let terminatorLength: Int
             if bytes[cursor] == Self.bell {
-                return isColorQuery(command: command, commandDigitCount: commandDigitCount, payloadFirst: payloadFirst)
-                    ? .strip(length: cursor - start + 1)
-                    : .passThrough
+                terminatorLength = 1
+            } else if bytes[cursor] == Self.escape, cursor + 1 < bytes.count,
+                      bytes[cursor + 1] == Self.backslash {
+                terminatorLength = 2
+            } else {
+                cursor += 1
+                continue
             }
-            if bytes[cursor] == Self.escape, cursor + 1 < bytes.count,
-               bytes[cursor + 1] == Self.backslash {
-                return isColorQuery(command: command, commandDigitCount: commandDigitCount, payloadFirst: payloadFirst)
-                    ? .strip(length: cursor - start + 2)
-                    : .passThrough
-            }
-            cursor += 1
+            let isQuery = commandDigitCount > 0 && isOSCQuery(
+                command: command,
+                payload: bytes[payloadStart..<cursor]
+            )
+            return isQuery ? .strip(length: cursor - start + terminatorLength) : .passThrough
         }
         return .incomplete
     }
 
-    private static func isColorQuery(
-        command: Int,
-        commandDigitCount: Int,
-        payloadFirst: UInt8?
-    ) -> Bool {
-        commandDigitCount > 0 &&
-            (command == 4 || command == 10 || command == 11 || command == 12) &&
-            payloadFirst == 0x3F
+    private static func isOSCQuery(command: Int, payload: ArraySlice<UInt8>) -> Bool {
+        switch command {
+        case 4, 10, 11, 12:
+            return payload.first == Self.questionMark
+        case 52:
+            // Clipboard read: `52 ; <selection> ; ?`. Replaying it would make
+            // the local terminal send its current clipboard to the remote.
+            // Writes carry base64 data instead of `?` and stay untouched.
+            guard let separator = payload.firstIndex(of: Self.semicolon) else { return false }
+            return payload[payload.index(after: separator)...].elementsEqual([Self.questionMark])
+        default:
+            return false
+        }
     }
 
     private static func dcsQuery(in bytes: [UInt8], at start: Int) -> SequenceMatch {
