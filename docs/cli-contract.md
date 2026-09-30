@@ -723,7 +723,7 @@ Command palette commands:
 
 | Command | Contract |
 | --- | --- |
-| `palette list` | Print the command palette entries the target window offers right now, one per line: id, title, shortcut, and an unavailable marker for a command that exists but does not apply to the window's current state. A command the palette hides (its `when` gate, or `palette: false` in the config) is absent, and so are the entries that only make sense from the UI (CLI install, updates, socket restart, default-terminal registration, mobile pairing, VS Code serve-web). Nothing is opened, closed or run. `--json` prints the socket payload from `palette.list`. |
+| `palette list` | Print the command palette entries the target window offers right now, one per line: id, title, shortcut, and an unavailable marker for a command that exists but does not apply to the window's current state. A command the palette hides (its `when` gate, or `palette: false` in the config) is absent, and so are the entries that only make sense from the UI (CLI install, updates, socket restart, default-terminal registration, mobile pairing, VS Code serve-web). Nothing is opened, closed or run. `--json` prints the socket payload from `palette.list`, whose rows carry the same `id`, `title` and `shortcut` plus the palette's `subtitle` and an `enabled` flag in place of the text marker. |
 | `--window <id\|ref\|index>` | Target a window. Without it, `CMUX_WORKSPACE_ID` / `CMUX_SURFACE_ID` name the caller's own window, and a caller with neither reads the active window. With no cmux window open the socket answers `not_found`. |
 
 The two agent-launcher rows (`palette.launchClaudeTeams`, `palette.launchCodexTeams`)
