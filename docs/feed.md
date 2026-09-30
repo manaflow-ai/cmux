@@ -47,7 +47,7 @@ Agents pipe their hook events into `cmux hooks feed --source <agent>`. The bridg
 
 When you click Allow / Deny / Submit (either in Feed or in the notification's inline action buttons), `feed.permission.reply` / `feed.question.reply` / `feed.exit_plan.reply` delivers the decision back through `FeedCoordinator`, which wakes the hook. The hook emits the agent's expected decision JSON on stdout and the agent proceeds.
 
-All events (actionable and telemetry) are appended to `~/.cmuxterm/workstream.jsonl` for audit. Memory holds the most recent 2000 items in a ring; older items remain available in the JSONL audit log.
+All events (actionable and telemetry) are appended to `~/.cmuxterm/workstream.jsonl` for audit. Memory holds the most recent 2000 items in a ring; older items remain available in the JSONL audit log. The log rotates at 64 MB to one previous generation, `~/.cmuxterm/workstream.1.jsonl`, so it keeps roughly the newest 64 to 128 MB of history.
 
 The reconnectable [events stream](events.md) also publishes Feed and agent-hook
 activity as it happens:
@@ -144,7 +144,7 @@ Per-event timeout inside agent hook configs is raised to roughly 120 to 125 seco
 
 | Path                              | Contents                                                   |
 |-----------------------------------|------------------------------------------------------------|
-| `~/.cmuxterm/workstream.jsonl`    | Append-only audit log of every Feed event.                 |
+| `~/.cmuxterm/workstream.jsonl`    | Append-only audit log of every Feed event, rotated at 64 MB to `workstream.1.jsonl`. |
 | `~/.cmuxterm/<agent>-hook-sessions.json` | Session-to-workspace mapping used by `feed.jump`.   |
 | `~/.config/cmux/cmux.sock`        | V2 socket the hooks/plugin talk to.                        |
 | `~/.config/opencode/plugins/cmux-feed.js` | OpenCode plugin emitted by `cmux hooks opencode install`. |
