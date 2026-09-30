@@ -276,8 +276,9 @@ struct SSHStartupManualReconnectTests {
         ])
         try Self.writeShellFile(at: fakeSleep, lines: [
             "#!/bin/sh",
-            "printf '%s\\n' ready > \"${CMUX_TEST_BACKOFF_READY:?}\"",
             "printf '%s\\n' \"$$\" > \"${CMUX_TEST_BACKOFF_PID:?}\"",
+            "/bin/sleep 1", // PROOF ONLY: deschedule between the two writes
+            "printf '%s\\n' ready > \"${CMUX_TEST_BACKOFF_READY:?}\"",
             "exec /bin/sleep \"$1\"",
         ])
         for executable in [fakeCLI, fakeSSH, fakeSleep] {
