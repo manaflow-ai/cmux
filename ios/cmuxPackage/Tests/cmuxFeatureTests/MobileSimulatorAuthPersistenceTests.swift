@@ -60,8 +60,10 @@ import Testing
             accessGroup: nil,
             legacyProjectID: "project-a"
         )
-        guard case .none = choice else {
-            Issue.record("A missing app identity must not select a shared token store")
+        // Memory storage keeps authenticated SDK operations recoverable
+        // without attributing persisted credentials to an unknown bundle.
+        guard case .memory = choice else {
+            Issue.record("A missing app identity must not select a persistent token store")
             return
         }
     }
