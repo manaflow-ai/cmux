@@ -24,6 +24,16 @@ public struct CloudHubConnector: Sendable {
     /// second; after 3 s the in-flight attempts ride normal retransmits, so a
     /// blackholed family never holds more than this many sockets per address.
     public var maxRedials: Int = 60
+    /// After `fastRedialWindow`, an address that has not connected keeps a new
+    /// attempt every `slowRedialInterval` until `timeout`, instead of stopping
+    /// at `maxRedials`. A cold snapshot restore once opened its listener 13 s
+    /// after create; with only the fast window, the in-flight attempts rode
+    /// TCP retransmit backoff past the 15 s deadline and New Machine failed.
+    public var fastRedialWindow: Duration = .seconds(1)
+    public var slowRedialInterval: Duration = .milliseconds(250)
+    /// One attempt's own deadline, so a stale attempt is replaced rather than
+    /// kept open; with the slow phase this bounds open attempts per address.
+    public var attemptTimeout: Duration = .seconds(2)
     public var clock: any Clock<Duration> = ContinuousClock()
 
     #if compiler(>=6.2)
@@ -42,12 +52,13 @@ public struct CloudHubConnector: Sendable {
             fallbackDelay: fallbackDelay,
             redialInterval: redialInterval,
             maxRedials: maxRedials,
+            slowPhase: CloudHubSlowRedialPhase(after: fastRedialWindow, interval: slowRedialInterval),
             timeout: timeout,
             clock: clock,
             attempt: { index in
                 let candidate = CloudHubConnection(connection: NWConnection(to: endpoint, using: .tcp), host: hosts[index])
                 do {
-                    try await handshake(candidate.connection, host: candidate.host, port: target.port, queue: queue)
+                    try await handshake(candidate.connection, host: candidate.host, port: target.port, queue: queue, timeout: min(attemptTimeout, timeout))
                     return candidate
                 } catch {
                     candidate.connection.cancel()
@@ -81,6 +92,7 @@ public struct CloudHubConnector: Sendable {
         fallbackDelay: Duration,
         redialInterval: Duration,
         maxRedials: Int,
+        slowPhase: CloudHubSlowRedialPhase? = nil,
         timeout: Duration,
         clock: any Clock<Duration>,
         attempt: @escaping @Sendable (Int) async throws -> Value,
@@ -95,14 +107,24 @@ public struct CloudHubConnector: Sendable {
             var redials = Array(repeating: 0, count: candidates)
             // Redial ticks elapsed since the candidate started, launched or skipped.
             var ticks = Array(repeating: 0, count: candidates)
+            // Time scheduled since the candidate started, for the slow phase.
+            var scheduled = Array(repeating: Duration.zero, count: candidates)
             var expired = false
             var lastError: any Error = CloudPortForwardRelay.RelayError.handshakeTimedOut(timeout)
             var winner: Value?
 
             func scheduleRedial(_ index: Int) {
-                guard redials[index] < maxRedials else { return }
+                let interval: Duration
+                if let slowPhase, scheduled[index] >= slowPhase.after {
+                    // Past the fast window: keep trying until the deadline.
+                    interval = slowPhase.interval
+                } else {
+                    guard slowPhase != nil || redials[index] < maxRedials else { return }
+                    interval = redialInterval
+                }
+                scheduled[index] += interval
                 group.addTask {
-                    try? await clock.sleep(for: redialInterval)
+                    try? await clock.sleep(for: interval)
                     return .redial(index)
                 }
             }
@@ -196,7 +218,7 @@ public struct CloudHubConnector: Sendable {
     #else
     @Sendable
     #endif
-    private func handshake(_ connection: NWConnection, host: String, port: Int, queue: DispatchQueue) async throws {
+    private func handshake(_ connection: NWConnection, host: String, port: Int, queue: DispatchQueue, timeout: Duration) async throws {
         try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -240,3 +262,15 @@ enum CloudHubHedgeEvent<Value: Sendable>: Sendable {
     case redial(Int)
     case deadline
 }
+
+/// The redial pace once a candidate has gone `after` without connecting.
+public struct CloudHubSlowRedialPhase: Sendable, Equatable {
+    public var after: Duration
+    public var interval: Duration
+
+    public init(after: Duration, interval: Duration) {
+        self.after = after
+        self.interval = interval
+    }
+}
+
