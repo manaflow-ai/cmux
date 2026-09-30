@@ -329,3 +329,83 @@ fn cmux_next_kept_unplaced_terminal_attaches_by_identity_and_takes_geometry() {
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
+
+/// `detached-terminals-v1`: the app's "Open Terminal on Machine Here" creates
+/// a kept terminal on another session with no tab there, then shows it as a
+/// remote-terminal tab in its home layout.
+#[test]
+fn cmux_next_detached_create_terminal_is_kept_with_no_tab() {
+    const DETACHED: &str = "7a1c9e3b5d2f4a6c8e0b1d3f5a7c9e2b";
+    let mux = remote_mux("detached-terminal");
+    assert!(advertised_capabilities(false).contains(&DETACHED_TERMINALS_CAPABILITY));
+    let home = mux.new_workspace(Some("home".into()), Some((80, 24))).unwrap();
+    let workspace = surface_placement(&mux, home.id).0.unwrap();
+    let tab_count = |mux: &Arc<Mux>| {
+        let tree = run(mux, json!({"cmd":"list-workspaces"})).unwrap();
+        tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|workspace| workspace["screens"].as_array().unwrap().clone())
+            .flat_map(|screen| screen["panes"].as_array().unwrap().clone())
+            .map(|pane| pane["tabs"].as_array().unwrap().len())
+            .sum::<usize>()
+    };
+    let tabs_before = tab_count(&mux);
+
+    let request = json!({
+        "cmd":"create-terminal",
+        "detached":true,
+        "keep":true,
+        "cols":90,
+        "rows":30,
+        "terminal_id":DETACHED,
+        "env":{"CMUX_DETACHED_TEST":"1"},
+        "origin":"cmux-next-app",
+        "mutation_id":"detached-create-1",
+    });
+    let created = run(&mux, request.clone()).expect("a detached create-terminal succeeds");
+    for field in ["surface", "pane", "screen", "workspace"] {
+        assert!(created[field].is_null(), "{field} is null: {created}");
+    }
+    assert_eq!(created["terminal_id"], DETACHED, "{created}");
+    assert!(created["terminal_incarnation"].is_string(), "{created}");
+    assert_eq!(created["lifecycle"], "running", "{created}");
+    let resource_id = created["terminal_resource_id"].as_str().expect("terminal_resource_id");
+    assert!(resource_id.starts_with("term_"), "{created}");
+    assert!(created["generation"].is_string(), "{created}");
+    assert!(created["registry_id"].is_string(), "{created}");
+    assert_eq!(created["replayed"], false, "{created}");
+
+    assert_eq!(tab_count(&mux), tabs_before, "a detached terminal adds no tab");
+    assert_eq!(mux.with_state(|state| state.workspaces.len()), 1, "no new workspace");
+    assert!(mux.terminal_keep(DETACHED).unwrap(), "a detached terminal is kept");
+    // The durable resource row exists, so resource API v2 and a later
+    // attach by identity find it.
+    assert_eq!(
+        mux.terminal_public_id_for_host(DETACHED).unwrap().map(|id| id.to_string()).as_deref(),
+        Some(resource_id)
+    );
+    let public_id = TerminalPublicId::parse(resource_id).unwrap();
+    let runtime = mux.resource_surface_for_terminal(&public_id).expect("catalog runtime");
+    assert_eq!(mux.surface(runtime).unwrap().size(), (90, 30));
+    assert!(mux.with_state(|state| state.pane_of(runtime).is_none()), "no tab placement");
+
+    // A lost-response retry replays the same terminal.
+    let replayed = run(&mux, request).expect("a replay succeeds");
+    assert_eq!(replayed["terminal_resource_id"], resource_id, "{replayed}");
+    assert_eq!(replayed["terminal_incarnation"], created["terminal_incarnation"]);
+    assert_eq!(replayed["replayed"], true, "{replayed}");
+    assert!(replayed["surface"].is_null(), "{replayed}");
+    assert_eq!(tab_count(&mux), tabs_before);
+
+    // A detached terminal names no destination.
+    for destination in [json!({"workspace":workspace}), json!({"key":"some-key"})] {
+        let mut request = json!({"cmd":"create-terminal","detached":true,"keep":true});
+        request.as_object_mut().unwrap().extend(destination.as_object().unwrap().clone());
+        let error = run(&mux, request).expect_err("a detached create with a destination fails");
+        assert!(error.to_string().contains("detached"), "{error}");
+    }
+    assert_eq!(tab_count(&mux), tabs_before);
+    mux.shutdown();
+}
