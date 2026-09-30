@@ -4814,11 +4814,16 @@ impl Surface {
                 drop(runtime);
                 receipt.wait().map_err(ConfirmedInputFailure::Indeterminate)
             }
-            // Same keep-on-exit contract as `write_bytes`: the child is gone,
-            // so there is no reader to deliver to and nothing to retry.
-            // Input to the final screen is a successful no-op.
+            // Receipted input confirms delivery to the PTY owner, and a kept
+            // terminal's child is gone, so the write fails before any effect
+            // with a known error instead of claiming the bytes arrived.
+            // Unreceipted keystrokes to the final screen stay a silent no-op
+            // (`write_bytes`).
             #[cfg(unix)]
-            PtyRuntime::ExitedHosted => Ok(()),
+            PtyRuntime::ExitedHosted => Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "terminal has no live PTY owner for receipted input",
+            ))),
         }
     }
 
@@ -7959,7 +7964,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn receipted_input_to_an_exited_host_is_a_no_op() {
+    fn receipted_input_rejects_an_exited_host_before_effect() {
         let mux = Mux::new_for_test("receipted-input-exited-host", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
@@ -7969,10 +7974,12 @@ mod tests {
             *runtime = PtyRuntime::ExitedHosted;
         }
 
-        // A keep-on-exit terminal keeps its final screen after the child
-        // exits; typing there succeeds without an effect, as `write_bytes`
-        // does.
-        surface.write_bytes_confirmed(b"ignored").unwrap();
+        let error = surface.write_bytes_confirmed(b"must-not-drop").unwrap_err();
+        let ConfirmedInputFailure::Known(error) = error else {
+            panic!("exited-host rejection became indeterminate");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+        assert!(error.to_string().contains("no live PTY owner"));
     }
 
     #[test]
