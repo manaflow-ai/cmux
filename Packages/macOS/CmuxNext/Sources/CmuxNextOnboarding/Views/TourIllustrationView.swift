@@ -136,7 +136,7 @@ final class TourIllustrationView: NSView {
     }
 
     private func drawScreens(_ unit: CGFloat) {
-        let card = NSRect(x: stage.minX + unit * 4, y: stage.minY + unit * 3.5, width: stage.width - unit * 8, height: stage.height - unit * 3.5)
+        let card = NSRect(x: stage.minX + unit * 4, y: stage.minY + unit * 5.5, width: stage.width - unit * 8, height: stage.height - unit * 5.5)
         for depth in (0..<3).reversed() {
             let offset = CGFloat(depth) * unit * 1.4
             let rect = card.insetBy(dx: offset * 1.2, dy: 0).offsetBy(dx: 0, dy: -offset)
