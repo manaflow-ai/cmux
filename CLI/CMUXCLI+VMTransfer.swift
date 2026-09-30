@@ -637,7 +637,7 @@ extension CMUXCLI {
                     ], prettyPrinted: false))
                     fflush(stdout)
                 } else {
-                    cliWriteStderr("Cloud transfer paused; retrying in (String(format: \"%.1f\", delay))s.\n")
+                    cliWriteStderr("Cloud transfer paused; retrying in \(String(format: "%.1f", delay))s.\n")
                 }
                 Thread.sleep(forTimeInterval: delay)
                 retryDelaySeconds = min(delay * 2, 10.0)
