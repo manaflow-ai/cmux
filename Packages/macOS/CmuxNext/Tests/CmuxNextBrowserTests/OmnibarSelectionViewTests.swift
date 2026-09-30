@@ -135,3 +135,22 @@ import Testing
     }
 }
 
+extension OmnibarSelectionViewTests {
+    /// The field becoming first responder again while it has focus (the
+    /// focus coordinator re-applying the address bar target) blurs and
+    /// refocuses it: AppKit's reload of the field's text is not an edit.
+    @Test func refocusingTheFocusedFieldIsNotAnEdit() async {
+        let h = Harness()
+        await h.settle()
+        h.bar.focus()
+        await h.settle()
+        h.bar.focus()
+        await h.settle()
+        #expect(h.snapshot.phase == "focused")
+        h.window.makeFirstResponder(h.bar.field)
+        await h.settle()
+        #expect(h.snapshot.phase == "focused")
+        #expect(h.snapshot.fieldText == "example.org/start", "a programmatic focus keeps the display text")
+        #expect(h.snapshot.fieldSelection == NSRange(location: 0, length: 17))
+    }
+}
