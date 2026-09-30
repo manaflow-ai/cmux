@@ -106,6 +106,11 @@ extension TerminalController {
         )
         guard await AgentFanOutOperationStore.shared.insertIfAbsent(operation) else {
             if let existing = await AgentFanOutOperationStore.shared.operation(id: generatedID) {
+                guard existing.scope == scope, existing.machineID == machineID,
+                      existing.agent == agent, existing.argvDigest == digest,
+                      existing.requestedCount == count else {
+                    throw FanOutSocketError.conflictingOperation
+                }
                 return existing.foundationObject
             }
             throw FanOutSocketError.conflictingOperation
