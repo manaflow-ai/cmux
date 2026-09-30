@@ -543,6 +543,61 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
+  test("tunnel POST and GET forward the complete fresh membership, not only the selected team", async () => {
+    const user = authedStackUser();
+    getUser.mockResolvedValue({
+      ...user,
+      listTeams: async () => [{ id: "team-1", clientReadOnlyMetadata: {} }, { id: "team-2", clientReadOnlyMetadata: {} }],
+    });
+    runVmWorkflow.mockResolvedValue({
+      tunnelId: "tunnel-test", provider: "freestyle", deviceFingerprint: "device-test",
+      routes: [], network: { id: "home", cidr: "10.1.0.0/24", cidrV6: null },
+      networks: [], created: false, rotated: false,
+    });
+    const payload = Buffer.from(JSON.stringify({ refresh_token_id: "session-test", iat: 1_700_000_000 })).toString("base64url");
+    const headers = { authorization: `Bearer access-token.${payload}.test`, "x-stack-refresh-token": "refresh-token" };
+    const posted = await tunnelPOST(new Request("https://cmux.test/api/vm/tunnel", {
+      method: "POST", headers,
+      body: JSON.stringify({ deviceId: "device-test", deviceFingerprint: "device-test", tunnelPurpose: "browser", clientPublicKey: Buffer.alloc(32, 1).toString("base64") }),
+    }));
+    expect(posted.status).toBe(200);
+    const enrollInput = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };
+    expect(enrollInput.teamIds).toEqual(["team-1", "team-2"]);
+    expect(enrollInput.teamIdsComplete).toBe(true);
+    const read = await tunnelGET(new Request("https://cmux.test/api/vm/tunnel?deviceFingerprint=device-test&tunnelPurpose=browser", { headers }));
+    expect(read.status).toBe(200);
+    const readInput = (readVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };
+    expect(readInput.teamIds).toEqual(["team-1", "team-2"]);
+    expect(readInput.teamIdsComplete).toBe(true);
+  });
+
+  test("tunnel POST marks the team list incomplete when the fresh membership listing fails", async () => {
+    let listCalls = 0;
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      listTeams: async () => {
+        listCalls += 1;
+        throw new Error("stack unavailable");
+      },
+    });
+    runVmWorkflow.mockResolvedValue({
+      tunnelId: "tunnel-test", provider: "freestyle", deviceFingerprint: "device-test",
+      routes: [], network: { id: "home", cidr: "10.1.0.0/24", cidrV6: null },
+      networks: [], created: false, rotated: false,
+    });
+    const payload = Buffer.from(JSON.stringify({ refresh_token_id: "session-test", iat: 1_700_000_000 })).toString("base64url");
+    const headers = { authorization: `Bearer access-token.${payload}.test`, "x-stack-refresh-token": "refresh-token" };
+    const posted = await tunnelPOST(new Request("https://cmux.test/api/vm/tunnel", {
+      method: "POST", headers,
+      body: JSON.stringify({ deviceId: "device-test", deviceFingerprint: "device-test", tunnelPurpose: "browser", clientPublicKey: Buffer.alloc(32, 1).toString("base64") }),
+    }));
+    expect(posted.status).toBe(200);
+    expect(listCalls).toBeGreaterThan(0);
+    const enrollInput = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };
+    expect(enrollInput.teamIds).toEqual(["team-1"]);
+    expect(enrollInput.teamIdsComplete).toBe(false);
+  });
+
   test("tunnel POST and GET forward authenticated team membership", async () => {
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
@@ -1967,6 +2022,7 @@ describe("VM REST auth", () => {
       clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
       maxActiveVms: 50,
+      modelPlane: expect.objectContaining({}),
     });
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
@@ -2215,6 +2271,7 @@ describe("VM REST auth", () => {
       command: "true",
       maxActiveVms: 50,
       timeoutMs: 30_000,
+      modelPlane: expect.objectContaining({}),
     });
   });
 

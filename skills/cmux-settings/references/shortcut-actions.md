@@ -202,6 +202,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.diffViewerScrollToTop`
 - `shortcuts.bindings.diffViewerScrollUp`
 - `shortcuts.bindings.diffViewerScrollUpEmacs`
+- `shortcuts.bindings.diffViewerToggleViewed`
 - `shortcuts.bindings.markdownZoomIn`
 - `shortcuts.bindings.markdownZoomOut`
 - `shortcuts.bindings.markdownZoomReset`

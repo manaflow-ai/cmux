@@ -1895,6 +1895,7 @@ pub(crate) struct ClientSizingIdentity {
     pub(crate) display_name: Option<String>,
     pub(crate) device_kind: TerminalDeviceKind,
     pub(crate) device_name: Option<String>,
+    pub(crate) device_id: Option<String>,
 }
 
 /// Where a size-state publication goes after the sizing lock is released.
@@ -1920,6 +1921,10 @@ struct ClientSizingState {
     workspace_size_policies: HashMap<WorkspaceId, TerminalSizingPolicy>,
     /// Runtimes whose published state changed since the last flush.
     pending_size_states: BTreeSet<SurfaceId>,
+    /// Own views (connection, placement) someone detached with a view
+    /// detach. The connection stays attached; its view is not a participant
+    /// until `reattach-view`.
+    detached_views: HashSet<(u64, SurfaceId)>,
 }
 
 /// Host participant id of one client's view of one terminal placement. The
@@ -8871,6 +8876,7 @@ impl Mux {
         attached_surfaces: impl IntoIterator<Item = SurfaceId>,
     ) {
         let mut sizing = self.client_sizing.lock().unwrap();
+        sizing.detached_views.retain(|(viewer, _)| *viewer != client);
         let attached_clients = self.control_clients.attached_client_ids_by_surface();
         // The registry snapshot no longer contains this client. Reconstruct
         // whether each old attachment suppressed excluded-report fallback so
@@ -8992,6 +8998,9 @@ impl Mux {
             return None;
         }
         Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            if sizing.detached_views.contains(&(client, surface)) {
+                return false;
+            }
             sizing.terminal_runtime_by_placement.insert(surface, runtime);
             let id = view_participant_id(runtime, surface, client);
             let participant = mux.view_participant(sizing, runtime, surface, client);
@@ -9092,6 +9101,7 @@ impl Mux {
                 participant.user_id = identity.user_id.clone();
                 participant.display_name = identity.display_name.clone();
                 participant.device_name = identity.device_name.clone();
+                participant.device_id = identity.device_id.clone();
                 changed |= entry.engine.update_identity(&participant);
             }
             sizing.note_size_state(runtime, changed);
@@ -9138,6 +9148,7 @@ impl Mux {
                 display_name: identity.display_name,
                 device_kind: identity.device_kind,
                 device_name: identity.device_name,
+                device_id: identity.device_id,
                 via: Some(via),
                 viewport: viewport.map(|(cols, rows)| TerminalGridSize::new(cols, rows)),
                 counts_override: None,
@@ -9211,6 +9222,75 @@ impl Mux {
                 .members
                 .get(participant)
                 .map(|member| (member.client, member.placement, member.view.clone()))
+        })
+    }
+
+    /// Resolve a host participant id on one terminal (participant ids are
+    /// per terminal, so the same `c<client>` can name views of several).
+    pub(crate) fn terminal_participant_member_on(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+    ) -> Option<(u64, SurfaceId, Option<String>)> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        let sizing = self.client_sizing.lock().unwrap();
+        sizing
+            .terminal_sizing
+            .get(&runtime)?
+            .members
+            .get(participant)
+            .map(|member| (member.client, member.placement, member.view.clone()))
+    }
+
+    /// Detach one connection's own view of a terminal placement, keeping the
+    /// connection, its stream and its relay sub-views. The view stays out of
+    /// the engine until [`Self::reattach_terminal_own_view`].
+    pub(crate) fn detach_terminal_own_view(
+        &self,
+        placement: SurfaceId,
+        client: u64,
+    ) -> Option<bool> {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let runtime = self.surface(placement)?.terminal_runtime_id()?;
+        Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            sizing.detached_views.insert((client, placement));
+            let before =
+                sizing.terminal_sizing.get(&runtime).map(|entry| entry.engine.state().generation);
+            mux.sync_terminal_view_locked(sizing, runtime, placement, client);
+            before
+                != sizing.terminal_sizing.get(&runtime).map(|entry| entry.engine.state().generation)
+        }))
+    }
+
+    /// Restore a view detached by [`Self::detach_terminal_own_view`], with
+    /// its latest report. `counts` sets its counts override (a viewer
+    /// reattaches with `Some(false)`). Returns the view's participant id.
+    pub(crate) fn reattach_terminal_own_view(
+        &self,
+        placement: SurfaceId,
+        client: u64,
+        counts: Option<bool>,
+    ) -> anyhow::Result<String> {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let runtime = self
+            .surface(placement)
+            .and_then(|surface| surface.terminal_runtime_id())
+            .ok_or_else(|| anyhow::anyhow!("surface {placement} is not a terminal"))?;
+        let id = view_participant_id(runtime, placement, client);
+        self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            anyhow::ensure!(
+                sizing.detached_views.remove(&(client, placement)),
+                "view of surface {placement} is not detached"
+            );
+            mux.sync_terminal_view_locked(sizing, runtime, placement, client);
+            if let Some(entry) = sizing.terminal_sizing.get_mut(&runtime)
+                && entry.engine.contains(&id)
+                && counts.is_some()
+            {
+                let changed = entry.engine.set_counts_override(&id, counts);
+                sizing.note_size_state(runtime, changed);
+            }
+            Ok(id.clone())
         })
     }
 
@@ -9358,6 +9438,7 @@ impl Mux {
             display_name: identity.display_name,
             device_kind: identity.device_kind,
             device_name: identity.device_name,
+            device_id: identity.device_id,
             via: None,
             viewport: sizing
                 .surfaces
@@ -9424,7 +9505,8 @@ impl Mux {
             sizing.surfaces.get(&placement).is_some_and(|viewers| viewers.contains_key(&client));
         let attached = client != 0
             && self.control_clients.attached_client_ids_for_surface(placement).contains(&client);
-        let present = attached || has_report;
+        let present =
+            (attached || has_report) && !sizing.detached_views.contains(&(client, placement));
         let known =
             sizing.terminal_sizing.get(&runtime).is_some_and(|entry| entry.engine.contains(&id));
         if !present && !known {
@@ -24870,12 +24952,23 @@ mod tests {
         assert_eq!(records[0].source, AgentSource::Hook);
         assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        // The socket report commits its own revision only when it wins the
+        // race; a socket report that lands after the hook is retained by the
+        // hook-owned record without a new revision. Either way the hook's
+        // commit is the last batch.
         let batches = mux.resource_events_after(revision).unwrap().batches;
-        assert_eq!(batches.len(), 2);
-        assert_eq!(batches[0].revision, revision + 1);
-        assert_eq!(batches[1].revision, revision + 2);
-        assert_eq!(batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(batches[1].changes[0]["value"]["state"], "blocked");
+        assert_eq!(
+            u64::try_from(batches.len()).unwrap(),
+            hook_commit.revision - revision,
+            "one batch per committed revision"
+        );
+        for (offset, batch) in batches.iter().enumerate() {
+            assert_eq!(batch.revision, revision + 1 + u64::try_from(offset).unwrap());
+        }
+        let last = batches.last().unwrap();
+        assert_eq!(last.revision, hook_commit.revision);
+        assert_eq!(last.changes[0]["value"]["source"], "hook");
+        assert_eq!(last.changes[0]["value"]["state"], "blocked");
     }
 
     #[test]
@@ -24933,6 +25026,16 @@ mod tests {
         assert_eq!(records[0].state, AgentState::Idle);
     }
 
+    /// The hook projector's live record for `terminal_id`. `list_agents` reads
+    /// the journal-folded roster, which direct `apply_agent_hook_record` calls
+    /// bypass, so projector tests inspect the projector's own output.
+    fn hook_projected_agent(
+        mux: &Mux,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<TerminalAgentRecord> {
+        mux.agent_records.lock().unwrap().get(terminal_id).cloned()
+    }
+
     #[test]
     fn stale_same_terminal_hook_sequence_cannot_overwrite_newer_state() {
         let mux = test_mux();
@@ -24959,7 +25062,7 @@ mod tests {
         .unwrap();
         mux.apply_agent_hook_record(&newer, 2).unwrap();
         mux.apply_agent_hook_record(&older, 1).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Blocked);
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Blocked);
     }
 
     #[test]
@@ -24985,8 +25088,11 @@ mod tests {
         // must not try to acquire that guard again.
         mux.apply_agent_hook_record(&hook, 1).unwrap();
 
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].agent.as_deref(), Some("claude"));
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Working);
+        assert_eq!(
+            hook_projected_agent(&mux, &terminal_id).unwrap().agent.as_deref(),
+            Some("claude")
+        );
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(snapshot["agents"][0]["extra"]["agent"], serde_json::json!("claude"));
         assert_eq!(
@@ -25803,9 +25909,28 @@ mod tests {
             assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
             assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
             mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+
+            // Startup runs this reconciliation once restored surfaces exist.
+            // This test's terminal is a local PTY, which does not survive a
+            // daemon restart (only host-owned terminals are adopted), so run
+            // the startup repair against the live surface here.
+            mux.reconcile_agent_roster_projections();
+            let repaired = mux.list_agents(Some(surface.id), None);
+            assert_eq!(repaired.len(), 1);
+            assert_eq!(repaired[0].state, AgentState::Working);
+            assert_eq!(repaired[0].source, AgentSource::Plugin);
+            assert_eq!(repaired[0].agent.as_deref(), Some("codex"));
+            assert_eq!(repaired[0].session.as_deref(), Some("pid:42"));
+            assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+            // A healthy repeat is a no-op.
+            let revision = mux.with_state(|state| state.resource_revision);
+            mux.reconcile_agent_roster_projections();
+            assert_eq!(mux.with_state(|state| state.resource_revision), revision);
             mux.shutdown();
         }
 
+        // The roster itself is durable: a restart restores the plugin entry
+        // from the reducer checkpoint and journal.
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
         let reopened = Mux::from_workspace_registry(
             session.into(),
@@ -25815,13 +25940,12 @@ mod tests {
             true,
         )
         .unwrap();
-        let repaired = reopened.list_agents(None, None);
-        assert_eq!(repaired.len(), 1);
-        assert_eq!(repaired[0].state, AgentState::Working);
-        assert_eq!(repaired[0].source, AgentSource::Plugin);
-        assert_eq!(repaired[0].agent.as_deref(), Some("codex"));
-        assert_eq!(repaired[0].session.as_deref(), Some("pid:42"));
-        assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+        {
+            let host = reopened.agent_roster.lock().unwrap();
+            let entry = host.roster.entries.get(terminal_id.as_str()).expect("restored roster");
+            assert_eq!(entry.agent_source(), AgentSource::Plugin);
+            assert_eq!(entry.agent_state(), AgentState::Working);
+        }
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
@@ -26424,9 +26548,8 @@ mod tests {
         mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 1).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 2).unwrap();
         mux.apply_agent_hook_record(&ingress("UserPromptSubmit", "old"), 3).unwrap();
-        let records = mux.list_agents(Some(surface.id), None);
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].state, AgentState::Idle);
+        let record = hook_projected_agent(&mux, &terminal_id).expect("new session record");
+        assert_eq!(record.state, AgentState::Idle);
         assert!(
             !mux.agent_hook_fences
                 .lock()
@@ -26455,11 +26578,11 @@ mod tests {
         // The old session can arrive after its end marker. Matching the ended
         // identity is still a stale event, not permission to reopen it.
         mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 3).unwrap();
-        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        assert!(hook_projected_agent(&mux, &terminal_id).is_none());
         assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
         mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 4).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 5).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Idle);
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
     }
 
@@ -26493,7 +26616,7 @@ mod tests {
         mux.apply_agent_hook_record(&sessionless("UserPromptSubmit"), 4).unwrap();
 
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Idle);
     }
 
     #[test]
@@ -26520,7 +26643,7 @@ mod tests {
         let second = mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id.clone();
         assert_ne!(first, second);
         mux.apply_agent_hook_record(&ingress("UserPromptSubmit"), 4).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Working);
     }
 
     #[test]
@@ -26646,12 +26769,12 @@ mod tests {
         mux.apply_agent_hook_record(&ingress, 7).unwrap();
         assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 7);
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 7);
-        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+        assert!(hook_projected_agent(&mux, &terminal_id).is_some());
 
         // A replay of the committed sequence is an idempotent no-op.
         mux.apply_agent_hook_record(&ingress, 7).unwrap();
         assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 7);
-        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+        assert!(hook_projected_agent(&mux, &terminal_id).is_some());
     }
 
     #[test]

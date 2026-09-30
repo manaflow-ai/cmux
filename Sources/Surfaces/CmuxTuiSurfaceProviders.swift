@@ -12,6 +12,15 @@ import Foundation
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let fileAccessTeamScope: AuthenticatedTeamScope?
+    /// The team that owns this machine, captured when the provider was
+    /// registered. Every control-plane call this provider makes names it, so a
+    /// Cloud surface keeps working after the selected team changes. Nil for SSH
+    /// machines and legacy callers, which follow the selected team.
+    let ownerTeamID: String?
+    /// Set once the control plane answered that this user can no longer reach
+    /// the machine (404 `vm_not_found`, 403, `vm_owner_mismatch`). Refreshes
+    /// stop dialing and every attached pane shows the access-lost card.
+    var hasLostAccess = false
     let machineID: String
     var machine: SurfaceMachineID { summary.machine }
     private(set) var info: SurfaceMachineInfo
@@ -82,7 +91,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
     let loadPortSummary: @MainActor (String) async throws -> VMSummary
-
     func publishPortDiscovery() {
         guard isRegisteredInCatalog() else { return }
         info.portDiscoveryState = portDiscovery.state
@@ -152,6 +160,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     init(
         summary: RemoteTuiMachine,
         fileAccessTeamScope: AuthenticatedTeamScope? = nil,
+        ownerTeamID: String? = nil,
         links: any RemoteTuiLinkManaging,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
@@ -159,12 +168,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         portAccessStore: CloudPortAccessStore? = nil,
         displayCoordinator: CloudDisplayCoordinator? = nil,
         browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() },
-        loadPortSummary: @escaping @MainActor (String) async throws -> VMSummary = { id in
-            guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-            return try await client.status(id: id)
-        }
+        loadPortSummary: (@MainActor (String) async throws -> VMSummary)? = nil
     ) {
         self.fileAccessTeamScope = fileAccessTeamScope
+        let ownerTeamID = ownerTeamID ?? fileAccessTeamScope?.teamID
+        self.ownerTeamID = ownerTeamID
         machineID = summary.id
         self.attachmentClock = attachmentClock
         self.summary = summary
@@ -174,10 +182,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.displayCoordinator = displayCoordinator ?? CloudDisplayCoordinator { command, timeout in
             guard summary.cloudSummary != nil, let client = VMClient.shared else { throw ProviderError.notSignedIn }
-            return try await client.exec(id: summary.id, command: command, timeoutMs: timeout)
+            return try await client.exec(id: summary.id, command: command, timeoutMs: timeout, teamID: ownerTeamID)
         }
         self.browserPolicy = browserPolicy
-        self.loadPortSummary = loadPortSummary
+        self.loadPortSummary = loadPortSummary ?? { id in
+            guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+            return try await client.status(id: id, teamID: ownerTeamID)
+        }
         portDiscovery.reconcile(
             supportsPreviews: summary.capabilities.ports || summary.preferredPrivateAddress != nil,
             isAwake: summary.status == "running",
@@ -191,8 +202,44 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             stats: nil,
             portDiscoveryState: portDiscovery.state
         )
-        installNotificationSync()
+        if summary.status == "running" {
+            installNotificationSync()
+        }
     }
+
+    /// Stops machine-bound activity while retaining this provider and its graph.
+    /// The control plane may report the machine running again later.
+    func stopTransportResources() {
+        stopSharedTransportResources()
+        displayCoordinator.stop()
+        portDiscovery.invalidate()
+    }
+
+    private func stopSharedTransportResources() {
+        lifecycleGeneration &+= 1
+        guestURLService?.stop()
+        guestURLService = nil
+        refreshCoordinator.cancel()
+        CloudNotificationSyncHub.shared.unregister(machineID: machineID)
+        notificationSync?.retire()
+        notificationSync = nil
+        if let notificationPlacementObserver {
+            NotificationCenter.default.removeObserver(notificationPlacementObserver)
+            self.notificationPlacementObserver = nil
+        }
+        changeWatcher?.cancel()
+        changeWatcher = nil
+        watchedLink = nil
+        changeWatcherID = nil
+        scheduledRefresh?.cancel()
+        scheduledRefresh = nil
+        stateRecoveryRefreshTask?.cancel()
+        stateRecoveryRefreshTask = nil
+        stateRecoveryRefreshQueued = false
+        for task in remoteTerminalProjectionTasks.values { task.cancel() }
+        remoteTerminalProjectionTasks.removeAll()
+    }
+
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
@@ -205,6 +252,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         self.summary = .cloud(summary)
         summaryGeneration &+= 1
+        if summary.status == "running", notificationSync == nil {
+            installNotificationSync()
+        }
         portDiscovery.reconcile(
             supportsPreviews: summary.capabilities.ports || summary.preferredPrivateAddress != nil,
             isAwake: summary.status == "running",
@@ -233,50 +283,66 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             refreshCloudBrowserRoutes()
         }
     }
-    func suspendForFeatureFlag() {
+    func markInactive(status: String) {
+        guard let current = summary.cloudSummary else { return }
+        let inactive = current.withStatus(status)
+        update(summary: inactive)
+    }
+
+    /// Retires every attachment and transport task this provider owns.
+    ///
+    /// - Parameter stopReason: What open panes present afterwards. Panes stay
+    ///   open; each keeps a card for this reason instead of a frozen frame.
+    func suspendForFeatureFlag(stopReason: CloudTuiManualMirrorStopReason = .cloudUnavailable) {
         isFeatureSuspended = true
         // The first read after resuming must arm afresh, never adopt at once.
         equalCursorConflict = nil
+        stopSharedTransportResources()
         displayCoordinator.stop()
-        guestURLService?.stop()
-        guestURLService = nil
-        lifecycleGeneration &+= 1
         portDiscovery.invalidate()
         terminalMutationQueue.cancelAll()
-        refreshCoordinator.cancel()
         for task in browserPaneTasks.values { task.cancel() }
         browserPaneTasks.removeAll()
         refreshGeneration &+= 1
-        CloudNotificationSyncHub.shared.unregister(machineID: machineID)
-        notificationSync?.retire()
-        notificationSync = nil
-        if let notificationPlacementObserver {
-            NotificationCenter.default.removeObserver(notificationPlacementObserver)
-            self.notificationPlacementObserver = nil
-        }
-        changeWatcher?.cancel()
-        changeWatcher = nil
-        watchedLink = nil
-        changeWatcherID = nil
-        scheduledRefresh?.cancel()
-        scheduledRefresh = nil
-        stateRecoveryRefreshTask?.cancel()
-        stateRecoveryRefreshTask = nil
-        stateRecoveryRefreshQueued = false
         stateRecoveryCount = 0
         eventsFeedWarning = nil
-        for session in manualMirrorSessions.values { session.stop() }
+        for session in manualMirrorSessions.values { session.stop(reason: stopReason) }
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
         attachmentRetry.cancel()
-        for task in remoteTerminalProjectionTasks.values { task.cancel() }
-        remoteTerminalProjectionTasks.removeAll()
         pendingRemoteCreations.removeAll()
         pendingRemoteRenames.removeAll()
         acceptedCloudGenerations.removeAll(); catalog.notifyChange(for: machine)
     }
+    /// The control plane answered that this user can no longer reach the
+    /// machine. Automatic reconnects stop, and every attached pane shows the
+    /// access-lost card; the pane itself stays open so the user decides.
+    func noteAccessLost() {
+        guard !hasLostAccess else { return }
+        hasLostAccess = true
+        for task in restoredAttachTasks.values { task.cancel() }
+        restoredAttachTasks.removeAll()
+        attachmentRetry.cancel()
+        for session in manualMirrorSessions.values { session.stop(reason: .accessLost) }
+        manualMirrorSessions.removeAll()
+        manualMirrorSurfaceIDsSocketPath = nil
+        let detail = CloudTuiManualMirrorStopReason.accessLost.endedPresentation?.detail ?? ""
+        // Cloud browser and display panes of this machine keep the same state,
+        // in the browser's own unavailable card.
+        for task in browserPaneTasks.values { task.cancel() }
+        browserPaneTasks.removeAll()
+        for projection in catalog.projections where projection.resource.machine == machine {
+            AppDelegate.shared?.browserPanel(for: projection.panelID)?.cloudAccess.showUnavailable(detail)
+        }
+        guard isRegisteredInCatalog() else { return }
+        info.linkState = .error
+        info.linkError = detail
+        catalog.updateMachine(info, from: self)
+    }
+
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
+        guard !hasLostAccess else { return false }
         let lifecycle = lifecycleGeneration
         guard isCurrentLifecycleGeneration(lifecycle), isRegisteredInCatalog() else { return false }
         refreshGeneration &+= 1
@@ -351,7 +417,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if hasDesktop, catalog.authoritativeSnapshot.resources(on: machine).isEmpty {
             catalog.replaceResources(displayResources, on: machine, info: info, from: self)
         }
-        let statsRead = Task { try? await vmClient?.stats(id: machineID) }
+        let statsRead = Task { [ownerTeamID] () -> Result<VMStats, Error>? in
+            guard let vmClient else { return nil }
+            do { return .success(try await vmClient.stats(id: machineID, teamID: ownerTeamID)) } catch { return .failure(error) }
+        }
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         // A decoded snapshot is not automatically an authorization boundary. It
@@ -434,6 +503,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             ) else { return false }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
+            if CloudMachineAccessLoss(error: error) != nil {
+                // Retrying cannot succeed; a retry loop would only keep a frozen pane.
+                noteAccessLost()
+                return false
+            }
             portDiscovery.linkFailed()
             let status = await links.status(machineID: machineID)
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
@@ -520,10 +594,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
         }
         Task { [weak self] in
-            if let stats = await statsRead.value,
-               let self, self.isCurrentRefresh(lifecycle: lifecycle, refresh: generation) {
+            guard let result = await statsRead.value, let self else { return }
+            switch result {
+            case .success(let stats):
+                guard self.isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
                 self.info = self.info.applyingGauges(stats)
                 self.catalog.updateMachine(self.info, from: self)
+            case .failure(let error):
+                // A carrier link can outlive a revoked membership; the owning
+                // team's authorized read is the first to learn it.
+                guard self.isCurrentLifecycleGeneration(lifecycle),
+                      CloudMachineAccessLoss(error: error) != nil else { return }
+                self.noteAccessLost()
             }
         }
         return snapshotEstablishedCurrentGraph
@@ -787,6 +869,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             info: info,
             observation: acceptedObservation
         )
+        catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         if reconcileTitles {
             catalog.cloudWorkspaceRenameService.reconcileRemoteState(
                 machine: machine,
@@ -956,7 +1039,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             workspaceID: created.workspaceID,
             panelID: created.panelID,
             remoteWorkspaceID: createdPlacement?.workspaceID ?? selectedView?.workspace.id,
-            remoteTabID: createdPlacement?.tabID ?? selectedView?.tabID
+            remoteTabID: createdPlacement?.tabID ?? (selectedView?.isCloudDisplayMembershipView == true ? nil : selectedView?.tabID)
         )
     }
 
@@ -1700,7 +1783,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter { $0.kind == .terminal }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
-                guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0) }) != false,
+                guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0, catalog: catalog) }) != false,
                       let workspace = AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID),
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else {
                     continue
@@ -1730,6 +1813,26 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 }
 
 extension SurfaceMachineInfo {
+    /// Copy for a failed remote graph refresh. State-specific failures take precedence over
+    /// diagnostics because a missing graph is not necessarily a network failure. Internal
+    /// snake-case reason codes stay out of user-facing errors.
+    var linkFailureMessage: String {
+        switch linkState {
+        case .asleep:
+            return String(localized: "cloud.operation.failure.machineAsleep", defaultValue: "This machine is asleep. Wake it to connect.")
+        case .unavailable:
+            return String(localized: "cloud.operation.failure.machineUnavailable", defaultValue: "cmux cannot reach the Cloud service for this machine right now.")
+        default:
+            guard let linkError else { return CloudDiagnosticFailure.network.label }
+            let message = linkError.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !message.isEmpty,
+                  message.range(of: #"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"#, options: .regularExpression) == nil else {
+                return CloudDiagnosticFailure.network.label
+            }
+            return message
+        }
+    }
+
     /// The same machine row with `previous`'s resource gauges, so a refresh that
     /// publishes before its stats read lands does not blank the sidebar gauges.
     func carryingGauges(from previous: SurfaceMachineInfo) -> SurfaceMachineInfo {

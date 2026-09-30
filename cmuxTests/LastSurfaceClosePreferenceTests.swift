@@ -9,6 +9,11 @@ import CmuxSettings
 @testable import cmux
 #endif
 
+/// A @MainActor Swift Testing body already runs inside a main queue block, so
+/// the main queue cannot drain until the test returns and every
+/// `drainMainQueue` call spins the run loop until its timeout. Spin briefly.
+private let mainActorTestMainQueueSpin: TimeInterval = 0.1
+
 @MainActor
 @Suite(.serialized)
 struct LastSurfaceClosePreferenceTests {
@@ -26,8 +31,8 @@ struct LastSurfaceClosePreferenceTests {
 
             secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
             #expect(secondWorkspace.closePanel(secondPanelId) == false)
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id])
             #expect(manager.selectedTabId == firstWorkspace.id)
@@ -52,8 +57,8 @@ struct LastSurfaceClosePreferenceTests {
                 didClose = secondWorkspace.closePanel(secondPanelId)
             }
             #expect(didClose)
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -75,8 +80,8 @@ struct LastSurfaceClosePreferenceTests {
 
             secondWorkspace.markTabStripMiddleClickClose(surfaceId: secondSurfaceId)
             #expect(secondWorkspace.closePanel(secondPanelId) == false)
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id])
             #expect(manager.selectedTabId == firstWorkspace.id)
@@ -101,8 +106,8 @@ struct LastSurfaceClosePreferenceTests {
                 didClose = secondWorkspace.closePanel(secondPanelId)
             }
             #expect(didClose)
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -128,8 +133,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: true
             ))
             #expect(secondWorkspace.closePanel(secondPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id])
             #expect(manager.selectedTabId == firstWorkspace.id)
@@ -155,8 +160,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: true
             ))
             #expect(secondWorkspace.closePanel(secondPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -186,8 +191,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: true
             ))
             #expect(secondWorkspace.handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded())
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -216,8 +221,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: false
             ))
             #expect(secondWorkspace.closePanel(secondPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -246,8 +251,8 @@ struct LastSurfaceClosePreferenceTests {
             ))
             let remainingPanel = try #require(secondWorkspace.createReplacementTerminalPanel())
             #expect(secondWorkspace.closePanel(closingPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(secondWorkspace.panels[closingPanelId] == nil)
             #expect(secondWorkspace.panels[remainingPanel.id] != nil)
@@ -281,8 +286,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: true
             ))
             #expect(secondWorkspace.closePanel(secondPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(confirmationCount == 0)
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id])
@@ -309,8 +314,8 @@ struct LastSurfaceClosePreferenceTests {
                 explicitUserClose: true
             ))
             #expect(workspace.closePanel(panelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [workspace.id])
             #expect(workspace.panels[panelId] == nil)
@@ -339,10 +344,10 @@ struct LastSurfaceClosePreferenceTests {
 
             workspace.markCloseHistoryEligible(panelId: browserId)
             #expect(workspace.closePanel(browserId, force: true))
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.reopenMostRecentlyClosedItem())
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(workspace.panels.count == 1)
             #expect(workspace.panels.values.first is BrowserPanel)
@@ -388,12 +393,12 @@ struct LastSurfaceClosePreferenceTests {
 
             workspace.markCloseHistoryEligible(panelId: browserId)
             #expect(workspace.closePanel(browserId, force: true))
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(workspace.panels.isEmpty)
             #expect(workspace.bonsplitController.allPaneIds.count == 1)
             #expect(manager.reopenMostRecentlyClosedItem())
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             let restoredPanelId = try #require(workspace.focusedPanelId)
             let restored = try #require(workspace.panels[restoredPanelId] as? BrowserPanel)
@@ -430,9 +435,9 @@ struct LastSurfaceClosePreferenceTests {
 
             workspace.markCloseHistoryEligible(panelId: terminalId)
             #expect(workspace.closePanel(terminalId, force: true))
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
             #expect(manager.reopenMostRecentlyClosedItem())
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(workspace.bonsplitController.allPaneIds.count == 2)
             #expect(workspace.panels.values.contains { $0 is BrowserPanel })
