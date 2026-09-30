@@ -3695,18 +3695,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return false
     }
 
-    private nonisolated static func resolvedPaneBorderHex(
+    /// Ghostty's `split-divider-color` colors only the divider between
+    /// splits. Pane and tab-bar borders keep the chrome separator. An explicit
+    /// pane border color still colors every border, the divider included.
+    private nonisolated static func resolvedSplitDividerHex(
         configuredHex: String?,
-        splitDividerColor: NSColor?,
-        defaultBorderHex: String
-    ) -> String {
-        let splitDividerHex = splitDividerColor.map { color in
+        splitDividerColor: NSColor?
+    ) -> String? {
+        guard PaneChromeSettings.paneBorderColorHexIsUnset(configuredHex) else { return nil }
+        return splitDividerColor.map { color in
             color.hexString(includeAlpha: color.alphaComponent < 0.999)
         }
-        return PaneChromeSettings.resolvedPaneBorderHex(
-            configuredHex: configuredHex,
-            fallback: splitDividerHex ?? defaultBorderHex
-        )
     }
 
     /// Resolves Bonsplit colors while keeping terminal backdrop ownership explicit.
@@ -3737,10 +3736,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 increaseContrast: increaseContrast
             )
             .hexString(includeAlpha: true)
-        let borderHex = resolvedPaneBorderHex(
+        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
-            splitDividerColor: splitDividerColor,
-            defaultBorderHex: defaultBorderHex
+            fallback: defaultBorderHex
+        )
+        let dividerHex = resolvedSplitDividerHex(
+            configuredHex: paneBorderColorHex,
+            splitDividerColor: splitDividerColor
         )
 
         // Keep this decision on the same owner plan used by terminal surfaces.
@@ -3770,7 +3772,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
-                borderHex: borderHex
+                borderHex: borderHex,
+                dividerHex: dividerHex
             )
         }
 
@@ -3785,7 +3788,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tabBarBackgroundHex: surfaceHex,
             splitButtonBackdropHex: surfaceHex,
             paneBackgroundHex: paneBackgroundHex,
-            borderHex: borderHex
+            borderHex: borderHex,
+            dividerHex: dividerHex
         )
     }
 
@@ -3802,10 +3806,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let defaultBorderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
-        let borderHex = resolvedPaneBorderHex(
+        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
-            splitDividerColor: splitDividerColor,
-            defaultBorderHex: defaultBorderHex
+            fallback: defaultBorderHex
+        )
+        let dividerHex = resolvedSplitDividerHex(
+            configuredHex: paneBorderColorHex,
+            splitDividerColor: splitDividerColor
         )
 
         if sharesWindowBackdrop {
@@ -3814,7 +3821,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
-                borderHex: borderHex
+                borderHex: borderHex,
+                dividerHex: dividerHex
             )
         }
 
@@ -3829,7 +3837,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tabBarBackgroundHex: backgroundHex,
             splitButtonBackdropHex: backgroundHex,
             paneBackgroundHex: paneBackgroundHex,
-            borderHex: borderHex
+            borderHex: borderHex,
+            dividerHex: dividerHex
         )
     }
 
@@ -3841,7 +3850,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             lhs.tabBarBackgroundHex == rhs.tabBarBackgroundHex &&
             lhs.splitButtonBackdropHex == rhs.splitButtonBackdropHex &&
             lhs.paneBackgroundHex == rhs.paneBackgroundHex &&
-            lhs.borderHex == rhs.borderHex
+            lhs.borderHex == rhs.borderHex &&
+            lhs.dividerHex == rhs.dividerHex
     }
 
     private static func bonsplitChromeColorsLogDescription(
@@ -3851,7 +3861,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             "tabBarBg=\(colors.tabBarBackgroundHex ?? "nil") " +
             "splitBackdrop=\(colors.splitButtonBackdropHex ?? "nil") " +
             "paneBg=\(colors.paneBackgroundHex ?? "nil") " +
-            "border=\(colors.borderHex ?? "nil")"
+            "border=\(colors.borderHex ?? "nil") " +
+            "divider=\(colors.dividerHex ?? "nil")"
     }
 
     private static func bonsplitAppearance(

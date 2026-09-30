@@ -58,7 +58,8 @@ extension ShortcutAction {
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
              .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
              .diffViewerScrollToBottom, .diffViewerScrollToTop,
-             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
+             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
+             .diffViewerNextHunk, .diffViewerPreviousHunk:
             return .browser
         }
     }
