@@ -2918,7 +2918,6 @@ final class TabManagerNotificationFocusTests: XCTestCase {
                 defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
             }
         }
-
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
@@ -4005,6 +4004,9 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride
             AppDelegate.shared = originalAppDelegate
+            if let originalAppDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(originalAppDelegate)
+            }
             if let originalExperimentEnabled {
                 defaults.set(originalExperimentEnabled, forKey: TmuxOverlayExperimentSettings.enabledKey)
             } else {
@@ -4089,7 +4091,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
-
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
         XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
 
@@ -4141,7 +4142,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
-
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
         XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))

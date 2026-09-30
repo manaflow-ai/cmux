@@ -9,9 +9,6 @@ public final class CloudBannerDismissalStore {
 
     @ObservationIgnored
     private let defaults: UserDefaults
-    /// NotificationCenter delivers UserDefaults changes on the main queue; the token is only touched by this main-actor store and deinit.
-    @ObservationIgnored
-    private nonisolated(unsafe) var defaultsObserver: (any NSObjectProtocol)?
     /// The signatures currently hidden by this store's banner surfaces.
     public private(set) var dismissedSignatures: [String: String]
 
@@ -22,24 +19,6 @@ public final class CloudBannerDismissalStore {
     public init(defaults: UserDefaults) {
         self.defaults = defaults
         dismissedSignatures = Self.load(from: defaults)
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: defaults,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            // The observer is registered on `.main`, so this callback runs on
-            // the store's actor without adding a deferred invalidation turn.
-            MainActor.assumeIsolated {
-                self.reloadFromDefaults()
-            }
-        }
-    }
-
-    deinit {
-        if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
-        }
     }
 
     /// Returns whether the current signature was dismissed for the identifier.
@@ -76,12 +55,6 @@ public final class CloudBannerDismissalStore {
 
     private static func load(from defaults: UserDefaults) -> [String: String] {
         defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
-    }
-
-    private func reloadFromDefaults() {
-        let next = Self.load(from: defaults)
-        guard next != dismissedSignatures else { return }
-        dismissedSignatures = next
     }
 
     private func persist() {

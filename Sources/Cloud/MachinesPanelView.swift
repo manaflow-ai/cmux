@@ -24,7 +24,7 @@ struct MachinesPanelView: View {
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
-    @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
+    @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -42,6 +42,10 @@ struct MachinesPanelView: View {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         self.teamPickerPresentation = teamPickerPresentation
+        _bannerDismissals = State(
+            initialValue: AppDelegate.shared?.cloudBannerDismissalStore
+                ?? CloudBannerDismissalStore(defaults: .standard)
+        )
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
