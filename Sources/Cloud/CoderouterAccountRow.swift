@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CoderouterAccountRow: View {
     let account: CoderouterAccountsPanelModel.Account
+    let isBusy: Bool
     let onToggleClaude: (CoderouterAccountsPanelModel.ClaudeAccount, Bool) -> Void
     let onRemove: (CoderouterAccountsPanelModel.Account) -> Void
 
@@ -67,9 +68,12 @@ struct CoderouterAccountRow: View {
 
     func nativeRow(_ account: CoderouterAccountsPanelModel.NativeAccount) -> some View {
         let cooling = account.cooldownUntil.map { $0 > Date() } ?? false
-        let broken = account.state == "broken" || account.state == "expired"
-        let status = broken
+        let needsRepair = account.state == "broken" || account.state == "expired" || account.usageError != nil
+        let refreshing = account.state == "refreshing"
+        let status = needsRepair
             ? String(localized: "coderouter.sidebar.status.needsRepair", defaultValue: "Needs repair")
+            : refreshing
+                ? String(localized: "coderouter.sidebar.status.refreshing", defaultValue: "Refreshing")
             : cooling
                 ? String(localized: "coderouter.sidebar.status.cooling", defaultValue: "Cooling down")
                 : String(localized: "coderouter.sidebar.status.active", defaultValue: "Active")
@@ -82,8 +86,8 @@ struct CoderouterAccountRow: View {
                 .filter { !$0.isEmpty }
                 .joined(separator: " · "),
             status: status,
-            statusColor: broken || cooling ? .orange : .green,
-            dimmed: broken,
+            statusColor: needsRepair || refreshing || cooling ? .orange : .green,
+            dimmed: needsRepair,
             menu: {
                 Button(String(localized: "coderouter.sidebar.remove.action", defaultValue: "Remove"), role: .destructive) {
                     onRemove(.native(account))
@@ -150,6 +154,7 @@ struct CoderouterAccountRow: View {
             .menuIndicator(.hidden)
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .disabled(isBusy)
             .accessibilityLabel(String(localized: "coderouter.sidebar.accountActions", defaultValue: "Account actions"))
         }
         .padding(.horizontal, 10)

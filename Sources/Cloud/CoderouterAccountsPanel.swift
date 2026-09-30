@@ -11,6 +11,7 @@ struct CoderouterAccountsPanel: View {
     @State var isAddPresented = false
     @State var accountToRemove: CoderouterAccountsPanelModel.Account?
     @State var operationError: String?
+    @State var isExpanded = true
 
     init(
         teamID: String?,
@@ -25,12 +26,14 @@ struct CoderouterAccountsPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            ScrollView(.vertical, showsIndicators: true) {
+            if isExpanded {
+                ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 0) {
                     usageSection
                     accountsSection
                 }
                 .padding(.bottom, 8)
+                }
             }
         }
         .background(Color(nsColor: chromeBackgroundColor).opacity(0.18))
@@ -38,6 +41,7 @@ struct CoderouterAccountsPanel: View {
         .task(id: teamID ?? "coderouter-no-team") {
             actionTask?.cancel()
             actionTask = nil
+            isExpanded = true
             isAddPresented = false
             accountToRemove = nil
             model.load(teamID: teamID)
@@ -82,11 +86,19 @@ struct CoderouterAccountsPanel: View {
     }
 
     @State var actionTask: Task<Void, Never>?
+    @State var actionID: UUID?
 
     func startAction(_ operation: @escaping @MainActor () async throws -> Void) {
         actionTask?.cancel()
+        let actionID = UUID()
+        self.actionID = actionID
         actionTask = Task { @MainActor in
-            defer { actionTask = nil }
+            defer {
+                if self.actionID == actionID {
+                    self.actionTask = nil
+                    self.actionID = nil
+                }
+            }
             do {
                 try await operation()
             } catch is CancellationError {
@@ -99,6 +111,13 @@ struct CoderouterAccountsPanel: View {
 
     private var header: some View {
         HStack(spacing: 7) {
+            Button { isExpanded.toggle() } label: {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(String(localized: "coderouter.sidebar.toggle", defaultValue: "Toggle CodeRouter section"))
             Image(systemName: "cpu")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)

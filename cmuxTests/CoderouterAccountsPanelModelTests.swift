@@ -58,6 +58,30 @@ struct CoderouterAccountsPanelModelTests {
         #expect(model.state == .loaded)
     }
 
+    @Test("An account-source outage stays retryable even when usage is available")
+    func accountSourceOutageIsFailed() async {
+        let operations = CoderouterAccountsPanelModel.Operations(
+            listClaude: { _ in throw TestError.failed },
+            listNative: { _ in throw TestError.failed },
+            listShared: { _ in throw TestError.failed },
+            addClaude: { _, _, _ in .object([:]) },
+            addShared: { _, _ in .object([:]) },
+            removeClaude: { _, _ in .object([:]) },
+            removeShared: { _, _ in .object([:]) },
+            updateClaude: { _, _, _ in .object([:]) },
+            addNative: { _, _, _, _ in .object([:]) },
+            removeNative: { _, _ in .object([:]) },
+            loadUsage: { _ in TestState.emptyUsage }
+        )
+        let model = CoderouterAccountsPanelModel(operations: operations)
+
+        await model.reloadNow(teamID: "team-a")
+
+        #expect(model.accounts.isEmpty)
+        #expect(model.state == .failed)
+        #expect(model.failedSources == [.claude, .native, .shared])
+    }
+
     @Test("Adding an account refreshes from the authoritative team list")
     func addRefreshesAuthoritativeState() async throws {
         let state = TestState()

@@ -115,7 +115,7 @@ extension CoderouterAccountsPanel {
             .padding(.horizontal, 10)
             .padding(.top, 8)
             .padding(.bottom, 5)
-            if !model.failedSources.isEmpty, model.state == .failed || !model.accounts.isEmpty {
+            if !model.failedSources.intersection([.claude, .native, .shared]).isEmpty {
                 HStack(alignment: .top, spacing: 5) {
                     Image(systemName: "exclamationmark.triangle")
                     Text(String(localized: "coderouter.sidebar.partialError", defaultValue: "Some CodeRouter data could not be loaded."))
@@ -137,6 +137,7 @@ extension CoderouterAccountsPanel {
                 ForEach(model.accounts) { account in
                     CoderouterAccountRow(
                         account: account,
+                        isBusy: model.isMutating || actionTask != nil,
                         onToggleClaude: { value, enabled in
                             startAction { try await model.setClaude(value, enabled: enabled) }
                         },

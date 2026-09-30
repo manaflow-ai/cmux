@@ -51,6 +51,7 @@ final class CoderouterAccountsPanelModel {
         let cooldownUntil: Date?
         let lastFailureCode: String?
         let activeSessions: Int
+        let usageError: String?
     }
 
     struct UsageSummary: Equatable {
@@ -385,7 +386,8 @@ final class CoderouterAccountsPanelModel {
         usage = fetchedUsage
         usageSummary = fetchedUsage.map(Self.makeUsageSummary)
         failedSources = failures
-        state = failures.count == 4 ? .failed : .loaded
+        let accountFailures = failures.intersection([.claude, .native, .shared])
+        state = accountFailures.count == 3 ? .failed : .loaded
     }
 
     private static func normalizedTeamID(_ teamID: String?) -> String? {
@@ -479,7 +481,8 @@ final class CoderouterAccountsPanelModel {
                 state: string(object["state"]) ?? "active",
                 cooldownUntil: date(object["cooldownUntil"]),
                 lastFailureCode: string(object["lastFailureCode"]),
-                activeSessions: max(0, sessions)
+                activeSessions: max(0, sessions),
+                usageError: string(object["usageError"])
             )
         }
     }
