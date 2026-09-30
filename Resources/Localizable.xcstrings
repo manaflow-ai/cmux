@@ -546946,65 +546946,6 @@
         }
       }
     },
-    "settings.betaFeatures.predictedEcho": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Predictive local echo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "予測ローカルエコー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "预测性本地回显"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vorausschauendes lokales Echo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Écho local prédictif"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الصدى المحلي التنبؤي"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eco local predictivo"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "預測性本機回顯"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "예측 로컬 에코"
-          }
-        }
-      }
-    },
     "fileExplorer.error.cloudPreviewTooLarge": {
       "extractionState": "manual",
       "localizations": {
@@ -555759,65 +555700,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "symbol은 문자열이어야 합니다"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.predictedEcho.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows typed characters right away on slow remote connections. They stay underlined until the remote host confirms them. Password prompts and full-screen apps are excluded."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Getippte Zeichen erscheinen bei langsamen Remoteverbindungen sofort. Sie bleiben unterstrichen, bis der Remote-Host sie bestätigt. Ausgenommen sind Passwortabfragen und Vollbild-Apps."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les caractères saisis s’affichent immédiatement sur les connexions distantes lentes. Ils restent soulignés jusqu’à ce que l’hôte distant les confirme. Cela ne s’applique ni aux invites de mot de passe ni aux apps en plein écran."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تظهر الأحرف المكتوبة فورًا في الاتصالات البعيدة البطيئة، وتبقى مسطّرة حتى يؤكدها المضيف البعيد. ولا ينطبق ذلك على مطالبات كلمة المرور والتطبيقات بملء الشاشة."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los caracteres escritos aparecen al instante en conexiones remotas lentas y permanecen subrayados hasta que el host remoto los confirma. No se aplica a solicitudes de contraseña ni a apps a pantalla completa."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "遠端連線較慢時，輸入的字元會立即顯示並加上底線，直到遠端主機確認為止。密碼提示和全螢幕 App 不適用此功能。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "远程连接较慢时，输入的字符会立即显示并带有下划线，直到远程主机确认为止。密码提示和全屏 App 不适用此功能。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "원격 연결이 느릴 때 입력한 문자를 바로 표시하고, 원격 호스트가 확인할 때까지 밑줄로 표시합니다. 비밀번호 프롬프트와 전체 화면 앱에는 적용되지 않습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモート接続が遅いとき、入力した文字をすぐに表示し、リモートホストが確認するまで下線を付けます。パスワードの入力やフルスクリーンアプリには適用されません。"
           }
         }
       }
@@ -588898,6 +588780,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud 工作階段已結束"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveLocalEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predictive Local Echo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorausschauendes lokales Echo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écho local prédictif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصدى المحلي التنبؤي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eco local predictivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預測性本機回顯"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预测性本地回显"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예측 로컬 에코"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予測ローカルエコー"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.predictive-local-echo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho vorausschauendes lokales echo tippen latenz verzögerung ssh remote spekulativ mosh round trip unterstrichen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho écho local prédictif saisie latence décalage ssh distant spéculatif mosh aller-retour souligné"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho الصدى المحلي التنبؤي الكتابة زمن الاستجابة التأخير ssh بعيد تخميني mosh ذهاب وإياب تسطير"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho eco local predictivo escritura latencia retraso ssh remoto especulativo mosh ida y vuelta subrayado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 預測性本機回顯 輸入 延遲 卡頓 ssh 遠端 推測 mosh 往返 底線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 预测性本地回显 输入 延迟 卡顿 ssh 远程 推测 mosh 往返 下划线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 예측 로컬 에코 입력 지연 랙 ssh 원격 추측 mosh 왕복 밑줄"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 予測ローカルエコー 入力 遅延 ラグ ssh リモート 投機的 mosh 往復 下線"
           }
         }
       }
