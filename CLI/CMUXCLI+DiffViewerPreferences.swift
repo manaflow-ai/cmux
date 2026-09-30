@@ -133,12 +133,15 @@ extension CMUXCLI {
     /// untracked (non-ignored) path. Plain `git diff` omits untracked files,
     /// which silently hid files an agent had just created from the default
     /// review view. The typed sidecar session applies the same rule.
+    /// The tracked `git diff` plus one added-file patch per untracked path.
+    /// Untracked files are best effort: a listing failure or a file git
+    /// cannot diff is left out and never fails the tracked diff.
     func gitUnstagedPatchIncludingUntracked(in repoRoot: String) throws -> String {
-        try joinedGitDiffPatches(
-            [gitStdout(gitDiffPatchArguments(["--"]), in: repoRoot)]
-                + gitUntrackedPaths(in: repoRoot).prefix(Self.maxUnstagedUntrackedPatchPaths).map { path in
-                    try gitAddedUntrackedPatch(path: path, in: repoRoot)
-                }
-        )
+        let tracked = try gitStdout(gitDiffPatchArguments(["--"]), in: repoRoot)
+        let untrackedPaths = (try? gitUntrackedPaths(in: repoRoot)) ?? []
+        let untracked = untrackedPaths.prefix(Self.maxUnstagedUntrackedPatchPaths).compactMap { path in
+            try? gitAddedUntrackedPatch(path: path, in: repoRoot)
+        }
+        return joinedGitDiffPatches([tracked] + untracked)
     }
 }

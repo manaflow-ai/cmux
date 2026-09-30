@@ -105,6 +105,9 @@ const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_UNSTAGED_UNTRACKED_PATHS: usize = 512;
 /// Upper bound on the `git ls-files` listing read to find those paths.
 const MAX_UNTRACKED_LISTING_BYTES: usize = 4 * 1024 * 1024;
+/// Upper bound on one untracked file's added-file patch. A larger file is left
+/// out of the unstaged session patch instead of consuming the whole budget.
+const MAX_UNTRACKED_FILE_PATCH_BYTES: u64 = 8 * 1024 * 1024;
 const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
 const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
@@ -816,29 +819,22 @@ async fn run_git_patch_with_limit(
             // Untracked (non-ignored) files are part of the unstaged working
             // tree, but plain `git diff` omits them, which hid files an agent
             // had just created. Append one added-file patch per path.
-            for path in git_untracked_paths(repo).await? {
-                let arguments = vec![
-                    "-C".to_owned(),
-                    repo.to_string_lossy().into_owned(),
-                    "diff".to_owned(),
-                    "--no-ext-diff".to_owned(),
-                    "--no-color".to_owned(),
-                    "--binary".to_owned(),
-                    "--no-index".to_owned(),
-                    "--".to_owned(),
-                    "/dev/null".to_owned(),
-                    path,
-                ];
-                // `--no-index` exits 1 when the files differ, which an added
-                // file always does.
-                stream_git_stdout(
-                    arguments,
-                    &[0, 1],
-                    &mut output,
-                    &mut bytes_written,
-                    max_patch_bytes,
-                )
-                .await?;
+            // Best effort: an untracked file git cannot read, or one that does
+            // not fit the remaining budget, is left out. It must never fail the
+            // session or hide the tracked diff, which plain `git diff` shows.
+            let untracked = git_untracked_paths(repo).await.unwrap_or_default();
+            for path in untracked {
+                let budget = max_patch_bytes
+                    .saturating_sub(bytes_written)
+                    .min(MAX_UNTRACKED_FILE_PATCH_BYTES);
+                let Some(patch) = git_untracked_file_patch(repo, path, budget).await else {
+                    continue;
+                };
+                output
+                    .write_all(&patch)
+                    .await
+                    .map_err(|_| SessionOpenError::Failed)?;
+                bytes_written += patch.len() as u64;
             }
         }
         output.flush().await.map_err(|_| SessionOpenError::Failed)
@@ -912,6 +908,58 @@ async fn stream_git_stdout(
         return Err(SessionOpenError::Failed);
     }
     Ok(())
+}
+
+/// The added-file patch for one untracked `path`, or `None` when git fails on
+/// it, times out, or its output exceeds `budget` bytes. Output is buffered so a
+/// rejected file leaves nothing in the session patch.
+async fn git_untracked_file_patch(repo: &Path, path: String, budget: u64) -> Option<Vec<u8>> {
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repo)
+        .args([
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--binary",
+            "--no-index",
+            "--",
+            "/dev/null",
+        ])
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = command.spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let collected = tokio::time::timeout(SESSION_GIT_TIMEOUT, async {
+        let mut collected_bytes = Vec::new();
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            let read = stdout.read(&mut buffer).await.ok()?;
+            if read == 0 {
+                break;
+            }
+            if (collected_bytes.len() + read) as u64 > budget {
+                return None;
+            }
+            collected_bytes.extend_from_slice(&buffer[..read]);
+        }
+        // `--no-index` exits 1 when the files differ, which an added file
+        // always does.
+        let status = child.wait().await.ok()?;
+        matches!(status.code(), Some(0 | 1)).then_some(collected_bytes)
+    })
+    .await
+    .ok()
+    .flatten();
+    if collected.is_none() {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+    collected
 }
 
 /// Untracked, non-ignored paths relative to `repo`, bounded so a huge
