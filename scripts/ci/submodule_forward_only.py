@@ -56,9 +56,19 @@ def local_relation(path: str, base: str, new: str) -> str | None:
         return "forward"
     if backward.returncode == 0:
         return "backward"
+    # A shallow clone lacks the shared history, so two present commits look
+    # unrelated. Let the GitHub compare decide instead of reporting divergence.
+    shallow = run("git", "-C", path, "rev-parse", "--is-shallow-repository")
+    if shallow.stdout.strip() == "true":
+        return None
     base_exists = run("git", "-C", path, "cat-file", "-e", f"{base}^{{commit}}")
     new_exists = run("git", "-C", path, "cat-file", "-e", f"{new}^{{commit}}")
     if base_exists.returncode == 0 and new_exists.returncode == 0:
+        # A shallow clone cuts the history between the two commits, so a
+        # failed ancestry check there proves nothing; let GitHub decide.
+        shallow = run("git", "-C", path, "rev-parse", "--is-shallow-repository")
+        if shallow.stdout.strip() == "true":
+            return None
         return "diverged"
     return None
 

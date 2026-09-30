@@ -94,7 +94,7 @@ check_release_build_runner_disk_capacity() {
   # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
   # is the free macOS 26 pool and is read ungated everywhere. See
   # docs/ci-runners.md for why the gate must not grow to cover it.
-  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
+  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
@@ -300,7 +300,7 @@ check_release_helper_artifact_from_package_lane() {
   # label, only when the picker placed ' swift-package ' in pr_owned_jobs,
   # which it does only for a run that skips the SDK 15 helper steps (pr_runner_pool.package_lane_owned()).
   # The opt-in build-fleet gateway (hq#794) likewise takes only a run without the helper.
-  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
+  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
@@ -1307,8 +1307,9 @@ check_owned_pools_route_through_picker() {
   # marker; macos_pr_runner reaches a job only as a `pr_runner` input written
   # exactly one way, or inside a runs-on branch that a pull_request condition
   # guards. Parsed as YAML, so a block scalar or a second output is seen too.
-  local violations
-  violations="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
+  local violations violations_file
+  violations_file="$(mktemp)"
+  python3 - "$ROOT_DIR/.github/workflows" >"$violations_file" <<'PYTHON'
 import re
 import sys
 from pathlib import Path
@@ -1352,6 +1353,7 @@ MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
 # pull_request condition; a fork head keeps only a Blacksmith pick.
 GUARDED = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
+    " && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
     " && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner"
     " || 'blacksmith-6vcpu-macos-15')",
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
@@ -1441,7 +1443,8 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
         violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
 print("\n".join(violations))
 PYTHON
-)"
+  violations="$(<"$violations_file")"
+  rm -f "$violations_file"
   if [ -n "$violations" ]; then
     echo "FAIL: the picked pull request pool must reach jobs only through pr_runner_pool.py's checked route"
     echo "$violations"
@@ -1659,8 +1662,9 @@ check_macos_xcode_pin_tracks_pull_request_lane() {
   # .github/workflows that names the macos-15 Xcode must also read the
   # pull-request variant, unless its exact (file, job, key) is exempted below
   # with a reason. A macOS job added next month inherits the rule for free.
-  local violations
-  violations="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
+  local violations violations_file
+  violations_file="$(mktemp)"
+  python3 - "$ROOT_DIR/.github/workflows" >"$violations_file" <<'PYTHON'
 import sys
 from pathlib import Path
 
@@ -1708,7 +1712,8 @@ for path in sorted(Path(sys.argv[1]).glob("*.yml")):
 
 print("\n".join(violations))
 PYTHON
-)"
+  violations="$(<"$violations_file")"
+  rm -f "$violations_file"
   if [ -n "$violations" ]; then
     echo "FAIL: a macos-15 Xcode pin does not follow the pull-request lane"
     echo "      Route it through CMUX_CI_XCODE_APP_PR, or add its (file, job, key) to"
@@ -1736,8 +1741,9 @@ check_macos_runner_identity_env_tracks_routing() {
   # move a job without moving what that job reports about itself.
   # Parse YAML so mapping order, quoting, and folded scalars cannot hide an
   # identity value. A parser failure aborts under set -e rather than passing.
-  local mismatches
-  mismatches="$(python3 - "$CI_MACOS_FILE" <<'PYTHON'
+  local mismatches mismatches_file
+  mismatches_file="$(mktemp)"
+  python3 - "$CI_MACOS_FILE" >"$mismatches_file" <<'PYTHON'
 import sys
 from pathlib import Path
 import yaml
@@ -1788,7 +1794,8 @@ assert len(list(mismatched_identities(fixture))) == 2
 
 print("\n".join(mismatched_identities(yaml.safe_load(Path(sys.argv[1]).read_text()))))
 PYTHON
-)"
+  mismatches="$(<"$mismatches_file")"
+  rm -f "$mismatches_file"
   if [ -n "$mismatches" ]; then
     echo "FAIL: a macOS runner env value in ci-macos.yml does not match its job's runs-on,"
     echo "      so it names the wrong pool on pull requests (see docs/ci-runners.md)"

@@ -50,4 +50,25 @@ extension CloseTabWarningReading {
     ) -> Bool {
         !warningKinds(requiresConfirmation: requiresConfirmation, source: source).isEmpty
     }
+
+    /// Whether a close should be gated by either the user's warning setting or
+    /// an active process that must never be killed silently.
+    public func shouldConfirmCloseIncludingSafety(
+        requiresConfirmation: Bool,
+        source: CloseTabCloseSource
+    ) -> Bool {
+        requiresConfirmation || shouldConfirmClose(
+            requiresConfirmation: requiresConfirmation,
+            source: source
+        )
+    }
+
+    public func warningKindsIncludingSafety(
+        requiresConfirmation: Bool,
+        source: CloseTabCloseSource
+    ) -> CloseWarningKinds {
+        var kinds = warningKinds(requiresConfirmation: requiresConfirmation, source: source)
+        if requiresConfirmation { kinds.insert(.safety) }
+        return kinds
+    }
 }
