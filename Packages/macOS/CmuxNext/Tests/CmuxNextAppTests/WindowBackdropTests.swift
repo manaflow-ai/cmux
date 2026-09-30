@@ -1,5 +1,6 @@
 import Testing
 @testable import CmuxNextApp
+@testable import CmuxNextTerminal
 
 /// The window behind the terminal follows Ghostty's TerminalWindow rules for
 /// `background-opacity` and `background-blur`
@@ -30,5 +31,27 @@ struct WindowBackdropTests {
         let glass = WindowBackdrop(backgroundOpacity: 1, backgroundBlur: -1)
         #expect(!glass.isOpaque)
         #expect(!glass.appliesBlur)
+    }
+}
+
+/// In a translucent window the root view paints the one translucent sheet.
+/// Panes, terminal hosts and the surfaces' default background paint nothing,
+/// so the terminal shows `background` at `background-opacity` once, as in
+/// Ghostty (measured: Ghostty 0.8 over a blurred backdrop 69,70,66; cmux-next
+/// sidebar 69,70,66 but terminal 39,40,35 from four stacked layers).
+struct TranslucentSheetTests {
+    @Test func onlyTheRootPaintsInATranslucentWindow() {
+        let translucent = WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: 20)
+        #expect(!translucent.panesPaintBackground)
+        let opaque = WindowBackdrop(backgroundOpacity: 1, backgroundBlur: 20)
+        #expect(opaque.panesPaintBackground)
+    }
+
+    @Test func surfacesDrawATransparentDefaultBackground() {
+        #expect(GhosttyRuntimeSurfacePolicy.override(configuredOpacity: 0.8, opacityCells: false) == "background-opacity = 0")
+        #expect(GhosttyRuntimeSurfacePolicy.override(configuredOpacity: 1, opacityCells: false) == nil)
+        // With background-opacity-cells, explicit cell colors take the
+        // opacity; a 0 override would erase them, so Ghostty's value stays.
+        #expect(GhosttyRuntimeSurfacePolicy.override(configuredOpacity: 0.8, opacityCells: true) == nil)
     }
 }
