@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "概览",
       "team": "团队",
       "mobileDevices": "移动设备",
@@ -361,7 +361,7 @@
       "teams": "团队"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
       "coderouterLink": "打开 coderouter",
       "iosAppName": "iOS 应用",
@@ -369,10 +369,10 @@
       "iosLink": "打开 iOS 应用"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "管理共享 AI 账户，并使用 coderouter 路由请求。",
-      "title": "coderouter",
-      "description": "coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
+      "title": "Coderouter",
+      "description": "Coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
       "machines": {
         "title": "机器",
         "description": "{team} 在过去 {days} 天内每台机器的 coderouter 使用情况。",
@@ -407,7 +407,8 @@
       "signingOut": "正在退出…",
       "signOutError": "无法退出登录，请重试。",
       "organizationSwitchError": "无法切换组织，请重试。",
-      "signIn": "登录"
+      "signIn": "登录",
+      "upgrade": "升级"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "创建团队"
+      },
+      "title": "套餐与账单",
+      "picker": {
+        "current": "当前套餐",
+        "upgradeTo": "升级到 {plan}",
+        "switchTo": "切换到 {plan}",
+        "cancelPlan": "取消套餐",
+        "resume": "恢复 {plan}",
+        "renewsOn": "{date} 续订",
+        "endsOn": "{date} 结束",
+        "perMonth": "每月",
+        "perSeatMonth": "每席位每月",
+        "paymentMethod": "管理付款方式",
+        "invoices": "发票",
+        "heading": "套餐",
+        "actionError": "无法更改套餐。请重试。",
+        "unavailable": {
+          "cancelScheduled": "请先恢复套餐再进行更改。",
+          "granted": "由 cmux 授予，没有可更改的内容。",
+          "adminOnly": "只有团队管理员可以更改套餐。"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "完整的 macOS 版 cmux 终端",
+            "使用你自己的密钥运行任意 CLI 智能体",
+            "本地会话历史"
+          ],
+          "go": [
+            "1 台运行中的 Cloud VM",
+            "每月 40 VM 小时",
+            "2 台已保存的 VM"
+          ],
+          "pro": [
+            "在 Cloud VM 上运行云端智能体",
+            "所有 VM 共享 24 GB 内存和 6 个 vCPU",
+            "cmux iOS 应用"
+          ],
+          "max": [
+            "所有 VM 共享 64 GB 内存和 16 个 vCPU",
+            "更大的机器规格",
+            "Pro 的全部功能"
+          ],
+          "team": [
+            "每位成员都享有 Pro 的全部功能",
+            "整个团队一张发票",
+            "优先支持"
+          ]
+        },
+        "billedAnnually": "按年计费"
+      },
+      "change": {
+        "title": "切换到 {plan}？",
+        "upgradeBody": "{plan} 立即生效。今天为本计费周期的剩余时间支付 {amount}。从 {date} 起，每月支付 {price}。",
+        "downgradeBody": "{plan} 立即生效。当前套餐未使用的部分 {credit} 将抵扣后续账单。{date} 的下一张账单为 {amount}。",
+        "confirm": "切换到 {plan}",
+        "keep": "保留当前套餐",
+        "switching": "正在切换…",
+        "previewError": "无法计算价格。请重试。",
+        "paymentFailed": "你的卡被拒绝。请更新付款方式后重试。",
+        "error": "无法切换套餐。请重试。"
+      },
+      "cancelDialog": {
+        "title": "取消 {plan}？",
+        "body": "你可以使用 {plan} 到 {date}。之后你将失去：",
+        "bodyNoDate": "你可以使用 {plan} 到本计费周期结束。之后你将失去：",
+        "reasonLabel": "为什么取消？（可选）",
+        "otherPlaceholder": "告诉我们更多（可选）",
+        "confirm": "取消套餐",
+        "keep": "保留 {plan}",
+        "error": "无法取消套餐。请重试。",
+        "resumeError": "无法恢复套餐。请重试。",
+        "reasons": {
+          "too_expensive": "太贵了",
+          "missing_feature": "缺少我需要的功能",
+          "not_using": "用得不多",
+          "other": "其他"
+        }
+      },
+      "welcome": {
+        "title": "欢迎使用 {plan}",
+        "body": "你的套餐已生效。先试试这些：",
+        "ios": "安装 iOS 应用",
+        "cloud": "打开 Cloud",
+        "team": "创建团队",
+        "banner": "你现在使用的是 {plan}。",
+        "bannerLink": "套餐与账单"
       }
     },
     "mobileDevices": {
@@ -488,7 +582,10 @@
         "account": "账户",
         "billing": "账单",
         "teamsGroup": "团队",
-        "createTeam": "创建团队"
+        "createTeam": "创建团队",
+        "accountGroup": "账户",
+        "billingGroup": "账单",
+        "planBilling": "套餐与账单"
       },
       "ui": {
         "save": "保存",
@@ -1030,7 +1127,9 @@
       "apiKeyUsageUnavailable": "使用数据不可用",
       "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。",
       "apiKeysEmptyTitle": "还没有 API 密钥",
-      "apiKeysEmptyHint": "创建一个密钥来验证 CodeRouter 客户端。"
+      "apiKeysEmptyHint": "创建一个密钥来验证 CodeRouter 客户端。",
+      "unavailableTitle": "共享账户不可用",
+      "unavailableBody": "cmux 目前无法连接共享账户服务。通过 cr add 添加的账户以及 Anthropic 和 Bedrock 账户仍可使用。"
     },
     "notFound": {
       "title": "找不到页面",
@@ -1050,6 +1149,14 @@
       },
       "retry": "重试",
       "retrying": "正在重试…"
+    },
+    "upgrade": {
+      "title": "需要 Pro",
+      "cloud": "Cloud VM 和云端智能体包含在 Pro 中。",
+      "testflight": "cmux iOS 应用包含在 Pro 中。",
+      "mobileDevices": "连接手机和平板包含在 Pro 中。",
+      "action": "升级到 Pro",
+      "comparePlans": "比较套餐"
     }
   },
   "community": {

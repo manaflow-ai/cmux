@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "總覽",
       "team": "團隊",
       "mobileDevices": "行動裝置",
@@ -361,7 +361,7 @@
       "teams": "團隊"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
       "coderouterLink": "開啟 coderouter",
       "iosAppName": "iOS 應用程式",
@@ -369,10 +369,10 @@
       "iosLink": "開啟 iOS 應用程式"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "管理共用 AI 帳戶，並使用 coderouter 路由請求。",
-      "title": "coderouter",
-      "description": "coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
+      "title": "Coderouter",
+      "description": "Coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
       "machines": {
         "title": "機器",
         "description": "{team} 在過去 {days} 天內每台機器的 coderouter 使用情況。",
@@ -407,7 +407,8 @@
       "signingOut": "正在登出…",
       "signOutError": "無法登出，請再試一次。",
       "organizationSwitchError": "無法切換組織，請再試一次。",
-      "signIn": "登入"
+      "signIn": "登入",
+      "upgrade": "升級"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "建立團隊"
+      },
+      "title": "方案與帳單",
+      "picker": {
+        "current": "目前方案",
+        "upgradeTo": "升級至 {plan}",
+        "switchTo": "切換至 {plan}",
+        "cancelPlan": "取消方案",
+        "resume": "恢復 {plan}",
+        "renewsOn": "{date} 續訂",
+        "endsOn": "{date} 結束",
+        "perMonth": "每月",
+        "perSeatMonth": "每席次每月",
+        "paymentMethod": "管理付款方式",
+        "invoices": "發票",
+        "heading": "方案",
+        "actionError": "無法變更方案。請再試一次。",
+        "unavailable": {
+          "cancelScheduled": "請先恢復方案再進行變更。",
+          "granted": "由 cmux 授予，沒有可變更的項目。",
+          "adminOnly": "只有團隊管理員可以變更方案。"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "完整的 macOS 版 cmux 終端機",
+            "使用你自己的金鑰執行任何 CLI 代理",
+            "本機工作階段紀錄"
+          ],
+          "go": [
+            "1 台執行中的 Cloud VM",
+            "每月 40 VM 小時",
+            "2 台已儲存的 VM"
+          ],
+          "pro": [
+            "在 Cloud VM 上執行雲端代理",
+            "所有 VM 共用 24 GB RAM 和 6 個 vCPU",
+            "cmux iOS App"
+          ],
+          "max": [
+            "所有 VM 共用 64 GB RAM 和 16 個 vCPU",
+            "更大的機器規格",
+            "Pro 的所有功能"
+          ],
+          "team": [
+            "每位成員都享有 Pro 的所有功能",
+            "整個團隊一張發票",
+            "優先支援"
+          ]
+        },
+        "billedAnnually": "按年計費"
+      },
+      "change": {
+        "title": "切換至 {plan}？",
+        "upgradeBody": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每月支付 {price}。",
+        "downgradeBody": "{plan} 立即生效。目前方案未使用的部分 {credit} 會抵扣後續帳單。{date} 的下一張帳單為 {amount}。",
+        "confirm": "切換至 {plan}",
+        "keep": "保留目前方案",
+        "switching": "正在切換…",
+        "previewError": "無法計算價格。請再試一次。",
+        "paymentFailed": "你的卡片遭到拒絕。請更新付款方式後再試一次。",
+        "error": "無法切換方案。請再試一次。"
+      },
+      "cancelDialog": {
+        "title": "取消 {plan}？",
+        "body": "你可以使用 {plan} 至 {date}。之後你將失去：",
+        "bodyNoDate": "你可以使用 {plan} 至本計費週期結束。之後你將失去：",
+        "reasonLabel": "為什麼取消？（選填）",
+        "otherPlaceholder": "告訴我們更多（選填）",
+        "confirm": "取消方案",
+        "keep": "保留 {plan}",
+        "error": "無法取消方案。請再試一次。",
+        "resumeError": "無法恢復方案。請再試一次。",
+        "reasons": {
+          "too_expensive": "太貴了",
+          "missing_feature": "缺少我需要的功能",
+          "not_using": "用得不多",
+          "other": "其他"
+        }
+      },
+      "welcome": {
+        "title": "歡迎使用 {plan}",
+        "body": "你的方案已生效。先試試這些：",
+        "ios": "安裝 iOS App",
+        "cloud": "開啟 Cloud",
+        "team": "建立團隊",
+        "banner": "你現在使用的是 {plan}。",
+        "bannerLink": "方案與帳單"
       }
     },
     "mobileDevices": {
@@ -488,7 +582,10 @@
         "account": "帳號",
         "billing": "帳單",
         "teamsGroup": "團隊",
-        "createTeam": "建立團隊"
+        "createTeam": "建立團隊",
+        "accountGroup": "帳戶",
+        "billingGroup": "帳單",
+        "planBilling": "方案與帳單"
       },
       "ui": {
         "save": "儲存",
@@ -1030,7 +1127,9 @@
       "apiKeyUsageUnavailable": "使用量不可用",
       "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。",
       "apiKeysEmptyTitle": "還沒有 API 金鑰",
-      "apiKeysEmptyHint": "建立金鑰來驗證 CodeRouter 用戶端。"
+      "apiKeysEmptyHint": "建立金鑰來驗證 CodeRouter 用戶端。",
+      "unavailableTitle": "共享帳戶無法使用",
+      "unavailableBody": "cmux 目前無法連線到共享帳戶服務。透過 cr add 新增的帳戶以及 Anthropic 和 Bedrock 帳戶仍可使用。"
     },
     "notFound": {
       "title": "找不到頁面",
@@ -1050,6 +1149,14 @@
       },
       "retry": "再試一次",
       "retrying": "正在重試…"
+    },
+    "upgrade": {
+      "title": "需要 Pro",
+      "cloud": "Cloud VM 和雲端代理包含在 Pro 中。",
+      "testflight": "cmux iOS App 包含在 Pro 中。",
+      "mobileDevices": "連接手機和平板包含在 Pro 中。",
+      "action": "升級至 Pro",
+      "comparePlans": "比較方案"
     }
   },
   "community": {

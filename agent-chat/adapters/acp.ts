@@ -96,8 +96,15 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
             }
           } catch (err) {
             if (sess.internal.acpDisposed) return;
-            sess.emit({ kind: "error", message: truncate(String(err), 400) });
-            sess.emit({ kind: "done", generation } as any);
+            // Startup can reject long after a cancel, up to the 30s watchdog
+            // below, so a cancelled turn reports the cancel rather than an
+            // error for a turn the user already stopped.
+            if (cancelled()) {
+              sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
+            } else {
+              sess.emit({ kind: "error", message: truncate(String(err), 400) });
+              sess.emit({ kind: "done", generation } as any);
+            }
           }
         }
         if (sess.internal.acpTurn === turn) sess.setStatus("idle");
@@ -111,7 +118,8 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       // A cancel during startup has no session to notify, and the queued turn
       // only reaches its own idle/done handling after ensureAcp settles, so
       // settle the status here instead of leaving it running until startup
-      // times out.
+      // times out. Startup never publishes a state without a session id, so
+      // the else branch means there is nothing in flight to cancel.
       if (st?.acpSessionId) st.notify("session/cancel", { sessionId: st.acpSessionId });
       else sess.setStatus("idle");
     },
@@ -295,6 +303,13 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | 
     if (sess.internal.acpDisposed) {
       await reapAcpProcess(proc);
       return;
+    }
+    // Every later request carries this id, and session/cancel needs it to stop
+    // a turn, so an agent that answers without one can neither be prompted nor
+    // stopped. Failing startup reports that instead of publishing a state whose
+    // turns hang and whose Stop does nothing.
+    if (typeof created?.sessionId !== "string" || created.sessionId.length === 0) {
+      throw new Error(`${def.id} answered session/new without a sessionId`);
     }
     st.acpSessionId = created.sessionId;
     ingestAcpOptions(st, created, def, spawnModel);
