@@ -19,10 +19,39 @@ extension AppServices {
             default: break
             }
         }
+        observeWindowGeometry(journal: journal, monitor: monitor)
         let surfaces = surfaceInvariant
         cache.onPresentationChange = {
             surfaces.noteChange()
             monitor.noteChange()
+        }
+    }
+
+    /// A cmux window moved or resized by any source (a drag, an
+    /// Accessibility client such as Rectangle, a display or Space change):
+    /// journal the frame and check the Chromium page geometry (G1) once it
+    /// settles; a page window that moved on its own is checked too.
+    /// Observers live as long as the app.
+    private func observeWindowGeometry(journal: InputJournal, monitor: InputInvariantMonitor) {
+        let names = [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
+                     NSWindow.didChangeScreenNotification, NSWindow.didDeminiaturizeNotification]
+        for name in names {
+            inputGeometryObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let window = note.object as? NSWindow
+                MainActor.assumeIsolated {
+                    guard let window, let controllers = self?.windows.controllers else { return }
+                    if let controller = controllers.first(where: { $0.window === window }) {
+                        let frame = window.frame
+                        journal.appendWindowFrame(window: controller.state.id, (frame.minX, frame.minY, frame.width, frame.height))
+                        monitor.noteChange()
+                    } else if let parent = window.parent, controllers.contains(where: { $0.window === parent }),
+                              WindowOverlayLayer.isContent(window) {
+                        // A Chromium page window moved by itself (an AX client
+                        // that got the page window): check G1 too.
+                        monitor.noteChange()
+                    }
+                }
+            })
         }
     }
 

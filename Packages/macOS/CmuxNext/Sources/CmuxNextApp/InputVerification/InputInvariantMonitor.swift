@@ -2,7 +2,7 @@ import CmuxNextSettings
 import Foundation
 import os
 
-/// Checks the world invariants (plans/cmux-next/input-spec.md section 2.4)
+/// Checks the world and geometry invariants (plans/cmux-next/input-spec.md 2.5, 2.6)
 /// against live AppKit, Ghostty and Chromium state once input settles, and
 /// turns a desync into a `DesyncReport` on disk (`debug.desync`). Nothing is
 /// repaired here: a broken rule stays visible and replayable.
@@ -86,9 +86,24 @@ final class InputInvariantMonitor {
     func check() -> InputInvariants.WorldResult? {
         guard let services else { return nil }
         checks += 1
-        let result = InputInvariants.world(InputObservationBuilder.observe(services))
+        var result = InputInvariants.world(InputObservationBuilder.observe(services))
+        result.violations += Self.pageGeometry(services)
         lastResult = result
         return result
+    }
+
+    /// G1 (input-spec.md 2.6): the Chromium page geometry invariant owned by
+    /// `ChildPageGeometry`, sampled per window so each violation names its
+    /// window. Skips a window in a live resize (the fork follows each step;
+    /// the check runs once the resize ends).
+    static func pageGeometry(_ services: AppServices) -> [InputViolation] {
+        services.windows.controllers.flatMap { controller -> [InputViolation] in
+            guard controller.window?.inLiveResize != true else { return [] }
+            let (hosts, pages) = ChildPageGeometry.sample(controller)
+            return ChildPageGeometry.mismatches(hosts: hosts, pages: pages).map {
+                InputViolation(invariant: .chromiumGeometry, window: controller.state.id, detail: $0)
+            }
+        }
     }
 
     /// Records a report now for `violations` (the monitor, or `debug.desync`
@@ -129,6 +144,7 @@ final class InputInvariantMonitor {
         guard let encoded = try? DesyncReport.encoder.encode(report), case .object(var object)? = try? JSONValue.parse(encoded) else { return nil }
         object["debug_focus"] = DebugFocus.report(services: services)
         object["debug_surfaces"] = SurfaceDiagnosticsReport.make(services)
+        object["debug_layers"] = DebugLayers.report(services: services)
         return Data(JSONValue.object(object).prettyText().utf8)
     }
 

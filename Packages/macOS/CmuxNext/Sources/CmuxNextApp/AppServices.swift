@@ -40,6 +40,7 @@ final class AppServices {
     let surfaceInvariant = SurfaceInvariantMonitor()
     /// Input invariants and desync reports (plans/cmux-next/input-spec.md).
     var inputMonitor: InputInvariantMonitor!
+    var inputGeometryObservers: [any NSObjectProtocol] = []
     /// Hook statuses shown in sidebar rows (`set_status`).
     let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!

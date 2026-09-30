@@ -81,6 +81,24 @@ nonisolated final class InputJournal: Sendable {
         }
     }
 
+    /// Appends a window frame, replacing the previous entry when that is a
+    /// frame of the same window (a drag-move posts one per step).
+    func appendWindowFrame(window: String?, _ frame: @autoclosure () -> (x: Double, y: Double, width: Double, height: Double)) {
+        guard isEnabled else { return }
+        let f = frame()
+        let kind = InputJournalEntry.Kind.windowFrame(x: f.x, y: f.y, width: f.width, height: f.height)
+        let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        ring.withLock { ring in
+            if let last = Self.lastIndex(of: ring), ring.entries[last].window == window,
+               case .windowFrame = ring.entries[last].kind {
+                ring.entries[last].kind = kind
+                ring.entries[last].uptimeNanos = now
+                return
+            }
+            Self.push(InputJournalEntry(seq: ring.nextSeq, uptimeNanos: now, window: window, kind: kind), into: &ring)
+        }
+    }
+
     // MARK: Reading
 
     struct Stats: Hashable, Sendable, Codable {

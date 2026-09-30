@@ -1,6 +1,6 @@
 // World invariants (W): the focus model against what AppKit, Ghostty,
 // WebKit and Chromium actually show (plans/cmux-next/input-spec.md
-// section 2.4). Valid only once effects and presentation settled; a pane
+// section 2.5). Valid only once effects and presentation settled; a pane
 // whose selected content is not presented yet is reported as unsettled and
 // its window's content checks are skipped.
 extension InputInvariants {

@@ -31,6 +31,9 @@ nonisolated struct InputJournalEntry: Hashable, Sendable, Codable {
         /// The applier gave or took page focus (WebKit or Chromium).
         case page(tab: String, focused: Bool, engine: String)
         case attach(Attach)
+        /// A cmux window moved or resized (screen points, bottom-left
+        /// origin; a run of moves is merged into one entry).
+        case windowFrame(x: Double, y: Double, width: Double, height: Double)
         /// The invariant monitor recorded a desync report.
         case desync([String])
         /// Free text from automation (`debug.journal` with `marker`).

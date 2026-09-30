@@ -94,6 +94,17 @@ Allowed transitions, by event (the reducer, `FocusReducer.swift`):
 
 A window whose focused pane does not present the targeted tab yet is unsettled: W1-W4 wait.
 
+### 2.6 Geometry (G, live AppKit, after settle; monitor)
+
+| Id | Rule |
+| --- | --- |
+| G1 | Every visible Chromium page window covers its pane's page area in screen coordinates, within 1 point, and no visible page window covers no pane, after every window move or resize from any source: a drag, an Accessibility client such as Rectangle, a display, Space or fullscreen change. |
+
+G1 is `ChildPageGeometry` (owned by the browser child-window work, also reported by `debug.layers`
+and checked by `debug.window.ax_set_frame`); the monitor samples it per window so each violation
+names its window, and skips a window in a live resize (the check runs after the resize ends). The
+frame-sync code owns the geometry; G1 only observes it.
+
 ## 3. Input journal
 
 `InputJournal.shared`: a ring of 4,096 `InputJournalEntry` values with a sequence number and
@@ -103,7 +114,8 @@ mouse down/up/drag/scroll in window-local top-left points, drags and scrolls mer
 every focus reduction with the resulting `FocusDigest` plus a full `FocusState` checkpoint every
 64 reductions per window, suppressed responder echoes, page focus the applier gives or takes
 (WebKit, Chromium, Chromium key window), every attach reduction (event, link, byte count, phase
-after), desync markers, and automation markers.
+after), cmux window frames after a move or resize (a run merged into one entry), desync markers,
+and automation markers.
 
 Recording is on in debug and tagged (dogfood) builds, off in release builds;
 `CMUX_NEXT_INPUT_JOURNAL=0|1` overrides. Disabled, each hook is one relaxed atomic load and
@@ -112,9 +124,10 @@ builds no payload. Key characters are recorded only with `CMUX_NEXT_INPUT_JOURNA
 
 ## 4. Invariant monitor and desync reports
 
-`InputInvariantMonitor` runs after any focus reduction, key-down, mouse down/up or content
-presentation, once 12 display frames pass without another. It checks section 2.5 (which includes
-2.1) on `InputObservationBuilder.observe`. A violation seen once is checked again one settle later;
+`InputInvariantMonitor` runs after any focus reduction, key-down, mouse down/up, content
+presentation, or cmux window move, resize, screen change or deminiaturize, once 12 display frames
+pass without another. It checks sections 2.5 and 2.6 (which include 2.1) on
+`InputObservationBuilder.observe`. A violation seen once is checked again one settle later;
 only a violation present in both checks is reported, once until it clears. An idle app runs no
 display link.
 

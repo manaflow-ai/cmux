@@ -169,6 +169,20 @@ struct InputVerificationTests {
         let ids = Set(InputInvariants.world(observation).violations.map(\.invariant))
         #expect(ids.isSuperset(of: [.responderMatches, .keyWindowOwned, .ghosttyMatches]))
     }
+
+    // MARK: Window frames
+
+    @Test func windowFramesMergeIntoOneEntry() {
+        let journal = InputJournal(capacity: 16)
+        journal.configure(InputJournalPolicy(enabled: true, recordsCharacters: false))
+        for x in 0..<5 { journal.appendWindowFrame(window: "w", (Double(x), 0, 800, 600)) }
+        journal.appendWindowFrame(window: "v", (1, 2, 3, 4))
+        journal.append(window: "w", .marker("m"))
+        journal.appendWindowFrame(window: "w", (9, 9, 800, 600))
+        #expect(journal.entries().map(\.kind) == [.windowFrame(x: 4, y: 0, width: 800, height: 600),
+                                                   .windowFrame(x: 1, y: 2, width: 3, height: 4), .marker("m"),
+                                                   .windowFrame(x: 9, y: 9, width: 800, height: 600)])
+    }
 }
 
 /// A consistent one-window observation built by the composed model.
