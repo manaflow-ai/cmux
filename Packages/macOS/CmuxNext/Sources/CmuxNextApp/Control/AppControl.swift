@@ -49,6 +49,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugFocus.report(services: services))
             },
+            // Room, workspace and terminal theme scopes.
+            .mainActor("debug.themes") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugThemes.report(services: services))
+            },
             // Window membership and the window invariants (no window
             // without a workspace).
             .mainActor("debug.windows") { [weak services] _ in
