@@ -126,8 +126,11 @@ struct MachinesChromeLabelButton: View {
                 Text(title)
                     .cmuxFont(size: 11, weight: .medium)
             }
-            .foregroundColor(isHovered ? Color(nsColor: .labelColor) : Color(nsColor: .secondaryLabelColor))
-            .padding(.horizontal, 7)
+            // Same grey and hover rule as the tab bar's mode labels above.
+            .foregroundColor(RightSidebarChromeControlStyle.pillForegroundColor(isSelected: false, isHovered: isHovered))
+            .padding(.leading, 7)
+            // The text ends under the tab bar's close glyph (12 pt from the edge).
+            .padding(.trailing, 4)
             .frame(height: 20)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
