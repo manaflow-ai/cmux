@@ -63,7 +63,7 @@ function textFromContent(content: any): string {
   return "";
 }
 
-function diffCounts(value: any): { additions?: number; deletions?: number } {
+export function diffCounts(value: any): { additions?: number; deletions?: number } {
   let additions = Number(value?.additions ?? value?.added ?? NaN);
   let deletions = Number(value?.deletions ?? value?.removed ?? NaN);
   const diffs = [...(Array.isArray(value?.content) ? value.content : []), ...(Array.isArray(value?.rawOutput?.content) ? value.rawOutput.content : [])].filter((item: any) => item?.type === "diff");
@@ -71,10 +71,20 @@ function diffCounts(value: any): { additions?: number; deletions?: number } {
     if (!Number.isFinite(additions)) additions = 0;
     if (!Number.isFinite(deletions)) deletions = 0;
     for (const diff of diffs) {
-      const oldLines = String(diff.oldText ?? "").split("\n").length;
-      const newLines = String(diff.newText ?? "").split("\n").length;
-      additions += Math.max(0, newLines - oldLines);
-      deletions += Math.max(0, oldLines - newLines);
+      const oldText = String(diff.oldText ?? "");
+      const newText = String(diff.newText ?? "");
+      const old = oldText ? oldText.split("\n") : [];
+      const next = newText ? newText.split("\n") : [];
+      if (old.length > 1000 || next.length > 1000) { additions += next.length; deletions += old.length; continue; }
+      let previous = new Uint32Array(next.length + 1);
+      for (const line of old) {
+        const current = new Uint32Array(next.length + 1);
+        for (let index = 0; index < next.length; index += 1) current[index + 1] = line === next[index] ? previous[index] + 1 : Math.max(previous[index + 1], current[index]);
+        previous = current;
+      }
+      const unchanged = previous[next.length] ?? 0;
+      additions += next.length - unchanged;
+      deletions += old.length - unchanged;
     }
   }
   return { additions: Number.isFinite(additions) ? additions : undefined, deletions: Number.isFinite(deletions) ? deletions : undefined };

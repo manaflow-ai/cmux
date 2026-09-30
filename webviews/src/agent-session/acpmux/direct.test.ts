@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applySupersededMessage, mergeEventRecords, normalizeCatalog, permissionFromMessage, settleOptimisticPrompt } from "./direct";
+import { applySupersededMessage, diffCounts, mergeEventRecords, normalizeCatalog, permissionFromMessage, settleOptimisticPrompt } from "./direct";
 import type { AcpmuxRow } from "./model";
 
 describe("direct acpmux event helpers", () => {
@@ -51,5 +51,9 @@ describe("direct acpmux event helpers", () => {
   test("merges model options from the daemon model catalog", () => {
     const catalog = normalizeCatalog({ defaultHarness: "claude", harnesses: { claude: { family: "claude" } } }, { harnesses: [{ harness: "claude", models: [{ id: "sonnet", name: "Sonnet" }] }] });
     expect(catalog).toEqual([{ id: "claude", name: "claude", models: [{ id: "sonnet", name: "Sonnet" }] }]);
+  });
+
+  test("counts replacement lines in edited-file diffs", () => {
+    expect(diffCounts({ content: [{ type: "diff", oldText: "old line", newText: "new line" }] })).toEqual({ additions: 1, deletions: 1 });
   });
 });
