@@ -93,11 +93,11 @@ extension MobileIrxRuntimeComposition {
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 endpointWarmupTask = Task { [weak self] in
                     guard let self,
-                          self.epoch == expectedEpoch,
+                          await self.epoch == expectedEpoch,
                           await auth.cachedTeamIdentity == cachedIdentity else { return }
                     do {
                         _ = try await supervisor.readyEndpoint(credentials: credentials)
-                        guard self.epoch == expectedEpoch,
+                        guard await self.epoch == expectedEpoch,
                               await auth.cachedTeamIdentity == cachedIdentity else { return }
                         await self.recordEndpointReady(cached: true)
                     } catch {
