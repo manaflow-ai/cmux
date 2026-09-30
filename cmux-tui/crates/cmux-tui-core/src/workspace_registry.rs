@@ -3036,6 +3036,7 @@ impl WorkspaceRegistry {
         }
         validate_terminal_transition(existing.as_ref(), terminal)?;
         if terminal.lifecycle != TerminalLifecycle::Tombstoned
+            && terminal.workspace_key != DETACHED_TERMINAL_WORKSPACE_KEY
             && existing.as_ref().is_none_or(|stored| stored.workspace_key != terminal.workspace_key)
         {
             require_live_workspace(&tx, &terminal.workspace_key)?;
@@ -4981,6 +4982,18 @@ fn validate_terminal_transition(
     }
     Ok(())
 }
+
+/// The durable `workspace_key` of a detached terminal (`detached-terminals-v1`):
+/// a kept terminal created with no workspace, pane, screen or tab.
+/// `terminal_hosts.workspace_key` is `NOT NULL` and every terminal write
+/// (including the resource projection's terminal upsert, in older binaries
+/// too) rejects an empty key, so a detached row carries this sentinel. It can
+/// never name a workspace, because workspace keys are canonical lowercase
+/// UUIDs, so it needs no live workspace. The live-workspace check runs only
+/// when a row's key changes, so an older binary that updates the row keeps
+/// accepting it; adoption binds a terminal by its durable resource row, never
+/// by this key.
+pub(crate) const DETACHED_TERMINAL_WORKSPACE_KEY: &str = "detached";
 
 fn require_live_workspace(connection: &Connection, workspace_key: &str) -> anyhow::Result<()> {
     let live = connection

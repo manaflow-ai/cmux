@@ -1625,6 +1625,8 @@ pub struct TerminalMoveResult {
     pub changed: bool,
 }
 
+pub(crate) use crate::workspace_registry::DETACHED_TERMINAL_WORKSPACE_KEY;
+
 #[derive(Debug, Clone)]
 struct TerminalReservationRequest {
     terminal_id: TerminalId,
@@ -1638,6 +1640,9 @@ struct TerminalReservationRequest {
     /// argv and cwd it is kept with the creation receipt in the local state
     /// directory so a recovered creation spawns identically.
     env: Vec<(String, String)>,
+    /// A detached terminal (`detached-terminals-v1`) is kept and enters only
+    /// the terminal catalog: it gets no workspace, pane, screen or tab.
+    detached: bool,
 }
 
 /// Longest accepted per-terminal environment: entries and total bytes.
@@ -8096,6 +8101,7 @@ impl Mux {
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
+        let detached = reservation.as_ref().is_some_and(|reservation| reservation.detached);
         let reservation_env =
             reservation.as_ref().map(|reservation| reservation.env.as_slice()).unwrap_or_default();
         let (opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, reservation_env);
@@ -8168,6 +8174,9 @@ impl Mux {
                     )?;
                     (false, revision)
                 };
+                if !replayed && detached {
+                    registry.set_terminal_keep(&terminal_hex, true)?;
+                }
                 if !replayed {
                     self.emit_terminal_registry_changed(&registry, revision);
                 }
@@ -8246,8 +8255,11 @@ impl Mux {
                         return Err(error);
                     }
                 };
-            let insert_result =
-                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            let insert_result = insert_created_terminal_checked(
+                &mut self.state.lock().unwrap(),
+                surface.clone(),
+                detached,
+            );
             drop(cell_pixel_lifecycle);
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(
@@ -8291,6 +8303,9 @@ impl Mux {
                 )?;
                 if commit.replayed {
                     anyhow::bail!("terminal_create_replayed");
+                }
+                if detached {
+                    registry.set_terminal_keep(&terminal_hex, true)?;
                 }
                 self.emit_terminal_registry_changed(&registry, commit.revision);
             }
@@ -8364,8 +8379,11 @@ impl Mux {
                         return Err(error);
                     }
                 };
-            let insert_result =
-                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            let insert_result = insert_created_terminal_checked(
+                &mut self.state.lock().unwrap(),
+                surface.clone(),
+                detached,
+            );
             drop(cell_pixel_lifecycle);
             if let Err(error) = insert_result {
                 let _ = self.persist_terminal_exit(
@@ -14622,6 +14640,106 @@ impl Mux {
         )
     }
 
+    /// Create a kept terminal with no workspace, pane, screen or tab
+    /// (`detached-terminals-v1`). Its durable row names no workspace
+    /// ([`DETACHED_TERMINAL_WORKSPACE_KEY`]), its runtime enters only the
+    /// terminal catalog, and the creation receipt replays like any other.
+    /// The caller commits the resource projection, which gives it the
+    /// resource-terminal row that a later attach or `terminal.project`
+    /// selects by its public id.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn create_detached_terminal_with_mutation(
+        self: &Arc<Self>,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        requested_terminal_id: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        env: Vec<(String, String)>,
+    ) -> anyhow::Result<TerminalPlacementResult> {
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_execution = self.resource_creation_execution.lock().unwrap();
+        if let Some(terminal_id) = requested_terminal_id {
+            validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
+        }
+        let mut fingerprint = terminal_create_fingerprint(
+            DETACHED_TERMINAL_WORKSPACE_KEY,
+            requested_terminal_id,
+            argv.as_deref(),
+            cwd.as_deref(),
+            name.as_deref(),
+            size,
+            None,
+        )?;
+        // Marks a detached receipt explicitly, beyond its sentinel key.
+        fingerprint["detached"] = Value::Bool(true);
+        let replay =
+            { self.workspace_registry.lock().unwrap().replay_terminal(mutation, &fingerprint)? };
+        if let Some(replay) = replay {
+            let terminal_id = replay.result["terminal_id"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("stored terminal create result is missing id"))?;
+            return self.detached_terminal_result(terminal_id, true);
+        }
+        let terminal_id = match requested_terminal_id {
+            Some(value) => TerminalId::from_hex(value).expect("validated terminal UUID"),
+            None => TerminalId::random()?,
+        };
+        let reservation = TerminalReservationRequest {
+            terminal_id,
+            mutation: mutation.clone(),
+            fingerprint,
+            expected_generation: expected_generation.map(str::to_string),
+            expected_revision,
+            on_exit: TerminalOnExit::default(),
+            env,
+            detached: true,
+        };
+        let surface = self.spawn_surface_with(
+            cwd,
+            argv,
+            size,
+            Some(DETACHED_TERMINAL_WORKSPACE_KEY),
+            Some(reservation),
+        )?;
+        if let Some(name) = name {
+            surface.set_name(Some(name));
+        }
+        let identity = self
+            .resource_terminal_host_identity(&surface)
+            .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
+        self.detached_terminal_result(&identity.terminal_id, false)
+    }
+
+    fn detached_terminal_result(
+        &self,
+        terminal_id: &str,
+        replayed: bool,
+    ) -> anyhow::Result<TerminalPlacementResult> {
+        let resolved = self
+            .resolve_terminal(terminal_id)?
+            .context("created terminal result has no durable terminal row")?;
+        // No placement: the created surface is the catalog runtime, which the
+        // caller activates and reaps like a placed terminal's surface.
+        let runtime = {
+            let state = self.state.lock().unwrap();
+            self.catalog_terminal_by_host(&state, &resolved.terminal.terminal_id)?
+                .map(|runtime| runtime.id)
+        };
+        Ok(TerminalPlacementResult {
+            placement: None,
+            terminal_id: resolved.terminal.terminal_id,
+            terminal_incarnation: resolved.terminal.incarnation,
+            terminal_revision: resolved.terminal_revision,
+            replayed,
+            created_path: None,
+            created_surface: runtime,
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn create_terminal_in_workspace_with_mutation(
         self: &Arc<Self>,
@@ -14705,6 +14823,7 @@ impl Mux {
             expected_revision,
             on_exit: on_exit.unwrap_or_default(),
             env,
+            detached: false,
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
             workspace,
@@ -18009,6 +18128,7 @@ impl Mux {
                     expected_revision: None,
                     on_exit: TerminalOnExit::Close,
                     env: Vec::new(),
+                    detached: false,
                 };
                 let surface = self.spawn_surface_in_workspace_reserved(
                     workspace_key,
@@ -19273,6 +19393,22 @@ fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::R
     }
     state.surfaces.insert(surface.id, surface);
     Ok(())
+}
+
+/// Publish a newly spawned terminal: an ordinary one as a surface that its
+/// creator then places in a pane; a detached one (`detached-terminals-v1`)
+/// only in the terminal catalog, like a kept terminal whose last tab closed.
+fn insert_created_terminal_checked(
+    state: &mut State,
+    surface: Arc<Surface>,
+    detached: bool,
+) -> anyhow::Result<()> {
+    if !detached {
+        return insert_surface_checked(state, surface);
+    }
+    anyhow::ensure!(surface.kind() == SurfaceKind::Pty, "terminal catalog requires a PTY");
+    anyhow::ensure!(!state.surfaces.contains_key(&surface.id), "duplicate_surface_id");
+    register_terminal_runtime_checked(state, &surface)
 }
 
 fn insert_terminal_runtime_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::Result<()> {
@@ -23347,6 +23483,7 @@ mod tests {
             expected_revision: None,
             on_exit: TerminalOnExit::Close,
             env: Vec::new(),
+            detached: false,
         };
         let result = mux.spawn_surface_in_workspace_reserved(
             &workspace.key,

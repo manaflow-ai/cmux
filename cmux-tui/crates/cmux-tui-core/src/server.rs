@@ -426,6 +426,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TERMINAL_SHELL_ARGS_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
         REMOTE_TERMINAL_TABS_CAPABILITY,
+        DETACHED_TERMINALS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1621,6 +1622,10 @@ enum Command {
         /// Mark the new terminal `keep` so it survives with no tab.
         #[serde(default)]
         keep: bool,
+        /// Create the terminal with no workspace, pane, screen or tab; it is
+        /// always kept (`detached-terminals-v1`).
+        #[serde(default)]
+        detached: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -14412,6 +14417,7 @@ fn handle_command_with_cancellation(
             terminal_id,
             env,
             keep,
+            detached,
             mutation,
         } => {
             let env = env
@@ -14425,6 +14431,9 @@ fn handle_command_with_cancellation(
             if shell_args.is_some() && (argv.is_some() || command.is_some()) {
                 anyhow::bail!("shell_args cannot be combined with argv or command");
             }
+            if detached && (workspace.is_some() || key.is_some()) {
+                anyhow::bail!("a detached terminal takes no workspace or key");
+            }
             let argv = match (argv, command) {
                 (Some(argv), None) if !argv.is_empty() => Some(argv),
                 (None, Some(command)) if !command.is_empty() => {
@@ -14434,6 +14443,18 @@ fn handle_command_with_cancellation(
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
             let size = paired_surface_size("create-terminal", cols, rows)?;
+            if detached {
+                return create_detached_terminal(
+                    mux,
+                    argv,
+                    cwd,
+                    name,
+                    size,
+                    terminal_id.as_deref(),
+                    env,
+                    &mutation,
+                );
+            }
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
             let (registry_id, generation) = mux.registry_identity();
             // A per-terminal environment rides the receipted path, which is
@@ -16439,6 +16460,67 @@ fn placed_terminal_result(
 
 /// Apply `keep: true` from a creating command. A terminal without a durable
 /// host (an in-process test surface) has nothing to reap.
+/// `create-terminal {detached:true}` (`detached-terminals-v1`): a kept
+/// terminal with no workspace, pane, screen or tab. The resource projection
+/// commits inside the same receipted mutation so the terminal's public id is
+/// durable before the host is released.
+#[allow(clippy::too_many_arguments)]
+fn create_detached_terminal(
+    mux: &Arc<Mux>,
+    argv: Option<Vec<String>>,
+    cwd: Option<String>,
+    name: Option<String>,
+    size: Option<(u16, u16)>,
+    terminal_id: Option<&str>,
+    env: Vec<(String, String)>,
+    mutation: &MutationRequest,
+) -> anyhow::Result<Value> {
+    let (registry_id, generation) = mux.registry_identity();
+    let workspace_mutation = workspace_mutation(mutation)?;
+    let result = mux.create_detached_terminal_with_mutation(
+        argv,
+        cwd,
+        name,
+        size,
+        terminal_id,
+        mutation.expected_generation.as_deref(),
+        mutation.expected_revision,
+        &workspace_mutation,
+        env,
+    )?;
+    let projection = json!({"terminal_id":result.terminal_id, "detached":true});
+    mux.commit_full_resource_projection_with_mutation(
+        &workspace_mutation,
+        "raw.terminal.create_detached",
+        &projection,
+        projection.clone(),
+    )?;
+    mux.activate_created_terminal_surface(result.created_surface)?;
+    mux.reap_created_terminal_surface(result.created_surface);
+    let terminal = mux
+        .resolve_terminal(&result.terminal_id)?
+        .context("created terminal has no durable terminal row")?;
+    let terminal_resource_id = mux.terminal_public_id_for_host(&result.terminal_id)?;
+    let already_exited = terminal.terminal.lifecycle == TerminalLifecycle::Exited;
+    Ok(json!({
+        "surface": Value::Null,
+        "terminal_id": terminal.terminal.terminal_id,
+        "terminal_incarnation": terminal.terminal.incarnation,
+        "terminal_resource_id": terminal_resource_id,
+        "pane": Value::Null,
+        "screen": Value::Null,
+        "workspace": Value::Null,
+        "key": crate::mux::DETACHED_TERMINAL_WORKSPACE_KEY,
+        "lifecycle": terminal.terminal.lifecycle,
+        "exit": terminal.terminal.exit,
+        "already_exited": already_exited,
+        "terminal_revision": terminal.terminal_revision,
+        "replayed": result.replayed,
+        "registry_id": registry_id,
+        "generation": generation,
+    }))
+}
+
 fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result<()> {
     match terminal_id {
         Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
@@ -23654,6 +23736,7 @@ mod tests {
                     terminal_id: None,
                     env: None,
                     keep: false,
+                    detached: false,
                     mutation: MutationRequest::default(),
                 },
                 &test_writer(),
@@ -23684,6 +23767,7 @@ mod tests {
             terminal_id: Some("00000000000040008000000000000001".to_string()),
             env: None,
             keep: false,
+            detached: false,
             mutation: MutationRequest {
                 origin: Some("raw-projection-test".to_string()),
                 mutation_id: Some("raw-terminal-create-once".to_string()),
