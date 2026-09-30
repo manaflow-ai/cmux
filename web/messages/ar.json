@@ -356,7 +356,9 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "نظرة عامة",
       "team": "الفريق",
-      "mobileDevices": "الأجهزة المحمولة"
+      "mobileDevices": "الأجهزة المحمولة",
+      "settings": "الإعدادات",
+      "teams": "الفرق"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -381,6 +383,20 @@
         "empty": "لم يستخدم أي جهاز coderouter خلال آخر {days} يومًا.",
         "unavailable": "استخدام الأجهزة غير متاح مؤقتًا.",
         "estimateNote": "القيمة المكافئة لواجهة API تقدير يستند إلى الأسعار المعلنة وليس الإنفاق الفعلي."
+      },
+      "metrics": {
+        "title": "الاستخدام خلال 30 يومًا",
+        "scope": "إجمالي الفريق لـ {team}",
+        "period": "آخر {days} يومًا",
+        "inputTokens": "رموز الإدخال",
+        "outputTokens": "رموز الإخراج",
+        "tokens": "إجمالي الرموز",
+        "apiEquivalent": "القيمة المكافئة لواجهة API",
+        "unpriced": "{share} من هذه الرموز جاءت من نماذج بلا سعر معلن، ولم تُحتسب في تلك القيمة.",
+        "chartLabel": "استخدام رموز CodeRouter اليومي",
+        "privacy": "لا يتم تسجيل أو عرض أي مطالبات أو مخرجات أو أسماء حسابات أو هويات أعضاء.",
+        "estimate": "القيمة المكافئة لواجهة API هي ما كانت ستكلفه هذه الرموز بأسعار API المعلنة (جدول الأسعار {version}). وهي ليست المبلغ الذي دفعته.",
+        "unavailable": "استخدام الفريق غير متاح مؤقتًا."
       }
     },
     "accountMenu": {
@@ -397,8 +413,40 @@
       "plan": {
         "heading": "خطتك الشخصية",
         "free": "مجاني",
-        "pro": "Pro",
-        "loading": "جارٍ التحميل…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "هذا الفريق غير متاح. ربما غادرته، أو تم حذفه.",
+        "unavailable": "تعذّر تحميل فوترة الفريق. حاول مرة أخرى بعد قليل.",
+        "welcome": "خطة Team مفعّلة. ادعُ زملاءك من صفحة أعضاء الفريق.",
+        "freeBody": "{team} على الخطة المجانية. تمنح خطة Team كل عضو وكلاء سحابيين مع فاتورة واحدة مشتركة.",
+        "upgradeCta": "ترقية هذا الفريق",
+        "askAdmin": "يمكن لمسؤولي الفريق فقط تغيير الفوترة. اطلب من أحد مسؤولي {team} الترقية.",
+        "memberReadOnly": "يمكن لمسؤولي الفريق فقط تغيير هذه الخطة.",
+        "grantedBody": "منح فريق cmux صلاحية Team لفريق {team}. لا يوجد اشتراك لإدارته.",
+        "seatsUsed": "{members} من {seats} مستخدمة",
+        "overSeat": "لدى {team} عدد {members} من الأعضاء و{seats} من المقاعد المدفوعة. لا يزال الانضمام ممكنًا؛ أضف مقاعد لتغطية الجميع.",
+        "addSeats": "إضافة مقاعد"
+      },
+      "teamList": {
+        "heading": "نطاقات الفوترة",
+        "personal": "الحساب الشخصي",
+        "planBadges": {
+          "free": "مجاني",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "يمكن لمسؤولي الفريق فقط إدارة الفوترة لهذا الفريق.",
+        "team_not_found": "هذا الفريق غير متاح. ربما غادرته، أو تم حذفه.",
+        "authorization_unavailable": "تعذّر التحقق من أذونات الفريق. حاول مرة أخرى بعد قليل.",
+        "personal_team_not_upgradable_to_team": "حسابك الشخصي يستخدم Pro أو Max. أنشئ فريقًا لشراء Team."
+      },
+      "team": {
+        "createCta": "إنشاء فريق"
       }
     },
     "mobileDevices": {
@@ -409,7 +457,6 @@
       "loading": "جارٍ تحميل الأجهزة…",
       "empty": "لا توجد أجهزة مسجلة لهذا الفريق.",
       "unavailable": "تعذر تحميل أجهزتك. حدّث الصفحة وحاول مرة أخرى.",
-      "retry": "حاول مرة أخرى",
       "mutationError": "تعذر إكمال تغيير الجهاز.",
       "revoke": "إلغاء الوصول",
       "deviceId": "الجهاز",
@@ -429,6 +476,513 @@
       "activeDevices": "الأجهزة النشطة",
       "directoryRevision": "مراجعة الدليل",
       "savingRelaySettings": "جارٍ الحفظ…"
+    },
+    "settings": {
+      "nav": {
+        "title": "الإعدادات",
+        "profile": "الملف الشخصي",
+        "auth": "البريد الإلكتروني والمصادقة",
+        "notifications": "الإشعارات",
+        "sessions": "الجلسات",
+        "apiKeys": "مفاتيح API",
+        "account": "الحساب",
+        "billing": "الفوترة",
+        "teamsGroup": "الفرق",
+        "createTeam": "إنشاء فريق"
+      },
+      "ui": {
+        "save": "حفظ",
+        "saving": "جارٍ الحفظ…",
+        "cancel": "إلغاء",
+        "editLabel": "تعديل {label}",
+        "required": "هذا الحقل مطلوب.",
+        "saveError": "تعذّر الحفظ. حاول مرة أخرى.",
+        "actionError": "حدث خطأ ما. حاول مرة أخرى.",
+        "working": "جارٍ التنفيذ…",
+        "typeToConfirm": "اكتب {text} للتأكيد",
+        "imageSaveError": "تعذّر حفظ الصورة. حاول مرة أخرى.",
+        "invalidImage": "اختر ملف صورة صالحًا.",
+        "uploadImage": "رفع صورة",
+        "removeImage": "إزالة الصورة",
+        "zoom": "تكبير"
+      },
+      "profile": {
+        "title": "الملف الشخصي",
+        "description": "اسمك وصورتك الرمزية.",
+        "displayNameTitle": "الاسم المعروض",
+        "displayNameDescription": "يظهر لزملائك في الفريق. لا يُستخدم لتسجيل الدخول.",
+        "displayNameEmpty": "غير محدد",
+        "imageTitle": "صورة الملف الشخصي",
+        "imageDescription": "ارفع صورة لاستخدامها كصورتك الرمزية.",
+        "imageUpload": "تغيير صورة الملف الشخصي"
+      },
+      "auth": {
+        "title": "البريد الإلكتروني والمصادقة",
+        "description": "عناوين البريد الإلكتروني وطرق تسجيل الدخول والمصادقة متعددة العوامل.",
+        "emails": {
+          "title": "عناوين البريد الإلكتروني",
+          "description": "يمكن أن يكون البريد الإلكتروني الموثّق عنوان الاتصال الأساسي، ويمكن استخدامه لتسجيل الدخول.",
+          "add": "إضافة بريد إلكتروني",
+          "addSubmit": "إضافة",
+          "adding": "جارٍ الإضافة…",
+          "cancel": "إلغاء",
+          "inputLabel": "عنوان بريد إلكتروني جديد",
+          "placeholder": "أدخل البريد الإلكتروني",
+          "addError": "تعذّرت إضافة البريد الإلكتروني. حاول مرة أخرى.",
+          "added": "تمت إضافة {email}. تحقّق من صندوق الوارد هذا للعثور على رابط التحقق.",
+          "addedVerificationFailed": "تمت إضافة {email}، لكن تعذّر إرسال رسالة التحقق. استخدم «إرسال رسالة التحقق» لإعادة المحاولة.",
+          "verificationSent": "تم إرسال رسالة التحقق إلى {email}.",
+          "actionError": "تعذّر تحديث البريد الإلكتروني. حاول مرة أخرى.",
+          "usedBySomeoneElse": "يستخدم مستخدم آخر هذا البريد الإلكتروني لتسجيل الدخول بالفعل.",
+          "removeTitle": "إزالة البريد الإلكتروني",
+          "removeBody": "هل تريد إزالة {email} من حسابك؟ يمكنك إضافته مرة أخرى لاحقًا.",
+          "remove": "إزالة",
+          "actionsLabel": "إجراءات {email}",
+          "validation": {
+            "required": "البريد الإلكتروني مطلوب.",
+            "invalid": "أدخل عنوان بريد إلكتروني صالحًا.",
+            "duplicate": "هذا البريد الإلكتروني موجود في حسابك بالفعل."
+          },
+          "actions": {
+            "sendVerification": "إرسال رسالة التحقق",
+            "setPrimary": "تعيين كأساسي",
+            "useForSignIn": "استخدام لتسجيل الدخول",
+            "stopUsingForSignIn": "إيقاف الاستخدام لتسجيل الدخول",
+            "remove": "إزالة"
+          },
+          "disabled": {
+            "verifyFirst": "وثّق هذا البريد الإلكتروني أولًا.",
+            "lastSignInEmail": "لا يمكنك إزالة آخر بريد إلكتروني لتسجيل الدخول."
+          },
+          "badges": {
+            "primary": "أساسي",
+            "unverified": "غير موثّق",
+            "usedForSignIn": "مستخدم لتسجيل الدخول"
+          }
+        },
+        "password": {
+          "title": "كلمة المرور",
+          "updateDescription": "حدّث كلمة المرور.",
+          "setDescription": "عيّن كلمة مرور لحسابك.",
+          "update": "تحديث كلمة المرور",
+          "set": "تعيين كلمة المرور",
+          "updateSubmit": "تحديث كلمة المرور",
+          "setSubmit": "تعيين كلمة المرور",
+          "saving": "جارٍ الحفظ…",
+          "cancel": "إلغاء",
+          "saved": "تم حفظ كلمة المرور.",
+          "needsSignInEmail": "لتعيين كلمة مرور، أضف بريدًا إلكترونيًا لتسجيل الدخول أولًا.",
+          "saveError": "تعذّر حفظ كلمة المرور. حاول مرة أخرى.",
+          "oldPassword": "كلمة المرور القديمة",
+          "newPassword": "كلمة المرور الجديدة",
+          "repeatPassword": "كرّر كلمة المرور الجديدة",
+          "incorrect": "كلمة المرور غير صحيحة.",
+          "requirements": "كلمة المرور هذه لا تستوفي المتطلبات.",
+          "errors": {
+            "oldPassword": {
+              "required": "أدخل كلمة المرور القديمة."
+            },
+            "newPassword": {
+              "required": "أدخل كلمة مرور جديدة.",
+              "tooShort": "استخدم {min} أحرف على الأقل.",
+              "tooLong": "استخدم {max} حرفًا كحد أقصى."
+            },
+            "newPasswordRepeat": {
+              "required": "كرّر كلمة المرور الجديدة.",
+              "mismatch": "كلمتا المرور غير متطابقتين."
+            }
+          }
+        },
+        "passkey": {
+          "title": "مفتاح المرور",
+          "registered": "تم تسجيل مفتاح مرور.",
+          "notRegistered": "سجّل مفتاح مرور لتسجيل الدخول دون كلمة مرور.",
+          "add": "إضافة مفتاح مرور",
+          "registering": "في انتظار مفتاح المرور…",
+          "registerError": "تعذّر تسجيل مفتاح المرور. أُلغي الطلب أو فشل. حاول مرة أخرى.",
+          "delete": "إزالة مفتاح المرور",
+          "needsVerifiedEmail": "لتفعيل تسجيل الدخول بمفتاح المرور، أضف بريدًا إلكترونيًا موثّقًا لتسجيل الدخول.",
+          "onlyMethod": "لا يمكن تعطيل تسجيل الدخول بمفتاح المرور لأنه طريقة تسجيل الدخول الوحيدة لديك.",
+          "disableTitle": "تعطيل تسجيل الدخول بمفتاح المرور",
+          "disableBody": "لن تتمكن بعد الآن من تسجيل الدخول بمفتاح المرور.",
+          "disable": "تعطيل",
+          "disableError": "تعذّر تعطيل تسجيل الدخول بمفتاح المرور. حاول مرة أخرى."
+        },
+        "otp": {
+          "title": "تسجيل الدخول برمز لمرة واحدة",
+          "enabledDescription": "تسجيل الدخول برابط سحري أو رمز لمرة واحدة مفعّل.",
+          "disabledDescription": "سجّل الدخول برابط سحري أو رمز لمرة واحدة يُرسل إلى عناوين بريد تسجيل الدخول.",
+          "enable": "تفعيل",
+          "enableError": "تعذّر تفعيل تسجيل الدخول برمز لمرة واحدة. حاول مرة أخرى.",
+          "disable": "تعطيل",
+          "needsVerifiedEmail": "لتفعيل تسجيل الدخول برمز لمرة واحدة، أضف بريدًا إلكترونيًا موثّقًا لتسجيل الدخول.",
+          "onlyMethod": "لا يمكن تعطيل تسجيل الدخول برمز لمرة واحدة لأنه طريقة تسجيل الدخول الوحيدة لديك.",
+          "disableTitle": "تعطيل تسجيل الدخول برمز لمرة واحدة",
+          "disableBody": "لن تتمكن بعد الآن من تسجيل الدخول بالبريد الإلكتروني وحده.",
+          "disableConfirm": "تعطيل",
+          "disableError": "تعذّر تعطيل تسجيل الدخول برمز لمرة واحدة. حاول مرة أخرى."
+        },
+        "mfa": {
+          "title": "المصادقة متعددة العوامل",
+          "enabledDescription": "المصادقة متعددة العوامل مفعّلة.",
+          "disabledDescription": "المصادقة متعددة العوامل معطّلة.",
+          "enable": "تفعيل MFA",
+          "disable": "تعطيل MFA",
+          "startError": "تعذّر بدء إعداد MFA. حاول مرة أخرى.",
+          "enableError": "تعذّر تفعيل MFA. حاول مرة أخرى.",
+          "scan": "امسح رمز QR هذا باستخدام تطبيق المصادقة.",
+          "qrAlt": "رمز QR للمصادقة متعددة العوامل",
+          "enterCode": "ثم أدخل الرمز المكوّن من ستة أرقام:",
+          "incorrect": "الرمز غير صحيح. حاول مرة أخرى.",
+          "cancel": "إلغاء",
+          "disableTitle": "تعطيل المصادقة متعددة العوامل",
+          "disableBody": "لن يطلب تسجيل الدخول بعد الآن رمزًا من تطبيق المصادقة.",
+          "disableConfirm": "تعطيل MFA",
+          "disableError": "تعذّر تعطيل MFA. حاول مرة أخرى."
+        },
+        "connected": {
+          "title": "الحسابات المرتبطة",
+          "description": "حسابات من مزوّدين آخرين مرتبطة بحساب cmux الخاص بك.",
+          "usedForSignIn": "مستخدم لتسجيل الدخول",
+          "useForSignIn": "استخدام لتسجيل الدخول",
+          "stopUsingForSignIn": "إيقاف الاستخدام لتسجيل الدخول",
+          "remove": "إلغاء الربط",
+          "lastMethod": "هذه طريقة تسجيل الدخول الوحيدة لديك.",
+          "actionsLabel": "إجراءات {provider}",
+          "actionError": "تعذّر تحديث الحساب المرتبط. حاول مرة أخرى.",
+          "usedBySomeoneElse": "يستخدم مستخدم آخر هذا الحساب لتسجيل الدخول بالفعل.",
+          "removeTitle": "إلغاء ربط {provider}",
+          "removeBody": "لن تتمكن بعد الآن من تسجيل الدخول بهذا الحساب. يمكنك ربطه مرة أخرى بتسجيل الدخول به."
+        }
+      },
+      "notifications": {
+        "title": "الإشعارات",
+        "description": "إشعارات البريد الإلكتروني من cmux.",
+        "heading": "اختر رسائل البريد الإلكتروني التي تريد تلقيها",
+        "empty": "لا توجد فئات بريد إلكتروني لتهيئتها.",
+        "cannotDisable": "(لا يمكن تعطيلها)",
+        "saveError": "تعذّر حفظ هذا التفضيل. حاول مرة أخرى."
+      },
+      "sessions": {
+        "title": "الجلسات",
+        "description": "الأجهزة التي سجّلت الدخول عليها.",
+        "heading": "الجلسات النشطة",
+        "explanation": "هذه هي الأجهزة التي سجّلت الدخول عليها. ألغِ جلسة لتسجيل خروجها.",
+        "revokeAll": "إلغاء كل الجلسات الأخرى",
+        "revokeAllTitle": "إلغاء الجلسات الأخرى",
+        "revokeAllBody": "سيؤدي هذا إلى تسجيل خروج {count, plural, zero {لا جلسات أخرى} one {جلسة أخرى واحدة} two {جلستين أخريين} few {# جلسات أخرى} many {# جلسة أخرى} other {# جلسة أخرى}}. ستبقى هذه الجلسة مسجّلة الدخول.",
+        "revokeAllConfirm": "إلغاء الجلسات",
+        "revokeAllError": "تعذّر إلغاء كل الجلسات. تعرض القائمة الجلسات المتبقية.",
+        "revokeError": "تعذّر إلغاء الجلسة. حاول مرة أخرى.",
+        "empty": "لم يتم العثور على جلسات نشطة.",
+        "columns": {
+          "session": "الجلسة",
+          "ip": "عنوان IP",
+          "location": "الموقع",
+          "lastUsed": "آخر استخدام"
+        },
+        "current": "الجلسة الحالية",
+        "other": "جلسة أخرى",
+        "impersonation": "انتحال هوية",
+        "signedIn": "سُجّل الدخول {date}",
+        "actionsLabel": "إجراءات الجلسة",
+        "revoke": "إلغاء",
+        "cannotRevokeCurrent": "لا يمكنك إلغاء جلستك الحالية.",
+        "unknownIp": "-",
+        "unknownLocation": "غير معروف",
+        "never": "أبدًا"
+      },
+      "apiKeys": {
+        "title": "مفاتيح API",
+        "description": "مفاتيح تمنح البرامج الوصول إلى حسابك.",
+        "disabled": "مفاتيح API الشخصية غير مفعّلة لهذا المشروع.",
+        "create": "إنشاء مفتاح API",
+        "createTitle": "إنشاء مفتاح API",
+        "createDescription": "تمنح مفاتيح API وصولًا برمجيًا إلى حسابك.",
+        "descriptionLabel": "الوصف",
+        "descriptionPlaceholder": "مثال: التطوير، الإنتاج، CI",
+        "descriptionRequired": "الوصف مطلوب.",
+        "expiresIn": "تنتهي الصلاحية بعد",
+        "expiry": {
+          "1d": "يوم واحد",
+          "7d": "7 أيام",
+          "30d": "30 يومًا",
+          "90d": "90 يومًا",
+          "1y": "سنة واحدة",
+          "never": "أبدًا"
+        },
+        "cancel": "إلغاء",
+        "createSubmit": "إنشاء",
+        "creating": "جارٍ الإنشاء…",
+        "createError": "تعذّر إنشاء مفتاح API. حاول مرة أخرى.",
+        "showTitle": "مفتاح API",
+        "showBody": "إليك مفتاح API الخاص بك.",
+        "showWarning": "انسخه إلى مكان آمن. لن تتمكن من عرضه مرة أخرى.",
+        "secretLabel": "مفتاح API السري",
+        "copy": "نسخ",
+        "copied": "تم النسخ",
+        "copyError": "تعذّر النسخ. حدّد المفتاح وانسخه يدويًا.",
+        "acknowledge": "أفهم أنني لن أتمكن من عرض هذا المفتاح مرة أخرى.",
+        "close": "إغلاق",
+        "search": "البحث في المفاتيح",
+        "statusFilter": "التصفية حسب الحالة",
+        "status": {
+          "valid": "صالح",
+          "expired": "منتهي الصلاحية",
+          "revoked": "مُلغى"
+        },
+        "empty": "لا توجد مفاتيح API بعد.",
+        "noMatches": "لا توجد مفاتيح API تطابق عوامل التصفية هذه.",
+        "columns": {
+          "description": "الوصف",
+          "status": "الحالة",
+          "key": "المفتاح",
+          "expiresAt": "تنتهي الصلاحية",
+          "createdAt": "تاريخ الإنشاء"
+        },
+        "never": "أبدًا",
+        "actionsLabel": "إجراءات {description}",
+        "revoke": "إلغاء",
+        "revokeTitle": "إلغاء مفتاح API",
+        "revokeBody": "هل تريد إلغاء مفتاح API ‎*****{lastFour}؟ ستفقد التطبيقات التي تستخدمه الوصول فورًا.",
+        "revokeAcknowledge": "أفهم أن هذا سيفصل كل التطبيقات التي تستخدم مفتاح API هذا.",
+        "revokeConfirm": "إلغاء المفتاح",
+        "revokeError": "تعذّر إلغاء مفتاح API. حاول مرة أخرى."
+      },
+      "account": {
+        "title": "الحساب",
+        "description": "الفوترة وتسجيل الخروج وحذف الحساب.",
+        "billingTitle": "الفوترة",
+        "billingDescription": "الخطط والفواتير وطرق الدفع.",
+        "billingLink": "فتح الفوترة",
+        "signOutTitle": "تسجيل الخروج",
+        "signOutDescription": "أنهِ جلستك الحالية.",
+        "signOut": "تسجيل الخروج",
+        "signingOut": "جارٍ تسجيل الخروج…",
+        "signOutError": "تعذّر تسجيل الخروج. حاول مرة أخرى.",
+        "deleteTitle": "حذف الحساب",
+        "deleteDescription": "إزالة حسابك وكل البيانات المرتبطة به نهائيًا.",
+        "delete": "حذف الحساب",
+        "deleteConfirmTitle": "هل تريد حذف حسابك؟",
+        "deleteConfirmBody": "لا يمكن التراجع عن هذا الإجراء، وسيحذف كل البيانات المرتبطة بحسابك.",
+        "deleteAcknowledge": "أفهم أن حسابي وبياناته سيُحذفان نهائيًا.",
+        "deleteConfirm": "حذف الحساب",
+        "deleteError": "تعذّر حذف الحساب. حاول مرة أخرى."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "نسخ",
+        "copied": "تم النسخ",
+        "copyFailed": "فشل النسخ"
+      },
+      "plan": {
+        "free": "مجاني",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "مسؤول",
+        "member": "عضو"
+      },
+      "errors": {
+        "generic": "حدث خطأ ما. حاول مرة أخرى.",
+        "network_error": "تعذّر الوصول إلى cmux. تحقّق من اتصالك وحاول مرة أخرى.",
+        "unauthorized": "انتهت جلستك. سجّل الدخول مرة أخرى.",
+        "forbidden": "ليس لديك إذن للقيام بذلك.",
+        "team_not_found": "هذا الفريق لم يعد موجودًا.",
+        "invalid_request": "الطلب غير صالح. تحقّق من الحقول وحاول مرة أخرى.",
+        "rate_limited": "طلبات كثيرة جدًا. انتظر قليلًا وحاول مرة أخرى.",
+        "last_admin": "يجب أن يحتفظ الفريق بمسؤول واحد على الأقل. رقِّ عضوًا آخر أولًا.",
+        "member_not_found": "لم يعد هذا الشخص عضوًا.",
+        "invitation_not_found": "هذه الدعوة لم تعد موجودة.",
+        "invitation_invalid": "هذه الدعوة غير صالحة أو منتهية الصلاحية أو مستخدمة بالفعل.",
+        "email_mismatch": "أُرسلت هذه الدعوة إلى عنوان بريد إلكتروني مختلف.",
+        "link_not_found": "رابط الدعوة هذا لم يعد موجودًا.",
+        "link_invalid": "رابط الدعوة هذا غير صالح أو منتهي الصلاحية أو مُلغى أو ممتلئ.",
+        "team_has_active_subscription": "ألغِ اشتراك الفريق قبل حذف الفريق.",
+        "service_unavailable": "الخدمة غير متاحة مؤقتًا. حاول مرة أخرى بعد قليل."
+      },
+      "list": {
+        "title": "الفرق",
+        "description": "تتشارك الفرق الأعضاء والفوترة وحسابات coderouter. افتح فريقًا لإدارته.",
+        "create": "إنشاء فريق",
+        "count": "{count, plural, zero {لا فرق} one {فريق واحد} two {فريقان} few {# فرق} many {# فريقًا} other {# فريق}}",
+        "selected": "الحالي",
+        "emptyTitle": "لا توجد فرق بعد",
+        "emptyBody": "أنشئ فريقًا لدعوة الأشخاص ومشاركة خطة واحدة."
+      },
+      "new": {
+        "title": "إنشاء فريق",
+        "description": "سمِّ الفريق، واختر خطة، ثم ادعُ الأشخاص.",
+        "stepsLabel": "الخطوات",
+        "steps": {
+          "name": "الاسم",
+          "plan": "الخطة",
+          "invite": "الدعوة"
+        },
+        "nameTitle": "سمِّ فريقك",
+        "nameLabel": "اسم الفريق",
+        "namePlaceholder": "فريق هندسة Acme",
+        "nameError": {
+          "empty": "أدخل اسم الفريق.",
+          "tooLong": "استخدم {max} حرفًا أو أقل."
+        },
+        "cancel": "إلغاء",
+        "createAction": "إنشاء فريق",
+        "creating": "جارٍ الإنشاء…",
+        "planTitle": "اختر خطة لفريق {team}",
+        "planDescription": "يمكنك تغيير الخطة لاحقًا من صفحة فوترة الفريق.",
+        "freeName": "مجاني",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "${price} لكل مقعد شهريًا",
+        "featureMembers": "الأعضاء والأدوار والدعوات",
+        "featureProForEveryone": "كل مزايا Pro لكل عضو",
+        "featureCentralBilling": "فوترة مركزية للفريق بأكمله",
+        "featurePrioritySupport": "دعم ذو أولوية",
+        "chooseFree": "المتابعة بالخطة المجانية",
+        "chooseTeam": "الترقية إلى Team (${price}/مقعد/شهر)",
+        "upgradeLater": "المقاعد مرنة: يمكنك دعوة أشخاص أكثر مما تدفع مقابله وإضافة مقاعد لاحقًا.",
+        "inviteTitle": "دعوة أشخاص إلى {team}",
+        "inviteDescription": "اختياري. يمكنك أيضًا دعوة الأشخاص لاحقًا من صفحة أعضاء الفريق.",
+        "inviteByEmail": "الدعوة عبر البريد الإلكتروني",
+        "inviteByLink": "رابط الدعوة",
+        "backToPlan": "العودة إلى الخطط",
+        "finish": "الانتقال إلى الفريق"
+      },
+      "invite": {
+        "emailsLabel": "عناوين البريد الإلكتروني",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "عنوان بريد إلكتروني غير صالح",
+        "removeEmail": "إزالة {email}",
+        "roleLabel": "الدور",
+        "roleMember": "عضو",
+        "roleAdmin": "مسؤول",
+        "count": "{count}/{max}",
+        "send": "إرسال الدعوات",
+        "sending": "جارٍ الإرسال…",
+        "invalidCount": "{count, plural, zero {لا توجد عناوين غير صالحة.} one {صحّح العنوان غير الصالح أو أزله قبل الإرسال.} two {صحّح العنوانين غير الصالحين أو أزلهما قبل الإرسال.} few {صحّح # عناوين غير صالحة أو أزلها قبل الإرسال.} many {صحّح # عنوانًا غير صالح أو أزلها قبل الإرسال.} other {صحّح # عنوان غير صالح أو أزلها قبل الإرسال.}}",
+        "overflow": "{count, plural, zero {تمت إضافة كل العناوين؛ الحد هو {max} لكل طلب.} one {لم تتم إضافة عنوان واحد: الحد هو {max} لكل طلب.} two {لم تتم إضافة عنوانين: الحد هو {max} لكل طلب.} few {لم تتم إضافة # عناوين: الحد هو {max} لكل طلب.} many {لم تتم إضافة # عنوانًا: الحد هو {max} لكل طلب.} other {لم تتم إضافة # عنوان: الحد هو {max} لكل طلب.}}",
+        "sent": "{count, plural, zero {لم تُرسل أي دعوات.} one {تم إرسال دعوة واحدة.} two {تم إرسال دعوتين.} few {تم إرسال # دعوات.} many {تم إرسال # دعوة.} other {تم إرسال # دعوة.}}"
+      },
+      "inviteFailure": {
+        "generic": "تعذّرت دعوته",
+        "already_member": "عضو بالفعل",
+        "invite_failed": "تعذّر إرسال الدعوة"
+      },
+      "links": {
+        "expiryLabel": "تنتهي الصلاحية",
+        "expiry": {
+          "1": "بعد يوم واحد",
+          "7": "بعد 7 أيام",
+          "30": "بعد 30 يومًا",
+          "never": "أبدًا"
+        },
+        "maxUsesLabel": "الحد الأقصى للاستخدامات",
+        "maxUsesPlaceholder": "غير محدود",
+        "maxUsesInvalid": "يجب أن يكون الحد الأقصى للاستخدامات عددًا صحيحًا من 1 إلى {max}، أو فارغًا لعدد غير محدود.",
+        "create": "إنشاء رابط",
+        "creating": "جارٍ الإنشاء…",
+        "memberOnly": "من ينضم عبر الرابط يصبح عضوًا. رقِّه إلى مسؤول لاحقًا عند الحاجة.",
+        "showOnce": "انسخ هذا الرابط الآن. يظهر مرة واحدة فقط.",
+        "empty": "لا توجد روابط دعوة نشطة.",
+        "createdAt": "أُنشئ {at}",
+        "expiresAt": "تنتهي الصلاحية {at}",
+        "neverExpires": "لا تنتهي صلاحيته",
+        "uses": "{count}/{max} استخدام",
+        "usesUnlimited": "{count, plural, zero {لا استخدامات} one {استخدام واحد} two {استخدامان} few {# استخدامات} many {# استخدامًا} other {# استخدام}}",
+        "revoke": "إلغاء",
+        "revokeTitle": "هل تريد إلغاء رابط الدعوة هذا؟",
+        "revokeBody": "لن يتمكن أي شخص يملك الرابط من الانضمام بعد الآن. يبقى من انضموا بالفعل أعضاءً.",
+        "actionsFor": "إجراءات الرابط ({created})"
+      },
+      "shell": {
+        "allTeams": "كل الفرق",
+        "tabsLabel": "إعدادات الفريق",
+        "tabs": {
+          "general": "عام",
+          "members": "الأعضاء",
+          "apiKeys": "مفاتيح API",
+          "billing": "الفوترة"
+        },
+        "notFoundTitle": "لم يتم العثور على الفريق",
+        "notFoundBody": "هذا الفريق غير موجود، أو لست عضوًا فيه.",
+        "backToTeams": "العودة إلى الفرق"
+      },
+      "general": {
+        "imageTitle": "صورة الفريق",
+        "imageDescription": "تظهر بجانب اسم الفريق في cmux.",
+        "imageUpload": "رفع صورة الفريق",
+        "nameTitle": "اسم الفريق",
+        "nameDescription": "مرئي لكل الأعضاء.",
+        "nameReadOnly": "يمكن للمسؤولين فقط إعادة تسمية الفريق.",
+        "nameError": {
+          "empty": "أدخل اسم الفريق.",
+          "tooLong": "استخدم {max} حرفًا أو أقل."
+        },
+        "profileTitle": "اسمك في هذا الفريق",
+        "profileDescription": "كيف يراك أعضاء هذا الفريق الآخرون. اتركه فارغًا لاستخدام اسم حسابك.",
+        "profileLabel": "اسمك المعروض في الفريق",
+        "leaveTitle": "مغادرة الفريق",
+        "leaveDescription": "ستفقد الوصول إلى الحسابات المشتركة والفوترة لهذا الفريق.",
+        "leaveAction": "مغادرة الفريق",
+        "leaveBlocked": "أنت المسؤول الوحيد. رقِّ عضوًا آخر إلى مسؤول، أو احذف الفريق، قبل المغادرة.",
+        "leaveConfirmTitle": "هل تريد مغادرة {team}؟",
+        "leaveConfirmBody": "ستحتاج إلى دعوة جديدة للانضمام مرة أخرى.",
+        "deleteTitle": "حذف الفريق",
+        "deleteDescription": "يزيل الفريق ووصول أعضائه وروابط الدعوة الخاصة به نهائيًا.",
+        "deleteAction": "حذف الفريق",
+        "deleteConfirmTitle": "هل تريد حذف {team}؟",
+        "deleteConfirmBody": "لا يمكن التراجع عن هذا الإجراء.",
+        "openBilling": "فتح فوترة الفريق"
+      },
+      "members": {
+        "title": "الأعضاء",
+        "count": "{count, plural, zero {لا أعضاء} one {عضو واحد} two {عضوان} few {# أعضاء} many {# عضوًا} other {# عضو}}",
+        "memberColumn": "العضو",
+        "roleColumn": "الدور",
+        "actionsColumn": "الإجراءات",
+        "you": "أنت",
+        "unnamed": "عضو بدون اسم",
+        "remove": "إزالة",
+        "removeTitle": "هل تريد إزالة {name}؟",
+        "removeBody": "سيفقد الوصول إلى هذا الفريق فورًا. يمكنك دعوته مرة أخرى لاحقًا.",
+        "inviteTitle": "دعوة أشخاص",
+        "inviteDescription": "أرسل دعوات عبر البريد الإلكتروني. الصق قائمة مفصولة بفواصل أو مسافات أو أسطر جديدة (حتى 20).",
+        "pendingTitle": "الدعوات المعلّقة",
+        "pendingDescription": "دعوات لم تُقبل بعد.",
+        "pendingEmpty": "لا توجد دعوات معلّقة.",
+        "unknownEmail": "عنوان غير معروف",
+        "expires": "تنتهي الصلاحية {at}",
+        "resend": "إعادة الإرسال",
+        "resent": "تم الإرسال",
+        "revoke": "إلغاء",
+        "linksTitle": "روابط الدعوة",
+        "linksDescription": "رابط قابل لإعادة الاستخدام يمكن لأي شخص استخدامه للانضمام كعضو.",
+        "seatNudge": "هناك {used} من الأعضاء أو المدعوين، لكن الخطة تتضمن {seats} من المقاعد. لا تزال الدعوات تعمل؛ أضف {over, plural, zero {لا مقاعد} one {مقعدًا واحدًا} two {مقعدين} few {# مقاعد} many {# مقعدًا} other {# مقعد}} لتغطية الجميع.",
+        "seatNudgeAction": "إدارة المقاعد",
+        "actions": {
+          "makeAdmin": "تعيين كمسؤول",
+          "makeMember": "تعيين كعضو",
+          "remove": "إزالة من الفريق",
+          "leave": "مغادرة الفريق"
+        },
+        "actionsFor": "إجراءات لـ {name}",
+        "lastAdminReason": "يحتاج الفريق إلى مسؤول واحد على الأقل. رقِّ شخصًا آخر أولًا.",
+        "demoteSelfTitle": "هل تتوقف عن كونك مسؤولًا؟",
+        "demoteSelfBody": "ستفقد صلاحيات المسؤول في هذا الفريق. يمكن لمسؤول آخر إعادتها إليك.",
+        "demoteSelfConfirm": "عيّنّي كعضو"
+      },
+      "apiKeys": {
+        "title": "مفاتيح API للفريق",
+        "description": "مفاتيح تعمل باسم هذا الفريق. يمكن لأي شخص يملك مفتاحًا استخدام صلاحيات الفريق، لذا خزّن المفاتيح بأمان.",
+        "create": "إنشاء مفتاح API للفريق",
+        "disabled": "مفاتيح API للفرق غير مفعّلة في هذا المشروع.",
+        "forbidden": "تحتاج إلى إذن إدارة مفاتيح API في هذا الفريق لعرض مفاتيحه."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "نقل",
@@ -455,10 +1009,6 @@
       "apiKeysTitle": "مفاتيح API",
       "apiKeysDescription": "أنشئ مفاتيح طويلة الأمد للنصوص البرمجية والوكلاء. يظهر السر مرة واحدة.",
       "apiKeysCount": "{count, plural, zero {# مفتاح} one {# مفتاح} two {# مفتاحان} few {# مفاتيح} many {# مفتاحًا} other {# مفتاح}}",
-      "apiKeysLoading": "جارٍ تحميل مفاتيح API…",
-      "apiKeysLoadError": "تعذر تحميل مفاتيح API. أعد المحاولة بعد قليل.",
-      "apiKeysRetry": "إعادة المحاولة",
-      "apiKeysEmptyBody": "لا توجد مفاتيح API بعد. أنشئ مفتاحًا لمصادقة عميل CodeRouter.",
       "apiKeyPrefixColumn": "المفتاح",
       "apiKeyStatusColumn": "الحالة",
       "apiKeySecretTitle": "انسخ هذا المفتاح الآن",
@@ -478,7 +1028,28 @@
       "revokeApiKeyConfirmTitle": "هل تريد إلغاء مفتاح API هذا؟",
       "apiKeyUsageDetail": "آخر 30 يومًا: {completions} إكمال · {tokens} رمز ({input} إدخال / {output} إخراج) · ما يعادل {value} من API",
       "apiKeyUsageUnavailable": "الاستخدام غير متاح",
-      "revokeApiKeyConfirmBody": "سيتوقف العملاء الذين يستخدمون هذا المفتاح عن المصادقة فورًا."
+      "revokeApiKeyConfirmBody": "سيتوقف العملاء الذين يستخدمون هذا المفتاح عن المصادقة فورًا.",
+      "apiKeysEmptyTitle": "لا توجد مفاتيح API بعد",
+      "apiKeysEmptyHint": "أنشئ مفتاحًا لمصادقة عميل CodeRouter."
+    },
+    "notFound": {
+      "title": "الصفحة غير موجودة",
+      "body": "صفحة لوحة التحكم هذه غير موجودة أو تم نقلها.",
+      "home": "الانتقال إلى لوحة التحكم"
+    },
+    "states": {
+      "errorTitle": "تعذّر تحميل {section}",
+      "errorTitleGeneric": "تعذّر تحميل هذا القسم",
+      "reason": {
+        "network": "تحقّق من اتصالك، ثم حاول مرة أخرى.",
+        "unavailable": "cmux غير متاح مؤقتًا. حاول مرة أخرى بعد قليل.",
+        "forbidden": "ليس لديك وصول إلى هذا.",
+        "notFound": "لم يعد هذا موجودًا، أو ليس لديك وصول إليه.",
+        "rateLimited": "طلبات كثيرة جدًا. انتظر قليلًا، ثم حاول مرة أخرى.",
+        "generic": "حدث خطأ ما. حاول مرة أخرى."
+      },
+      "retry": "حاول مرة أخرى",
+      "retrying": "جارٍ إعادة المحاولة…"
     }
   },
   "community": {
@@ -1416,7 +1987,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و filePreviewTextEditorFocus و simulatorFocus و terminalFocus و commandPaletteVisible و terminalFindVisible و workspaceCanvasLayout. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
+          "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و filePreviewTextEditorFocus و simulatorFocus و terminalFocus و commandPaletteVisible و terminalFindVisible و terminalAlternateScreen و workspaceCanvasLayout. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
           "showModifierHoldHints": "إظهار شرائح تلميحات الاختصارات أثناء الضغط باستمرار على Cmd أو Control."
         },
         "fileEditor": {
@@ -4580,5 +5151,27 @@
     "updateDetail": "يتطلب cmux {stableVersion} أو أحدث، أو NIGHTLY {nightlyVersion} أو أحدث. فعّل إقران iOS في الإعدادات > الهاتف المحمول على كل Mac.",
     "rollbackTitle": "هل تحتاج إلى الاحتفاظ بإصدار Mac قديم؟",
     "rollbackDetail": "استخدم cmux BETA 1.0.5 ({rollbackBuild}) من TestFlight > الإصدارات السابقة ما دام متاحًا. اختر هذا الإصدار بالتحديد، لأن الإصدارات اللاحقة تستخدم خدمة اتصال أحدث."
+  },
+  "teamInvite": {
+    "loading": "جارٍ تحميل الدعوة…",
+    "title": "الانضمام إلى {team}",
+    "titleUnknown": "الانضمام إلى هذا الفريق",
+    "body": "تمت دعوتك للانضمام إلى هذا الفريق على cmux.",
+    "join": "الانضمام إلى الفريق",
+    "joining": "جارٍ الانضمام…",
+    "signedInAs": "مسجّل الدخول باسم {email}",
+    "alreadyMemberTitle": "أنت عضو في {team} بالفعل",
+    "alreadyMemberTitleUnknown": "أنت عضو في هذا الفريق بالفعل",
+    "alreadyMemberBody": "افتح الفريق لإدارته.",
+    "openTeam": "فتح الفريق",
+    "mismatchTitle": "هذه الدعوة لحساب مختلف",
+    "mismatchBody": "أنت مسجّل الدخول باسم {email}، لكن الدعوة أُرسلت إلى عنوان آخر. سجّل الدخول بالعنوان المدعو، أو أضفه ووثّقه في هذا الحساب.",
+    "mismatchBodyUnknown": "أُرسلت الدعوة إلى عنوان آخر. سجّل الدخول بالعنوان المدعو، أو أضفه ووثّقه في هذا الحساب.",
+    "switchAccount": "تسجيل الخروج وتبديل الحساب",
+    "switching": "جارٍ تسجيل الخروج…",
+    "switchFailed": "تعذّر تسجيل الخروج. حاول مرة أخرى.",
+    "invalidTitle": "هذه الدعوة لم تعد صالحة",
+    "invalidBody": "انتهت صلاحيتها أو أُلغيت أو استُخدمت بالفعل. اطلب دعوة جديدة من أحد مسؤولي الفريق.",
+    "goToTeams": "الانتقال إلى فرقك"
   }
 }
