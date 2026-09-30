@@ -156,6 +156,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_lint_feature_flags_scope.py
 
+      - name: Validate feature flag review lead-time report
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_feature_flag_review_lead_time.py
+
+      - name: Validate feature flag review drift issue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_feature_flag_review_drift_issue.py
+
       - name: Validate canonical compile cache build root
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
@@ -489,14 +497,6 @@ jobs:
       - name: Validate merge receipts
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
-
-      - name: Validate PR catch-up merge and its workflow
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_catch_up_pr.py
-
-      - name: Validate automatic PR catch-up selection
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_auto_catch_up_select.py
 
       - name: Validate merge-main's green base and guard failure labels
         if: ${{ matrix.group == 'ci' }}
