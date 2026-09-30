@@ -2279,14 +2279,12 @@ struct ContentView: View {
             }
 
             // Keep the most frequently used commands visible without taking
-            // over the title. Option-1 through Option-5 provide a predictable
-            // keyboard path that also works when the strip is not hovered.
+            // over the title.
             CommandToolbeltView(items: [
                 .init(
                     id: "new-terminal",
-                    title: String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab"),
+                    title: String(localized: "command.newTerminalTab.title", defaultValue: "New Tab (Terminal)"),
                     systemImage: "terminal",
-                    shortcut: "1",
                     action: {
                         if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID) {
                             tabManager.newSurface()
@@ -2295,9 +2293,8 @@ struct ContentView: View {
                 ),
                 .init(
                     id: "new-browser",
-                    title: String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab"),
+                    title: String(localized: "command.newBrowserTab.title", defaultValue: "New Tab (Browser)"),
                     systemImage: "globe",
-                    shortcut: "2",
                     action: {
                         performNewBrowserTabAction {
                             _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
@@ -2308,21 +2305,18 @@ struct ContentView: View {
                     id: "command-palette",
                     title: String(localized: "commandPalette.title", defaultValue: "Command Palette"),
                     systemImage: "magnifyingglass",
-                    shortcut: "3",
                     action: { toggleCommandPalette() }
                 ),
                 .init(
                     id: "toggle-sidebar",
                     title: String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar"),
                     systemImage: "sidebar.left",
-                    shortcut: "4",
                     action: { sidebarState.toggle() }
                 ),
                 .init(
                     id: "notifications",
-                    title: String(localized: "command.showNotifications.title", defaultValue: "Notifications"),
+                    title: String(localized: "command.showNotifications.title", defaultValue: "Show Notifications"),
                     systemImage: "bell",
-                    shortcut: "5",
                     action: { AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
                 )
             ])
@@ -7774,7 +7768,7 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.showNotifications",
                 title: constant(String(localized: "command.showNotifications.title", defaultValue: "Show Notifications")),
-                subtitle: constant(String(localized: "command.showNotifications.subtitle", defaultValue: "Notifications")),
+                subtitle: constant(String(localized: "command.showNotifications.subtitle", defaultValue: "Show Notifications")),
                 keywords: ["notifications", "inbox"]
             )
         )
@@ -7782,7 +7776,7 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.jumpUnread",
                 title: constant(String(localized: "command.jumpUnread.title", defaultValue: "Jump to Latest Unread")),
-                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Show Notifications")),
                 keywords: ["jump", "unread", "notification"]
             )
         )
@@ -7790,7 +7784,7 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleUnread",
                 title: constant(String(localized: "command.toggleUnread.title", defaultValue: "Toggle Unread")),
-                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Show Notifications")),
                 keywords: ["toggle", "mark", "read", "unread", "notification"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
@@ -7804,7 +7798,7 @@ struct ContentView: View {
                         defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread"
                     )
                 ),
-                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Show Notifications")),
                 keywords: ["mark", "oldest", "unread", "jump", "next", "notification", "defer"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
@@ -18362,7 +18356,6 @@ private struct CommandToolbeltView: View {
         let id: String
         let title: String
         let systemImage: String
-        let shortcut: KeyEquivalent
         let action: () -> Void
     }
 
@@ -18371,7 +18364,7 @@ private struct CommandToolbeltView: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(Array(items.prefix(6).enumerated()), id: \.element.id) { index, item in
+            ForEach(Array(items.prefix(6)), id: \.id) { item in
                 Button(action: item.action) {
                     Image(systemName: item.systemImage)
                         .font(.system(size: 11, weight: .semibold))
@@ -18379,9 +18372,8 @@ private struct CommandToolbeltView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("\(item.title)  ⌥\(index + 1)")
+                .help(item.title)
                 .accessibilityLabel(item.title)
-                .keyboardShortcut(item.shortcut, modifiers: [.option])
             }
         }
         .padding(.horizontal, 4)

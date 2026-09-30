@@ -113,13 +113,13 @@ extension CMUXCLI {
         if result.timedOut {
             throw CLIError(message: String(
                 localized: "cli.recover.error.timeout",
-                defaultValue: "sr recover timed out. Try again."
+                defaultValue: "Recovery service timed out. Try again."
             ))
         }
         guard result.status == 0 else {
             throw CLIError(message: String(
                 localized: "cli.recover.error.failed",
-                defaultValue: "sr recover failed. Check that Subrouter is installed and try again."
+                defaultValue: "Recovery service failed. Check your connection and try again."
             ))
         }
         return Data(result.stdout.utf8)
