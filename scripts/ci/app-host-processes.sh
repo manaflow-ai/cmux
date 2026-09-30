@@ -358,6 +358,21 @@ cmux_app_host_receipt_descriptor_is_open() {
   fi
 }
 
+# Receipts outlive their app host, and a shared runner can reuse its PID within
+# minutes (one shard saw the PID space wrap twice during a single job). The
+# receipt descriptor is O_CLOEXEC, so no exec keeps it: a PID that runs another
+# executable and does not hold the receipt is a new process, and the receipt
+# is stale. Return 1 when that PID does hold it, which no reuse can explain.
+cmux_app_host_receipt_pid_was_reused() {
+  local status
+  if cmux_app_host_receipt_descriptor_is_open "$1" "$2" "$3" 2>/dev/null; then
+    status=0
+  else
+    status=$?
+  fi
+  [ "$status" -ne 0 ]
+}
+
 # Return 0 for an exact live identity, 2 for a stale receipt, and 1 for any
 # mismatch. Callers must never signal a PID after a 1 or 2 result.
 cmux_verify_app_host_receipt() {
@@ -385,6 +400,8 @@ cmux_verify_app_host_receipt() {
     return 1
   fi
   if [ "$CMUX_APP_HOST_PRIMARY_EXECUTABLE" != "$receipt_executable" ]; then
+    cmux_app_host_receipt_pid_was_reused \
+      "$receipt_pid" "$receipt_fd" "$receipt_file" && return 2
     echo "FAIL: app-host receipt does not match the PID executable vnode" >&2
     return 1
   fi
@@ -739,6 +756,8 @@ cmux_verify_stale_app_host_receipt() {
     return 1
   fi
   if [ "$CMUX_APP_HOST_PRIMARY_EXECUTABLE" != "$receipt_executable" ]; then
+    cmux_app_host_receipt_pid_was_reused \
+      "$receipt_pid" "$receipt_fd" "$receipt_file" && return 2
     echo "FAIL: stale app-host receipt does not match the PID executable vnode" >&2
     return 1
   fi
