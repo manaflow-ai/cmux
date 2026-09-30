@@ -10,9 +10,6 @@ def git(*args):
 
 
 GENERATED_CONTRACT_FILES = {
-    # This generated Swift literal mirrors cmux.schema.json line for line;
-    # settings additions must update the embedded validator atomically.
-    Path("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift"),
     # quicktype emits one monolithic Codable model file for this wire contract;
     # schema additions must change its generated line count atomically.
     Path("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift"),

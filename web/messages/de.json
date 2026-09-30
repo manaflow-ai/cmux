@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "Horizontale Position von Terminalinhalten und integriertem Agentenchat, wenn sessionContentMaxWidth aktiviert ist.",
           "copyOnSelect": "Bei true wird ausgewählter Terminaltext in die Systemzwischenablage kopiert, sobald die Auswahl bestätigt wird. Bei false gibt cmux keine Ghostty-copy-on-select-Überschreibung aus; Ghostty-Konfiguration und Standardwerte steuern das Verhalten der Auswahlzwischenablage.",
           "scrollSpeed": "Legt fest, wie weit sich das Terminal pro Mausrad- oder Trackpad-Scrollereignis bewegt. Werte über 1 beschleunigen das Scrollen, Werte unter 1 verlangsamen es.",
-          "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
-          "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
+          "showTextBoxOnNewTerminals": "Zeigt die TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
+          "focusTextBoxOnNewTerminals": "Fokussiert die TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
         },
         "notifications": {
           "soundWhenFocused": "Den Benachrichtigungston auch dann abspielen, wenn der benachrichtigende Bereich bereits fokussiert ist. Standardmäßig aus, sodass ein fokussierter Bereich nur Ring und Aufblinken zeigt.",
@@ -1869,7 +1869,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "iOS-App",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Überblick",
@@ -2033,11 +2033,10 @@
       "daemonPath": "Die Daemon-Binärdatei wird unter ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote auf dem Remote-Host gespeichert und anhand eines in die App eingebetteten SHA-256-Manifests überprüft."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Konfiguriere die Beta-TextBox-Eingabe von cmux fuer neue Terminal-Tabs, Splits und Workspaces.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Konfiguriere die TextBox-Eingabe von cmux fuer neue Terminal-Tabs, Splits und Workspaces.",
       "intro": "TextBox ist die Rich-Eingabeflaeche von cmux zum Formulieren von Prompts, bevor sie an ein Terminal gesendet werden.",
-      "betaCallout": "TextBox ist eine Beta-Funktion. Standardwerte und Verhalten koennen sich waehrend der Tests aendern.",
       "defaultsTitle": "Standardwerte",
       "defaultsDesc": "Die TextBox-Einstellungen befinden sich unter Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals oeffnet neue Workspaces, Terminal-Tabs und Terminal-Splits mit sichtbarer TextBox, waehrend der Fokus im Terminal bleibt.",

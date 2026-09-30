@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "Posicionamento horizontal do conteúdo do terminal e do chat integrado do agente quando sessionContentMaxWidth está ativado.",
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",
           "scrollSpeed": "Define quanto o terminal se move a cada evento de rolagem da roda do mouse ou do trackpad. Valores acima de 1 aceleram a rolagem e valores abaixo de 1 a tornam mais lenta.",
-          "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
-          "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
+          "showTextBoxOnNewTerminals": "Mostra a entrada TextBox por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
+          "focusTextBoxOnNewTerminals": "Foca a entrada TextBox por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Reproduz o som de notificação mesmo quando o painel que notificou já está em foco. Desativado por padrão, então um painel em foco mostra apenas o anel e o destaque.",
@@ -1869,7 +1869,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "App iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Visão geral",
@@ -2033,11 +2033,10 @@
       "daemonPath": "O binário daemon é armazenado em ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote no host remoto e verificado em um manifesto SHA-256 incorporado no aplicativo."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Configure a entrada TextBox beta do cmux para novas abas, divisões e áreas de trabalho de terminal.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Configure a entrada TextBox do cmux para novas abas, divisões e áreas de trabalho de terminal.",
       "intro": "TextBox é a superfície de entrada rica do cmux para compor prompts antes de enviá-los a um terminal.",
-      "betaCallout": "TextBox é um recurso beta. Seus padrões e comportamento podem mudar durante os testes.",
       "defaultsTitle": "Padrões",
       "defaultsDesc": "As configurações de TextBox ficam em Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals abre novas áreas de trabalho, abas e divisões de terminal com TextBox visível, mantendo o foco no terminal.",

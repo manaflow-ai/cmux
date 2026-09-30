@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "Vandret placering af terminalindhold og den indbyggede agentchat, når sessionContentMaxWidth er aktiveret.",
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
           "scrollSpeed": "Skalerer, hvor langt terminalen flytter sig ved hver rullehændelse fra musehjul eller pegefelt. Værdier over 1 gør rulningen hurtigere, og værdier under 1 gør den langsommere.",
-          "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
-          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
+          "showTextBoxOnNewTerminals": "Viser TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
+          "focusTextBoxOnNewTerminals": "Fokuserer TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Afspil notifikationslyden, selv når ruden, der sendte notifikationen, allerede har fokus. Slået fra som standard, så en rude med fokus kun viser sin ring og sit blink.",
@@ -1869,7 +1869,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (beta)",
+      "textBox": "TextBox",
       "ios": "iOS-app",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Oversigt",
@@ -2032,11 +2032,10 @@
       "daemonPath": "Den binære dæmon er gemt på ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote på fjernværten og verificeret mod et SHA-256-manifest, der er indlejret i appen."
     },
     "textBox": {
-      "title": "TextBox (beta)",
-      "metaTitle": "TextBox (beta)",
-      "metaDescription": "Konfigurer cmux' beta-TextBox-input for nye terminalfaner, splits og arbejdsområder.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Konfigurer cmux' TextBox-input for nye terminalfaner, splits og arbejdsområder.",
       "intro": "TextBox er cmux' rige terminalinputflade til at skrive prompts, før de sendes til en terminal.",
-      "betaCallout": "TextBox er en beta-funktion. Standarder og adfærd kan ændre sig under test.",
       "defaultsTitle": "Standarder",
       "defaultsDesc": "TextBox-indstillingerne findes under Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals åbner nye arbejdsområder, terminalfaner og terminalsplits med TextBox synlig, mens fokus bliver i terminalen.",
