@@ -29,7 +29,8 @@ final class CloudPortsStatusContent: NSView {
         messageLabel.maximumNumberOfLines = 0
         messageLabel.lineBreakMode = .byWordWrapping
         messageLabel.textColor = .secondaryLabelColor
-        actionButton.bezelStyle = .inline
+        actionButton.bezelStyle = .rounded
+        actionButton.controlSize = .small
         actionButton.target = self
         actionButton.action = #selector(performAction)
         actionButton.setAccessibilityRole(.button)
@@ -58,6 +59,7 @@ final class CloudPortsStatusContent: NSView {
         actionButton.setAccessibilityLabel(presentation.actionTitle ?? presentation.title)
         let fontSize = GlobalFontMagnification.scaledSize(max(10, style.detailSize))
         titleLabel.font = .systemFont(ofSize: fontSize, weight: .semibold)
+        actionButton.font = .systemFont(ofSize: fontSize)
         messageLabel.font = style.monospacedText
             ? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
             : .systemFont(ofSize: fontSize)

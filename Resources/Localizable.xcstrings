@@ -575427,120 +575427,120 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking services through cmux’s authenticated Cloud link. No system VPN is needed."
+            "value": "Checking for running services…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dienste werden über die authentifizierte Cloud-Verbindung von cmux geprüft. Ein System-VPN ist nicht erforderlich."
+            "value": "Laufende Dienste werden gesucht…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vérification des services via la connexion Cloud authentifiée de cmux. Aucun VPN système n’est nécessaire."
+            "value": "Recherche de services en cours d’exécution…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "جارٍ فحص الخدمات عبر اتصال Cloud الموثّق من cmux. لا حاجة إلى VPN النظام."
+            "value": "جارٍ البحث عن خدمات قيد التشغيل…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comprobando servicios mediante la conexión autenticada de Cloud de cmux. No se necesita una VPN del sistema."
+            "value": "Buscando servicios en ejecución…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在透過 cmux 的已驗證 Cloud 連線檢查服務。不需要系統 VPN。"
+            "value": "正在檢查執行中的服務…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在通过 cmux 的已验证 Cloud 连接检查服务。无需系统 VPN。"
+            "value": "正在检查运行中的服务…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux의 인증된 Cloud 연결로 서비스를 확인하고 있습니다. 시스템 VPN은 필요하지 않습니다."
+            "value": "실행 중인 서비스 확인 중…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux の認証済み Cloud 接続でサービスを確認しています。システム VPN は不要です。"
+            "value": "実行中のサービスを確認中…"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Provjera servisa putem autentificirane Cloud veze cmux-a. Sistemski VPN nije potreban."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Kontrollerer tjenester via cmux’ godkendte Cloud-forbindelse. Der kræves ingen system-VPN."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Controllo dei servizi tramite il collegamento Cloud autenticato di cmux. Non serve una VPN di sistema."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "កំពុងពិនិត្យសេវាកម្មតាមរយៈតំណ Cloud ដែលបានផ្ទៀងផ្ទាត់របស់ cmux។ មិនត្រូវការ VPN របស់ប្រព័ន្ធទេ។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Sjekker tjenester via cmux sin autentiserte Cloud-tilkobling. Ingen system-VPN er nødvendig."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Sprawdzanie usług przez uwierzytelnione połączenie Cloud w cmux. Systemowa sieć VPN nie jest potrzebna."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Verificando serviços pela conexão Cloud autenticada do cmux. Nenhuma VPN do sistema é necessária."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Проверка служб через аутентифицированную связь cmux с Cloud. Системный VPN не нужен."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "กำลังตรวจสอบบริการผ่านลิงก์ Cloud ที่ยืนยันตัวตนแล้วของ cmux ไม่ต้องใช้ VPN ของระบบ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Hizmetler cmux’un kimliği doğrulanmış Cloud bağlantısı üzerinden denetleniyor. Sistem VPN’i gerekmez."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Перевірка служб через автентифікований зв’язок cmux із Cloud. Системний VPN не потрібен."
           }
         }
