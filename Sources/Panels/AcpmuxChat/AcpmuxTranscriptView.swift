@@ -27,6 +27,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
     /// the user scrolling away, so they must not unpin the transcript.
     private var programmaticScrollAnimations = 0
     private var lastLayoutWidth: CGFloat = 0
+    private var lastLayoutHeight: CGFloat = 0
     /// Rows measured exactly during the current height pass; other rows return estimates.
     private var measureWindow: Range<Int> = 0..<0
     /// Rows whose height is an estimate at the current width, refined a batch per frame.
@@ -88,6 +89,12 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         if abs(width - lastLayoutWidth) > 0.5 {
             lastLayoutWidth = width
             relayoutForWidthChange()
+        }
+        // The viewport shrinks when the permission card or queue strip slides in; a pinned
+        // transcript keeps its newest row visible above them on every frame of that slide.
+        if abs(bounds.height - lastLayoutHeight) > 0.5 {
+            lastLayoutHeight = bounds.height
+            if isPinnedToBottom { scrollToBottom(animated: false) }
         }
     }
 
@@ -464,26 +471,40 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
 
     private func toggle(_ rowID: String) {
         guard let index = rows.firstIndex(where: { $0.id == rowID }) else { return }
+        let oldHeight = tableView.rect(ofRow: index).height
         if expandedRowIDs.contains(rowID) { expandedRowIDs.remove(rowID) } else { expandedRowIDs.insert(rowID) }
+        let delta = layout(for: index).height - oldHeight
         let visible = tableView.rows(in: scrollView.contentView.bounds)
         let isOnScreen = visible.length > 0 && index >= visible.location && index < visible.location + visible.length
         let pinned = isPinnedToBottom
-        // Keep the content the user is looking at still: the bottom when pinned, otherwise
-        // the first visible row. Only an on-screen row animates its height.
         let anchor = pinned ? nil : captureAnchor()
         let animate = isOnScreen && !reduceMotion
+        let clip = scrollView.contentView
+        // Pinned: the bottom stays put, so the scroll offset moves by exactly the height
+        // change, in the same animation as the row. Unpinned: the first visible row stays put.
+        let pinnedTarget = NSPoint(
+            x: 0,
+            y: max(-scrollView.contentInsets.top, clip.bounds.origin.y + delta)
+        )
         isAdjustingScroll = true
+        if animate { programmaticScrollAnimations += 1 }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = animate ? 0.25 : 0
             context.allowsImplicitAnimation = animate
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.9, 0.3, 1)
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: index))
             if pinned {
-                self.scrollToBottom(animated: false)
-            } else if let anchor {
-                self.restore(anchor)
+                clip.animator().setBoundsOrigin(pinnedTarget)
+            }
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if animate { self.programmaticScrollAnimations -= 1 }
+                self.scrollView.reflectScrolledClipView(clip)
+                if pinned { self.scrollToBottom(animated: false) }
             }
         }
+        if let anchor { restore(anchor) }
         isAdjustingScroll = false
         reconfigure(row: index)
     }

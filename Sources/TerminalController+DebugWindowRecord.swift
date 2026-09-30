@@ -22,7 +22,7 @@ extension TerminalController {
                 return v2Error(id: request.id, code: "not_found", message: "No window available")
             }
             let recorder = debugWindowRecorder
-            let outcome: Result<Void, any Error>? = socketAwaitCallback(timeout: 10) { completion in
+            let outcome: Result<Void, any Error>? = socketAwaitCallback(timeout: 45) { completion in
                 Task {
                     do {
                         try await recorder.start(windowID: windowID, url: URL(fileURLWithPath: path))

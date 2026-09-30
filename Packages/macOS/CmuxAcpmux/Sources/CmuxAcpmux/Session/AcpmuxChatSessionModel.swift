@@ -43,6 +43,8 @@ public final class AcpmuxChatSessionModel {
     @ObservationIgnored private var api: (any AcpmuxSessionAPI)?
     @ObservationIgnored private var connectionTask: Task<Void, Never>?
     @ObservationIgnored private var historyExhausted = false
+    /// Whether the daemon speaks the current protocol (attach returned `hasMore`).
+    @ObservationIgnored private var daemonHasCurrentProtocol = false
     private let connector: any AcpmuxConnecting
     private let clock: any Clock<Duration>
     private let defaultWorkingDirectory: String?
@@ -206,10 +208,20 @@ public final class AcpmuxChatSessionModel {
         let result = try await api.attach(sessionId: id, afterSeq: afterSeq, limit: attachLimit)
         guard id == sessionId else { return }
         upsert(result.session.summary)
+        daemonHasCurrentProtocol = result.hasMore != nil
+        // Codex on current acpmux signals message_superseded; other harnesses and older
+        // daemons need the text fallback.
+        let family = result.session.summary.family ?? result.session.summary.harness ?? ""
+        reducer.usesRedeliveryFallback = !(daemonHasCurrentProtocol && family.hasPrefix("codex"))
         reducer.apply(result.events)
         reducer.replaceQueue(result.session.queue)
-        if afterSeq == nil, result.events.count < attachLimit {
-            historyExhausted = true
+        reducer.applyLastTurn(result.session.summary.lastTurn)
+        if afterSeq == nil {
+            if let hasMore = result.hasMore {
+                historyExhausted = !hasMore
+            } else if result.events.count < attachLimit {
+                historyExhausted = true
+            }
         }
         transcriptDidChange()
     }
@@ -225,10 +237,20 @@ public final class AcpmuxChatSessionModel {
         guard let api, let sessionId, canLoadOlder, !isLoadingOlder, let first = reducer.firstSeq else { return }
         isLoadingOlder = true
         defer { isLoadingOlder = false }
-        let afterSeq = max(0, first - 1 - pageSize)
-        guard let older = try? await api.events(sessionId: sessionId, afterSeq: afterSeq, limit: first - 1 - afterSeq),
-              sessionId == self.sessionId else { return }
-        if older.isEmpty || afterSeq == 0 { historyExhausted = true }
+        let older: [AcpmuxEventRecord]
+        if daemonHasCurrentProtocol {
+            guard let page = try? await api.eventsBefore(sessionId: sessionId, beforeSeq: first, limit: pageSize),
+                  sessionId == self.sessionId else { return }
+            older = page.events
+            if !page.hasMore { historyExhausted = true }
+        } else {
+            // Older daemons page forwards only: fetch the window just below the oldest record.
+            let afterSeq = max(0, first - 1 - pageSize)
+            guard let page = try? await api.events(sessionId: sessionId, afterSeq: afterSeq, limit: first - 1 - afterSeq),
+                  sessionId == self.sessionId else { return }
+            older = page
+            if page.isEmpty || afterSeq == 0 { historyExhausted = true }
+        }
         reducer.prepend(older)
         transcriptDidChange()
     }
@@ -278,6 +300,10 @@ public final class AcpmuxChatSessionModel {
         } catch JSONRPCClientError.disconnected {
             // The turn continues in the daemon; reconnect re-attaches and shows its outcome.
         } catch {
+            // Current acpmux answers a prompt whose turn failed (for example a Codex terminal
+            // error, -32000) with an error after recording the prompt. That is the turn's end,
+            // shown by its turn_result; only a prompt the daemon never recorded is undelivered.
+            guard !reducer.isConfirmed(promptId: promptId) else { return }
             reducer.markPendingUserMessageFailed(promptId: promptId)
             transcriptDidChange()
         }
@@ -339,6 +365,11 @@ public final class AcpmuxChatSessionModel {
             } else {
                 upsert(summary)
             }
+        case "_acpmux/prompt_accepted":
+            guard notification.params["sessionId"]?.stringValue == sessionId,
+                  let promptId = notification.params["promptId"]?.stringValue else { return }
+            reducer.markPromptAccepted(promptId: promptId)
+            transcriptDidChange()
         case "_acpmux/lagged":
             Task { [weak self] in await self?.resync() }
         default:

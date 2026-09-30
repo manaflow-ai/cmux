@@ -7,10 +7,13 @@ public protocol AcpmuxSessionAPI: Sendable {
     var notifications: AsyncStream<JSONRPCNotification> { get }
     /// `_acpmux/watch {enabled:true}`; returns the current session list.
     func watch() async throws -> [AcpmuxSessionSummary]
-    /// `_acpmux/attach`.
+    /// `_acpmux/attach`, asking for transcript records only (older daemons ignore `kinds`).
     func attach(sessionId: String, afterSeq: Int?, limit: Int) async throws -> AcpmuxAttachResult
     /// `_acpmux/events`: records with `seq > afterSeq`, at most `limit`.
     func events(sessionId: String, afterSeq: Int, limit: Int) async throws -> [AcpmuxEventRecord]
+    /// `_acpmux/events {beforeSeq, kinds: ["transcript"]}`: the newest `limit` transcript
+    /// records before `beforeSeq`, and whether older ones exist (current acpmux).
+    func eventsBefore(sessionId: String, beforeSeq: Int, limit: Int) async throws -> (events: [AcpmuxEventRecord], hasMore: Bool)
     /// `_acpmux/detach`.
     func detach(sessionId: String) async throws
     /// `session/new` with `_meta.acpmux.harness`; returns the new session id.
@@ -59,9 +62,18 @@ public struct AcpmuxRPCSessionAPI: AcpmuxSessionAPI {
     public func attach(sessionId: String, afterSeq: Int?, limit: Int) async throws -> AcpmuxAttachResult {
         try await client.request(
             "_acpmux/attach",
-            params: CursorParams(sessionId: sessionId, afterSeq: afterSeq, limit: limit),
+            params: CursorParams(sessionId: sessionId, afterSeq: afterSeq, limit: limit, kinds: ["transcript"]),
             as: AcpmuxAttachResult.self
         )
+    }
+
+    public func eventsBefore(sessionId: String, beforeSeq: Int, limit: Int) async throws -> (events: [AcpmuxEventRecord], hasMore: Bool) {
+        let result = try await client.request(
+            "_acpmux/events",
+            params: CursorParams(sessionId: sessionId, beforeSeq: beforeSeq, limit: limit, kinds: ["transcript"]),
+            as: EventsResult.self
+        )
+        return (result.events, result.hasMore ?? !result.events.isEmpty)
     }
 
     public func events(sessionId: String, afterSeq: Int, limit: Int) async throws -> [AcpmuxEventRecord] {
@@ -147,7 +159,9 @@ public struct AcpmuxRPCSessionAPI: AcpmuxSessionAPI {
     private struct CursorParams: Encodable, Sendable {
         var sessionId: String
         var afterSeq: Int?
+        var beforeSeq: Int?
         var limit: Int
+        var kinds: [String]?
     }
 
     private struct SessionsResult: Decodable, Sendable {
@@ -156,5 +170,6 @@ public struct AcpmuxRPCSessionAPI: AcpmuxSessionAPI {
 
     private struct EventsResult: Decodable, Sendable {
         var events: [AcpmuxEventRecord]
+        var hasMore: Bool?
     }
 }

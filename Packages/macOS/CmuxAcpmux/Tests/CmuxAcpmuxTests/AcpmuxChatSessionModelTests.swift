@@ -21,6 +21,7 @@ private actor FakeAcpmuxAPI: AcpmuxSessionAPI {
         return attachResult
     }
     func events(sessionId: String, afterSeq: Int, limit: Int) async throws -> [AcpmuxEventRecord] { [] }
+    func eventsBefore(sessionId: String, beforeSeq: Int, limit: Int) async throws -> (events: [AcpmuxEventRecord], hasMore: Bool) { ([], false) }
     func detach(sessionId: String) async throws {}
     func newSession(harness: String?, cwd: String?) async throws -> String { "new" }
     func prompt(sessionId: String, text: String, promptId: String, delivery: String?) async throws -> JSONValue {

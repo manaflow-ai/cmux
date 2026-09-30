@@ -47,6 +47,9 @@ public struct AcpmuxSessionSummary: Sendable, Hashable, Codable, Identifiable {
     public var unread: Bool?
     /// The peer daemon name for remote sessions.
     public var peer: String?
+    /// The last finished turn `{turnId, promptId, status, stopReason?, errorText?, errorSource?, endedAt}`
+    /// (current acpmux), so a reattach can show a failure without replaying history.
+    public var lastTurn: JSONValue?
 
     /// The session id.
     public var id: String { sessionId }
@@ -139,6 +142,10 @@ public struct AcpmuxAttachResult: Sendable, Codable {
     public var session: AcpmuxSessionDetail
     /// Events, oldest first.
     public var events: [AcpmuxEventRecord]
+    /// Whether older matching records exist (current acpmux; `nil` from older daemons).
+    public var hasMore: Bool?
+    /// The session's newest sequence number (current acpmux).
+    public var lastSeq: Int?
 }
 
 /// `_acpmux/info` and attach detail: the summary plus the prompt queue.

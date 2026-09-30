@@ -32,9 +32,19 @@ public struct TranscriptReducer: Sendable {
     private var toolRowByCallID: [String: String] = [:]
     private var turn: TurnState?
     private var pendingLocal: [PendingLocalMessage] = []
-    private var lastClosedTurn: (startedSeq: Int?, rowID: String)?
+    private var lastClosedTurn: (startedSeq: Int?, turnID: String?, rowID: String, streamingRowIDs: [String])?
     /// ACP `messageId` of the message each prose or thought row streams, when the agent sends one.
     private var messageIDByRow: [String: String] = [:]
+    /// Sequence numbers of the chunks that built each prose row, for `errorChunkSeqs`.
+    private var chunkSeqsByRow: [String: [Int]] = [:]
+    /// Messages the daemon marked superseded; their late chunks are dropped.
+    private var supersededMessageIDs: Set<String> = []
+    /// Turn ids whose `turn_result` this transcript already shows.
+    private var resultTurnIDs: Set<String> = []
+
+    /// Whether the text-prefix redelivery fallback runs. Set it to `false` when the
+    /// session's harness sends `message_superseded` (Codex on current acpmux).
+    public var usesRedeliveryFallback = true
 
     private struct TurnState {
         var key: Int
@@ -43,6 +53,7 @@ public struct TranscriptReducer: Sendable {
         var hasOutput = false
         var sawUserMessage = false
         var startedSeq: Int?
+        var turnID: String?
         var streamingRowIDs: [String] = []
     }
 
@@ -140,6 +151,7 @@ public struct TranscriptReducer: Sendable {
     private static let muxKinds: Set<String> = [
         "user_message", "queued", "queue_updated", "queue_removed", "turn_started", "turn_end",
         "turn_result", "status", "permission_request", "permission_decision", "resume_failed", "failover",
+        "message_superseded",
     ]
 
     private static let updateKinds: Set<String> = [
@@ -154,6 +166,9 @@ public struct TranscriptReducer: Sendable {
         indexByID = [:]
         toolRowByCallID = [:]
         messageIDByRow = [:]
+        chunkSeqsByRow = [:]
+        supersededMessageIDs = []
+        resultTurnIDs = []
         turn = nil
         lastClosedTurn = nil
         let liveQueue = queue
@@ -209,6 +224,7 @@ public struct TranscriptReducer: Sendable {
                 openTurn(key: record.seq, at: record.at)
             }
             turn?.startedSeq = record.seq
+            turn?.turnID = msg["turnId"]?.stringValue
             ensureTyping(at: record.at)
         case "turn_end":
             guard turn != nil else { return }
@@ -216,20 +232,34 @@ public struct TranscriptReducer: Sendable {
             closeTurn(at: record.at, status: stop == "cancelled" ? "cancelled" : "completed", error: nil, emitSummary: true)
         case "turn_result":
             let status = msg["status"]?.stringValue ?? "completed"
-            let error = msg["error"]?.stringValue
-            if turn != nil {
+            // Current acpmux: errorText (+ errorChunkSeqs to hide). Older: error only.
+            let error = msg["errorText"]?.stringValue ?? msg["error"]?.stringValue
+            let errorChunkSeqs = msg["errorChunkSeqs"]?.arrayValue?.compactMap(\.intValue)
+            if let turnID = msg["turnId"]?.stringValue { resultTurnIDs.insert(turnID) }
+            if let current = turn {
+                if status == "failed" { hideErrorProse(in: current.streamingRowIDs, error: error, chunkSeqs: errorChunkSeqs) }
                 closeTurn(at: record.at, status: status, error: error, emitSummary: true)
             } else if let closed = lastClosedTurn,
-                      closed.startedSeq == nil || closed.startedSeq == msg["turnSeq"]?.intValue,
+                      closed.startedSeq == nil || closed.startedSeq == msg["turnSeq"]?.intValue
+                        || (closed.turnID != nil && closed.turnID == msg["turnId"]?.stringValue),
                       let index = indexByID[closed.rowID] {
                 // turn_end already closed the turn; turn_result refines its status.
-                rows[index].update { content in
+                if status == "failed" { hideErrorProse(in: closed.streamingRowIDs, error: error, chunkSeqs: errorChunkSeqs) }
+                guard let refreshed = indexByID[closed.rowID] ?? Optional(index) else { return }
+                rows[refreshed].update { content in
                     if case .turnSummary(var summary) = content {
                         summary.status = status
                         summary.error = error
                         content = .turnSummary(summary)
                     }
                 }
+            }
+        case "message_superseded":
+            // The harness is redelivering a message it abandoned: drop the old copy.
+            guard let old = msg["oldMessageId"]?.stringValue else { return }
+            supersededMessageIDs.insert(old)
+            for (rowID, messageID) in messageIDByRow where messageID == old {
+                removeRow(rowID)
             }
         case "status":
             status = msg["status"]?.stringValue
@@ -287,20 +317,24 @@ public struct TranscriptReducer: Sendable {
             guard let text = Self.contentText(update["content"]) else { return }
             markOutput()
             let messageID = update["messageId"]?.stringValue
+            if let messageID, supersededMessageIDs.contains(messageID) { return }
             if let last = rows.last, case .assistant(let existing, _) = last.content, isLastRowInCurrentTurn,
                continuesMessage(rowID: last.id, messageID: messageID) {
                 updateRow(last.id) { $0 = .assistant(text: existing + text, isStreaming: true) }
+                chunkSeqsByRow[last.id, default: []].append(record.seq)
                 return
             }
             // A new messageId starts a new bubble. When it directly follows an unfinished
             // message and restarts the same text, the agent is redelivering after a dropped
             // stream (Codex does this): the abandoned partial row goes away.
-            if let last = rows.last, case .assistant(let existing, true) = last.content, isLastRowInCurrentTurn,
+            if usesRedeliveryFallback,
+               let last = rows.last, case .assistant(let existing, true) = last.content, isLastRowInCurrentTurn,
                messageID != nil, messageIDByRow[last.id] != nil,
-               adapter.isRedelivery(of: existing, restartingWith: text) {
+               adapter.fallbackRedeliveryWithoutSupersededSignal(of: existing, restartingWith: text) {
                 removeRow(last.id)
             }
             let rowID = "msg-\(record.seq)"
+            chunkSeqsByRow[rowID] = [record.seq]
             if let messageID { messageIDByRow[rowID] = messageID }
             appendStreaming(TranscriptRow(id: rowID, at: record.at, content: .assistant(text: text, isStreaming: turn != nil)))
         case "agent_thought_chunk":
@@ -378,15 +412,6 @@ public struct TranscriptReducer: Sendable {
     private mutating func closeTurn(at: Int64, status: String?, error: String?, emitSummary: Bool) {
         guard let current = turn else { return }
         removeTyping()
-        if status == "failed", let error, !error.isEmpty {
-            // Harnesses often stream their error text as agent prose before the turn fails
-            // (Claude's usage-limit message). That text belongs in the failure row, not in
-            // an assistant bubble.
-            for rowID in current.streamingRowIDs {
-                guard let index = indexByID[rowID], case .assistant(let text, _) = rows[index].content else { continue }
-                if adapter.isStreamedErrorProse(text, turnError: error) { removeRow(rowID) }
-            }
-        }
         for rowID in current.streamingRowIDs {
             updateRow(rowID) { content in
                 switch content {
@@ -407,7 +432,7 @@ public struct TranscriptReducer: Sendable {
             error: error
         )
         let rowID = Self.summaryRowID(current.key)
-        lastClosedTurn = (current.startedSeq, rowID)
+        lastClosedTurn = (current.startedSeq, current.turnID, rowID, current.streamingRowIDs)
         if indexByID[rowID] == nil {
             append(TranscriptRow(id: rowID, at: at, content: .turnSummary(summary)))
         }
@@ -479,6 +504,62 @@ public struct TranscriptReducer: Sendable {
         }
     }
 
+    /// Hides prose that is really the harness's error text for a failed turn: exactly the
+    /// chunks the daemon lists in `errorChunkSeqs`, or, for daemons without that field, rows
+    /// whose text the error contains.
+    private mutating func hideErrorProse(in rowIDs: [String], error: String?, chunkSeqs: [Int]?) {
+        if let chunkSeqs {
+            let hidden = Set(chunkSeqs)
+            for rowID in rowIDs {
+                guard let seqs = chunkSeqsByRow[rowID], !seqs.isEmpty, seqs.allSatisfy(hidden.contains) else { continue }
+                removeRow(rowID)
+            }
+            return
+        }
+        guard let error, !error.isEmpty else { return }
+        for rowID in rowIDs {
+            guard let index = indexByID[rowID], case .assistant(let text, _) = rows[index].content else { continue }
+            if adapter.fallbackIsStreamedErrorProse(text, turnError: error) { removeRow(rowID) }
+        }
+    }
+
+    /// Shows the outcome of the session's last turn when the loaded history does not
+    /// include its `turn_result`, from the summary's `lastTurn` (current acpmux).
+    public mutating func applyLastTurn(_ lastTurn: JSONValue?) {
+        guard let lastTurn, lastTurn["status"]?.stringValue == "failed",
+              let turnID = lastTurn["turnId"]?.stringValue, !resultTurnIDs.contains(turnID) else { return }
+        resultTurnIDs.insert(turnID)
+        let rowID = "lastturn-\(turnID)"
+        guard indexByID[rowID] == nil else { return }
+        let summary = TranscriptTurnSummary(
+            durationMs: nil,
+            toolCount: 0,
+            status: "failed",
+            error: lastTurn["errorText"]?.stringValue
+        )
+        append(TranscriptRow(id: rowID, at: Int64(lastTurn["endedAt"]?.intValue ?? 0), content: .turnSummary(summary)))
+    }
+
+    /// Marks a local echo accepted by the daemon (`_acpmux/prompt_accepted`).
+    public mutating func markPromptAccepted(promptId: String) {
+        updateRow(Self.userRowID(promptId: promptId, seq: 0)) { content in
+            if case .user(var message) = content, message.isPending {
+                message.isPending = false
+                content = .user(message)
+            }
+        }
+    }
+
+    /// Whether a local echo row exists for `promptId`.
+    public func hasRow(forPromptId promptId: String) -> Bool {
+        indexByID[Self.userRowID(promptId: promptId, seq: 0)] != nil
+    }
+
+    /// Whether the daemon has recorded the prompt with `promptId` (its local echo is confirmed).
+    public func isConfirmed(promptId: String) -> Bool {
+        !pendingLocal.contains { $0.promptId == promptId }
+    }
+
     /// Whether a chunk with `messageID` continues the message streaming into `rowID`.
     private func continuesMessage(rowID: String, messageID: String?) -> Bool {
         guard let messageID, let current = messageIDByRow[rowID] else { return true }
@@ -490,6 +571,7 @@ public struct TranscriptReducer: Sendable {
         rows.remove(at: index)
         indexByID[rowID] = nil
         messageIDByRow[rowID] = nil
+        chunkSeqsByRow[rowID] = nil
         turn?.streamingRowIDs.removeAll { $0 == rowID }
         reindex(from: index)
     }

@@ -1,37 +1,40 @@
 import Foundation
+import os
 
-/// Heuristics that stand in for acpmux protocol fields that do not exist yet.
+/// Fallbacks for acpmux daemons and harnesses that do not send a protocol field yet.
 ///
-/// Each method names the field that will replace it. When the field lands, the reducer
-/// reads it directly and the method is deleted; nothing else in the reducer guesses.
+/// Current acpmux (#15512) sends `promptId` on user records, `message_superseded` for
+/// Codex retries, and `errorText`/`errorChunkSeqs` on failed `turn_result`s; the reducer
+/// reads those directly. Each method here is the fallback for one missing field, is named
+/// for that case, and logs when it runs so a stale daemon is visible in the logs.
 struct AcpmuxProtocolAdapter: Sendable {
-    /// The prompt a `user_message` confirms.
-    ///
-    /// Replaced by: `user_message.promptId` echoed by every daemon build. Until then a
-    /// record without it matches the oldest undelivered local echo with the same text.
+    private let log = Logger(subsystem: "com.cmuxterm.acpmux", category: "protocol-fallback")
+
+    /// The prompt a `user_message` confirms: its `promptId`, or, for daemons that do not
+    /// echo it, the oldest undelivered local echo with the same text.
     func promptID(forUserMessage msg: JSONValue, pendingEchoes: [(promptId: String, text: String)]) -> String? {
         if let promptId = msg["promptId"]?.stringValue { return promptId }
         let text = msg["text"]?.stringValue ?? ""
-        return pendingEchoes.first { $0.text == text }?.promptId
+        let match = pendingEchoes.first { $0.text == text }?.promptId
+        if match != nil { log.info("user_message without promptId: matched the local echo by text (old daemon)") }
+        return match
     }
 
-    /// Whether a new message, starting with `start`, redelivers the unfinished `abandoned`
-    /// message directly before it (Codex resends the whole answer after a dropped stream).
-    ///
-    /// Replaced by: a `message_superseded {old, new}` record.
-    func isRedelivery(of abandoned: String, restartingWith start: String) -> Bool {
+    /// For harnesses that do not signal `message_superseded`: whether a new message,
+    /// starting with `start`, redelivers the unfinished `abandoned` message before it.
+    func fallbackRedeliveryWithoutSupersededSignal(of abandoned: String, restartingWith start: String) -> Bool {
         let head = start.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !head.isEmpty else { return false }
-        return abandoned.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(head)
+        guard !head.isEmpty, abandoned.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(head) else { return false }
+        log.info("treated a new messageId as a redelivery by text prefix (no message_superseded signal)")
+        return true
     }
 
-    /// Whether streamed prose is the harness's error text for a failed turn, which belongs
-    /// in the failure row rather than in an assistant bubble.
-    ///
-    /// Replaced by: error text carried only on `turn_result`, marked so agents' error prose
-    /// is not also streamed as `agent_message_chunk`.
-    func isStreamedErrorProse(_ text: String, turnError: String) -> Bool {
+    /// For daemons whose failed `turn_result` has no `errorChunkSeqs`: whether streamed
+    /// prose is the harness's error text, which belongs in the failure row.
+    func fallbackIsStreamedErrorProse(_ text: String, turnError: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && turnError.contains(trimmed)
+        guard !trimmed.isEmpty, turnError.contains(trimmed) else { return false }
+        log.info("hid streamed error prose by text match (turn_result without errorChunkSeqs)")
+        return true
     }
 }

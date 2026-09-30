@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 /// Starts a detached `acpmux daemon run` and waits until its socket accepts connections.
 ///
@@ -45,11 +46,19 @@ public struct AcpmuxDaemonLauncher: Sendable {
         if !fileManager.fileExists(atPath: logPath) {
             fileManager.createFile(atPath: logPath, contents: nil)
         }
+        // Current acpmux reports readiness on --ready-fd; older builds reject the flag and
+        // exit, which shows up as EOF on the pipe, and then start again with log watching.
+        if let connection = try await launchWithReadyFD(executable: executable, environment: environment, logPath: logPath, connect: connect) {
+            log.info("daemon ready via --ready-fd")
+            return connection
+        }
+        log.info("daemon without --ready-fd support: falling back to log-watch readiness")
         try spawnDetached(
             executable: executable,
             arguments: ["daemon", "run"] + environment.daemonArguments,
             environment: environment.childEnvironment(base: baseEnvironment),
-            logPath: logPath
+            logPath: logPath,
+            readyWriteFD: nil
         )
         let signals = Self.logChanges(logPath: logPath)
         let timeout = readinessTimeout
@@ -72,6 +81,68 @@ public struct AcpmuxDaemonLauncher: Sendable {
             }
             return connection
         }
+    }
+
+    private var log: Logger { Logger(subsystem: "com.cmuxterm.acpmux", category: "daemon-launch") }
+
+    /// Starts the daemon with `--ready-fd 3` and waits for its ready line.
+    /// - Returns: A connection, or `nil` when the pipe closed without a ready line (a daemon
+    ///   that predates the flag).
+    private func launchWithReadyFD<Connection: Sendable>(
+        executable: String,
+        environment: AcpmuxDaemonEnvironment,
+        logPath: String,
+        connect: @escaping @Sendable () -> Connection?
+    ) async throws -> Connection? {
+        var fds: [Int32] = [0, 0]
+        guard pipe(&fds) == 0 else { return nil }
+        let readFD = fds[0], writeFD = fds[1]
+        do {
+            try spawnDetached(
+                executable: executable,
+                arguments: ["daemon", "run", "--ready-fd", "3"] + environment.daemonArguments,
+                environment: environment.childEnvironment(base: baseEnvironment),
+                logPath: logPath,
+                readyWriteFD: writeFD
+            )
+        } catch {
+            close(readFD)
+            close(writeFD)
+            throw error
+        }
+        close(writeFD)
+        let timeout = readinessTimeout
+        // A blocking read of the pipe on a detached task keyed by the raw fd; the deadline
+        // task closes nothing, so the read ends at EOF or the ready line.
+        let readyLine: String? = try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask {
+                await Task.detached { Self.readLine(fd: readFD) }.value
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw AcpmuxDaemonError.timedOut(logPath: logPath)
+            }
+            defer { group.cancelAll() }
+            return try await group.next() ?? nil
+        }
+        close(readFD)
+        guard let readyLine, readyLine.contains("\"ready\""), readyLine.contains("true") else { return nil }
+        return connect()
+    }
+
+    private static func readLine(fd: Int32) -> String? {
+        var bytes: [UInt8] = []
+        var byte: UInt8 = 0
+        while true {
+            let count = read(fd, &byte, 1)
+            if count == 1 {
+                if byte == 0x0A { break }
+                bytes.append(byte)
+            } else if count == 0 || errno != EINTR {
+                break
+            }
+        }
+        return bytes.isEmpty ? nil : String(decoding: bytes, as: UTF8.self)
     }
 
     /// Daemon log writes as a stream. A vnode `DispatchSource` is the only event API for
@@ -101,13 +172,23 @@ public struct AcpmuxDaemonLauncher: Sendable {
     /// the shell, and launchd adopts and later reaps the daemon. cmux therefore never holds
     /// a child that can become a zombie, and the daemon outlives cmux. `setsid` puts both
     /// in a new session, away from the app's process group.
-    private func spawnDetached(executable: String, arguments: [String], environment: [String: String], logPath: String) throws {
+    private func spawnDetached(
+        executable: String,
+        arguments: [String],
+        environment: [String: String],
+        logPath: String,
+        readyWriteFD: Int32?
+    ) throws {
         var fileActions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&fileActions)
         defer { posix_spawn_file_actions_destroy(&fileActions) }
         posix_spawn_file_actions_addopen(&fileActions, 0, "/dev/null", O_RDONLY, 0)
         posix_spawn_file_actions_addopen(&fileActions, 1, logPath, O_WRONLY | O_APPEND | O_CREAT, 0o644)
         posix_spawn_file_actions_adddup2(&fileActions, 1, 2)
+        if let readyWriteFD {
+            // The daemon writes its ready line to descriptor 3.
+            posix_spawn_file_actions_adddup2(&fileActions, readyWriteFD, 3)
+        }
 
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)

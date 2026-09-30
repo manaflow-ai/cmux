@@ -176,6 +176,62 @@ struct TranscriptReducerTests {
         ])
     }
 
+    @Test func messageSupersededDropsTheOldMessageWithoutTheFallback() {
+        func chunk(_ seq: Int, _ text: String, _ messageID: String) -> AcpmuxEventRecord {
+            AcpmuxEventRecord(
+                sessionId: "s", seq: seq, at: Int64(seq), dir: "in", kind: "agent_message_chunk",
+                msg: .object(["jsonrpc": .string("2.0"), "method": .string("session/update"), "params": .object(["update": .object([
+                    "sessionUpdate": .string("agent_message_chunk"),
+                    "content": .object(["type": .string("text"), "text": .string(text)]),
+                    "messageId": .string(messageID),
+                ])])])
+            )
+        }
+        var reducer = TranscriptReducer()
+        reducer.usesRedeliveryFallback = false
+        reducer.apply([
+            AcpmuxEventRecord(sessionId: "s", seq: 1, at: 1, dir: "mux", kind: "user_message", msg: .object(["text": .string("ls")])),
+            chunk(2, "Partial answ", "m1"),
+            AcpmuxEventRecord(sessionId: "s", seq: 3, at: 3, dir: "mux", kind: "message_superseded", msg: .object([
+                "oldMessageId": .string("m1"), "newMessageId": .string("m2"), "reason": .string("harness_retry"),
+            ])),
+            chunk(4, "Full answer.", "m2"),
+            chunk(5, " late", "m1"),
+        ])
+        #expect(summaries(reducer.rows) == ["user:ls", "assistant:Full answer.…"])
+    }
+
+    @Test func failedTurnHidesExactlyTheErrorChunks() {
+        var reducer = TranscriptReducer()
+        func chunk(_ seq: Int, _ text: String) -> AcpmuxEventRecord {
+            AcpmuxEventRecord(
+                sessionId: "s", seq: seq, at: Int64(seq), dir: "in", kind: "agent_message_chunk",
+                msg: .object(["jsonrpc": .string("2.0"), "method": .string("session/update"), "params": .object(["update": .object([
+                    "sessionUpdate": .string("agent_message_chunk"),
+                    "content": .object(["type": .string("text"), "text": .string(text)]),
+                    "messageId": .string("m\(seq)"),
+                ])])])
+            )
+        }
+        reducer.apply([
+            AcpmuxEventRecord(sessionId: "s", seq: 1, at: 1, dir: "mux", kind: "user_message", msg: .object(["text": .string("hi")])),
+            chunk(2, "Real prose."),
+            chunk(3, "Quota exceeded"),
+            AcpmuxEventRecord(sessionId: "s", seq: 4, at: 4, dir: "mux", kind: "turn_result", msg: .object([
+                "status": .string("failed"), "errorText": .string("Quota exceeded"), "errorChunkSeqs": .array([.number(3)]),
+            ])),
+        ])
+        #expect(summaries(reducer.rows) == ["user:hi", "assistant:Real prose.", "turn:failed:0"])
+    }
+
+    @Test func lastTurnShowsAFailureMissingFromTheLoadedHistory() {
+        var reducer = TranscriptReducer()
+        reducer.applyLastTurn(.object([
+            "turnId": .string("t1"), "status": .string("failed"), "errorText": .string("boom"), "endedAt": .number(5),
+        ]))
+        #expect(summaries(reducer.rows) == ["turn:failed:0"])
+    }
+
     @Test func distinctConsecutiveMessagesStaySeparate() {
         func chunk(_ seq: Int, _ text: String, _ messageID: String) -> AcpmuxEventRecord {
             AcpmuxEventRecord(
