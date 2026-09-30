@@ -93,7 +93,7 @@ enum CompatV1 {
         let entries = try await service.daemon("list-notifications", mutates: false) { try await $0.notificationLedger() }
         guard !entries.isEmpty else { return "No notifications" }
         return entries.enumerated().map { index, entry in
-            let surface = entry.surface.flatMap { handle in world.surfaces.values.first { $0.handle == handle } }
+            let surface = entry.surface.flatMap { world.surface(CompatSurfaceHandle(handle: $0, session: nil)) }
             let workspace = surface?.workspaceUUID ?? CompatUUID.hashed("unattributed")
             let fields = [entry.id, workspace, surface?.uuid ?? "none", entry.acknowledged ? "read" : "unread", entry.title,
                           entry.subtitle ?? "", entry.body.replacingOccurrences(of: "\n", with: " "),
@@ -127,7 +127,7 @@ enum CompatV1 {
         let title = fields.first.flatMap { $0.isEmpty ? nil : $0 } ?? "Notification"
         let body = [fields.count > 1 ? fields[1] : "", fields.count > 2 ? fields[2] : ""].filter { !$0.isEmpty }.joined(separator: "\n")
         let handle = surface.handle
-        _ = try await service.daemon("notify") { try await $0.notify(title: title, body: body, surface: handle) }
+        _ = try await service.daemon("notify", session: surface.sessionID) { try await $0.notify(title: title, body: body, surface: handle) }
         return "OK"
     }
 }

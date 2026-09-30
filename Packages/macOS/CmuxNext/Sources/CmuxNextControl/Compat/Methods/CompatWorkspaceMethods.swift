@@ -53,14 +53,16 @@ enum CompatWorkspaceMethods {
         let env = (call.params["initial_env"] ?? call.params["startup_environment"])?.objectValue ?? [:]
         if !env.isEmpty { arguments["env"] = .string(JSON.object(env).compactText) }
         let before = try await call.world()
+        // `--session`: the workspace is born on that session (its App machine).
+        if let session = before.scope, !session.isHome { arguments["machine"] = .string(session.machineID) }
         try await service.runAction("newTab", arguments: arguments, call: call)
         let world = try await call.world()
-        guard let workspace = world.createdWorkspace(since: before) else {
+        guard let workspace = world.createdWorkspace(since: before, session: before.scopeID) else {
             throw ControlError(code: "internal_error", message: ControlStrings.text("control.error.createdNoWorkspace", "workspace.create: the action ran but created no workspace"))
         }
         if let groupRaw = call.string("group_id"), let key = workspace.key {
             // No registry action places a workspace in a group by id yet.
-            _ = try await service.daemon("move-workspace-to-group") { try await $0.moveWorkspace(key, toGroup: WorkspaceGroupID(rawValue: groupRaw)) }
+            _ = try await service.daemon("move-workspace-to-group", session: workspace.sessionID) { try await $0.moveWorkspace(key, toGroup: WorkspaceGroupID(rawValue: groupRaw)) }
         }
         let window = try? call.target(world).window()
         let surface = world.orderedSurfaces(in: workspace).first
@@ -152,9 +154,10 @@ enum CompatWorkspaceMethods {
         } else {
             throw CompatErrors.invalid(ControlStrings.text("control.error.workspaceReorderAnchor", "workspace.reorder requires index, before_workspace_id, or after_workspace_id"))
         }
-        let clamped = max(0, min(index, world.workspaces.count - 1))
+        let peers = world.workspaces.filter { $0.sessionID == workspace.sessionID }
+        let clamped = max(0, min(index, peers.count - 1))
         index = clamped
-        _ = try await call.service.daemon("move-workspace") { try await $0.moveWorkspace(key, to: clamped) }
+        _ = try await call.service.daemon("move-workspace", session: workspace.sessionID) { try await $0.moveWorkspace(key, to: clamped) }
         var result = CompatJSON.ids(window: world.activeWindow, workspace: workspace)
         result["index"] = JSON(index)
         return .object(result)

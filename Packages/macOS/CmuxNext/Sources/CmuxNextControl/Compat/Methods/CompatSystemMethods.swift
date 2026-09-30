@@ -11,6 +11,11 @@ enum CompatSystemMethods {
         "system.capabilities": .read(capabilities),
         "system.identify": .async(identify),
         "system.tree": .async(tree),
+        // Every federated session (plans/cmux-next/data-model.md 1.1), home first.
+        "system.sessions": .read({ call in
+            let world = try call.snapshotWorld()
+            return ["sessions": .array(world.sessions.map { .object(CompatJSON.session($0, in: world)) })]
+        }),
         "window.list": .read({ call in
             let world = try call.snapshotWorld()
             let all = call.params["include_hidden"]?.boolValue ?? false

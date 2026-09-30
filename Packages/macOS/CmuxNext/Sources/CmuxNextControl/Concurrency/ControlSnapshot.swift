@@ -23,9 +23,33 @@ public struct ControlSnapshot: Sendable {
 
     public static let empty = ControlSnapshot()
 
-    /// True when the topology is loaded and reflects daemon events up to `sequence`.
+    /// True when the topology is loaded and reflects home daemon events up to `sequence`.
     public func reflects(daemonSequence sequence: UInt64) -> Bool {
-        topology.isLoaded && topology.daemonSequence >= sequence
+        reflects(ControlSequenceBarrier(home: sequence))
+    }
+
+    /// True when the topology is loaded and reflects every session's daemon
+    /// events up to its sequence in `barrier`. A session the topology no
+    /// longer reports (disconnected, forgotten) cannot be waited for.
+    public func reflects(_ barrier: ControlSequenceBarrier) -> Bool {
+        guard topology.isLoaded, topology.daemonSequence >= barrier.home else { return false }
+        return barrier.sessions.allSatisfy { id, sequence in
+            guard let applied = topology.sessionSequences[id] else { return topology.session(id: id) == nil }
+            return applied >= sequence
+        }
+    }
+}
+
+/// Daemon event sequences a read must see (read-your-writes across
+/// sessions): the home daemon's, and each remote session's by
+/// `ControlSessionInfo.id`. Sequences are per daemon connection.
+public struct ControlSequenceBarrier: Sendable, Hashable {
+    public var home: UInt64
+    public var sessions: [String: UInt64]
+
+    public init(home: UInt64 = 0, sessions: [String: UInt64] = [:]) {
+        self.home = home
+        self.sessions = sessions
     }
 }
 
@@ -39,7 +63,7 @@ public struct ControlSnapshot: Sendable {
 public final class ControlSnapshotStore: Sendable {
     private struct Waiter {
         let id: UInt64
-        let sequence: UInt64
+        let barrier: ControlSequenceBarrier
         let continuation: CheckedContinuation<ControlSnapshot?, Never>
     }
 
@@ -71,8 +95,8 @@ public final class ControlSnapshotStore: Sendable {
             state.snapshot.publishedAtUptimeNanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             guard !state.waiters.isEmpty else { return (state.snapshot.generation, state.snapshot, []) }
             let snapshot = state.snapshot
-            let ready = state.waiters.filter { snapshot.reflects(daemonSequence: $0.sequence) }
-            if !ready.isEmpty { state.waiters.removeAll { snapshot.reflects(daemonSequence: $0.sequence) } }
+            let ready = state.waiters.filter { snapshot.reflects($0.barrier) }
+            if !ready.isEmpty { state.waiters.removeAll { snapshot.reflects($0.barrier) } }
             return (snapshot.generation, snapshot, ready)
         }
         for waiter in ready { waiter.continuation.resume(returning: snapshot) }
@@ -83,8 +107,14 @@ public final class ControlSnapshotStore: Sendable {
     /// to `sequence` (the current one when it already does), or nil at
     /// `deadline` or on cancellation. Never blocks a thread.
     public func snapshot(reflecting sequence: UInt64, deadline: ContinuousClock.Instant) async -> ControlSnapshot? {
+        await snapshot(reflecting: ControlSequenceBarrier(home: sequence), deadline: deadline)
+    }
+
+    /// The first published snapshot that reflects every sequence in
+    /// `barrier`, or nil at `deadline` or on cancellation.
+    public func snapshot(reflecting sequence: ControlSequenceBarrier, deadline: ContinuousClock.Instant) async -> ControlSnapshot? {
         let (ready, id) = state.withLock { state -> (ControlSnapshot?, UInt64) in
-            if state.snapshot.reflects(daemonSequence: sequence) { return (state.snapshot, 0) }
+            if state.snapshot.reflects(sequence) { return (state.snapshot, 0) }
             state.nextWaiter &+= 1
             return (nil, state.nextWaiter)
         }
@@ -100,9 +130,9 @@ public final class ControlSnapshotStore: Sendable {
                 // Resume now when already satisfied or cancelled (the
                 // cancellation handler may have run before this waiter existed).
                 let now = state.withLock { state -> ControlSnapshot?? in
-                    if state.snapshot.reflects(daemonSequence: sequence) { return .some(state.snapshot) }
+                    if state.snapshot.reflects(sequence) { return .some(state.snapshot) }
                     if Task.isCancelled { return .some(nil) }
-                    state.waiters.append(Waiter(id: id, sequence: sequence, continuation: continuation))
+                    state.waiters.append(Waiter(id: id, barrier: sequence, continuation: continuation))
                     return .none
                 }
                 if case .some(let result) = now { continuation.resume(returning: result) }

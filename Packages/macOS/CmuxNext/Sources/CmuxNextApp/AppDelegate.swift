@@ -125,7 +125,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installCompat(on router: ControlRouter) {
         let frontend = services.compat!
         frontend.afterIntent = { [control] in control.publishSnapshotNow() }
-        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironmentProvider()) {
+        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironmentProvider(),
+                                   sessionConnection: { frontend.connection(session: $0) }) {
             frontend.currentConnection()
         }
         compat.install(on: router)

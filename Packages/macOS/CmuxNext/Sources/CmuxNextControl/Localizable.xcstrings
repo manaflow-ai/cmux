@@ -19126,6 +19126,268 @@
           }
         }
       }
+    },
+    "control.error.sessionNotConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session %1$@ is not connected (%2$@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الجلسة %1$@ غير متصلة (%2$@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sesija %1$@ nije povezana (%2$@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sessionen %1$@ er ikke forbundet (%2$@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sitzung %1$@ ist nicht verbunden (%2$@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la sesión %1$@ no está conectada (%2$@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la session %1$@ n'est pas connectée (%2$@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la sessione %1$@ non è connessa (%2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッション %1$@ は接続されていません (%2$@)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វគ្គ %1$@ មិនបានភ្ជាប់ទេ (%2$@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션 %1$@이(가) 연결되지 않았습니다 (%2$@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "økten %1$@ er ikke tilkoblet (%2$@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sesja %1$@ nie jest połączona (%2$@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a sessão %1$@ não está conectada (%2$@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "сеанс %1$@ не подключён (%2$@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซสชัน %1$@ ไม่ได้เชื่อมต่อ (%2$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ oturumu bağlı değil (%2$@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "сеанс %1$@ не під’єднано (%2$@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "phiên %1$@ chưa kết nối (%2$@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会话 %1$@ 未连接（%2$@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作階段 %1$@ 未連線（%2$@）"
+          }
+        }
+      }
+    },
+    "control.error.moveAcrossSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "moving a tab to a pane of another session is not supported; move it to a workspace instead"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل علامة تبويب إلى جزء في جلسة أخرى غير مدعوم؛ انقلها إلى مساحة عمل بدلاً من ذلك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "premještanje kartice u okno druge sesije nije podržano; premjestite je u radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "det understøttes ikke at flytte en fane til en rude i en anden session; flyt den til et arbejdsområde i stedet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Tab kann nicht in einen Bereich einer anderen Sitzung verschoben werden; verschiebe ihn stattdessen in einen Arbeitsbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "no se admite mover una pestaña a un panel de otra sesión; muévela a un espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "déplacer un onglet vers un volet d'une autre session n'est pas pris en charge ; déplacez-le vers un espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "spostare una scheda in un riquadro di un'altra sessione non è supportato; spostala in uno spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "別のセッションのペインへタブを移動することはできません。代わりにワークスペースへ移動してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនគាំទ្រការផ្លាស់ទីផ្ទាំងទៅកាន់ផ្ទាំងរងនៃវគ្គផ្សេង; សូមផ្លាស់ទីវាទៅកន្លែងធ្វើការជំនួសវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 세션의 창으로 탭을 이동할 수 없습니다. 대신 작업 공간으로 이동하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "det støttes ikke å flytte en fane til en rute i en annen økt; flytt den til et arbeidsområde i stedet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "przenoszenie karty do panelu innej sesji nie jest obsługiwane; przenieś ją do obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "mover uma aba para um painel de outra sessão não é suportado; mova-a para um espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "перемещение вкладки на панель другого сеанса не поддерживается; переместите её в рабочую область"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่รองรับการย้ายแท็บไปยังบานหน้าต่างของเซสชันอื่น ให้ย้ายไปยังพื้นที่ทำงานแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bir sekmeyi başka bir oturumun bölmesine taşımak desteklenmiyor; bunun yerine bir çalışma alanına taşıyın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "переміщення вкладки на панель іншого сеансу не підтримується; перемістіть її до робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không hỗ trợ di chuyển thẻ sang khung của phiên khác; hãy di chuyển nó sang một không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不支持将标签页移到其他会话的窗格；请改为移到工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不支援將分頁移到其他工作階段的窗格；請改為移到工作區"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

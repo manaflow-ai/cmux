@@ -250286,6 +250286,137 @@
           }
         }
       }
+    },
+    "cli.usage.targets.sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objects on another machine carry its session first (build-box:workspace:2). --session <name|id> (alias --machine) picks the session for unqualified refs, indexes, lists, and new workspaces; `cmux list-machines` lists sessions."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبدأ معرّفات الكائنات على جهاز آخر باسم جلسته (build-box:workspace:2). يختار --session <name|id> (أو --machine) الجلسة للمراجع غير المؤهلة والفهارس والقوائم ومساحات العمل الجديدة؛ ويعرض `cmux list-machines` الجلسات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Objekti na drugoj mašini počinju njenom sesijom (build-box:workspace:2). --session <name|id> (alias --machine) bira sesiju za nekvalifikovane reference, indekse, liste i nove radne prostore; `cmux list-machines` ispisuje sesije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Objekter på en anden maskine starter med dens session (build-box:workspace:2). --session <name|id> (alias --machine) vælger sessionen for ukvalificerede referencer, indeks, lister og nye arbejdsområder; `cmux list-machines` viser sessioner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Objekte auf einem anderen Rechner beginnen mit dessen Sitzung (build-box:workspace:2). --session <name|id> (Alias --machine) wählt die Sitzung für unqualifizierte Referenzen, Indizes, Listen und neue Arbeitsbereiche; `cmux list-machines` listet Sitzungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los objetos de otra máquina empiezan por su sesión (build-box:workspace:2). --session <name|id> (alias --machine) elige la sesión para referencias sin calificar, índices, listas y espacios de trabajo nuevos; `cmux list-machines` lista las sesiones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les objets d'une autre machine commencent par sa session (build-box:workspace:2). --session <name|id> (alias --machine) choisit la session pour les références non qualifiées, les index, les listes et les nouveaux espaces de travail ; `cmux list-machines` liste les sessions."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli oggetti su un'altra macchina iniziano con la sua sessione (build-box:workspace:2). --session <name|id> (alias --machine) sceglie la sessione per riferimenti non qualificati, indici, elenchi e nuovi spazi di lavoro; `cmux list-machines` elenca le sessioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "別のマシン上のオブジェクトはそのセッション名で始まります (build-box:workspace:2)。--session <name|id> (別名 --machine) は、修飾なしの参照、インデックス、一覧、新しいワークスペースの対象セッションを選びます。`cmux list-machines` でセッションを一覧表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វត្ថុនៅលើម៉ាស៊ីនផ្សេងចាប់ផ្តើមដោយវគ្គរបស់វា (build-box:workspace:2)។ --session <name|id> (ឈ្មោះក្លែង --machine) ជ្រើសវគ្គសម្រាប់ឯកសារយោងគ្មានគុណវុឌ្ឍិ លិបិក្រម បញ្ជី និងកន្លែងធ្វើការថ្មី; `cmux list-machines` បង្ហាញវគ្គ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 컴퓨터의 개체는 해당 세션 이름으로 시작합니다 (build-box:workspace:2). --session <name|id> (별칭 --machine)는 한정되지 않은 참조, 인덱스, 목록, 새 작업 공간의 세션을 고릅니다. `cmux list-machines`는 세션을 나열합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Objekter på en annen maskin starter med dens økt (build-box:workspace:2). --session <name|id> (alias --machine) velger økten for ukvalifiserte referanser, indekser, lister og nye arbeidsområder; `cmux list-machines` viser økter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obiekty na innym komputerze zaczynają się od jego sesji (build-box:workspace:2). --session <name|id> (alias --machine) wybiera sesję dla niekwalifikowanych odwołań, indeksów, list i nowych obszarów roboczych; `cmux list-machines` wyświetla sesje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Objetos em outra máquina começam com a sessão dela (build-box:workspace:2). --session <name|id> (alias --machine) escolhe a sessão para referências não qualificadas, índices, listas e novos espaços de trabalho; `cmux list-machines` lista as sessões."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Объекты на другой машине начинаются с её сеанса (build-box:workspace:2). --session <name|id> (псевдоним --machine) выбирает сеанс для неуточнённых ссылок, индексов, списков и новых рабочих областей; `cmux list-machines` показывает сеансы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ออบเจ็กต์บนเครื่องอื่นขึ้นต้นด้วยเซสชันของเครื่องนั้น (build-box:workspace:2) --session <name|id> (หรือ --machine) เลือกเซสชันสำหรับการอ้างอิงที่ไม่ระบุ ดัชนี รายการ และพื้นที่ทำงานใหม่ `cmux list-machines` แสดงรายการเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başka bir makinedeki nesneler o makinenin oturumuyla başlar (build-box:workspace:2). --session <name|id> (diğer adı --machine) nitelenmemiş başvurular, dizinler, listeler ve yeni çalışma alanları için oturumu seçer; `cmux list-machines` oturumları listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Об’єкти на іншій машині починаються з її сеансу (build-box:workspace:2). --session <name|id> (псевдонім --machine) вибирає сеанс для некваліфікованих посилань, індексів, списків і нових робочих просторів; `cmux list-machines` показує сеанси."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đối tượng trên máy khác bắt đầu bằng phiên của máy đó (build-box:workspace:2). --session <name|id> (bí danh --machine) chọn phiên cho tham chiếu không định danh, chỉ mục, danh sách và không gian làm việc mới; `cmux list-machines` liệt kê các phiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他机器上的对象以其会话名开头（build-box:workspace:2）。--session <name|id>（别名 --machine）为未限定的引用、索引、列表和新工作区选择会话；`cmux list-machines` 列出会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他機器上的物件以其工作階段名稱開頭（build-box:workspace:2）。--session <name|id>（別名 --machine）為未限定的參照、索引、清單和新工作區選擇工作階段；`cmux list-machines` 列出工作階段。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

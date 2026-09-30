@@ -34,7 +34,8 @@ enum CompatNotificationMethods {
         let title = call.string("title").flatMap { $0.isEmpty ? nil : $0 } ?? "Notification"
         let body = [call.string("subtitle"), call.string("body")].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: "\n")
         let handle = surface?.handle
-        let id = try await call.service.createNotification(title: title, body: body, surface: handle, source: "cli")
+        let id = try await call.service.createNotification(title: title, body: body, surface: handle,
+                                                           session: surface?.sessionID ?? workspace.sessionID, source: "cli")
         var result = CompatJSON.ids(window: world.window(workspace.windowUUIDs.first), workspace: workspace, surface: surface)
         result["id"] = .string(String(id.rawValue))
         return .object(result)
@@ -45,7 +46,8 @@ enum CompatNotificationMethods {
     }
 
     static func item(_ entry: ListNotificationsRequest.Entry, world: CompatWorld) -> JSON {
-        let surface = entry.surface.flatMap { handle in world.surfaces.values.first { $0.handle == handle } }
+        // The ledger is the home session's.
+        let surface = entry.surface.flatMap { world.surface(CompatSurfaceHandle(handle: $0, session: nil)) }
         let workspace = world.workspace(surface?.workspaceUUID)
         var body = entry.body
         var subtitle = entry.subtitle ?? ""
@@ -123,7 +125,7 @@ enum CompatNotificationMethods {
         guard let entry = ledger.first(where: { $0.id == id }) else {
             throw ControlError(code: "not_found", message: ControlStrings.text("control.error.notificationNotFound", "Notification not found"), data: ["id": .string(id)])
         }
-        if let handle = entry.surface, let surface = world.surfaces.values.first(where: { $0.handle == handle }) {
+        if let handle = entry.surface, let surface = world.surface(CompatSurfaceHandle(handle: handle, session: nil)) {
             try await acknowledge([surface], service: call.service)
         }
         guard case .object(var result) = item(entry, world: world) else { return .null }

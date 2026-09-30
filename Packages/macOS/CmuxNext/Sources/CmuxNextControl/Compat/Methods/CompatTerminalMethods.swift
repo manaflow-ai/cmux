@@ -30,7 +30,7 @@ enum CompatTerminalMethods {
         guard let text = call.params["text"]?.stringValue else { throw CompatErrors.invalid(ControlStrings.text("control.error.missingText", "Missing text")) }
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle
-        try await call.service.daemon("send", mutates: false) { try await $0.send(handle, text: text, paste: paste) }
+        try await call.service.daemon("send", session: surface.sessionID, mutates: false) { try await $0.send(handle, text: text, paste: paste) }
         var result = ids(world, surface, target)
         result["queued"] = false
         return .object(result)
@@ -38,7 +38,7 @@ enum CompatTerminalMethods {
 
     static func send(_ text: String, to surface: CompatWorld.Surface, service: CompatService) async throws {
         let handle = surface.handle
-        try await service.daemon("send", mutates: false) { try await $0.send(handle, text: text) }
+        try await service.daemon("send", session: surface.sessionID, mutates: false) { try await $0.send(handle, text: text) }
     }
 
     static func sendKey(_ call: CompatCall) async throws -> JSON {
@@ -48,7 +48,7 @@ enum CompatTerminalMethods {
         }
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle
-        try await call.service.daemon("send-key", mutates: false) { try await $0.sendKeys(handle, [chord]) }
+        try await call.service.daemon("send-key", session: surface.sessionID, mutates: false) { try await $0.sendKeys(handle, [chord]) }
         var result = ids(world, surface, target)
         result["queued"] = false
         return .object(result)
@@ -62,9 +62,9 @@ enum CompatTerminalMethods {
         let scrollback = lines != nil || call.bool("scrollback") == true
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle
-        var text = try await call.service.daemon("read-screen", mutates: false) { try await $0.request(CompatReadScreenRequest(surface: handle)).text }
+        var text = try await call.service.daemon("read-screen", session: surface.sessionID, mutates: false) { try await $0.request(CompatReadScreenRequest(surface: handle)).text }
         if scrollback {
-            let history = try await readHistory(handle, lastLines: lines, service: call.service)
+            let history = try await readHistory(handle, session: surface.sessionID, lastLines: lines, service: call.service)
             if !history.isEmpty { text = history + "\n" + text }
         }
         if let lines {
@@ -78,13 +78,13 @@ enum CompatTerminalMethods {
         return .object(result)
     }
 
-    static func readHistory(_ handle: SurfaceID, lastLines: Int?, service: CompatService) async throws -> String {
-        let probe = try await service.daemon("read-scrollback", mutates: false) { try await $0.request(CompatReadScrollbackRequest(surface: handle, start: 0, count: 0)) }
+    static func readHistory(_ handle: SurfaceID, session: String?, lastLines: Int?, service: CompatService) async throws -> String {
+        let probe = try await service.daemon("read-scrollback", session: session, mutates: false) { try await $0.request(CompatReadScrollbackRequest(surface: handle, start: 0, count: 0)) }
         let total = probe.total
         guard total > 0 else { return "" }
         let wanted = min(total, UInt32(min(lastLines ?? Int(UInt16.max), Int(UInt16.max))))
         let start = total - wanted
-        let page = try await service.daemon("read-scrollback", mutates: false) {
+        let page = try await service.daemon("read-scrollback", session: session, mutates: false) {
             try await $0.request(CompatReadScrollbackRequest(surface: handle, start: start, count: wanted))
         }
         return page.text
@@ -93,7 +93,7 @@ enum CompatTerminalMethods {
     static func clearHistory(_ call: CompatCall) async throws -> JSON {
         let (world, surface, target) = try await terminal(call)
         let handle = surface.handle
-        _ = try await call.service.daemon("clear-history", mutates: false) { try await $0.request(CompatClearHistoryRequest(surface: handle)) }
+        _ = try await call.service.daemon("clear-history", session: surface.sessionID, mutates: false) { try await $0.request(CompatClearHistoryRequest(surface: handle)) }
         return .object(ids(world, surface, target))
     }
 }

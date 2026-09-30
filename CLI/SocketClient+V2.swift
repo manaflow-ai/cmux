@@ -1,6 +1,7 @@
 import Foundation
 import CoreFoundation
 import CmuxControlSocket
+import CmuxFoundation
 import Darwin
 
 extension SocketClient {
@@ -11,6 +12,13 @@ extension SocketClient {
         deadline: Date? = nil
     ) throws -> [String: Any] {
         var tracedParams = params
+        if let session = Self.sessionScope {
+            if CmuxCLISessionScope.applies(toMethod: method), tracedParams["session"] == nil {
+                tracedParams["session"] = session
+            } else if method == "action.run", let target = tracedParams["target"] as? String {
+                tracedParams["target"] = CmuxCLISessionScope.qualify(target: target, session: session)
+            }
+        }
         if method.hasPrefix("vm.") {
             for (key, env) in [("cloud_operation_id", "CMUX_CLOUD_OPERATION_ID"),
                                ("cloud_trace_id", "CMUX_CLOUD_TRACE_ID"),

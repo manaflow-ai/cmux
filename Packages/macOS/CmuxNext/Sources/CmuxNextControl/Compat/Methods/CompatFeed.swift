@@ -90,7 +90,8 @@ enum CompatFeed {
             decision = decision || attention.needsDecision
             let surface = event["surface_id"]?.stringValue.flatMap { try? world.resolveSurface($0, in: nil, refs: call.service.refs) }
             let handle = surface?.handle
-            let id = try await call.service.createNotification(title: attention.title, body: attention.body, surface: handle, source: "agent")
+            let id = try await call.service.createNotification(title: attention.title, body: attention.body, surface: handle,
+                                                               session: surface?.sessionID, source: "agent")
             ids.append(.string(String(id.rawValue)))
         }
         var result: [String: JSON] = ["status": .string(wait > 0 && decision ? "timed_out" : "acknowledged"),
@@ -145,7 +146,7 @@ enum CompatFeed {
             let surface = try world.resolveSurface(surfaceID, in: nil, refs: service.refs)
             guard surface.isTerminal else { return "OK \(sequence)" }
             let handle = surface.handle
-            _ = try await service.daemon("report-agent") {
+            _ = try await service.daemon("report-agent", session: surface.sessionID) {
                 try await $0.request(ReportAgentRequest(surface: handle, state: state, session: session))
             }
             return "OK \(sequence)"
@@ -176,6 +177,7 @@ enum CompatFeed {
         guard let world = try? await service.world(),
               let surface = try? world.resolveSurface(surfaceID, in: nil, refs: service.refs) else { return }
         let handle = surface.handle
-        _ = try? await service.createNotification(title: note.title, body: note.body, level: note.level, surface: handle, source: "agent")
+        _ = try? await service.createNotification(title: note.title, body: note.body, level: note.level, surface: handle,
+                                                  session: surface.sessionID, source: "agent")
     }
 }

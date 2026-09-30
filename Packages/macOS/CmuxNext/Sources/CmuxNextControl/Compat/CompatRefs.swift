@@ -42,45 +42,77 @@ enum CompatUUID {
 }
 
 /// Short refs (`workspace:3`, `pane:7`, `surface:12`, `window:1`) the old
-/// CLI prints by default. Numbers are assigned per kind on first sight and
-/// never reused for the life of the app process, like the old app's handle
-/// registry, so a ref a script saved keeps naming the same object.
+/// CLI prints by default. Numbers are assigned per session and kind on first
+/// sight and never reused for the life of the app process, like the old
+/// app's handle registry, so a ref a script saved keeps naming the same
+/// object. Objects of a remote session print qualified
+/// (`build-box:workspace:3`, plans/cmux-next/data-model.md 1.3); the home
+/// session's refs keep the old unqualified form. Windows are personal and
+/// never qualified.
 final class CompatRefRegistry: Sendable {
     enum Kind: String, Sendable, CaseIterable {
         case window, workspace, pane, surface
     }
 
+    private struct Key: Hashable {
+        var session: String
+        var kind: Kind
+    }
+
     private struct Table {
-        var numbers: [Kind: [String: Int]] = [:]
-        var uuids: [Kind: [Int: String]] = [:]
-        var next: [Kind: Int] = [:]
+        var numbers: [Key: [String: Int]] = [:]
+        var uuids: [Key: [Int: String]] = [:]
+        var next: [Key: Int] = [:]
     }
 
     private let table = Mutex(Table())
 
-    func ref(_ kind: Kind, _ uuid: String) -> String {
-        "\(kind.rawValue):\(number(kind, uuid))"
+    /// `kind:N` for the home session, `<qualifier>:kind:N` for `session`.
+    func ref(_ kind: Kind, _ uuid: String, session: CompatWorld.Session? = nil) -> String {
+        let local = "\(kind.rawValue):\(number(kind, uuid, session: session?.id))"
+        guard let session, !session.isHome, kind != .window else { return local }
+        return "\(session.qualifier):\(local)"
     }
 
-    func number(_ kind: Kind, _ uuid: String) -> Int {
-        table.withLock { table in
-            if let number = table.numbers[kind]?[uuid] { return number }
-            let number = (table.next[kind] ?? 0) + 1
-            table.next[kind] = number
-            table.numbers[kind, default: [:]][uuid] = number
-            table.uuids[kind, default: [:]][number] = uuid
+    /// The number of `uuid` in `session`'s table (nil: the home session).
+    func number(_ kind: Kind, _ uuid: String, session: String? = nil) -> Int {
+        let key = Key(session: kind == .window ? "" : session ?? "", kind: kind)
+        return table.withLock { table in
+            if let number = table.numbers[key]?[uuid] { return number }
+            let number = (table.next[key] ?? 0) + 1
+            table.next[key] = number
+            table.numbers[key, default: [:]][uuid] = number
+            table.uuids[key, default: [:]][number] = uuid
             return number
         }
     }
 
-    func uuid(_ kind: Kind, number: Int) -> String? {
-        table.withLock { $0.uuids[kind]?[number] }
+    func uuid(_ kind: Kind, number: Int, session: String? = nil) -> String? {
+        let key = Key(session: kind == .window ? "" : session ?? "", kind: kind)
+        return table.withLock { $0.uuids[key]?[number] }
     }
 
-    /// Parses `kind:N`. Returns nil for anything else.
+    /// Parses `kind:N`. Returns nil for anything else (a qualified ref too).
     static func parse(_ text: String) -> (kind: Kind, number: Int)? {
         let pieces = text.trimmingCharacters(in: .whitespaces).split(separator: ":", omittingEmptySubsequences: false)
         guard pieces.count == 2, let kind = Kind(rawValue: pieces[0].lowercased()), let number = Int(pieces[1]) else { return nil }
         return (kind, number)
+    }
+
+    /// Splits a session qualifier off `text`: `build-box:workspace:3` gives
+    /// (`build-box`, `workspace:3`), `build-box:tab_9f…` gives (`build-box`,
+    /// `tab_9f…`). A leading piece that is a ref kind, a UUID or an index is
+    /// no qualifier (`workspace:3`, `handle:7` stay whole), and neither is a
+    /// qualifier `isSession` rejects.
+    static func splitQualifier(_ text: String, isSession: (String) -> Bool) -> (session: String?, rest: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard let colon = trimmed.firstIndex(of: ":") else { return (nil, trimmed) }
+        let head = String(trimmed[..<colon])
+        let rest = String(trimmed[trimmed.index(after: colon)...])
+        guard !head.isEmpty, !rest.isEmpty, Kind(rawValue: head.lowercased()) == nil, head.lowercased() != "tab",
+              head.lowercased() != "handle", head.lowercased() != "terminal", Int(head) == nil, isSession(head) else {
+            return (nil, trimmed)
+        }
+        return (head, rest)
     }
 }

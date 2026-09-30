@@ -10,6 +10,8 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     public var session: String
     public var pid: Int32
     public var registryID: String?
+    /// The host name the daemon runs on (`session-identity-v1`); nil on older daemons.
+    public var machineName: String?
     public var generation: DaemonGeneration
     public var workspaceRevision: UInt64
     public var lifecycleReady: Bool
@@ -33,6 +35,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         session: String = "test",
         pid: Int32 = 0,
         registryID: String? = nil,
+        machineName: String? = nil,
         generation: DaemonGeneration,
         workspaceRevision: UInt64 = 0,
         lifecycleReady: Bool = true
@@ -46,6 +49,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         self.session = session
         self.pid = pid
         self.registryID = registryID
+        self.machineName = machineName
         self.generation = generation
         self.workspaceRevision = workspaceRevision
         self.lifecycleReady = lifecycleReady
@@ -57,6 +61,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         case ghosttyCommit = "ghostty_commit"
         case protocolVersion = "protocol"
         case registryID = "registry_id"
+        case machineName = "machine_name"
         case workspaceRevision = "workspace_revision"
         case lifecycleReady = "lifecycle_ready"
     }
@@ -72,6 +77,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         session = try c.decodeIfPresent(String.self, forKey: .session) ?? ""
         pid = try c.decodeIfPresent(Int32.self, forKey: .pid) ?? 0
         registryID = try c.decodeIfPresent(String.self, forKey: .registryID)
+        machineName = try c.decodeIfPresent(String.self, forKey: .machineName).flatMap { $0.isEmpty ? nil : $0 }
         generation = try c.decode(DaemonGeneration.self, forKey: .generation)
         workspaceRevision = try c.decodeIfPresent(UInt64.self, forKey: .workspaceRevision) ?? 0
         lifecycleReady = try c.decodeIfPresent(Bool.self, forKey: .lifecycleReady) ?? true

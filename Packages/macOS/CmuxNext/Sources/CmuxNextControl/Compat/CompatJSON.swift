@@ -17,7 +17,34 @@ enum CompatJSON {
         if include.contains("workspace") || workspace != nil { put("workspace", workspace?.uuid, workspace?.ref) }
         if include.contains("pane") || pane != nil { put("pane", pane?.uuid, pane?.ref) }
         if include.contains("surface") || surface != nil { put("surface", surface?.uuid, surface?.ref) }
+        if let named = surface?.session ?? pane?.session ?? workspace?.session {
+            out.merge(sessionFields(named)) { _, new in new }
+        }
         return out
+    }
+
+    /// `session_id` (the session UUID; the home session's when the App
+    /// reported one), `session` (the qualifier its refs carry; null for
+    /// home) and `machine` (the machine name) of an object's session
+    /// (plans/cmux-next/data-model.md 1.3).
+    static func sessionFields(_ session: CompatWorld.Session?) -> [String: JSON] {
+        [
+            "session_id": session.map { .string($0.id) } ?? .null,
+            "session": session.flatMap { $0.isHome ? nil : JSON.string($0.qualifier) } ?? .null,
+            "machine": session?.machineName.map(JSON.string) ?? .null,
+        ]
+    }
+
+    /// `system.sessions` item.
+    static func session(_ session: CompatWorld.Session, in world: CompatWorld) -> [String: JSON] {
+        let key = session.isHome ? nil : session.id
+        return [
+            "id": .string(session.id), "qualifier": session.isHome ? .null : .string(session.qualifier),
+            "home": .bool(session.isHome), "machine_id": .string(session.machineID),
+            "machine": session.machineName.map(JSON.string) ?? .null, "session_name": session.sessionName.map(JSON.string) ?? .null,
+            "state": .string(session.state), "transport": .string(session.transport),
+            "workspace_count": JSON(world.workspaces.filter { $0.sessionID == key }.count),
+        ]
     }
 
     static func window(_ window: CompatWorld.Window, in world: CompatWorld) -> [String: JSON] {
@@ -46,7 +73,7 @@ enum CompatJSON {
             "current_directory": focus.surface?.tab.cwd.map(JSON.string) ?? .null,
             "custom_color": workspace.color.map(JSON.string) ?? .null,
             "unread_count": JSON(workspace.unreadCount),
-        ]
+        ].merging(sessionFields(workspace.session)) { _, new in new }
     }
 
     static func pane(_ pane: CompatWorld.Pane, in world: CompatWorld) -> [String: JSON] {
@@ -61,7 +88,7 @@ enum CompatJSON {
             "selected_surface_ref": selected.map { .string($0.ref) } ?? .null,
             "surface_count": JSON(surfaces.count),
             "zoomed": .bool(pane.zoomed),
-        ]
+        ].merging(sessionFields(pane.session)) { _, new in new }
     }
 
     /// `surface.list` / `system.tree` surface item.
@@ -81,6 +108,7 @@ enum CompatJSON {
             "terminal_id": surface.tab.terminalID.map { .string(CompatUUID.fromHex(Substring($0)) ?? $0) } ?? .null,
             "exited": .bool(surface.tab.dead),
         ]
+        item.merge(sessionFields(surface.session)) { _, new in new }
         return item
     }
 

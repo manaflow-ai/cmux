@@ -15,14 +15,28 @@ struct CompatCall: Sendable {
         guard topology.isLoaded else {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.treeNotLoaded", "cmux-next has not loaded the cmux-tui tree yet (daemon %@)", "\(topology.daemonState)"))
         }
-        return CompatWorld(topology: topology, refs: service.refs)
+        return try scoped(CompatWorld(topology: topology, refs: service.refs))
     }
 
     /// The world as of a snapshot that reflects every acknowledged compat
     /// write (read-your-writes without a daemon round trip; see
     /// `CompatService.world(deadline:)`).
     func world() async throws -> CompatWorld {
-        try await service.world(deadline: control.deadline)
+        try scoped(await service.world(deadline: control.deadline))
+    }
+
+    /// The request's session (`session`, alias `machine`; plans/cmux-next/
+    /// data-model.md 1.3): scopes unqualified refs, indexes, lists and
+    /// creation. Absent means every session for lists and home otherwise.
+    var sessionParam: String? {
+        (string("session") ?? string("machine")).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+    }
+
+    func scoped(_ world: CompatWorld) throws -> CompatWorld {
+        guard let raw = sessionParam else { return world }
+        var world = world
+        world.scope = try world.resolveSession(raw)
+        return world
     }
 
     func target(_ world: CompatWorld) -> CompatTarget { CompatTarget(world: world, refs: service.refs, params: params) }

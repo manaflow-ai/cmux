@@ -5,12 +5,16 @@ import Foundation
 /// that must read their own writes (a creation verb reporting the refs of
 /// what it just made). App-local state (windows, focus, tab selection) is
 /// copied from the published snapshot, which the daemon does not know.
+/// The tree is the home session's; remote sessions' workspaces stay as the
+/// snapshot has them.
 enum CompatFreshTopology {
     static func make(tree: DaemonTree, appState snapshot: ControlTopology) -> ControlTopology {
         var topology = snapshot
         topology.isLoaded = true
         let selected = Dictionary(snapshot.workspaces.flatMap(\.panes).map { ($0.id, $0.selectedTabID) }, uniquingKeysWith: { a, _ in a })
-        topology.workspaces = tree.workspaces.map { workspace in
+        let homeID = snapshot.homeSession?.id
+        let remote = snapshot.workspaces.filter { $0.sessionID != nil && $0.sessionID != homeID }
+        let home = tree.workspaces.map { workspace -> ControlWorkspaceInfo in
             ControlWorkspaceInfo(
                 id: workspace.key?.rawValue ?? "handle:\(workspace.id.rawValue)", handle: workspace.id.description,
                 name: workspace.displayName, title: workspace.title, color: workspace.color, icon: workspace.icon,
@@ -34,6 +38,7 @@ enum CompatFreshTopology {
                         })
                 })
         }
+        topology.workspaces = home + remote
         return topology
     }
 

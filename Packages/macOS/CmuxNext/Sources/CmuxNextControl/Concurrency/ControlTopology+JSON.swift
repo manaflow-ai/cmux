@@ -12,7 +12,15 @@ extension ControlTopology {
             "windows": .array(windows.map(\.json)),
             "workspace_groups": .array(workspaceGroups.map(\.json)),
             "workspaces": .array(workspaces.map(\.json)),
+            "sessions": .array(sessions.map(\.json)),
         ]
+    }
+}
+
+extension ControlSessionInfo {
+    public var json: JSONValue {
+        ["id": .string(id), "qualifier": .string(qualifier), "machine": .string(machineID), "machine_name": .optional(machineName),
+         "session_name": .optional(sessionName), "home": .bool(isHome), "state": .string(state), "transport": .string(transport)]
     }
 }
 
@@ -38,7 +46,8 @@ extension ControlWorkspaceGroupInfo {
 extension ControlWorkspaceInfo {
     public var json: JSONValue {
         ["id": .string(id), "handle": .string(handle), "name": .string(name), "title": .optional(title), "color": .optional(color),
-         "icon": .optional(icon), "group": .optional(groupID), "unread": JSONValue(unreadCount), "screens": .array(screens.map(\.json))]
+         "icon": .optional(icon), "group": .optional(groupID), "unread": JSONValue(unreadCount), "screens": .array(screens.map(\.json)),
+         "session": .optional(sessionID)]
     }
 }
 

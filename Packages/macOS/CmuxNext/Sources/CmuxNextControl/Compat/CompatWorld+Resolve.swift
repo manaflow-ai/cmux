@@ -20,45 +20,93 @@ extension CompatWorld {
         throw CompatErrors.notFound("window", text)
     }
 
+    // MARK: Sessions
+
+    /// The session `raw` names: its id, qualifier, `home`/`local`, App
+    /// machine id, machine name or session name (when unique), or a unique id
+    /// prefix of at least 4 characters.
+    func resolveSession(_ raw: String) throws -> Session {
+        guard let found = matchSession(raw) else { throw CompatErrors.notFound("session", raw) }
+        return found
+    }
+
+    func matchSession(_ raw: String) -> Session? {
+        let text = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !text.isEmpty else { return nil }
+        if text == "home" || text == "local" { return sessions.first(where: \.isHome) ?? Self.syntheticHome }
+        func unique(_ matches: [Session]) -> Session? { matches.count == 1 ? matches[0] : nil }
+        if let found = sessions.first(where: { $0.id.lowercased() == text || $0.qualifier.lowercased() == text }) { return found }
+        if let found = sessions.first(where: { $0.machineID.lowercased() == text }) { return found }
+        if let found = unique(sessions.filter({ $0.machineName?.lowercased() == text })) { return found }
+        if let found = unique(sessions.filter({ $0.sessionName?.lowercased() == text })) { return found }
+        if text.count >= 4, let found = unique(sessions.filter({ $0.id.lowercased().hasPrefix(text) })) { return found }
+        return nil
+    }
+
+    /// The home session for a topology that reports no sessions.
+    static let syntheticHome = Session(id: "home", qualifier: "", machineID: "local", machineName: nil, sessionName: nil,
+                                       isHome: true, state: "connected", transport: "local")
+
+    /// `raw` without its session qualifier, and the session that qualifier
+    /// (else the request scope) names; nil means home.
+    func qualified(_ raw: String) -> (session: Session?, text: String) {
+        let (head, rest) = CompatRefRegistry.splitQualifier(raw) { matchSession($0) != nil }
+        guard let head else { return (scope, rest) }
+        return (matchSession(head), rest)
+    }
+
+    /// The ref table key of `session` (nil: home).
+    static func tableKey(_ session: Session?) -> String? {
+        guard let session, !session.isHome else { return nil }
+        return session.id
+    }
+
+    func sessionMatches(_ objectSession: String?, _ session: Session?) -> Bool {
+        objectSession == Self.tableKey(session)
+    }
+
+    // MARK: Objects
+
     func resolveWorkspace(_ raw: String, refs: CompatRefRegistry) throws -> Workspace {
-        let text = raw.trimmingCharacters(in: .whitespaces)
+        let (session, text) = qualified(raw)
         if let uuid = CompatUUID.canonical(text), let found = workspace(uuid) { return found }
         if let (kind, number) = CompatRefRegistry.parse(text) {
-            guard kind == .workspace else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedWorkspaceHandle", "expected a workspace handle, got %@", text)) }
-            if let uuid = refs.uuid(.workspace, number: number), let found = workspace(uuid) { return found }
-        } else if let index = Int(text), let found = workspaces.first(where: { $0.index == index }) {
+            guard kind == .workspace else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedWorkspaceHandle", "expected a workspace handle, got %@", raw)) }
+            if let uuid = refs.uuid(.workspace, number: number, session: Self.tableKey(session)), let found = workspace(uuid) { return found }
+        } else if let index = Int(text),
+                  let found = workspaces.first(where: { $0.index == index && sessionMatches($0.sessionID, session) }) {
             return found
         } else if let found = workspaces.first(where: { $0.modelID == text }) {
             return found
         }
-        throw CompatErrors.notFound("workspace", text)
+        throw CompatErrors.notFound("workspace", raw)
     }
 
     func resolvePane(_ raw: String, in scope: Workspace?, refs: CompatRefRegistry) throws -> Pane {
-        let text = raw.trimmingCharacters(in: .whitespaces)
+        let (session, text) = qualified(raw)
         if let uuid = CompatUUID.canonical(text), let found = panes[uuid] { return found }
         if let (kind, number) = CompatRefRegistry.parse(text) {
-            guard kind == .pane else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedPaneHandle", "expected a pane handle, got %@", text)) }
-            if let uuid = refs.uuid(.pane, number: number), let found = panes[uuid] { return found }
+            guard kind == .pane else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedPaneHandle", "expected a pane handle, got %@", raw)) }
+            if let uuid = refs.uuid(.pane, number: number, session: Self.tableKey(session)), let found = panes[uuid] { return found }
         } else if let index = Int(text) {
             let candidates = scope.map(orderedPanes(in:)) ?? []
             if let found = candidates.first(where: { $0.index == index }) { return found }
         } else if let found = panes.values.first(where: { $0.modelID == text }) {
             return found
         }
-        throw CompatErrors.notFound("pane", text)
+        throw CompatErrors.notFound("pane", raw)
     }
 
     func resolveSurface(_ raw: String, in scope: Workspace?, refs: CompatRefRegistry) throws -> Surface {
-        let text = raw.trimmingCharacters(in: .whitespaces)
+        let (session, text) = qualified(raw)
         if let uuid = CompatUUID.canonical(text) {
             if let found = surfaces[uuid] { return found }
             let hex = uuid.replacingOccurrences(of: "-", with: "").lowercased()
             if let found = surfaces.values.first(where: { $0.tab.terminalID == hex }) { return found }
         }
         if let (kind, number) = CompatRefRegistry.parse(text) {
-            guard kind == .surface else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedSurfaceHandle", "expected a surface handle, got %@", text)) }
-            if let uuid = refs.uuid(.surface, number: number), let found = surfaces[uuid] { return found }
+            guard kind == .surface else { throw CompatErrors.invalid(ControlStrings.format("control.error.expectedSurfaceHandle", "expected a surface handle, got %@", raw)) }
+            if let uuid = refs.uuid(.surface, number: number, session: Self.tableKey(session)), let found = surfaces[uuid] { return found }
         } else if let index = Int(text) {
             let candidates = scope.map(orderedSurfaces(in:)) ?? []
             if let found = candidates.first(where: { $0.index == index }) { return found }
@@ -67,7 +115,7 @@ extension CompatWorld {
         }) {
             return found
         }
-        throw CompatErrors.notFound("surface", text)
+        throw CompatErrors.notFound("surface", raw)
     }
 }
 

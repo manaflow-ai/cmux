@@ -20,7 +20,10 @@ import Synchronization
 final class AppCompatFrontend: CompatFrontend {
     unowned let services: AppServices
     private nonisolated let connectionBox = Mutex<DaemonConnection?>(nil)
+    /// Remote sessions' connections by `ControlSessions.key`.
+    private nonisolated let sessionBox = Mutex<[String: DaemonConnection]>([:])
     private var connectionObservation: Task<Void, Never>?
+    private var sessionObservation: Task<Void, Never>?
     /// Runs after every intent: the App publishes the control snapshot so
     /// the next CLI read sees the change.
     var afterIntent: (() -> Void)?
@@ -33,7 +36,23 @@ final class AppCompatFrontend: CompatFrontend {
                 self?.connectionBox.withLock { $0 = connection }
             }
         }
+        let machines = services.machines
+        sessionObservation = Task { [weak self] in
+            let connections = Observations { () -> [String: DaemonConnection] in
+                var map: [String: DaemonConnection] = [:]
+                for daemon in machines.remoteDaemons {
+                    if let connection = daemon.connection { map[ControlSessions.key(daemon)] = connection }
+                }
+                return map
+            }
+            for await map in connections {
+                self?.sessionBox.withLock { $0 = map }
+            }
+        }
     }
+
+    /// For `CompatService`'s session connection provider (off-main).
+    nonisolated func connection(session: String) -> DaemonConnection? { sessionBox.withLock { $0[session] } }
 
     /// For `CompatService`'s connection provider (off-main).
     nonisolated func currentConnection() -> DaemonConnection? { connectionBox.withLock { $0 } }

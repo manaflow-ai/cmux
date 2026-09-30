@@ -37,8 +37,8 @@ enum CompatCreate {
     }
 
     /// A new tab in `pane` through the `newSurface` / `openBrowser` actions.
-    /// Returns its surface handle.
-    static func newTab(_ kind: Kind, in pane: CompatWorld.Pane, call: CompatCall) async throws -> SurfaceID {
+    /// Returns its surface handle on the pane's session.
+    static func newTab(_ kind: Kind, in pane: CompatWorld.Pane, call: CompatCall) async throws -> CompatSurfaceHandle {
         let before = try await call.world()
         switch kind {
         case .browser:
@@ -70,7 +70,7 @@ enum CompatCreate {
 
     /// A new pane beside `pane` holding a new tab: the `split<Edge>` actions
     /// for terminals; for browsers `openBrowser`, then `tab.moveToNewSplit`.
-    static func split(_ kind: Kind, from pane: CompatWorld.Pane, edge: PaneEdge, call: CompatCall) async throws -> SurfaceID {
+    static func split(_ kind: Kind, from pane: CompatWorld.Pane, edge: PaneEdge, call: CompatCall) async throws -> CompatSurfaceHandle {
         let direction = switch edge {
         case .right: "right"
         case .left: "left"
@@ -94,11 +94,11 @@ enum CompatCreate {
     /// A new browser tab in `pane`, then moved into a split toward
     /// `direction` (`moveBrowserIntoSplit` decides what a refusal means).
     static func splitBrowser(from pane: CompatWorld.Pane, direction: String, fallbackToTab: Bool,
-                             call: CompatCall) async throws -> (surface: SurfaceID, placement: CompatBrowserSplitPlacement) {
+                             call: CompatCall) async throws -> (surface: CompatSurfaceHandle, placement: CompatBrowserSplitPlacement) {
         let surface = try await newTab(.browser, in: pane, call: call)
         let world = try await call.world()
-        guard let tab = world.surfaces.values.first(where: { $0.handle == surface }) else {
-            throw CompatErrors.notFound("surface", "created surface \(surface.rawValue)")
+        guard let tab = world.surface(surface) else {
+            throw CompatErrors.notFound("surface", "created surface \(surface.handle.rawValue)")
         }
         let placement = try await moveBrowserIntoSplit(fallbackToTab: fallbackToTab, move: {
             try await call.service.runAction("tab.moveToNewSplit", target: CompatTargets.tab(tab),
@@ -110,30 +110,31 @@ enum CompatCreate {
     }
 
     /// The surface an action just created, found by diffing fresh trees.
-    static func created(since before: CompatWorld, in workspaceUUID: String, call: CompatCall) async throws -> SurfaceID {
+    static func created(since before: CompatWorld, in workspaceUUID: String, call: CompatCall) async throws -> CompatSurfaceHandle {
         guard let surface = try await call.world().createdSurface(since: before, in: workspaceUUID) else {
             throw ControlError(code: "internal_error", message: ControlStrings.format("control.error.createdNoSurface", "%@: the action ran but created no surface", call.method))
         }
-        return surface.handle
+        return CompatSurfaceHandle(handle: surface.handle, session: surface.sessionID)
     }
 
     /// `initial_command` for tabs the daemon spawns without a command
     /// field: typed into the new shell with a trailing newline.
-    static func runInitial(_ call: CompatCall, surface: SurfaceID) async throws {
+    static func runInitial(_ call: CompatCall, surface: CompatSurfaceHandle) async throws {
         var text = ""
         if let command = CompatSpawn.command(call) { text += command + "\n" }
         if let input = call.string("initial_input") { text += input }
         guard !text.isEmpty else { return }
         let input = text
-        _ = try await call.service.daemon("send", mutates: false) { try await $0.send(surface, text: input) }
+        let handle = surface.handle
+        _ = try await call.service.daemon("send", session: surface.session, mutates: false) { try await $0.send(handle, text: input) }
     }
 
     /// Old creation result: window, workspace, pane, surface ids plus type.
     /// Focuses the new tab when `focus` is true.
-    static func result(_ call: CompatCall, surface handle: SurfaceID, kind: Kind) async throws -> JSON {
+    static func result(_ call: CompatCall, surface handle: CompatSurfaceHandle, kind: Kind) async throws -> JSON {
         var world = try await call.world()
-        guard var surface = world.surfaces.values.first(where: { $0.handle == handle }) else {
-            throw CompatErrors.notFound("surface", "created surface \(handle.rawValue)")
+        guard var surface = world.surface(handle) else {
+            throw CompatErrors.notFound("surface", "created surface \(handle.handle.rawValue)")
         }
         let window = try? call.target(world).window()
         if call.wantsFocus {
@@ -147,5 +148,19 @@ enum CompatCreate {
                                     pane: world.panes[surface.paneUUID], surface: surface)
         result["type"] = .string(kind.rawValue)
         return .object(result)
+    }
+}
+
+/// A daemon surface handle and the session it is valid on (nil: home).
+struct CompatSurfaceHandle: Sendable, Hashable {
+    var handle: SurfaceID
+    var session: String?
+}
+
+extension CompatWorld {
+    /// The surface a daemon handle names on its session. Handles are
+    /// per daemon, so the same number can name tabs on two sessions.
+    func surface(_ ref: CompatSurfaceHandle) -> Surface? {
+        surfaces.values.first { $0.handle == ref.handle && $0.sessionID == ref.session }
     }
 }

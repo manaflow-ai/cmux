@@ -157,6 +157,7 @@ extension CMUXCLI {
           \(text("cli.usage.targets.handles", "Commands that accept a window, workspace, pane, or surface take a UUID, a short ref (window:1/workspace:2/pane:3/surface:4), or an index."))
           \(text("cli.usage.targets.tabRef", "`tab-action` also accepts `tab:<n>` in addition to `surface:<n>`."))
           \(text("cli.usage.targets.idFormat", "Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs."))
+          \(text("cli.usage.targets.sessions", "Objects on another machine carry its session first (build-box:workspace:2). --session <name|id> (alias --machine) picks the session for unqualified refs, indexes, lists, and new workspaces; `cmux list-machines` lists sessions."))
 
         \(text("cli.usage.socketAuth.heading", "Socket Auth:"))
           \(text("cli.usage.socketAuth.precedence", "--password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings."))
@@ -265,7 +266,8 @@ extension CMUXCLI {
         vault checkpoint --agent <id> --session <id> [--name <text>] [--json]
         vault fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open] [--json]
         recover [--query <text>] [--session <id>] [--limit <n>] [--focus] [--json]
-        list-workspaces [--window <id|ref|index>]
+        list-machines [--json]
+        list-workspaces [--window <id|ref|index>] [--session <name|id>]
         list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
         current [--limit <1...200>] [--json]

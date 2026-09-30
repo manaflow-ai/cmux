@@ -120,19 +120,24 @@ enum CompatSurfaceMethods {
             throw CompatErrors.unsupported(ControlStrings.text("control.error.windowsDoNotOwnWorkspaces", "windows do not own workspaces in cmux-next; move to a workspace or pane"), method: call.method)
         }
         guard let destination else { throw CompatErrors.notFound("pane", "destination") }
+        if destination.sessionID != surface.sessionID {
+            // Handles are per session and a terminal never changes machine
+            // (plans/cmux-next/data-model.md 1.2a).
+            throw CompatErrors.unsupported(ControlStrings.text("control.error.moveAcrossSessions", "moving a tab to a pane of another session is not supported; move it to a workspace instead"), method: call.method)
+        }
         if let from = world.workspaces.first(where: { $0.uuid == surface.workspaceUUID })?.modelID,
            let to = world.workspaces.first(where: { $0.uuid == destination.workspaceUUID })?.modelID, from != to {
             try await call.perform(.checkTabMove(fromWorkspaceID: from, toWorkspaceID: to))
         }
         let paneHandle = destination.handle
         let target = index ?? destination.surfaceUUIDs.count
-        _ = try await call.service.daemon("move-tab") { try await $0.moveTab(handle, to: paneHandle, index: target) }
+        _ = try await call.service.daemon("move-tab", session: surface.sessionID) { try await $0.moveTab(handle, to: paneHandle, index: target) }
         return try await moved(call, surface: surface)
     }
 
     static func moved(_ call: CompatCall, surface: CompatWorld.Surface) async throws -> JSON {
         let world = try await call.world()
-        let now = world.surfaces[surface.uuid] ?? world.surfaces.values.first { $0.handle == surface.handle } ?? surface
+        let now = world.surfaces[surface.uuid] ?? world.surface(CompatSurfaceHandle(handle: surface.handle, session: surface.sessionID)) ?? surface
         if call.bool("focus") == true { try await select(now, in: world, window: world.activeWindow, call: call) }
         return .object(CompatJSON.ids(window: world.activeWindow, workspace: world.workspace(now.workspaceUUID),
                                       pane: world.panes[now.paneUUID], surface: now))
