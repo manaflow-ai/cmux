@@ -9,6 +9,9 @@ import CmuxNextDesign
 final class RestartNoticePanel {
     static let accessibilityID = "app.restartNotice"
     private let panel: NSPanel
+    /// The stack's container inside the glass: the glass view does not
+    /// report its content's fitting size, so the panel is sized from this.
+    private let body = NSView()
     private weak var parent: NSWindow?
     private var observers: [any NSObjectProtocol] = []
     private let onShowLog: (() -> Void)?
@@ -34,6 +37,8 @@ final class RestartNoticePanel {
         label.textColor = Palette.textPrimary
         label.maximumNumberOfLines = 3
         label.preferredMaxLayoutWidth = 300
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        label.widthAnchor.constraint(lessThanOrEqualToConstant: 300).isActive = true
         var views: [NSView] = [label]
         if onShowLog != nil {
             let show = NSButton(title: CrashStrings.showLog, target: self, action: #selector(showLog))
@@ -49,7 +54,7 @@ final class RestartNoticePanel {
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 10)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = NSView()
+        let content = body
         content.addSubview(stack)
         let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 12)
         glass.setAccessibilityIdentifier(Self.accessibilityID)
@@ -83,8 +88,8 @@ final class RestartNoticePanel {
     var text: String { (panel.contentView?.accessibilityLabel()) ?? "" }
 
     private func place() {
-        guard let parent, let content = panel.contentView else { return }
-        let size = content.fittingSize
+        guard let parent else { return }
+        let size = body.fittingSize
         let frame = parent.frame
         panel.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY + 16, width: size.width, height: size.height), display: true)
     }
