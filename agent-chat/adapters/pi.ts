@@ -26,9 +26,12 @@ export const piAdapter: Adapter = {
     ],
   },
   async send(sess, prompt, generation?: number) {
-    const proc = ensureProc(sess);
     const st = state(sess);
     await applyInitialOptions(sess);
+    // Initialization can outlive the process that started it. Re-resolve the
+    // current process before writing the prompt so a respawned Pi instance
+    // never receives a prompt through a stale stdin handle.
+    const proc = ensureProc(sess);
     const type = st.activeTurn ? "steer" : "prompt";
     if (type === "prompt") {
       st.activeTurn = true;
@@ -49,6 +52,8 @@ export const piAdapter: Adapter = {
     const st = state(sess);
     const proc = st.proc;
     st.proc = undefined;
+    st.initialApplied = false;
+    st.initialApplying = undefined;
     rejectPending(st, "pi process disposed");
     proc?.kill();
   },
@@ -115,11 +120,15 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
     stderr: "pipe",
     env: { ...process.env },
   });
+  st.initialApplied = false;
+  st.initialApplying = undefined;
   st.proc = proc;
 
   readLines(proc.stdout, (line) => handleLine(sess, line), () => {
     if (st.proc === proc) {
       st.proc = undefined;
+      st.initialApplied = false;
+      st.initialApplying = undefined;
       rejectPending(st, "pi process exited");
       if (st.activeTurn) {
         const generation = st.activeGeneration;
