@@ -26,6 +26,7 @@ public nonisolated enum ActionCatalog {
         var all: [ActionDescriptor] = []
         all += windowActions()
         all += workspaceActions()
+        all += workspaceVerbActions()
         all += workspaceGroupsActions()
         all += profileActions()
         all += paneActions()

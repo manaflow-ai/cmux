@@ -17,6 +17,9 @@ struct WorkspaceSpawn: Sendable {
     /// Where the new workspace goes in its window's sidebar; nil leaves it
     /// where the daemon puts it (after the loose rows).
     var slot: WorkspaceSlot?
+    /// Runs once the daemon reports the workspace and its window lists it
+    /// (after the slot is applied), with the window's sidebar.
+    var onListed: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
 
     init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
          profile: ProfileID? = nil) {
@@ -62,7 +65,9 @@ extension WindowManager {
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
         if let windowID {
-            if let slot = spawn.slot { pendingPlacements[key.rawValue] = PendingPlacement(window: windowID, slot: slot) }
+            if spawn.slot != nil || spawn.onListed != nil {
+                pendingPlacements[key.rawValue] = PendingPlacement(window: windowID, slot: spawn.slot, then: spawn.onListed)
+            }
             claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
         }
         let terminal = TerminalID.generate()

@@ -2,9 +2,10 @@ import CmuxNextBridge
 import CmuxNextSidebar
 
 /// A new workspace's sidebar slot, kept until the daemon reports it.
-struct PendingPlacement: Hashable, Sendable {
+struct PendingPlacement {
     var window: String
-    var slot: WorkspaceSlot
+    var slot: WorkspaceSlot?
+    var then: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
 }
 
 // Placing new workspaces (New Workspace Above/Below/at Top/in This Group, a
@@ -21,8 +22,10 @@ extension WindowManager {
                   let machine = services.machines.daemon(forWorkspace: id)?.machineID else { continue }
             let sections = bridge.model.sections
             let section = SectionID.machine(MachineID(machine))
-            guard let position = pending.slot.position(moving: [id], section: section, in: sections) else { continue }
-            bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
+            if let position = pending.slot?.position(moving: [id], section: section, in: sections) {
+                bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
+            }
+            pending.then?(id, bridge)
         }
     }
 }

@@ -68,8 +68,8 @@ import Testing
     /// counts Minimize (no inventory row; used by idle and visibility checks).
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 23,
-        .workspace: 110, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources
-        .pane: 72,
+        .workspace: 135, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs
+        .pane: 73, // + Move Pane to New Workspace
         .tab: 72,
         .terminal: 33,
         .browser: 78,
