@@ -3819,6 +3819,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _renderedFrameFlushScheduled = false
     private var _pendingRenderedFrameDeliveryReasons:
         TerminalRenderedFrameDeliveryReasons = []
+    private var accessibilityValueChangedFrameDemandRelease: (any RenderDemandRetention)?
     /// Pane-local frame demand lets a terminal-specific consumer observe a
     /// late render without enabling notifications on every terminal surface.
     let localRenderedFrameNotificationDemand = RenderDemandCounter()
@@ -3827,6 +3828,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let keyboardCopyModeRenderedFrameDemand = RenderDemandCounter()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
+    let terminalAccessibilityText = TerminalAccessibilityText()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private let commandClickReleaseRouter = TerminalCommandClickReleaseRouter()
@@ -3984,6 +3986,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _scrollbarLock.unlock()
     }
 
+    func retainAccessibilityValueChangedFrameDemand() {
+        guard accessibilityValueChangedFrameDemandRelease == nil else { return }
+        accessibilityValueChangedFrameDemandRelease = localRenderedFrameNotificationDemand.retain()
+    }
+
+    func releaseAccessibilityValueChangedFrameDemand() {
+        accessibilityValueChangedFrameDemandRelease?.release()
+        accessibilityValueChangedFrameDemandRelease = nil
+    }
+
     func enqueueRenderedFrameUpdate(
         reasons: TerminalRenderedFrameDeliveryReasons
     ) {
@@ -4004,6 +4016,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _renderedFrameFlushScheduled = false
         let reasons = _pendingRenderedFrameDeliveryReasons
         _pendingRenderedFrameDeliveryReasons = []
+
+        if reasons.contains(.notification),
+           terminalAccessibilityText.screenDidChange(read: { [weak self] in
+               self?.terminalSurface?.readText(region: .active)
+           }) {
+            releaseAccessibilityValueChangedFrameDemand()
+        }
 
         if reasons.contains(.keyboardCopyModeCursor),
            keyboardCopyModeActive,
@@ -4040,6 +4059,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
+    /// The alternate-screen state read on the last gesture press, reused by its
+    /// auto-repeats so a held chord does not serialize the viewport per repeat.
+    private var textEditingGestureAlternateScreenAtPress: (keyCode: UInt16, onAlternateScreen: Bool)?
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
     /// Deferred native input actions retain their authored order until the
@@ -6331,6 +6353,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         UserDefaults.standard.bool(forKey: "terminal.textEditingGestures")
     }
 
+    /// Whether gestures stay active on the alternate screen, read from the same
+    /// defaults key as `terminal.textEditingGesturesInFullScreenApps`, whose
+    /// default is `false`.
+    private var textEditingGesturesInFullScreenApps: Bool {
+        UserDefaults.standard.bool(forKey: "terminal.textEditingGesturesInFullScreenApps")
+    }
+
+    /// The gesture layout, read from the same defaults key as
+    /// `terminal.textEditingCommandMovesByWord`, whose default is `false`.
+    private var textEditingLayout: TerminalTextEditingLayout {
+        UserDefaults.standard.bool(forKey: "terminal.textEditingCommandMovesByWord")
+            ? .commandMovesByWord
+            : .standard
+    }
+
     /// Maps AppKit modifier flags onto the resolver's platform-neutral set.
     private func textEditingModifiers(
         from flags: NSEvent.ModifierFlags
@@ -6373,14 +6410,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // so without this guard reading scrollback with a half-typed command at
         // the prompt would replay Ctrl+U/Ctrl+K and destroy that line.
         guard !keyboardCopyModeActive, !hasMarkedText() else { return false }
+        let modifiers = textEditingModifiers(from: event.modifierFlags)
+        // The defaults reads are the costly half, so they run only after the
+        // pure pre-filter has confirmed this keystroke is gesture-shaped under
+        // some layout. Every other keystroke leaves this path having done no I/O.
+        guard terminalTextEditingIsGestureCandidate(keyCode: event.keyCode, modifiers: modifiers) else {
+            return false
+        }
+        guard textEditingGesturesEnabled else { return false }
         guard let chord = terminalTextEditingResolve(
             keyCode: event.keyCode,
-            modifiers: textEditingModifiers(from: event.modifierFlags)
+            modifiers: modifiers,
+            layout: textEditingLayout
         ) else { return false }
-        // The defaults read is the costly half, so it runs only after the pure
-        // resolver has confirmed this keystroke is gesture-shaped at all. Every
-        // other keystroke leaves this path having done no I/O.
-        guard textEditingGesturesEnabled else { return false }
+        // A full-screen application decides what these chords mean, so it gets
+        // the original keystroke unless the user opted in. The alternate-screen
+        // read serializes the viewport, which is why it waits until a gesture
+        // has resolved with the mode on, and why an auto-repeat reuses the
+        // answer from the press that started it.
+        if !textEditingGesturesInFullScreenApps {
+            let onAlternateScreen: Bool
+            if event.isARepeat,
+               let cached = textEditingGestureAlternateScreenAtPress,
+               cached.keyCode == event.keyCode {
+                onAlternateScreen = cached.onAlternateScreen
+            } else {
+                onAlternateScreen = terminalSurface?.isAlternateScreenActive() == true
+                textEditingGestureAlternateScreenAtPress = (event.keyCode, onAlternateScreen)
+            }
+            guard !onAlternateScreen else { return false }
+        }
         guard
             let chordKeyCode = Self.textEditingChordKeyCodes[chord.letter],
             let scalar = chord.letter.unicodeScalars.first
@@ -6567,71 +6626,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    // MARK: - Accessibility
-
-    /// Expose the terminal surface as an editable accessibility element.
-    /// Voice input tools frequently target AX text areas for text insertion.
-    override func isAccessibilityElement() -> Bool {
-        true
-    }
-
-    override func accessibilityRole() -> NSAccessibility.Role? {
-        .textArea
-    }
-
-    override func accessibilityHelp() -> String? {
-        "Terminal content area"
-    }
-
-    override func accessibilityValue() -> Any? {
-        // We don't keep a full terminal text snapshot in this layer.
-        // Expose selected text when available; otherwise provide an empty value
-        // so AX clients still treat this as an editable text area.
-        accessibilitySelectedText() ?? ""
-    }
-
-    override func setAccessibilityValue(_ value: Any?) {
-        let content: String
-        switch value {
-        case let v as NSAttributedString:
-            content = v.string
-        case let v as String:
-            content = v
-        default:
-            return
-        }
-
-        guard !content.isEmpty else { return }
-
-#if DEBUG
-        cmuxDebugLog("ime.ax.setValue len=\(content.count)")
-#endif
-
-        let inject = {
-            self.withExternalCommittedText {
-                self.insertText(content, replacementRange: NSRange(location: NSNotFound, length: 0))
-            }
-        }
-        if Thread.isMainThread {
-            inject()
-        } else {
-            DispatchQueue.main.async(execute: inject)
-        }
-    }
-
-    private func withExternalCommittedText<T>(_ body: () -> T) -> T {
+    func withExternalCommittedText<T>(_ body: () -> T) -> T {
         externalCommittedTextDepth += 1
         defer { externalCommittedTextDepth -= 1 }
         return body()
-    }
-
-    override func accessibilitySelectedTextRange() -> NSRange {
-        selectedRange()
-    }
-
-    override func accessibilitySelectedText() -> String? {
-        guard let snapshot = readSelectionSnapshot() else { return nil }
-        return snapshot.string.isEmpty ? nil : snapshot.string
     }
 
     func readSelectionSnapshot(surface explicitSurface: ghostty_surface_t? = nil) -> SelectionSnapshot? {
@@ -6687,6 +6685,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             textEditingGestureConsumedKeyUps.removeAll()
+            textEditingGestureAlternateScreenAtPress = nil
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -6799,6 +6798,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             textEditingGestureConsumedKeyUps.removeAll()
+            textEditingGestureAlternateScreenAtPress = nil
             desiredFocus = false
             deferReleaseAllGhosttyMouseButtons(
                 reason: "resignFirstResponder"
@@ -6994,7 +6994,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return false
             }
 
-            if !shouldRetryMainMenu { lastPerformKeyEvent = nil; keyDown(with: event); return true }
+            if !shouldRetryMainMenu {
+                lastPerformKeyEvent = nil
+                if !shouldDropForeignUnboundCommandChord(event) { keyDown(with: event) }
+                return true
+            }
             if let lastPerformKeyEvent {
                 self.lastPerformKeyEvent = nil
                 if lastPerformKeyEvent == event.timestamp {
@@ -7071,6 +7075,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        // A fresh press invalidates the gesture's alternate-screen answer before
+        // any early return, so a later repeat never reuses one from another key.
+        if !event.isARepeat { textEditingGestureAlternateScreenAtPress = nil }
         if routeInputDuringClipboardRead(event) { return }
         let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
 #if DEBUG
@@ -9322,6 +9329,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let menu = NSMenu()
+        // First, the way Safari and Terminal.app order a link menu: what the
+        // pointer is on outranks what the pane can do.
+        addLinkContextMenuItems(
+            to: menu,
+            pointerLocation: sendsTerminalPointerEvent ? convert(event.locationInWindow, from: nil) : nil
+        )
         if onTriggerFlash != nil {
             let flashItem = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
@@ -10256,7 +10269,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
-    let cloudTerminalOverlay = CloudTerminalOverlayCoordinator(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
+    let cloudTerminalOverlay = CloudTerminalOverlayCoordinator()
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView? { cloudTerminalOverlay.overlay }
     var hasVisibilityRevealRefreshScheduled = false
     var pendingVisibilityRefreshTransition: TerminalWorkContext.Transition = .unknown
@@ -11167,7 +11180,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     func synchronizeCloudTerminalReconnectOverlay() {
         let legacyPresentation = cloudTerminalOverlay.session == nil ? currentCloudTerminalReconnectPresentation() : nil
-        guard cloudTerminalOverlay.session != nil || legacyPresentation != nil || cloudTerminalOverlay.overlay != nil else { return }
+        guard cloudTerminalOverlay.session != nil || cloudTerminalOverlay.endedPresentation != nil
+            || legacyPresentation != nil || cloudTerminalOverlay.overlay != nil else { return }
         cloudTerminalOverlay.synchronize(
             hostedView: self,
             contentFrame: sessionContentFrame,

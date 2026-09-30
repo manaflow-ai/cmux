@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
+import Darwin
 import Foundation
 import Testing
 
@@ -15,6 +16,19 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test
+    func closingFixtureIsIdempotent() throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        fixture.close()
+        fixture.close()
+
+        let fd = Darwin.open("/dev/null", O_RDONLY)
+        #expect(fd >= 0)
+        fixture.close()
+        #expect(Darwin.fcntl(fd, F_GETFD) != -1)
+        Darwin.close(fd)
+    }
+
     @Test("Restored Cloud terminal failures render a copyable error")
     func restoredTerminalFailurePresentation() {
         let presentation = Workspace.cloudMaterializationFailurePresentation(
@@ -62,6 +76,34 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func replayFramesCarryTheDaemonParsersPendingSequence() throws {
+        let decoder = CloudTuiManualIOFrameDecoder()
+        let pending = Data("\u{1B}[1;3".utf8)
+        let snapshot = try #require(decoder.decode(try Self.line([
+            "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
+            "data": Data("screen".utf8).base64EncodedString(),
+            "pending": pending.base64EncodedString(),
+        ])))
+        #expect(snapshot == .snapshot(
+            surfaceID: 17, columns: 80, rows: 24, bytes: Data("screen".utf8), pending: pending
+        ))
+        let resized = try #require(decoder.decode(try Self.line([
+            "event": "resized", "surface": 17, "cols": 100, "rows": 30,
+            "replay": Data("screen".utf8).base64EncodedString(),
+            "pending": pending.base64EncodedString(),
+        ])))
+        #expect(resized == .resized(
+            surfaceID: 17, columns: 100, rows: 30, bytes: Data("screen".utf8), pending: pending
+        ))
+        // A malformed pending sequence is a malformed replay, not an empty one.
+        #expect(decoder.decode(try Self.line([
+            "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
+            "data": Data("screen".utf8).base64EncodedString(),
+            "pending": 7,
+        ])) == nil)
+    }
+
+    @Test
     func attachFramesCarryTheSparseColorSidecarAsLocalOscBytes() throws {
         let decoder = CloudTuiManualIOFrameDecoder()
         let snapshot = try #require(decoder.decode(try Self.line([
@@ -80,7 +122,7 @@ struct CloudManualMirrorTransportTests {
                 "palette": ["1": "#112233", "300": "#000000", "9": "red", "15": "#ABCDEF"],
             ],
         ])))
-        guard case let .snapshot(surfaceID, _, _, bytes, colors) = snapshot else {
+        guard case let .snapshot(surfaceID, _, _, bytes, colors, _) = snapshot else {
             Issue.record("expected a snapshot frame, got \(snapshot)")
             return
         }

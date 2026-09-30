@@ -222,10 +222,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// owns their local PTY, so protocol callbacks need this origin bit too.
     public let isRemoteTerminal: Bool
     /// Whether OSC 52 may publish into the local clipboard without a gesture.
-    /// Manual mirrors and remote exec PTYs are both untrusted terminal input.
+    /// Manual mirrors and remote exec PTYs are untrusted unless the Cloud
+    /// provider grants its write-only clipboard path.
     public var allowsAutomaticClipboardWrite: Bool {
-        !ioMode.usesManualIO && !isRemoteTerminal
+        (!ioMode.usesManualIO && !isRemoteTerminal) || allowsRemoteClipboardWrites
     }
+    /// Cloud-only permission for guest clipboard writer shims. Clipboard reads
+    /// remain denied by the runtime policy regardless of this flag.
+    public let allowsRemoteClipboardWrites: Bool
     /// Ordered input from the manual transport (literal bytes or named keys).
     let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
     /// Resolves physical keys that the manual transport should encode itself.
@@ -254,6 +258,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Reports a cell-size change (the font size changed), which changes the
     /// natural grid without changing the pane's pixel size.
     @MainActor public func cellSizeDidChange() {
+        // A pin fixes pixels from the old cell size; recompute them so the
+        // assigned grid survives a font change.
+        if assignedGrid != nil { reapplyAssignedGrid() }
         onNaturalGridInputsChanged?()
     }
     /// Routes accepted explicit user input to the surface's current panel owner.
@@ -579,6 +586,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         ioMode: TerminalSurfaceIOMode = .exec,
         isRemoteTerminal: Bool = false,
+        allowsRemoteClipboardWrites: Bool = false,
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
@@ -617,6 +625,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.focusPlacement = focusPlacement
         self.ioMode = ioMode
         self.isRemoteTerminal = isRemoteTerminal
+        self.allowsRemoteClipboardWrites = allowsRemoteClipboardWrites
         self.manualInputHandler = manualInputHandler
         self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry

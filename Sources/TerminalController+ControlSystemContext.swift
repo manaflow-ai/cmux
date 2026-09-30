@@ -18,6 +18,15 @@ import Foundation
 /// `drag_surface_to_split`), so their witnesses bridge.
 extension TerminalController: ControlSystemContext {
 
+    func controlSystemCloseStrings() -> ControlSystemCloseStrings {
+        ControlSystemCloseStrings(
+            confirmationRequired: String(
+                localized: "socket.tabAction.close.confirmationRequired",
+                defaultValue: "One or more surfaces have a running process; retry with force=true"
+            )
+        )
+    }
+
     func controlSystemSurfaceNotFoundMessage() -> String {
         String(localized: "socket.tabAction.error.surfaceNotFound", defaultValue: "Surface not found")
     }

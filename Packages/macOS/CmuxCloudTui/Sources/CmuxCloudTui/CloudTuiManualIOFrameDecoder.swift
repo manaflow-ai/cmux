@@ -42,13 +42,16 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
         }
         switch event {
         case "vt-state":
-            guard let size = Self.size(from: object), let bytes = Self.bytes(from: object["data"]) else { return nil }
+            guard let size = Self.size(from: object),
+                  let bytes = Self.bytes(from: object["data"]),
+                  let pending = Self.pending(from: object) else { return nil }
             return .snapshot(
                 surfaceID: surfaceID,
                 columns: size.columns,
                 rows: size.rows,
                 bytes: bytes,
-                colors: CloudTuiRemoteColors(json: object["colors"])
+                colors: CloudTuiRemoteColors(json: object["colors"]),
+                pending: pending
             )
         case "output":
             guard let bytes = Self.bytes(from: object["data"]) else { return nil }
@@ -57,13 +60,15 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
             guard let size = Self.size(from: object),
                   let bytes = Self.bytes(
                       from: (object["replay"] as? String) ?? (object["data"] as? String)
-                  ) else { return nil }
+                  ),
+                  let pending = Self.pending(from: object) else { return nil }
             return .resized(
                 surfaceID: surfaceID,
                 columns: size.columns,
                 rows: size.rows,
                 bytes: bytes,
-                colors: CloudTuiRemoteColors(json: object["colors"])
+                colors: CloudTuiRemoteColors(json: object["colors"]),
+                pending: pending
             )
         case "colors-changed":
             // The daemon flattens the colors object into the event itself.
@@ -110,6 +115,14 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
             return nil
         }
         return (Int(columns), Int(rows))
+    }
+
+    /// The optional `pending` field. Older daemons and replays taken at a
+    /// parser boundary omit it; a present but malformed value rejects the
+    /// frame like any other malformed payload.
+    private static func pending(from object: [String: Any]) -> Data? {
+        guard let value = object["pending"] else { return Data() }
+        return bytes(from: value)
     }
 
     private static func bytes(from value: Any?) -> Data? {

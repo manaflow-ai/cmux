@@ -89,7 +89,9 @@ struct CloudTreeRowHoverButtons: View {
             }
         case .displaysPool(let machine, _, let canCreate):
             plus(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) {
-                nodeActions.newDisplay(machine)
+                Self.performDisplayCreationIfAvailable(canCreate) {
+                    nodeActions.newDisplay(machine)
+                }
             }
             // Keep the host hit-testable while guest discovery is pending.
             // Disabling the SwiftUI button makes AppKit hand the click to the
@@ -139,6 +141,15 @@ struct CloudTreeRowHoverButtons: View {
         default:
             return false
         }
+    }
+
+    /// The Displays affordance remains visible while guest discovery is pending
+    /// so its unavailable state can explain itself on hover. Keep that visual
+    /// affordance from dispatching a create operation until the snapshot says
+    /// the machine can accept one.
+    static func performDisplayCreationIfAvailable(_ canCreate: Bool, action: () -> Void) {
+        guard canCreate else { return }
+        action()
     }
 
     private func plus(_ label: String, action: @escaping () -> Void) -> some View {
