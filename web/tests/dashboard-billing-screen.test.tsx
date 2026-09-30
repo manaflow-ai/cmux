@@ -452,7 +452,7 @@ describe("dashboard billing screen", () => {
     const html = await renderBillingPage();
 
     expect(html).toContain("6 of 4 used");
-    expect(html).toContain("Team Pro has 6 members and 4 paid seats. Seats follow the member count");
+    expect(html).toContain("Team Pro has 6 members and 4 paid seats. Joining still works; add seats to cover everyone.");
     expect(html).not.toContain("Add seats");
   });
 

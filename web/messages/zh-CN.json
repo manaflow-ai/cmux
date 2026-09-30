@@ -413,8 +413,7 @@
       "plan": {
         "heading": "你的个人方案",
         "free": "免费",
-        "pro": "Pro",
-        "loading": "加载中…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "此团队不可用。你可能已退出该团队，或该团队已被删除。",
@@ -426,7 +425,8 @@
         "memberReadOnly": "只有团队管理员可以更改此方案。",
         "grantedBody": "cmux 团队已向 {team} 授予 Team 访问权限，没有需要管理的订阅。",
         "seatsUsed": "已使用 {members}/{seats}",
-        "overSeat": "{team} 有 {members} 名成员和 {seats} 个付费席位。席位数跟随成员数，订阅会自动更新。"
+        "overSeat": "{team} 有 {members} 名成员，但只有 {seats} 个付费席位。成员仍可加入；请添加席位以覆盖所有人。",
+        "addSeats": "添加席位"
       },
       "teamList": {
         "heading": "账单范围",
@@ -457,7 +457,6 @@
       "loading": "正在加载设备…",
       "empty": "此团队没有注册设备。",
       "unavailable": "无法加载你的设备。刷新页面后重试。",
-      "retry": "重试",
       "mutationError": "无法完成设备更改。",
       "revoke": "撤销访问权限",
       "deviceId": "设备",
@@ -675,7 +674,6 @@
         "revokeAllConfirm": "撤销会话",
         "revokeAllError": "无法撤销所有会话。列表中显示的是剩余的会话。",
         "revokeError": "无法撤销会话，请重试。",
-        "loadError": "无法加载会话。请刷新页面重试。",
         "empty": "未找到活跃会话。",
         "columns": {
           "session": "会话",
@@ -814,9 +812,7 @@
         "count": "{count, plural, other {# 个团队}}",
         "selected": "当前",
         "emptyTitle": "还没有团队",
-        "emptyBody": "创建团队以邀请他人并共享同一个方案。",
-        "loadError": "无法加载你的团队。",
-        "retry": "重试"
+        "emptyBody": "创建团队以邀请他人并共享同一个方案。"
       },
       "new": {
         "title": "创建团队",
@@ -849,7 +845,7 @@
         "featurePrioritySupport": "优先支持",
         "chooseFree": "继续使用免费方案",
         "chooseTeam": "升级到 Team（${price}/席位/月）",
-        "upgradeLater": "席位数跟随成员数：每位成员都计费，有人加入或离开时总数会更新。",
+        "upgradeLater": "席位是弹性的：邀请人数可以超过已付费席位数，之后再添加席位即可。",
         "inviteTitle": "邀请成员加入 {team}",
         "inviteDescription": "可选。你也可以稍后在团队的成员页面邀请成员。",
         "inviteByEmail": "通过邮箱邀请",
@@ -900,7 +896,8 @@
         "usesUnlimited": "{count, plural, other {已使用 # 次}}",
         "revoke": "撤销",
         "revokeTitle": "撤销此邀请链接？",
-        "revokeBody": "持有该链接的人将无法再加入。已加入的人仍是成员。"
+        "revokeBody": "持有该链接的人将无法再加入。已加入的人仍是成员。",
+        "actionsFor": "链接操作（{created}）"
       },
       "shell": {
         "allTeams": "所有团队",
@@ -913,9 +910,7 @@
         },
         "notFoundTitle": "未找到团队",
         "notFoundBody": "此团队不存在，或你不是其成员。",
-        "backToTeams": "返回团队列表",
-        "loadError": "无法加载此团队。",
-        "retry": "重试"
+        "backToTeams": "返回团队列表"
       },
       "general": {
         "imageTitle": "团队图片",
@@ -950,9 +945,6 @@
         "memberColumn": "成员",
         "roleColumn": "角色",
         "actionsColumn": "操作",
-        "roleFor": "{name} 的角色",
-        "roleMember": "成员",
-        "roleAdmin": "管理员",
         "you": "你",
         "unnamed": "未命名成员",
         "remove": "移除",
@@ -969,7 +961,20 @@
         "resent": "已发送",
         "revoke": "撤销",
         "linksTitle": "邀请链接",
-        "linksDescription": "任何人都可通过此可重复使用的链接以成员身份加入。"
+        "linksDescription": "任何人都可通过此可重复使用的链接以成员身份加入。",
+        "seatNudge": "已有 {used} 人是成员或已受邀，但方案只有 {seats} 个席位。邀请仍然有效；请添加 {over, plural, other {# 个席位}}以覆盖所有人。",
+        "seatNudgeAction": "管理席位",
+        "actions": {
+          "makeAdmin": "设为管理员",
+          "makeMember": "设为成员",
+          "remove": "从团队中移除",
+          "leave": "退出团队"
+        },
+        "actionsFor": "{name} 的操作",
+        "lastAdminReason": "团队至少需要一名管理员。请先将其他成员设为管理员。",
+        "demoteSelfTitle": "不再担任管理员？",
+        "demoteSelfBody": "你将失去此团队的管理员权限。其他管理员可以重新授予。",
+        "demoteSelfConfirm": "设为成员"
       },
       "apiKeys": {
         "title": "团队 API 密钥",
@@ -1004,10 +1009,6 @@
       "apiKeysTitle": "API 密钥",
       "apiKeysDescription": "为脚本和代理创建长期密钥。密钥只显示一次。",
       "apiKeysCount": "{count, plural, one {# 个密钥} other {# 个密钥}}",
-      "apiKeysLoading": "正在加载 API 密钥…",
-      "apiKeysLoadError": "无法加载 API 密钥，请稍后重试。",
-      "apiKeysRetry": "重试",
-      "apiKeysEmptyBody": "还没有 API 密钥。创建一个以验证 CodeRouter 客户端。",
       "apiKeyPrefixColumn": "密钥",
       "apiKeyStatusColumn": "状态",
       "apiKeySecretTitle": "立即复制此密钥",
@@ -1027,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "撤销此 API 密钥？",
       "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用数据不可用",
-      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
+      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。",
+      "apiKeysEmptyTitle": "还没有 API 密钥",
+      "apiKeysEmptyHint": "创建一个密钥来验证 CodeRouter 客户端。"
     },
     "notFound": {
       "title": "找不到页面",
       "body": "此仪表板页面不存在或已被移动。",
       "home": "前往仪表板"
+    },
+    "states": {
+      "errorTitle": "无法加载{section}",
+      "errorTitleGeneric": "无法加载此部分",
+      "reason": {
+        "network": "请检查网络连接，然后重试。",
+        "unavailable": "cmux 暂时不可用。请稍后重试。",
+        "forbidden": "你没有访问此内容的权限。",
+        "notFound": "此内容已不存在，或你没有访问权限。",
+        "rateLimited": "请求过多。请稍等片刻后重试。",
+        "generic": "出了点问题。请重试。"
+      },
+      "retry": "重试",
+      "retrying": "正在重试…"
     }
   },
   "community": {

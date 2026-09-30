@@ -1,12 +1,12 @@
 "use client";
 
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Link, useRouter } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useTranslations } from "next-intl";
-import type { ReactNode } from "react";
-import { InlineError } from "@/dashboard-app/components/settings-ui/feedback";
+import { EmptyState } from "@/dashboard-app/components/page-states";
 import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
 import { type TeamCatalogEntry, teamCatalogQuery } from "@/dashboard-app/queries/teams";
+import { TeamsPageFrame } from "./teams-frame";
 import { PlanBadge, RoleBadge, TeamAvatar } from "./team-ui";
 
 /** Real teams only; the synthetic personal entry is the user's own account. */
@@ -16,47 +16,11 @@ export function listedTeams(teams: readonly TeamCatalogEntry[]): TeamCatalogEntr
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Page frame shared by `/dashboard/teams` and `/dashboard/teams/new`. */
-export function TeamsPageFrame({
-  namespace,
-  children,
-}: {
-  readonly namespace: "dashboard.teams.list" | "dashboard.teams.new";
-  readonly children: ReactNode;
-}) {
-  const t = useTranslations(namespace);
-  return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <h1 className="text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
-      </div>
-      {children}
-    </div>
-  );
-}
-
 /** `/dashboard/teams`. The route loader prefetches the catalog. */
 export function TeamsPage() {
   return (
     <TeamsPageFrame namespace="dashboard.teams.list">
       <TeamsList />
-    </TeamsPageFrame>
-  );
-}
-
-/** Route error for `/dashboard/teams`: the catalog request failed. */
-export function TeamsPageError() {
-  const t = useTranslations("dashboard.teams.list");
-  const router = useRouter();
-  return (
-    <TeamsPageFrame namespace="dashboard.teams.list">
-      <div className="flex flex-wrap items-center justify-between gap-2 border border-border p-3">
-        <InlineError message={t("loadError")} />
-        <button type="button" className={settingsButtonClass("secondary", "sm")} onClick={() => void router.invalidate()}>
-          {t("retry")}
-        </button>
-      </div>
     </TeamsPageFrame>
   );
 }
@@ -79,10 +43,7 @@ export function TeamsList() {
         {createButton}
       </div>
       {teams.length === 0 ? (
-        <div className="border border-border p-4">
-          <div className="text-sm font-medium">{t("emptyTitle")}</div>
-          <p className="mt-1 text-xs text-muted">{t("emptyBody")}</p>
-        </div>
+        <EmptyState title={t("emptyTitle")} body={t("emptyBody")} />
       ) : (
         <ul className="divide-y divide-border border border-border">
           {teams.map((team) => (

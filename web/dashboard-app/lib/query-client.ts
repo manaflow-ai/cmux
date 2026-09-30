@@ -20,6 +20,18 @@ export function isTransientError(error: unknown): boolean {
   return !isUnauthorizedError(error);
 }
 
+/** Delay before the single retry of a transient failure. */
+export const DASHBOARD_RETRY_DELAY_MS = 1000;
+
+/**
+ * One retry for a transient failure, none for a declared 4xx. A second
+ * attempt rides out a blip; more attempts only keep an outage behind a
+ * skeleton, so the page shows its error (with Try again) within ~2 s.
+ */
+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  return isTransientError(error) && failureCount < 1;
+}
+
 /**
  * The SPA's query client. A 401 from any query or mutation means the session
  * ended after the shell loaded (sign-out elsewhere, revoked session, expired
@@ -37,7 +49,8 @@ export function createDashboardQueryClient(onUnauthorized: () => void): QueryCli
       queries: {
         staleTime: 30_000,
         refetchOnWindowFocus: true,
-        retry: (failureCount, error) => isTransientError(error) && failureCount < 3,
+        retry: shouldRetryQuery,
+        retryDelay: DASHBOARD_RETRY_DELAY_MS,
       },
     },
   });

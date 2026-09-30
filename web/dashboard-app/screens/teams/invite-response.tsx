@@ -69,7 +69,13 @@ function InviteBody({
   const t = useTranslations("teamInvite");
   switch (state.kind) {
     case "loading":
-      return <p className="text-sm text-muted">{t("loading")}</p>;
+      return (
+        <div role="status" aria-label={t("loading")} className="grid gap-2">
+          <span aria-hidden="true" className="block h-4 w-40 animate-pulse bg-code-bg" />
+          <span aria-hidden="true" className="block h-3 w-56 max-w-full animate-pulse bg-code-bg" />
+          <span aria-hidden="true" className="mt-2 block h-8 w-full animate-pulse bg-code-bg" />
+        </div>
+      );
     case "ready":
       return (
         <>

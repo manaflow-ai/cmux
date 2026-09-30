@@ -403,7 +403,8 @@
       "renameError": "Could not rename this Mac.",
       "revokeTitle": "Revoke {name}?",
       "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
-      "revokeError": "Could not revoke this Mac."
+      "revokeError": "Could not revoke this Mac.",
+      "emptyBody": "A Mac appears here the first time cmux on it connects to one of your Cloud VMs."
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -464,8 +465,6 @@
       "migrationPendingBody": "Shared Codex accounts are temporarily unavailable. Try again shortly.",
       "loadErrorTitle": "Some accounts could not load",
       "loadErrorBody": "Part of the account list could not be read. The accounts shown are complete for the other providers. Try again shortly.",
-      "pageErrorTitle": "coderouter could not load",
-      "pageErrorBody": "The account service could not be reached. Try again shortly.",
       "providerColumn": "Provider",
       "labelColumn": "Label",
       "statusColumn": "Status",
@@ -533,10 +532,6 @@
       "apiKeysTitle": "API keys",
       "apiKeysDescription": "Create long-lived keys for scripts and agents. The secret is shown once.",
       "apiKeysCount": "{count, plural, one {# key} other {# keys}}",
-      "apiKeysLoading": "Loading API keys…",
-      "apiKeysLoadError": "API keys could not be loaded. Try again shortly.",
-      "apiKeysRetry": "Retry",
-      "apiKeysEmptyBody": "No API keys yet. Create one to authenticate a CodeRouter client.",
       "apiKeyPrefixColumn": "Key",
       "apiKeyStatusColumn": "Status",
       "apiKeySecretTitle": "Copy this key now",
@@ -556,7 +551,9 @@
       "revokeApiKeyConfirmTitle": "Revoke this API key?",
       "revokeApiKeyConfirmBody": "Clients using this key will stop authenticating immediately.",
       "apiKeyUsageDetail": "last 30 days: {completions} completions · {tokens} tokens ({input} in / {output} out) · {value} API equivalent",
-      "apiKeyUsageUnavailable": "Usage unavailable"
+      "apiKeyUsageUnavailable": "Usage unavailable",
+      "apiKeysEmptyTitle": "No API keys yet",
+      "apiKeysEmptyHint": "Create one to authenticate a CodeRouter client."
     },
     "accountMenu": {
       "label": "Account menu",
@@ -644,8 +641,7 @@
       "plan": {
         "heading": "Your personal plan",
         "free": "Free",
-        "pro": "Pro",
-        "loading": "Loading…"
+        "pro": "Pro"
       },
       "max": {
         "name": "cmux Max",
@@ -664,7 +660,8 @@
         "memberReadOnly": "Only team admins can change this plan.",
         "grantedBody": "Team access was granted to {team} by the cmux team. There is no subscription to manage.",
         "seatsUsed": "{members} of {seats} used",
-        "overSeat": "{team} has {members} members and {seats} paid seats. Seats follow the member count, so the subscription updates on its own."
+        "overSeat": "{team} has {members} members and {seats} paid seats. Joining still works; add seats to cover everyone.",
+        "addSeats": "Add seats"
       },
       "teamList": {
         "heading": "Billing scopes",
@@ -733,7 +730,6 @@
       "emptyTitle": "No connected devices yet",
       "emptyDescription": "When a cmux device pairs with this team, it will appear here with its platform, version, and access controls.",
       "unavailable": "Could not load your devices. Refresh the page to try again.",
-      "retry": "Try again",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "revoking": "Revoking…",
@@ -948,7 +944,6 @@
         "revokeAllConfirm": "Revoke sessions",
         "revokeAllError": "Could not revoke every session. The list shows what remains.",
         "revokeError": "Could not revoke the session. Try again.",
-        "loadError": "Could not load sessions. Reload the page to try again.",
         "empty": "No active sessions found.",
         "columns": {
           "session": "Session",
@@ -1087,9 +1082,7 @@
         "count": "{count, plural, one {# team} other {# teams}}",
         "selected": "Current",
         "emptyTitle": "No teams yet",
-        "emptyBody": "Create a team to invite people and share one plan.",
-        "loadError": "Could not load your teams.",
-        "retry": "Retry"
+        "emptyBody": "Create a team to invite people and share one plan."
       },
       "new": {
         "title": "Create a team",
@@ -1122,7 +1115,7 @@
         "featurePrioritySupport": "Priority support",
         "chooseFree": "Continue with Free",
         "chooseTeam": "Upgrade to Team (${price}/seat/month)",
-        "upgradeLater": "Seats follow your member count: each member is billed, and the total updates when people join or leave.",
+        "upgradeLater": "Seats are soft: you can invite more people than you pay for and add seats later.",
         "inviteTitle": "Invite people to {team}",
         "inviteDescription": "Optional. You can also invite people later from the team's Members page.",
         "inviteByEmail": "Invite by email",
@@ -1173,7 +1166,8 @@
         "usesUnlimited": "{count, plural, one {# use} other {# uses}}",
         "revoke": "Revoke",
         "revokeTitle": "Revoke this invite link?",
-        "revokeBody": "Anyone holding the link can no longer join. People who already joined stay members."
+        "revokeBody": "Anyone holding the link can no longer join. People who already joined stay members.",
+        "actionsFor": "Actions for the link ({created})"
       },
       "shell": {
         "allTeams": "All teams",
@@ -1186,9 +1180,7 @@
         },
         "notFoundTitle": "Team not found",
         "notFoundBody": "This team does not exist, or you are not a member of it.",
-        "backToTeams": "Back to teams",
-        "loadError": "Could not load this team.",
-        "retry": "Retry"
+        "backToTeams": "Back to teams"
       },
       "general": {
         "imageTitle": "Team image",
@@ -1223,9 +1215,6 @@
         "memberColumn": "Member",
         "roleColumn": "Role",
         "actionsColumn": "Actions",
-        "roleFor": "Role for {name}",
-        "roleMember": "Member",
-        "roleAdmin": "Admin",
         "you": "You",
         "unnamed": "Unnamed member",
         "remove": "Remove",
@@ -1242,7 +1231,20 @@
         "resent": "Sent",
         "revoke": "Revoke",
         "linksTitle": "Invite links",
-        "linksDescription": "A reusable link anyone can use to join as a member."
+        "linksDescription": "A reusable link anyone can use to join as a member.",
+        "seatNudge": "{used} people are members or invited, but the plan has {seats} seats. Invitations still work; add {over, plural, one {# seat} other {# seats}} to cover everyone.",
+        "seatNudgeAction": "Manage seats",
+        "actions": {
+          "makeAdmin": "Make admin",
+          "makeMember": "Make member",
+          "remove": "Remove from team",
+          "leave": "Leave team"
+        },
+        "actionsFor": "Actions for {name}",
+        "lastAdminReason": "A team needs at least one admin. Promote someone else first.",
+        "demoteSelfTitle": "Stop being an admin?",
+        "demoteSelfBody": "You lose admin access to this team. Another admin can give it back.",
+        "demoteSelfConfirm": "Make me a member"
       },
       "apiKeys": {
         "title": "Team API keys",
@@ -1256,6 +1258,20 @@
       "title": "Page not found",
       "body": "This dashboard page does not exist or was moved.",
       "home": "Go to dashboard"
+    },
+    "states": {
+      "errorTitle": "Could not load {section}",
+      "errorTitleGeneric": "Could not load this section",
+      "reason": {
+        "network": "Check your connection, then try again.",
+        "unavailable": "cmux is temporarily unavailable. Try again in a moment.",
+        "forbidden": "You do not have access to this.",
+        "notFound": "This no longer exists, or you do not have access to it.",
+        "rateLimited": "Too many requests. Wait a moment, then try again.",
+        "generic": "Something went wrong. Try again."
+      },
+      "retry": "Try again",
+      "retrying": "Retrying…"
     }
   },
   "vault": {

@@ -1,8 +1,9 @@
 import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 import { z } from "zod";
-import { DashboardSectionSkeleton, DashboardSkeleton } from "../components/dashboard-skeleton";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { teamBillingQuery } from "../queries/billing";
 import { teamApiKeysQuery, teamCatalogQuery, teamDetailQuery } from "../queries/teams";
+import { TeamBillingRouteError, TeamShellPending, TeamsPageFrame, TeamsRouteError } from "../screens/teams/teams-frame";
 import { shellRoute } from "./root";
 
 const teamsList = () => import("../screens/teams/teams-list");
@@ -12,9 +13,13 @@ const teamsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/dashboard/teams",
   loader: ({ context }) => context.queryClient.ensureQueryData(teamCatalogQuery),
-  pendingComponent: () => <DashboardSkeleton variant="rows" />,
+  pendingComponent: () => (
+    <TeamsPageFrame namespace="dashboard.teams.list">
+      <DashboardSectionSkeleton variant="list" rows={3} />
+    </TeamsPageFrame>
+  ),
   component: lazyRouteComponent(teamsList, "TeamsPage"),
-  errorComponent: lazyRouteComponent(teamsList, "TeamsPageError"),
+  errorComponent: TeamsRouteError,
 });
 
 const newTeamRoute = createRoute({
@@ -28,7 +33,7 @@ const teamRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/dashboard/teams/$teamId",
   loader: ({ context, params }) => context.queryClient.ensureQueryData(teamDetailQuery(params.teamId)),
-  pendingComponent: () => <DashboardSkeleton variant="rows" />,
+  pendingComponent: TeamShellPending,
   component: lazyRouteComponent(teamShell, "TeamShell"),
   errorComponent: lazyRouteComponent(teamShell, "TeamShellError"),
 });
@@ -50,7 +55,7 @@ const teamApiKeysRoute = createRoute({
   path: "/api-keys",
   // A refusal (no permission) renders inside the panel, so the prefetch never throws.
   loader: ({ context, params }) => context.queryClient.prefetchQuery(teamApiKeysQuery(params.teamId)),
-  pendingComponent: () => <DashboardSectionSkeleton />,
+  pendingComponent: () => <DashboardSectionSkeleton variant="table" columns={5} rows={3} />,
   component: lazyRouteComponent(() => import("../screens/teams/team-api-keys"), "TeamApiKeys"),
 });
 
@@ -59,8 +64,9 @@ const teamBillingRoute = createRoute({
   path: "/billing",
   validateSearch: z.object({ welcome: z.string().optional() }),
   loader: ({ context, params }) => context.queryClient.ensureQueryData(teamBillingQuery(params.teamId)),
-  // The team header and tabs stay; only the billing panel waits.
-  pendingComponent: () => <DashboardSectionSkeleton />,
+  // The team header and tabs stay; only the billing panel waits or fails.
+  pendingComponent: () => <DashboardSectionSkeleton variant="panel" />,
+  errorComponent: TeamBillingRouteError,
   component: lazyRouteComponent(() => import("../screens/teams/team-billing"), "TeamBillingTab"),
 });
 

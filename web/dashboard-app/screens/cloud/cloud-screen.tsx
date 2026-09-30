@@ -2,6 +2,7 @@
 
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
+import { EmptyState } from "../../components/page-states";
 import { cloudDevicesQuery, type CloudDevice } from "../../queries/cloud";
 import { CloudPageFrame } from "./cloud-frame";
 import { CloudDeviceActions } from "./device-actions";
@@ -21,7 +22,7 @@ export function CloudDevicesSection({ devices }: { readonly devices: readonly Cl
   const dates = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" });
 
   if (devices.length === 0) {
-    return <p className="border border-border p-3 text-muted">{t("empty")}</p>;
+    return <EmptyState title={t("empty")} body={t("emptyBody")} />;
   }
   return (
     <div className="space-y-3">

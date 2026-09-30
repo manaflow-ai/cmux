@@ -42,6 +42,9 @@ const serveRpc = fakeDashboardRpcFetch({
     };
   },
   "vault.summary": () => ({ sessionCount: 0, rawBytes: 0, compressedBytes: 0, lastUploadedAt: null, agents: [] }),
+  "cloud.devices": () => {
+    throw refuse(503, "service_unavailable");
+  },
 });
 
 /** Records each dashboard procedure the SPA calls, e.g. `vault.summary`. */
@@ -188,6 +191,15 @@ describe("dashboard router", () => {
     expect(html).toContain('data-testid="dashboard-auth-recovery"');
     expect(html).not.toContain('data-testid="dashboard-shell"');
     expect(decodeURIComponent(decodeURIComponent(html))).toContain("/dashboard/billing?billing=error");
+  });
+
+  test("a 503 from page data shows the page's own error, not sign-in recovery", async () => {
+    const { html } = await render("/dashboard/cloud");
+    expect(html).toContain('data-testid="dashboard-shell"');
+    expect(html).toContain('data-testid="section-error"');
+    expect(html).toContain("Cloud Mac access");
+    expect(html).toContain("Try again");
+    expect(html).not.toContain('data-testid="dashboard-auth-recovery"');
   });
 
   test("vault pages are not found when the release flag is off", async () => {

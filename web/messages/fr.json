@@ -413,8 +413,7 @@
       "plan": {
         "heading": "Votre forfait personnel",
         "free": "Gratuit",
-        "pro": "Pro",
-        "loading": "Chargement…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "Cette équipe n’est pas disponible. Vous l’avez peut-être quittée, ou elle a été supprimée.",
@@ -426,7 +425,8 @@
         "memberReadOnly": "Seuls les admins de l’équipe peuvent modifier ce forfait.",
         "grantedBody": "L’accès Team a été accordé à {team} par l’équipe cmux. Il n’y a aucun abonnement à gérer.",
         "seatsUsed": "{members} sur {seats} utilisés",
-        "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Les sièges suivent le nombre de membres ; l’abonnement se met à jour tout seul."
+        "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Il est toujours possible de rejoindre l’équipe ; ajoutez des sièges pour couvrir tout le monde.",
+        "addSeats": "Ajouter des sièges"
       },
       "teamList": {
         "heading": "Périmètres de facturation",
@@ -457,7 +457,6 @@
       "loading": "Chargement des appareils…",
       "empty": "Aucun appareil n’est enregistré pour cette équipe.",
       "unavailable": "Impossible de charger vos appareils. Actualisez la page et réessayez.",
-      "retry": "Réessayer",
       "mutationError": "La modification de l’appareil n’a pas pu être effectuée.",
       "revoke": "Révoquer l’accès",
       "deviceId": "Appareil",
@@ -675,7 +674,6 @@
         "revokeAllConfirm": "Révoquer les sessions",
         "revokeAllError": "Impossible de révoquer toutes les sessions. La liste affiche celles qui restent.",
         "revokeError": "Impossible de révoquer la session. Réessayez.",
-        "loadError": "Impossible de charger les sessions. Rechargez la page pour réessayer.",
         "empty": "Aucune session active trouvée.",
         "columns": {
           "session": "Session",
@@ -814,9 +812,7 @@
         "count": "{count, plural, one {# équipe} other {# équipes}}",
         "selected": "Actuelle",
         "emptyTitle": "Aucune équipe pour l’instant",
-        "emptyBody": "Créez une équipe pour inviter des personnes et partager un même forfait.",
-        "loadError": "Impossible de charger vos équipes.",
-        "retry": "Réessayer"
+        "emptyBody": "Créez une équipe pour inviter des personnes et partager un même forfait."
       },
       "new": {
         "title": "Créer une équipe",
@@ -849,7 +845,7 @@
         "featurePrioritySupport": "Assistance prioritaire",
         "chooseFree": "Continuer avec le forfait gratuit",
         "chooseTeam": "Passer à Team ({price} $/siège/mois)",
-        "upgradeLater": "Les sièges suivent le nombre de membres : chaque membre est facturé et le total change lorsque quelqu’un rejoint ou quitte l’équipe.",
+        "upgradeLater": "Les sièges sont flexibles : vous pouvez inviter plus de personnes que vous n’en payez et ajouter des sièges plus tard.",
         "inviteTitle": "Inviter des personnes dans {team}",
         "inviteDescription": "Facultatif. Vous pouvez aussi inviter des personnes plus tard depuis la page Membres de l’équipe.",
         "inviteByEmail": "Inviter par e-mail",
@@ -900,7 +896,8 @@
         "usesUnlimited": "{count, plural, one {# utilisation} other {# utilisations}}",
         "revoke": "Révoquer",
         "revokeTitle": "Révoquer ce lien d’invitation ?",
-        "revokeBody": "Les personnes qui ont ce lien ne pourront plus rejoindre l’équipe. Celles qui l’ont déjà rejointe restent membres."
+        "revokeBody": "Les personnes qui ont ce lien ne pourront plus rejoindre l’équipe. Celles qui l’ont déjà rejointe restent membres.",
+        "actionsFor": "Actions pour le lien ({created})"
       },
       "shell": {
         "allTeams": "Toutes les équipes",
@@ -913,9 +910,7 @@
         },
         "notFoundTitle": "Équipe introuvable",
         "notFoundBody": "Cette équipe n’existe pas, ou vous n’en êtes pas membre.",
-        "backToTeams": "Retour aux équipes",
-        "loadError": "Impossible de charger cette équipe.",
-        "retry": "Réessayer"
+        "backToTeams": "Retour aux équipes"
       },
       "general": {
         "imageTitle": "Image de l’équipe",
@@ -950,9 +945,6 @@
         "memberColumn": "Membre",
         "roleColumn": "Rôle",
         "actionsColumn": "Actions",
-        "roleFor": "Rôle de {name}",
-        "roleMember": "Membre",
-        "roleAdmin": "Admin",
         "you": "Vous",
         "unnamed": "Membre sans nom",
         "remove": "Retirer",
@@ -969,7 +961,20 @@
         "resent": "Envoyée",
         "revoke": "Révoquer",
         "linksTitle": "Liens d’invitation",
-        "linksDescription": "Un lien réutilisable que n’importe qui peut utiliser pour rejoindre l’équipe en tant que membre."
+        "linksDescription": "Un lien réutilisable que n’importe qui peut utiliser pour rejoindre l’équipe en tant que membre.",
+        "seatNudge": "{used} personnes sont membres ou invitées, mais le forfait compte {seats} sièges. Les invitations fonctionnent toujours ; ajoutez {over, plural, one {# siège} other {# sièges}} pour couvrir tout le monde.",
+        "seatNudgeAction": "Gérer les sièges",
+        "actions": {
+          "makeAdmin": "Promouvoir admin",
+          "makeMember": "Rétrograder en membre",
+          "remove": "Retirer de l’équipe",
+          "leave": "Quitter l’équipe"
+        },
+        "actionsFor": "Actions pour {name}",
+        "lastAdminReason": "Une équipe doit compter au moins un admin. Promouvez d’abord un autre membre.",
+        "demoteSelfTitle": "Ne plus être admin ?",
+        "demoteSelfBody": "Vous perdez l’accès admin à cette équipe. Un autre admin peut vous le rendre.",
+        "demoteSelfConfirm": "Devenir membre"
       },
       "apiKeys": {
         "title": "Clés API de l’équipe",
@@ -1004,10 +1009,6 @@
       "apiKeysTitle": "Clés API",
       "apiKeysDescription": "Créez des clés longue durée pour les scripts et les agents. Le secret ne s’affiche qu’une fois.",
       "apiKeysCount": "{count, plural, one {# clé} other {# clés}}",
-      "apiKeysLoading": "Chargement des clés API…",
-      "apiKeysLoadError": "Impossible de charger les clés API. Réessayez bientôt.",
-      "apiKeysRetry": "Réessayer",
-      "apiKeysEmptyBody": "Aucune clé API pour le moment. Créez-en une pour authentifier un client CodeRouter.",
       "apiKeyPrefixColumn": "Clé",
       "apiKeyStatusColumn": "État",
       "apiKeySecretTitle": "Copiez cette clé maintenant",
@@ -1027,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Révoquer cette clé API ?",
       "apiKeyUsageDetail": "30 derniers jours : {completions} complétions · {tokens} tokens ({input} entrée / {output} sortie) · équivalent API {value}",
       "apiKeyUsageUnavailable": "Utilisation indisponible",
-      "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement."
+      "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement.",
+      "apiKeysEmptyTitle": "Aucune clé API pour l’instant",
+      "apiKeysEmptyHint": "Créez-en une pour authentifier un client CodeRouter."
     },
     "notFound": {
       "title": "Page introuvable",
       "body": "Cette page du tableau de bord n’existe pas ou a été déplacée.",
       "home": "Aller au tableau de bord"
+    },
+    "states": {
+      "errorTitle": "Impossible de charger {section}",
+      "errorTitleGeneric": "Impossible de charger cette section",
+      "reason": {
+        "network": "Vérifiez votre connexion, puis réessayez.",
+        "unavailable": "cmux est temporairement indisponible. Réessayez dans un instant.",
+        "forbidden": "Vous n’avez pas accès à cet élément.",
+        "notFound": "Cet élément n’existe plus, ou vous n’y avez pas accès.",
+        "rateLimited": "Trop de requêtes. Patientez un instant, puis réessayez.",
+        "generic": "Une erreur s’est produite. Réessayez."
+      },
+      "retry": "Réessayer",
+      "retrying": "Nouvelle tentative…"
     }
   },
   "community": {

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 
 import { orpc } from "@/orpc/query";
+import { SkeletonPill } from "../../components/dashboard-skeleton";
 
 export function AccountPlanBadge() {
   const t = useTranslations("dashboard.billing.plan");
@@ -16,18 +17,16 @@ export function AccountPlanBadge() {
     return null;
   }
 
-  const label = isPending
-    ? t("loading")
-    : data?.isPro
-      ? t("pro")
-      : t("free");
-
   return (
-    <div className="flex items-center gap-2 text-sm text-neutral-500">
+    <div className="flex items-center gap-2 text-xs text-muted">
       <span>{t("heading")}</span>
-      <span className="rounded-md border border-neutral-300 px-2 py-0.5 font-medium text-neutral-800 dark:border-neutral-700 dark:text-neutral-100">
-        {label}
-      </span>
+      {isPending ? (
+        <SkeletonPill />
+      ) : (
+        <span className="border border-border px-1.5 py-0.5 text-[11px] font-medium text-foreground">
+          {data?.isPro ? t("pro") : t("free")}
+        </span>
+      )}
     </div>
   );
 }

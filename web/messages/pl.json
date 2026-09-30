@@ -413,8 +413,7 @@
       "plan": {
         "heading": "Twój plan osobisty",
         "free": "Darmowy",
-        "pro": "Pro",
-        "loading": "Ładowanie…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "Ten zespół jest niedostępny. Być może go opuszczono lub został usunięty.",
@@ -426,7 +425,8 @@
         "memberReadOnly": "Ten plan mogą zmieniać tylko administratorzy zespołu.",
         "grantedBody": "Dostęp do Team został przyznany zespołowi {team} przez zespół cmux. Nie ma subskrypcji do zarządzania.",
         "seatsUsed": "Wykorzystano {members} z {seats}",
-        "overSeat": "{team} ma {members} członków i {seats} opłaconych miejsc. Liczba miejsc podąża za liczbą członków, więc subskrypcja aktualizuje się sama."
+        "overSeat": "{team}: członkowie — {members}, opłacone miejsca — {seats}. Dołączanie nadal działa; dodaj miejsca, aby objąć wszystkich.",
+        "addSeats": "Dodaj miejsca"
       },
       "teamList": {
         "heading": "Zakresy rozliczeń",
@@ -457,7 +457,6 @@
       "loading": "Ładowanie urządzeń…",
       "empty": "Brak urządzeń zarejestrowanych dla tego zespołu.",
       "unavailable": "Nie można załadować urządzeń. Odśwież stronę i spróbuj ponownie.",
-      "retry": "Spróbuj ponownie",
       "mutationError": "Nie udało się ukończyć zmiany urządzenia.",
       "revoke": "Odbierz dostęp",
       "deviceId": "Urządzenie",
@@ -675,7 +674,6 @@
         "revokeAllConfirm": "Unieważnij sesje",
         "revokeAllError": "Nie udało się unieważnić wszystkich sesji. Lista pokazuje pozostałe.",
         "revokeError": "Nie udało się unieważnić sesji. Spróbuj ponownie.",
-        "loadError": "Nie udało się wczytać sesji. Odśwież stronę, aby spróbować ponownie.",
         "empty": "Nie znaleziono aktywnych sesji.",
         "columns": {
           "session": "Sesja",
@@ -814,9 +812,7 @@
         "count": "{count, plural, one {# zespół} few {# zespoły} many {# zespołów} other {# zespołu}}",
         "selected": "Bieżący",
         "emptyTitle": "Nie masz jeszcze zespołów",
-        "emptyBody": "Utwórz zespół, aby zapraszać osoby i korzystać z jednego planu.",
-        "loadError": "Nie udało się wczytać Twoich zespołów.",
-        "retry": "Ponów"
+        "emptyBody": "Utwórz zespół, aby zapraszać osoby i korzystać z jednego planu."
       },
       "new": {
         "title": "Utwórz zespół",
@@ -849,7 +845,7 @@
         "featurePrioritySupport": "Priorytetowe wsparcie",
         "chooseFree": "Kontynuuj z planem Darmowym",
         "chooseTeam": "Przejdź na Team (${price}/miejsce/mies.)",
-        "upgradeLater": "Liczba miejsc podąża za liczbą członków: każdy członek jest rozliczany, a suma aktualizuje się, gdy ktoś dołącza lub odchodzi.",
+        "upgradeLater": "Liczba miejsc to miękki limit: możesz zaprosić więcej osób, niż opłacasz, i dodać miejsca później.",
         "inviteTitle": "Zaproś osoby do {team}",
         "inviteDescription": "Opcjonalnie. Osoby możesz zaprosić także później na stronie „Członkowie” zespołu.",
         "inviteByEmail": "Zaproś przez e-mail",
@@ -900,7 +896,8 @@
         "usesUnlimited": "{count, plural, one {# użycie} few {# użycia} many {# użyć} other {# użycia}}",
         "revoke": "Unieważnij",
         "revokeTitle": "Unieważnić ten link z zaproszeniem?",
-        "revokeBody": "Osoby z tym linkiem nie będą już mogły dołączyć. Osoby, które już dołączyły, pozostaną członkami."
+        "revokeBody": "Osoby z tym linkiem nie będą już mogły dołączyć. Osoby, które już dołączyły, pozostaną członkami.",
+        "actionsFor": "Działania dla linku ({created})"
       },
       "shell": {
         "allTeams": "Wszystkie zespoły",
@@ -913,9 +910,7 @@
         },
         "notFoundTitle": "Nie znaleziono zespołu",
         "notFoundBody": "Ten zespół nie istnieje lub nie jesteś jego członkiem.",
-        "backToTeams": "Wróć do zespołów",
-        "loadError": "Nie udało się wczytać tego zespołu.",
-        "retry": "Ponów"
+        "backToTeams": "Wróć do zespołów"
       },
       "general": {
         "imageTitle": "Obraz zespołu",
@@ -950,9 +945,6 @@
         "memberColumn": "Członek",
         "roleColumn": "Rola",
         "actionsColumn": "Działania",
-        "roleFor": "Rola dla {name}",
-        "roleMember": "Członek",
-        "roleAdmin": "Administrator",
         "you": "Ty",
         "unnamed": "Członek bez nazwy",
         "remove": "Usuń",
@@ -969,7 +961,20 @@
         "resent": "Wysłano",
         "revoke": "Unieważnij",
         "linksTitle": "Linki z zaproszeniem",
-        "linksDescription": "Link wielokrotnego użytku, przez który każdy może dołączyć jako członek."
+        "linksDescription": "Link wielokrotnego użytku, przez który każdy może dołączyć jako członek.",
+        "seatNudge": "Członkowie i zaproszeni: {used}, a plan obejmuje miejsca: {seats}. Zaproszenia nadal działają; dodaj {over, plural, one {# miejsce} few {# miejsca} many {# miejsc} other {# miejsca}}, aby objąć wszystkich.",
+        "seatNudgeAction": "Zarządzaj miejscami",
+        "actions": {
+          "makeAdmin": "Nadaj uprawnienia administratora",
+          "makeMember": "Ustaw jako członka",
+          "remove": "Usuń z zespołu",
+          "leave": "Opuść zespół"
+        },
+        "actionsFor": "Działania dla: {name}",
+        "lastAdminReason": "Zespół musi mieć co najmniej jednego administratora. Najpierw awansuj inną osobę.",
+        "demoteSelfTitle": "Przestać być administratorem?",
+        "demoteSelfBody": "Stracisz uprawnienia administratora w tym zespole. Inny administrator może je przywrócić.",
+        "demoteSelfConfirm": "Ustaw mnie jako członka"
       },
       "apiKeys": {
         "title": "Klucze API zespołu",
@@ -1004,10 +1009,6 @@
       "apiKeysTitle": "Klucze API",
       "apiKeysDescription": "Twórz długoterminowe klucze dla skryptów i agentów. Sekret jest wyświetlany raz.",
       "apiKeysCount": "{count, plural, one {# klucz} few {# klucze} many {# kluczy} other {# klucza}}",
-      "apiKeysLoading": "Ładowanie kluczy API…",
-      "apiKeysLoadError": "Nie udało się załadować kluczy API. Spróbuj ponownie za chwilę.",
-      "apiKeysRetry": "Spróbuj ponownie",
-      "apiKeysEmptyBody": "Brak kluczy API. Utwórz klucz, aby uwierzytelnić klienta CodeRouter.",
       "apiKeyPrefixColumn": "Klucz",
       "apiKeyStatusColumn": "Stan",
       "apiKeySecretTitle": "Skopiuj teraz ten klucz",
@@ -1027,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Unieważnić ten klucz API?",
       "apiKeyUsageDetail": "ostatnie 30 dni: {completions} ukończeń · {tokens} tokenów ({input} wejście / {output} wyjście) · równowartość API {value}",
       "apiKeyUsageUnavailable": "Użycie niedostępne",
-      "revokeApiKeyConfirmBody": "Klienci używający tego klucza natychmiast stracą uwierzytelnianie."
+      "revokeApiKeyConfirmBody": "Klienci używający tego klucza natychmiast stracą uwierzytelnianie.",
+      "apiKeysEmptyTitle": "Brak kluczy API",
+      "apiKeysEmptyHint": "Utwórz klucz, aby uwierzytelnić klienta CodeRouter."
     },
     "notFound": {
       "title": "Nie znaleziono strony",
       "body": "Ta strona panelu nie istnieje lub została przeniesiona.",
       "home": "Przejdź do panelu"
+    },
+    "states": {
+      "errorTitle": "Nie udało się wczytać: {section}",
+      "errorTitleGeneric": "Nie udało się wczytać tej sekcji",
+      "reason": {
+        "network": "Sprawdź połączenie i spróbuj ponownie.",
+        "unavailable": "cmux jest chwilowo niedostępny. Spróbuj ponownie za chwilę.",
+        "forbidden": "Nie masz do tego dostępu.",
+        "notFound": "To już nie istnieje albo nie masz do tego dostępu.",
+        "rateLimited": "Zbyt wiele żądań. Odczekaj chwilę i spróbuj ponownie.",
+        "generic": "Coś poszło nie tak. Spróbuj ponownie."
+      },
+      "retry": "Spróbuj ponownie",
+      "retrying": "Ponawianie…"
     }
   },
   "community": {
