@@ -142,17 +142,14 @@ struct MobilePrimaryTabScaffold<
                         )
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    // The overlay owns only the content region. Leaving the
+                    // bottom hit area open keeps the system tab bar's
+                    // size-aware hit testing intact.
                     .contentShape(TopContentHitRegion(bottomInset: iOS26TabBarInteractionHeight))
                 }
                 .onChange(of: selection, initial: true) { _, selection in
                     searchCoordinator.synchronizeSelection(selection)
                 }
-
-                // The persistent content layer sits above the tab bar's
-                // transparent content host, so route the tab bar's hit area
-                // back to the same selection binding while leaving its native
-                // visuals intact.
-                tabBarInteractionOverlay
 
                 if selection == .workspaces, let taskComposerAction {
                     TaskComposerButton(
@@ -207,33 +204,6 @@ struct MobilePrimaryTabScaffold<
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
-    }
-
-    private var tabBarInteractionOverlay: some View {
-        HStack(spacing: 0) {
-            tabBarButton(for: .workspaces)
-                .frame(width: 110)
-            tabBarButton(for: .notifications)
-                .frame(width: 110)
-            Spacer(minLength: 0)
-            tabBarButton(for: .search)
-                .frame(width: 90)
-        }
-        .padding(.horizontal, 45)
-        .frame(height: iOS26TabBarInteractionHeight)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .accessibilityHidden(true)
-    }
-
-    private func tabBarButton(for tab: MobilePrimaryTab) -> some View {
-        Button {
-            tabSelection.wrappedValue = tab
-        } label: {
-            Color.clear
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .buttonStyle(.plain)
     }
 
     private var tabSelection: Binding<MobilePrimaryTab> {

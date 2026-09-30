@@ -63,23 +63,6 @@ struct NotificationFeedView: View {
                 feed
             }
         }
-        .alert(
-            L10n.string(
-                "mobile.notificationFeed.markAllRead.confirmTitle",
-                defaultValue: "Mark all notifications as read?"
-            ),
-            isPresented: $isConfirmingMarkAllRead
-        ) {
-            Button(
-                L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
-                role: .destructive
-            ) {
-                actions.markAllRead()
-            }
-            .accessibilityIdentifier("MobileNotificationFeedMarkAllReadConfirm")
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
-                .accessibilityIdentifier("MobileNotificationFeedMarkAllReadCancel")
-        }
         .task {
             guard refreshesOnAppear else { return }
             await actions.refresh()
@@ -88,6 +71,34 @@ struct NotificationFeedView: View {
             actions.filterChanged(filter)
         }
         .accessibilityIdentifier("MobileNotificationFeed")
+    }
+}
+
+extension View {
+    /// Presents the feed's destructive confirmation from the one navigation
+    /// host that owns the active notification scope. Individual feed views can
+    /// remain mounted for search and tab navigation without competing to
+    /// present the same alert.
+    func notificationFeedMarkAllReadAlert(
+        isPresented: Binding<Bool>,
+        markAllRead: @escaping @MainActor () -> Void
+    ) -> some View {
+        alert(
+            L10n.string(
+                "mobile.notificationFeed.markAllRead.confirmTitle",
+                defaultValue: "Mark all notifications as read?"
+            ),
+            isPresented: isPresented
+        ) {
+            Button(
+                L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
+                role: .destructive,
+                action: markAllRead
+            )
+            .accessibilityIdentifier("MobileNotificationFeedMarkAllReadConfirm")
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+                .accessibilityIdentifier("MobileNotificationFeedMarkAllReadCancel")
+        }
     }
 }
 

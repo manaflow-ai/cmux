@@ -130,6 +130,10 @@ public struct NotificationFeedPreviewView: View {
                     }
                 }
             )
+            .notificationFeedMarkAllReadAlert(
+                isPresented: $isConfirmingMarkAllRead,
+                markAllRead: { actions.markAllRead() }
+            )
             .background {
                 NotificationFeedSearchProjectionSync(
                     searchCoordinator: primarySearchCoordinator,

@@ -424,6 +424,16 @@ struct WorkspaceShellView: View {
             .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
                 notificationFeedProjection.update(items: items)
             }
+            .notificationFeedMarkAllReadAlert(
+                isPresented: $isConfirmingNotificationFeedMarkAllRead,
+                markAllRead: {
+                    Task {
+                        await store.markNotificationFeedItemsRead(
+                            scopedTo: presentation.selectedNotificationFeedMacDeviceIDs
+                        )
+                    }
+                }
+            )
         }
         #endif
         #else
