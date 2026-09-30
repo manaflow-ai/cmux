@@ -64,8 +64,19 @@ function textFromContent(content: any): string {
 }
 
 function diffCounts(value: any): { additions?: number; deletions?: number } {
-  const additions = Number(value?.additions ?? value?.added ?? NaN);
-  const deletions = Number(value?.deletions ?? value?.removed ?? NaN);
+  let additions = Number(value?.additions ?? value?.added ?? NaN);
+  let deletions = Number(value?.deletions ?? value?.removed ?? NaN);
+  const diffs = [...(Array.isArray(value?.content) ? value.content : []), ...(Array.isArray(value?.rawOutput?.content) ? value.rawOutput.content : [])].filter((item: any) => item?.type === "diff");
+  if ((!Number.isFinite(additions) || !Number.isFinite(deletions)) && diffs.length > 0) {
+    if (!Number.isFinite(additions)) additions = 0;
+    if (!Number.isFinite(deletions)) deletions = 0;
+    for (const diff of diffs) {
+      const oldLines = String(diff.oldText ?? "").split("\n").length;
+      const newLines = String(diff.newText ?? "").split("\n").length;
+      additions += Math.max(0, newLines - oldLines);
+      deletions += Math.max(0, oldLines - newLines);
+    }
+  }
   return { additions: Number.isFinite(additions) ? additions : undefined, deletions: Number.isFinite(deletions) ? deletions : undefined };
 }
 
@@ -485,7 +496,11 @@ export class AcpmuxDirectClient {
   async setConfig(configId: string, value: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_config_option", { sessionId: this.selectedSessionId, configId, value }); }
   async loadOlder(): Promise<void> {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
-    const result = await this.request("_acpmux/events", { sessionId: this.selectedSessionId, beforeSeq: this.firstSeq, limit: 400, kinds: ["transcript"] });
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const beforeSeq = this.firstSeq;
+    const result = await this.request("_acpmux/events", { sessionId, beforeSeq, limit: 400, kinds: ["transcript"] });
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
     const currentSummary = this.summary;
     const currentQueue = this.queue;
     const currentPermission = this.pendingPermission;
