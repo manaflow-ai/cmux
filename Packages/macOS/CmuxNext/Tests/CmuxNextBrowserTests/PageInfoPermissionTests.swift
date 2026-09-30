@@ -126,3 +126,17 @@ struct PageInfoPermissionTests {
         #expect(PageInfoModel.stateText(SitePermissionState(kind: .camera, setting: .allow, isDefault: false, isInUse: true)) == "Using now")
     }
 }
+
+/// "About this page" sends the page's address to a search engine: never the
+/// fragment or user credentials, which the page keeps on the client (a
+/// decryption key in `#...`, `user:pass@`).
+@MainActor
+struct PageInfoAboutThisPageTests {
+    @Test func theSearchCarriesNoFragmentOrCredentials() throws {
+        let model = PageInfoModel()
+        model.site = PageInfoSite(url: URL(string: "https://user:secret@share.example/doc/7?view=1#key=abc123")!, security: .secure)
+        let url = try #require(model.aboutThisPageURL)
+        let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value)
+        #expect(query == "About https://share.example/doc/7?view=1")
+    }
+}
