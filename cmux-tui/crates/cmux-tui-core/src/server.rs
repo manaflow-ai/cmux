@@ -24087,6 +24087,80 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_screen_commands_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&SCREEN_METADATA_CAPABILITY));
+        assert!(advertised_capabilities(false).contains(&SCREEN_GROUPS_CAPABILITY));
+        mux.new_workspace(None, None).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let first = mux.with_state(|state| state.workspaces[0].screens[0].id);
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"new-screen","workspace":workspace,"screen_name":"logs","color":"green",
+                   "icon":"🚀","index":0,"name":"tail"}),
+        )
+        .unwrap();
+        let screen = created["screen"].as_u64().unwrap();
+        assert!(created["surface"].is_u64());
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let screens = &tree["workspaces"][0]["screens"];
+        assert_eq!(screens[0]["id"], screen);
+        assert_eq!(screens[0]["name"], "logs");
+        assert_eq!(screens[0]["color"], "green");
+        assert_eq!(screens[0]["icon"], "🚀");
+        assert_eq!(screens[0]["pinned"], false);
+        assert_eq!(screens[1]["group"], Value::Null);
+        assert_eq!(tree["workspaces"][0]["screen_groups"], json!([]));
+
+        let meta = run_json_command(
+            &mux,
+            json!({"cmd":"set-screen-metadata","screen":screen,"color":null,"icon":"server.rack"}),
+        )
+        .unwrap();
+        assert_eq!(meta, json!({"screen":screen,"color":null,"icon":"server.rack","changed":true}));
+        let pinned =
+            run_json_command(&mux, json!({"cmd":"set-screen-pinned","screen":first,"pinned":true}))
+                .unwrap();
+        assert_eq!(pinned["index"], 0);
+        let moved =
+            run_json_command(&mux, json!({"cmd":"move-screen","screen":screen,"index":0})).unwrap();
+        // Pinned screens stay first.
+        assert_eq!(moved["index"], 1);
+
+        let grouped = run_json_command(
+            &mux,
+            json!({"cmd":"create-screen-group","screens":[screen],"name":"Build","color":"orange"}),
+        )
+        .unwrap();
+        let group = grouped["group"]["id"].as_str().unwrap().to_string();
+        assert!(group.starts_with("sgrp_"));
+        assert_eq!(grouped["screens"], json!([screen]));
+        run_json_command(&mux, json!({"cmd":"update-screen-group","group":group,"collapsed":true}))
+            .unwrap();
+        let saved =
+            run_json_command(&mux, json!({"cmd":"save-screen-group","group":group})).unwrap();
+        assert!(saved["saved"].as_str().unwrap().starts_with("ssaved_"));
+        let listed = run_json_command(&mux, json!({"cmd":"list-saved-screen-groups"})).unwrap();
+        assert_eq!(listed["groups"][0]["name"], "Build");
+        assert_eq!(listed["groups"][0]["open_group"], json!(group));
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        assert_eq!(tree["workspaces"][0]["screen_groups"][0]["collapsed"], true);
+        assert_eq!(tree["workspaces"][0]["screen_groups"][0]["screens"], json!([screen]));
+        assert_eq!(tree["workspaces"][0]["screens"][1]["group"], json!(group));
+        let ungrouped =
+            run_json_command(&mux, json!({"cmd":"ungroup-screen-group","group":group})).unwrap();
+        assert_eq!(ungrouped["screens"], json!([screen]));
+        assert!(run_json_command(&mux, json!({"cmd":"close-screen-group","group":group})).is_err());
+        let moved = run_json_command(
+            &mux,
+            json!({"cmd":"move-screen","screen":screen,"new_workspace":true}),
+        )
+        .unwrap();
+        assert_ne!(moved["workspace"], workspace);
+        assert!(moved["key"].is_string());
+    }
+
+    #[test]
     fn cmux_next_close_tabs_and_end_terminals_over_the_wire() {
         let mux = test_mux();
         assert!(advertised_capabilities(false).contains(&BATCH_CLOSE_CAPABILITY));
