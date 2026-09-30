@@ -133,6 +133,7 @@ struct CloudProviderRefreshCoordinatorTests {
         let release = CloudLinkFirstValue<Bool>()
         let operationReturned = CloudLinkFirstValue<Bool>()
         let allowOperationToReturn = CloudLinkFirstValue<Bool>()
+        let secondEntered = CloudLinkFirstValue<Bool>()
         var calls = 0
         let operation: @MainActor (Bool) async -> Bool = { _ in
             calls += 1
@@ -151,6 +152,13 @@ struct CloudProviderRefreshCoordinatorTests {
 
         let first = Task { await coordinator.refresh(force: true, operation: operation) }
         _ = await started.result
+        let second = Task {
+            // Admit the second waiter before releasing the first operation so
+            // both continuations participate in the invalidation boundary.
+            secondEntered.resolve(true)
+            return await coordinator.refresh(force: true, operation: operation)
+        }
+        _ = await secondEntered.result
         release.resolve(true)
         _ = await operationReturned.result
         // Invalidate while the pass owner is held after the operation has
@@ -158,6 +166,7 @@ struct CloudProviderRefreshCoordinatorTests {
         coordinator.invalidate()
         allowOperationToReturn.resolve(true)
         #expect(await first.value)
+        #expect(await second.value)
         #expect(calls == 2)
 
         // The invalidation forced a new operation. Invalidate once more so
