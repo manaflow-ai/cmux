@@ -27335,6 +27335,92 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_notify_accepts_a_source_and_reports_it_on_the_wire() {
+        assert!(advertised_capabilities(false).contains(&NOTIFICATION_SOURCE_CAPABILITY));
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        let events = mux.subscribe();
+        run_json_command(
+            &mux,
+            json!({"cmd":"notify","title":"hook","body":"","surface":surface.id,"source":"agent"}),
+        )
+        .unwrap();
+        run_json_command(&mux, json!({"cmd":"notify","title":"cli","surface":surface.id}))
+            .unwrap();
+        let notes = events
+            .try_iter()
+            .filter(|event| matches!(event, MuxEvent::Notification(_)))
+            .map(|event| subscribed_event_json(&event))
+            .collect::<Vec<_>>();
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(notes[0]["title"], "hook");
+        assert_eq!(notes[0]["source"], "agent");
+        assert_eq!(notes[1]["title"], "cli");
+        assert_eq!(notes[1]["source"], "cli", "notify defaults to the cli source");
+
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let tab = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0].clone();
+        assert_eq!(tab["surface"], json!(surface.id));
+        assert_eq!(tab["notification"]["source"], "cli", "{tab}");
+
+        for source in ["daemon", "terminal"] {
+            run_json_command(
+                &mux,
+                json!({"cmd":"notify","title":source,"surface":surface.id,"source":source}),
+            )
+            .unwrap();
+        }
+        assert!(
+            run_json_command(&mux, json!({"cmd":"notify","title":"x","source":"bogus"})).is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_terminal_osc_notifications_post_from_unattached_terminals() {
+        // No client attaches: the daemon parses the program's output itself,
+        // as for a terminal in a hidden tab or a background workspace. The
+        // pauses keep each sequence outside the 1 s rate limit.
+        let mux = Mux::new(
+            "terminal-osc-notifications-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "printf '\\033]9;nine\\007'; sleep 1.3; \
+                     printf '\\033]777;notify;seven;body\\007'; sleep 1.3; \
+                     printf '\\033]99;;kitty\\033\\\\'; exec cat"
+                        .to_string(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let events = mux.subscribe();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut notes = Vec::new();
+        while notes.len() < 3 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "terminal notifications missing: {notes:?}");
+            if let Ok(MuxEvent::Notification(note)) = events.recv_timeout(remaining) {
+                notes.push(note);
+            }
+        }
+        let summary = notes
+            .iter()
+            .map(|note| (note.title.as_str(), note.body.as_str(), note.source, note.surface))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            summary,
+            vec![
+                ("nine", "", NotificationSource::Terminal, Some(surface.id)),
+                ("seven", "body", NotificationSource::Terminal, Some(surface.id)),
+                ("kitty", "", NotificationSource::Terminal, Some(surface.id)),
+            ]
+        );
+        mux.shutdown();
+    }
+
+    #[test]
     fn title_changed_event_includes_authoritative_surface_title() {
         let mux = Mux::new(
             "title-event-test",

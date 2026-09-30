@@ -25793,6 +25793,105 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_notification_source_is_on_event_marker_and_snapshot_and_survives_restart() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-notification-source-{}", WorkspacePublicId::random().unwrap()));
+        let session = "notification-source";
+        let open = || {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap()
+        };
+        let mux = open();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let events = mux.subscribe();
+
+        mux.post_notification("plain".into(), "".into(), NotificationLevel::Info, Some(surface_id))
+            .unwrap();
+        mux.post_notification_from(
+            "osc".into(),
+            "body".into(),
+            NotificationLevel::Info,
+            Some(surface_id),
+            NotificationSource::Terminal,
+        )
+        .unwrap();
+        let sources = events
+            .try_iter()
+            .filter_map(|event| match event {
+                MuxEvent::Notification(note) => Some((note.title, note.source)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sources,
+            vec![
+                ("plain".to_string(), NotificationSource::Cli),
+                ("osc".to_string(), NotificationSource::Terminal),
+            ]
+        );
+        assert_eq!(
+            mux.terminal_notification(&terminal_id).map(|marker| marker.source),
+            Some(NotificationSource::Terminal)
+        );
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let sources = snapshot["notifications"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["extra"]["source"].clone())
+            .collect::<Vec<_>>();
+        assert!(sources.contains(&serde_json::json!("terminal")), "{sources:?}");
+        assert!(sources.contains(&serde_json::json!("cli")), "{sources:?}");
+        drop(events);
+        mux.shutdown();
+        drop(mux);
+
+        let mux = open();
+        let ledger = mux.resource_notifications(16);
+        assert_eq!(ledger[0].title, "osc");
+        assert_eq!(ledger[0].source, NotificationSource::Terminal);
+        assert_eq!(ledger[1].source, NotificationSource::Cli);
+        assert_eq!(
+            mux.terminal_notification(&terminal_id).map(|marker| marker.source),
+            Some(NotificationSource::Terminal)
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cmux_next_agent_hook_notifications_have_the_agent_source() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "PermissionRequest",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"tool_name":"Bash"}),
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, 1).unwrap();
+        let posted = mux.resource_notifications(16);
+        assert_eq!(posted.len(), 1);
+        assert_eq!(posted[0].source, NotificationSource::Agent);
+        assert_eq!(
+            mux.terminal_notification(&terminal_id).map(|marker| marker.source),
+            Some(NotificationSource::Agent)
+        );
+    }
+
+    #[test]
     fn agent_hook_transitions_post_durable_notifications_once() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();

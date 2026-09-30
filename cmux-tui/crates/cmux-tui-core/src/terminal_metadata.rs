@@ -361,4 +361,154 @@ mod tests {
         metadata.observe_output(&bounded);
         assert_eq!(metadata.osc_progress().chars().count(), MAX_PROGRESS_CHARS);
     }
+
+    fn notes(metadata: &mut TerminalMetadata) -> Vec<(String, String)> {
+        metadata.take_notifications().into_iter().map(|note| (note.title, note.body)).collect()
+    }
+
+    #[test]
+    fn cmux_next_terminal_notification_osc9_text_is_a_notification() {
+        let mut metadata = TerminalMetadata::default();
+        metadata.observe_output(b"\x1b]9;Build finished\x07");
+        assert_eq!(notes(&mut metadata), vec![("Build finished".into(), String::new())]);
+        // The ST terminator, a chunk boundary and C1 OSC frame the same text.
+        metadata.observe_output(b"\x1b]9;two");
+        metadata.observe_output(b" parts\x1b\\");
+        metadata.observe_output(b"\x9d9;c1\x9c");
+        assert_eq!(
+            notes(&mut metadata),
+            vec![("two parts".into(), String::new()), ("c1".into(), String::new())]
+        );
+        // Taking drains the queue.
+        assert!(notes(&mut metadata).is_empty());
+    }
+
+    #[test]
+    fn cmux_next_terminal_notification_osc9_conemu_forms_are_not_notifications() {
+        // Ghostty's osc9.zig treats these as ConEmu commands, not iTerm2
+        // desktop notifications.
+        let mut metadata = TerminalMetadata::default();
+        for body in [
+            "9;1;100", "9;10", "9;10;1", "9;11;comment", "9;12", "9;2;box", "9;3;", "9;3;tab",
+            "9;4;0", "9;4;1;50", "9;4;2", "9;4;3", "9;4;4;10", "9;5", "9;5 minutes", "9;6;macro",
+            "9;7;run", "9;8;VAR", "9;9;/tmp",
+        ] {
+            metadata.observe_output(format!("\x1b]{body}\x07").as_bytes());
+            assert!(notes(&mut metadata).is_empty(), "{body} must not notify");
+        }
+        // Near misses fall through to a notification, as in Ghostty.
+        for (body, text) in [
+            ("9;1", "1"),
+            ("9;10;7", "10;7"),
+            ("9;11", "11"),
+            ("9;2", "2"),
+            ("9;4", "4"),
+            ("9;4;9", "4;9"),
+            ("9;6", "6"),
+            ("9;done", "done"),
+        ] {
+            metadata.observe_output(format!("\x1b]{body}\x07").as_bytes());
+            assert_eq!(notes(&mut metadata), vec![(text.to_string(), String::new())], "{body}");
+        }
+        // An empty OSC 9 has nothing to show.
+        metadata.observe_output(b"\x1b]9;\x07");
+        assert!(notes(&mut metadata).is_empty());
+    }
+
+    #[test]
+    fn cmux_next_terminal_notification_osc777_notify_has_title_and_body() {
+        let mut metadata = TerminalMetadata::default();
+        metadata.observe_output(b"\x1b]777;notify;Title;Body; with semicolon\x07");
+        assert_eq!(notes(&mut metadata), vec![("Title".into(), "Body; with semicolon".into())]);
+        // Missing title separator, other extensions and empty text are ignored.
+        metadata.observe_output(b"\x1b]777;notify;only\x07");
+        metadata.observe_output(b"\x1b]777;other;a;b\x07");
+        metadata.observe_output(b"\x1b]777;notify;;\x07");
+        assert!(notes(&mut metadata).is_empty());
+        // An empty title shows the body as the title.
+        metadata.observe_output(b"\x1b]777;notify;;body only\x07");
+        assert_eq!(notes(&mut metadata), vec![("body only".into(), String::new())]);
+    }
+
+    #[test]
+    fn cmux_next_terminal_notification_osc99_kitty_chunks_and_base64() {
+        let mut metadata = TerminalMetadata::default();
+        metadata.observe_output(b"\x1b]99;;Hello\x1b\\");
+        assert_eq!(notes(&mut metadata), vec![("Hello".into(), String::new())]);
+
+        // Chunks with one id accumulate until d=1 (the default).
+        metadata.observe_output(b"\x1b]99;i=job:d=0;Deploy\x1b\\");
+        assert!(notes(&mut metadata).is_empty());
+        metadata.observe_output(b"\x1b]99;i=job:d=0:p=body;done in \x1b\\");
+        metadata.observe_output(b"\x1b]99;i=job:p=body;3s\x1b\\");
+        assert_eq!(notes(&mut metadata), vec![("Deploy".into(), "done in 3s".into())]);
+
+        // Base64 payloads (e=1) decode; "SGk=" is "Hi".
+        metadata.observe_output(b"\x1b]99;e=1;SGk=\x1b\\");
+        assert_eq!(notes(&mut metadata), vec![("Hi".into(), String::new())]);
+
+        // Body only becomes the title; close/alive/unknown payloads are ignored.
+        metadata.observe_output(b"\x1b]99;p=body;just body\x1b\\");
+        assert_eq!(notes(&mut metadata), vec![("just body".into(), String::new())]);
+        metadata.observe_output(b"\x1b]99;p=close;x\x1b\\\x1b]99;p=alive;x\x1b\\");
+        metadata.observe_output(b"\x1b]99;p=?;x\x1b\\\x1b]99;no-separator\x1b\\");
+        assert!(notes(&mut metadata).is_empty());
+
+        // A new id drops an unfinished notification with another id.
+        metadata.observe_output(b"\x1b]99;i=a:d=0;lost\x1b\\");
+        metadata.observe_output(b"\x1b]99;i=b;kept\x1b\\");
+        assert_eq!(notes(&mut metadata), vec![("kept".into(), String::new())]);
+
+        // Invalid base64 is dropped.
+        metadata.observe_output(b"\x1b]99;e=1;***\x1b\\");
+        assert!(notes(&mut metadata).is_empty());
+    }
+
+    #[test]
+    fn cmux_next_terminal_notification_text_is_bounded_and_queue_is_capped() {
+        let mut metadata = TerminalMetadata::default();
+        let mut long = b"\x1b]777;notify;".to_vec();
+        long.extend(std::iter::repeat_n(b't', MAX_NOTIFICATION_TITLE_CHARS + 10));
+        long.push(b';');
+        long.extend(std::iter::repeat_n(b'b', MAX_NOTIFICATION_BODY_CHARS + 10));
+        long.push(0x07);
+        metadata.observe_output(&long);
+        let taken = notes(&mut metadata);
+        assert_eq!(taken[0].0.chars().count(), MAX_NOTIFICATION_TITLE_CHARS);
+        assert_eq!(taken[0].1.chars().count(), MAX_NOTIFICATION_BODY_CHARS);
+
+        // Control characters are removed from the shown text.
+        metadata.observe_output(b"\x1b]777;notify;a\tb;c\x1bXd\x07");
+        assert_eq!(notes(&mut metadata), vec![("ab".into(), "cXd".into())]);
+
+        // A reader that never drains (a terminal host) keeps a bounded queue.
+        for index in 0..(MAX_PENDING_NOTIFICATIONS + 5) {
+            metadata.observe_output(format!("\x1b]9;n{index}\x07").as_bytes());
+        }
+        let taken = notes(&mut metadata);
+        assert_eq!(taken.len(), MAX_PENDING_NOTIFICATIONS);
+        assert_eq!(taken.last().unwrap().0, format!("n{}", MAX_PENDING_NOTIFICATIONS + 4));
+    }
+
+    #[test]
+    fn cmux_next_terminal_notification_osc9_progress_text_is_still_retained() {
+        let mut metadata = TerminalMetadata::default();
+        metadata.observe_output(b"\x1b]9;4;1;50\x07");
+        assert_eq!(metadata.osc_progress(), "4;1;50");
+        assert!(notes(&mut metadata).is_empty());
+    }
+
+    #[test]
+    fn cmux_next_terminal_notification_gate_limits_rate_and_repeats() {
+        let start = std::time::Instant::now();
+        let mut gate = NotificationGate::default();
+        let note = |title: &str| TerminalNotification { title: title.into(), body: String::new() };
+        assert!(gate.admit(&note("a"), start));
+        // Within one second of the last shown notification: dropped.
+        assert!(!gate.admit(&note("b"), start + std::time::Duration::from_millis(500)));
+        assert!(gate.admit(&note("b"), start + std::time::Duration::from_millis(1_100)));
+        // The same text again within five seconds: dropped.
+        assert!(!gate.admit(&note("b"), start + std::time::Duration::from_millis(3_000)));
+        assert!(gate.admit(&note("b"), start + std::time::Duration::from_millis(6_200)));
+    }
 }
