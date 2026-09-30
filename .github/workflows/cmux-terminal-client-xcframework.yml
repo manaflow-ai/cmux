@@ -165,10 +165,19 @@ jobs:
           short_version="${VERSION%%+*}"
           entries=""
           add_slice() {
-            local target="$1" slice="$2" platform="$3" supported="$4" minos="$5" variant="$6" architecture="$7"
+            local slice="$1" platform="$2" supported="$3" minos="$4" variant="$5" architectures="$6"
+            shift 6
+            local archives=("$@")
             local fw="$xcf/$slice/CmuxTerminalClientFFI.framework"
+            local archive="$RUNNER_TEMP/xcframework/$slice/libcmux_terminal_client.a"
+            mkdir -p "$(dirname "$archive")"
+            if [[ "${#archives[@]}" == 1 ]]; then
+              cp "${archives[0]}" "$archive"
+            else
+              lipo -create "${archives[@]}" -output "$archive"
+            fi
             mkdir -p "$fw/Headers" "$fw/Modules"
-            cp "$lib/$target/release/libcmux_terminal_client.a" "$fw/CmuxTerminalClientFFI"
+            cp "$archive" "$fw/CmuxTerminalClientFFI"
             cp "$header" "$fw/Headers/"
             cat > "$fw/Modules/module.modulemap" <<'MAP'
           framework module CmuxTerminalClientFFI {
@@ -198,13 +207,20 @@ jobs:
           </dict></plist>
           PLIST
             plutil -lint "$fw/Info.plist"
-            entries+="<dict><key>BinaryPath</key><string>CmuxTerminalClientFFI.framework/CmuxTerminalClientFFI</string><key>LibraryIdentifier</key><string>$slice</string><key>LibraryPath</key><string>CmuxTerminalClientFFI.framework</string><key>SupportedArchitectures</key><array><string>$architecture</string></array><key>SupportedPlatform</key><string>$platform</string>$variant_key</dict>"
+            local architectures_xml=""
+            for architecture in $architectures; do
+              architectures_xml+="<string>$architecture</string>"
+            done
+            entries+="<dict><key>BinaryPath</key><string>CmuxTerminalClientFFI.framework/CmuxTerminalClientFFI</string><key>LibraryIdentifier</key><string>$slice</string><key>LibraryPath</key><string>CmuxTerminalClientFFI.framework</string><key>SupportedArchitectures</key><array>$architectures_xml</array><key>SupportedPlatform</key><string>$platform</string>$variant_key</dict>"
           }
-          add_slice aarch64-apple-ios ios-arm64 ios iPhoneOS 17.0 "" arm64
-          add_slice aarch64-apple-ios-sim ios-arm64-simulator ios iPhoneSimulator 17.0 simulator arm64
-          add_slice x86_64-apple-ios ios-x86_64-simulator ios iPhoneSimulator 17.0 simulator x86_64
-          add_slice aarch64-apple-darwin macos-arm64 macos MacOSX 14.0 "" arm64
-          add_slice x86_64-apple-darwin macos-x86_64 macos MacOSX 14.0 "" x86_64
+          add_slice ios-arm64 ios iPhoneOS 17.0 "" "arm64" \
+            "$lib/aarch64-apple-ios/release/libcmux_terminal_client.a"
+          add_slice ios-simulator ios iPhoneSimulator 17.0 simulator "arm64 x86_64" \
+            "$lib/aarch64-apple-ios-sim/release/libcmux_terminal_client.a" \
+            "$lib/x86_64-apple-ios/release/libcmux_terminal_client.a"
+          add_slice macos macos MacOSX 14.0 "" "arm64 x86_64" \
+            "$lib/aarch64-apple-darwin/release/libcmux_terminal_client.a" \
+            "$lib/x86_64-apple-darwin/release/libcmux_terminal_client.a"
           cat > "$xcf/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -238,7 +254,8 @@ jobs:
           smoke_link() {
             local slice="$1" sdk="$2" triple="$3" archive="$4"
             local dir="$xcf/$slice"
-            local src="$work/smoke-$slice.c"
+            local architecture="${triple%%-*}"
+            local src="$work/smoke-$slice-$architecture.c"
             # Symbols are read from the ORIGINAL archive, not the framework's
             # copy of it: the copy is named without a .a extension, and nm
             # fails outright on it, which under set -o pipefail ended this
@@ -271,22 +288,23 @@ jobs:
             xcrun --sdk "$sdk" clang -target "$triple" \
               -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" \
               -F "$dir" "${frameworks[@]}" \
-              -o "$work/smoke-$slice" "$src"
+              -o "$work/smoke-$slice-$architecture" "$src"
             echo "$slice: linked"
           }
           rel=cmux-tui/target
           smoke_link ios-arm64 iphoneos arm64-apple-ios17.0 \
             "$rel/aarch64-apple-ios/release/libcmux_terminal_client.a"
-          smoke_link ios-arm64-simulator iphonesimulator arm64-apple-ios17.0-simulator \
-            "$rel/aarch64-apple-ios-sim/release/libcmux_terminal_client.a"
-          smoke_link ios-x86_64-simulator iphonesimulator x86_64-apple-ios17.0-simulator \
-            "$rel/x86_64-apple-ios/release/libcmux_terminal_client.a"
-          smoke_link macos-arm64 macosx arm64-apple-macos14.0 \
-            "$rel/aarch64-apple-darwin/release/libcmux_terminal_client.a"
-          smoke_link macos-x86_64 macosx x86_64-apple-macos14.0 \
-            "$rel/x86_64-apple-darwin/release/libcmux_terminal_client.a"
+          smoke_link ios-simulator iphonesimulator arm64-apple-ios17.0-simulator \
+            "$RUNNER_TEMP/xcframework/ios-simulator/libcmux_terminal_client.a"
+          smoke_link ios-simulator iphonesimulator x86_64-apple-ios17.0-simulator \
+            "$RUNNER_TEMP/xcframework/ios-simulator/libcmux_terminal_client.a"
+          smoke_link macos macosx arm64-apple-macos14.0 \
+            "$RUNNER_TEMP/xcframework/macos/libcmux_terminal_client.a"
+          smoke_link macos macosx x86_64-apple-macos14.0 \
+            "$RUNNER_TEMP/xcframework/macos/libcmux_terminal_client.a"
           "$work/smoke-macos-arm64" >/dev/null
-          echo "macos-arm64: smoke binary ran"
+          "$work/smoke-macos-x86_64" >/dev/null
+          echo "macos: smoke binary ran"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -323,7 +341,7 @@ jobs:
         run: |
           set -euo pipefail
           checksum="$(cat assets/CmuxTerminalClient.xcframework.zip.sha256)"
-          notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (static frameworks: iOS arm64, iOS simulator arm64/x86_64, macOS arm64/x86_64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
+          notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (static frameworks: iOS arm64, universal iOS simulator arm64/x86_64, universal macOS arm64/x86_64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             existing="$(mktemp -d)"
             gh release download "$TAG" \

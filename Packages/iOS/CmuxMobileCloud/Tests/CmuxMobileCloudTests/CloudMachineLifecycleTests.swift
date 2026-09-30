@@ -64,8 +64,10 @@ import Testing
         // is encoded, so it stays one path segment.
         let hostile = try builder.deleteMachine(id: "vm-1/pause", accessToken: "a", refreshToken: "r")
         #expect(hostile.url?.absoluteString == "https://cmux.com/api/vm/vm-1%2Fpause")
-        #expect(throws: CloudAPIError.self) {
-            try builder.deleteMachine(id: "  ", accessToken: "a", refreshToken: "r")
+        for invalidID in ["  ", ".", ".."] {
+            #expect(throws: CloudAPIError.self) {
+                try builder.deleteMachine(id: invalidID, accessToken: "a", refreshToken: "r")
+            }
         }
     }
 

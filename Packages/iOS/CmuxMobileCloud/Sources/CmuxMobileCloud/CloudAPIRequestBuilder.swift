@@ -182,6 +182,8 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
         // always encoded as data in one machine-id segment.
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
         guard !trimmed.isEmpty,
+              trimmed != ".",
+              trimmed != "..",
               let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: allowed),
               !encoded.contains("/") else {
             throw CloudAPIError.invalidURL("machine id \(value)")
