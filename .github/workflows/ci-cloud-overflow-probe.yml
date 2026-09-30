@@ -1,0 +1,132 @@
+name: CI cloud overflow probe
+
+# Blacksmith is overflow behind the owned minis. When it stops starting jobs
+# (2026-09-29: from about 10:15Z, 1 of about 1,986 runners online and about
+# 150 runs queued for two hours), the runner variables that send overflow
+# there (LINUX_RUNNER, MACOS_RUNNER_*, CI_PAID_MACOS_OVERFLOW) are pointed at
+# the owned pools and GitHub-hosted Linux, and pointed back once it serves
+# again. One probe, one switch: `probe` asks for a Blacksmith label and only
+# prints a line; `watch`, on a GitHub-hosted runner, waits for it.
+# scripts/ci/cloud_overflow_switch.py has the rules:
+#
+# - The probe starts within CI_CLOUD_PROBE_MINUTES (default 5) of being
+#   queued: if this switch had turned overflow off, every variable it changed
+#   is restored from the CI_CLOUD_OVERFLOW_SAVED record (unless someone
+#   changed it since) and the record is deleted.
+# - It does not: the record is written (each variable's value before, its
+#   failover, when and why), the variables are pointed at their failovers,
+#   runs already stuck on a Blacksmith label are force-cancelled and re-run,
+#   and this run force-cancels itself, since its probe would stay queued.
+#
+# The lane switches (CI_PR_POOL_OWNED, CI_E2E_OWNED_UI, CI_IOS_OWNED, ...) are
+# never touched: minis-first routing does not change, only where overflow
+# goes. Nothing here gates a merge.
+#
+# Writing variables takes a token no workflow permission grants. Use the
+# existing manaflow-glaeda-route App (`GLAEDA_ROUTE_APP_ID` and
+# `GLAEDA_ROUTE_APP_KEY`), which is already configured at repository scope.
+# Without it the watch still probes and names the values to set by hand, and
+# fails.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Probe and report what would change without writing any variable or cancelling any run"
+        required: true
+        default: true
+        type: boolean
+      probe_label:
+        description: "Drill: probe this label instead (a label no runner has simulates an outage); always a dry run"
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+# One probe at a time: a second waits instead of racing the first one's writes.
+concurrency:
+  group: ci-cloud-overflow-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Blacksmith probe
+    if: github.repository_owner == 'manaflow-ai'
+    # The Blacksmith label overflow uses, never the variable's failover:
+    # while overflow is off LINUX_RUNNER names GitHub-hosted, so the record
+    # keeps the label to probe (cloud_overflow_switch.probe_label()).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && inputs.probe_label || startsWith(fromJSON(vars.CI_CLOUD_OVERFLOW_SAVED || '{"probe":""}').probe, 'blacksmith-') && fromJSON(vars.CI_CLOUD_OVERFLOW_SAVED).probe || startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Started
+        run: echo "Blacksmith started this job on ${RUNNER_NAME:-an unnamed runner}"
+
+  watch:
+    name: Watch the probe and switch overflow
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing
+    timeout-minutes: 25
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Check out trusted switch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The existing route App carries the repository variable permission; the
+      # action cannot narrow permissions by name, so the token carries what
+      # that App has.
+      - name: Mint the switch token
+        id: switch-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+
+      - name: Probe and switch
+        id: switch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
+          PROBE_LABEL_DRILL: ${{ github.event_name == 'workflow_dispatch' && inputs.probe_label || '' }}
+          PROBE_MINUTES: ${{ vars.CI_CLOUD_PROBE_MINUTES }}
+          # Live values from the expression context; '' is unset. Runner labels
+          # only, as in ci-repo-variables.yml: a step's env is in its public log.
+          VAR_CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+          VAR_CI_CLOUD_FAILOVER: ${{ vars.CI_CLOUD_FAILOVER }}
+          VAR_CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          # NAME=value per line, read ungated on purpose: the switch has to see
+          # what each variable holds to put it back (the same reporting read as
+          # ci-repo-variables.yml).
+          CMUX_CI_RUNNER_VARIABLES: |
+            CI_PAID_MACOS_OVERFLOW=${{ vars.CI_PAID_MACOS_OVERFLOW }}
+            LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
+            MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
+            MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
+            MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
+            MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
+            MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
+            MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
+            MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+        run: python3 scripts/ci/cloud_overflow_switch.py
+
+      # Last, in its own step so the summary above is already saved. If the
+      # switch did not observe a started probe, cancel this run even when the
+      # switch failed before it could write its output; otherwise a queued
+      # probe can hold the concurrency group forever.
+      - name: End this run's stuck probe
+        if: always() && steps.switch.outputs.outcome != 'started'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/force-cancel"

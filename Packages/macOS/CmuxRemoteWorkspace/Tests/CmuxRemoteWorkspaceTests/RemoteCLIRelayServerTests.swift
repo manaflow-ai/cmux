@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import Network
@@ -62,6 +63,13 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         guard fd >= 0 else {
             throw NSError(domain: "FakeUnixSocketServer", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "socket() failed errno=\(errno)"])
         }
+        // Set on the listener so every accepted socket inherits it. Setting it
+        // after accept fails with EINVAL once the client has already closed,
+        // and the response write would then raise SIGPIPE in the test process.
+        var noSigPipe: Int32 = 1
+        withUnsafePointer(to: &noSigPipe) { pointer in
+            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
+        }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8CString)
@@ -90,15 +98,19 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         Thread.detachNewThread { [weak self] in
             let client = accept(fd, nil, nil)
             guard client >= 0 else { return }
+            // Darwin refuses socket options with EINVAL once a client has
+            // hung up before accept, so a write there would raise SIGPIPE and
+            // kill the test process. Only a socket that took SO_NOSIGPIPE is
+            // written to; the other has no reader left.
             var noSigPipe: Int32 = 1
-            withUnsafePointer(to: &noSigPipe) { pointer in
-                _ = setsockopt(
+            let canWrite = withUnsafePointer(to: &noSigPipe) { pointer in
+                setsockopt(
                     client,
                     SOL_SOCKET,
                     SO_NOSIGPIPE,
                     pointer,
                     socklen_t(MemoryLayout<Int32>.size)
-                )
+                ) == 0
             }
             var scratch = [UInt8](repeating: 0, count: 4096)
             while true {
@@ -113,15 +125,17 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
             }
             self?.requestReceived.signal()
             if let response = self?.response {
-                response.withUnsafeBytes { raw in
-                    _ = Darwin.write(client, raw.baseAddress, raw.count)
+                if canWrite {
+                    response.withUnsafeBytes { raw in
+                        _ = Darwin.write(client, raw.baseAddress, raw.count)
+                    }
                 }
             } else {
                 self?.clientHangupProbe.wait()
                 let deadline = Date().addingTimeInterval(2)
                 while Date() < deadline {
                     var probe: UInt8 = 0
-                    if Darwin.write(client, &probe, 1) <= 0 {
+                    if !canWrite || Darwin.write(client, &probe, 1) <= 0 {
                         self?.clientHungUp.signal()
                         break
                     }
@@ -349,6 +363,33 @@ struct RemoteCLIRelayServerTests {
         let call = try #require(rewriter.calls.first)
         #expect(call.workspace == [workspaceAlias.remote: workspaceAlias.local])
         #expect(call.surface.isEmpty)
+    }
+
+    @Test("an authenticated command is not forwarded to a local socket run by another user")
+    func foreignLocalSocketPeerReceivesNothing() throws {
+        let unixServer = try FakeUnixSocketServer(response: Data("{\"ok\":true,\"result\":42}\n".utf8))
+        defer { unixServer.close() }
+        // No second local account exists in tests, so expect a user ID the
+        // fake socket's owner cannot have; the relay must treat it as foreign.
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter(),
+            localSocketPeerCheck: UnixSocketPeerCheck(expectedUserID: geteuid() &+ 1)
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        try authenticate(client)
+        client.send(Data((#"{"id":"relay-test","method":"system.ping","params":{}}"# + "\n").utf8))
+
+        #expect(unixServer.waitForRequest())
+        #expect(unixServer.request.isEmpty, "The relay must not write to a socket another user listens on")
+        #expect(client.wait { _, closed in closed })
+        #expect(!client.receivedJSONLines().contains { $0["result"] != nil })
     }
 
     @Test("stopping the relay interrupts an outstanding local socket wait")

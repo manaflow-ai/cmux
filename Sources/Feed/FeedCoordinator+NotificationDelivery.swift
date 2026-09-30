@@ -47,6 +47,7 @@ extension FeedCoordinator {
         }
         let ownerID = target.ownerID
         let surfaceID = target.surfaceID
+        let suppressWhenAppFocused = TerminalNotificationStore.isSuppressWhenAppFocusedEnabled()
 
         if let dock = appDelegate.existingWindowDock(forWindowId: ownerID) {
             let context = appDelegate.mainWindowContexts.values.first {
@@ -60,7 +61,8 @@ extension FeedCoordinator {
                 isFocusedSurface: isFocusedSurface,
                 isMuted: false,
                 soundWhenFocused: soundWhenFocused,
-                effects: effects
+                effects: effects,
+                suppressWhenAppFocused: suppressWhenAppFocused
             )
         }
 
@@ -80,7 +82,8 @@ extension FeedCoordinator {
             isFocusedSurface: isFocusedSurface,
             isMuted: isMuted,
             soundWhenFocused: soundWhenFocused,
-            effects: effects
+            effects: effects,
+            suppressWhenAppFocused: suppressWhenAppFocused
         )
     }
 

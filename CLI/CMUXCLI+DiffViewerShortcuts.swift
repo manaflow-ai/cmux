@@ -11,6 +11,8 @@ extension CMUXCLI {
         case openFileSearch = "diffViewerOpenFileSearch"
         case nextFile = "diffViewerNextFile"
         case previousFile = "diffViewerPreviousFile"
+        case nextHunk = "diffViewerNextHunk"
+        case previousHunk = "diffViewerPreviousHunk"
 
         var defaultShortcut: DiffViewerShortcut {
             switch self {
@@ -45,6 +47,10 @@ extension CMUXCLI {
                     first: DiffViewerShortcutStroke(key: "["),
                     second: DiffViewerShortcutStroke(key: "f")
                 )
+            case .nextHunk:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "n"))
+            case .previousHunk:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "p"))
             }
         }
     }
