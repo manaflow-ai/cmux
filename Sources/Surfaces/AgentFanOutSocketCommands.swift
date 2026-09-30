@@ -10,7 +10,10 @@ extension TerminalController {
     private nonisolated static func currentFanOutScope() async -> String {
         await MainActor.run {
             AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope.map {
-                "\($0.session.accountID):\($0.teamID):\($0.generation)"
+                // Account and team identify the authorization boundary. The
+                // auth generation is intentionally excluded: refreshing a
+                // token or restarting cmux must not hide this user's records.
+                "\($0.session.accountID):\($0.teamID)"
             } ?? "anonymous"
         }
     }
@@ -91,16 +94,13 @@ extension TerminalController {
         } else {
             destination = nil
         }
-        let remoteWorkspace: SurfaceRemoteWorkspace
-        if let explicitWorkspace {
-            remoteWorkspace = SurfaceRemoteWorkspace(id: explicitWorkspace, name: explicitWorkspace, index: 0, focused: false)
-        } else {
-            remoteWorkspace = try await provider.createRemoteWorkspace(name: "\(namePrefix) · fan-out \(generatedID.suffix(8))")
-        }
         let now = Date()
         var operation = AgentFanOutOperation(
             id: generatedID, machineID: machineID, scope: scope,
-            remoteWorkspaceID: remoteWorkspace.id, agent: agent, argvDigest: digest,
+            // Reserve the operation before creating a workspace. A concurrent
+            // request carrying this id then observes this record and cannot
+            // create a second workspace or child set.
+            remoteWorkspaceID: "", agent: agent, argvDigest: digest,
             requestedCount: count, createdAt: now, updatedAt: now, state: .creating,
             children: (0..<count).map { AgentFanOutChild(index: $0, terminalID: nil, state: .starting, exitCode: nil, errorCode: nil, startedAt: nil, endedAt: nil) }
         )
@@ -110,6 +110,27 @@ extension TerminalController {
             }
             throw FanOutSocketError.conflictingOperation
         }
+        let remoteWorkspace: SurfaceRemoteWorkspace
+        do {
+            if let explicitWorkspace {
+                remoteWorkspace = SurfaceRemoteWorkspace(id: explicitWorkspace, name: explicitWorkspace, index: 0, focused: false)
+            } else {
+                remoteWorkspace = try await provider.createRemoteWorkspace(name: "\(namePrefix) · fan-out \(generatedID.suffix(8))")
+            }
+        } catch {
+            operation.state = .failed
+            operation.updatedAt = Date()
+            for index in operation.children.indices {
+                operation.children[index].state = .failed
+                operation.children[index].errorCode = "workspace_create_failed"
+                operation.children[index].endedAt = operation.updatedAt
+            }
+            await AgentFanOutOperationStore.shared.update(operation)
+            throw error
+        }
+        operation.remoteWorkspaceID = remoteWorkspace.id
+        operation.updatedAt = Date()
+        await AgentFanOutOperationStore.shared.update(operation)
         for index in operation.children.indices {
             do {
                 let childName = "\(namePrefix) [\(index + 1)/\(count)]"

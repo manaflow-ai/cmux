@@ -49,7 +49,10 @@ struct AgentFanOutOperation: Codable, Equatable {
     /// Authenticated Cloud team/account boundary.  This is an opaque id and is
     /// used only to prevent a later signed-in user from observing old records.
     let scope: String
-    let remoteWorkspaceID: String
+    /// Empty while the operation is reserving its remote workspace. Keeping a
+    /// placeholder record before that network mutation closes the duplicate-ID
+    /// race; the owner fills this in once the workspace receipt commits.
+    var remoteWorkspaceID: String
     let agent: String
     /// SHA-256 of the argv bytes joined with NUL separators.  This lets a retry
     /// prove it is the same request without persisting the prompt itself.
@@ -127,8 +130,14 @@ actor AgentFanOutOperationStore {
 
     private var operations: [String: AgentFanOutOperation] = [:]
     private var loaded = false
+    private let configuredFileURL: URL?
+
+    init(fileURL: URL? = nil) {
+        configuredFileURL = fileURL
+    }
 
     private var fileURL: URL {
+        if let configuredFileURL { return configuredFileURL }
         let fm = FileManager.default
         let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fm.temporaryDirectory
