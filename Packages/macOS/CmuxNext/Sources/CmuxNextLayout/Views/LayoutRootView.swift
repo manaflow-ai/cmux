@@ -42,6 +42,7 @@ public final class LayoutRootView: NSView {
         var style: LayoutStyle
         var gestureActive: Bool
         var centerRequest: ColumnCenterRequest?
+        var centerMode: CenterFocusedColumn
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
@@ -120,7 +121,8 @@ public final class LayoutRootView: NSView {
             dimsInactive: model.dimsInactivePanes,
             style: model.style,
             gestureActive: model.isGestureActive,
-            centerRequest: model.centerRequest
+            centerRequest: model.centerRequest,
+            centerMode: model.centerFocusedColumn
         )
     }
 
@@ -136,7 +138,8 @@ public final class LayoutRootView: NSView {
                     dimsInactive: model.dimsInactivePanes,
                     style: model.style,
                     gestureActive: model.isGestureActive,
-                    centerRequest: model.centerRequest
+                    centerRequest: model.centerRequest,
+                    centerMode: model.centerFocusedColumn
                 )
             }) {
                 guard let self else { return }
@@ -180,13 +183,16 @@ public final class LayoutRootView: NSView {
             if view.update(layout: screen.layout, animated: animated) { needsFrames = true }
             // The focus ring of a split's new pane appears with the pane.
             view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, animated: animated && !structureChanged)
-            if let focused = snapshot.focused, screen.layout.contains(focused),
-               structureChanged || previous?.focused != focused
-            {
-                if view.reveal(focused, mode: model.columnRevealMode, animated: animated) { needsFrames = true }
+            // Every snapshot reaches the scroll reducer: it anchors the camera
+            // on layout changes, reveals focus, and springs back after a close.
+            let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
+            let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
+            if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
+                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive) {
+                needsFrames = true
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
-               view.reveal(request.pane, mode: .center, animated: animated) {
+               view.center(request.pane, animated: animated) {
                 needsFrames = true
             }
         }

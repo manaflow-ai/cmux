@@ -57,6 +57,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
+    /// `layout.centerFocusedColumn`; "never" when unset or invalid.
+    public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
     public var diagnostics: [SettingsDiagnostic]
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
@@ -90,6 +92,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (speed, speedDiagnostic) = AnimationSpeedSetting.parse(root)
         snapshot.animationSpeed = speed
         if let speedDiagnostic { snapshot.diagnostics.append(speedDiagnostic) }
+        let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
+        snapshot.centerFocusedColumn = centering
+        if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

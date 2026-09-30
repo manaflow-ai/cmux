@@ -30,6 +30,8 @@ public final class DesignSettings {
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
     /// clamped by `setPaneChrome`.
     public private(set) var paneChrome = PaneChromeOverrides()
+    /// `layout.centerFocusedColumn` (niri `center-focused-column`).
+    public var centerFocusedColumn: CenterFocusedColumn = .never
 
     public init() {}
 

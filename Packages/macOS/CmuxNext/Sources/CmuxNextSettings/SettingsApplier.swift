@@ -37,6 +37,7 @@ public final class SettingsApplier {
         let density = snapshot.density.flatMap(Density.init(rawValue:)) ?? .compact
         if design.density != density { design.density = density }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
+        if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         for key in MetricKey.allCases {
             let value = snapshot.metrics[key.rawValue].map { CGFloat($0) }
             let range = DesignSettings.allowedRange(key)

@@ -18,7 +18,7 @@ extension LayoutRootView {
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return event }
             if let pane = view.pane(at: view.convert(event.locationInWindow, from: nil)) {
-                model.focus(pane)
+                model.focus(pane, source: .pointer)
             }
             return event
         case .scrollWheel:
