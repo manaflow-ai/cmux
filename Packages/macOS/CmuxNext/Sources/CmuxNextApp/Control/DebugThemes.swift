@@ -37,12 +37,13 @@ enum DebugThemes {
     /// locations and frame, to check the fade state from outside.
     private static func edgeFades(in view: NSView) -> [JSONValue] {
         var found: [JSONValue] = []
-        if let scroll = view as? NSScrollView, let mask = scroll.contentView.layer?.mask as? CAGradientLayer {
+        if let host = view as? ScrollEdgeFadeView, let mask = host.layer?.mask as? CAGradientLayer {
             found.append(.object([
-                "class": .string(String(describing: type(of: scroll))),
+                "class": .string(String(describing: type(of: host.scrollView))),
+                "edges": .array([host.edges.contains(.top) ? "top" : nil, host.edges.contains(.bottom) ? "bottom" : nil].compactMap { $0.map(JSONValue.string) }),
                 "locations": .array((mask.locations ?? []).map { .number($0.doubleValue) }),
                 "height": .number(Double(mask.frame.height)),
-                "flipped": .bool(scroll.contentView.layer?.isGeometryFlipped ?? false),
+                "flipped": .bool(host.layer?.isGeometryFlipped ?? false),
             ]))
         }
         for subview in view.subviews { found += edgeFades(in: subview) }

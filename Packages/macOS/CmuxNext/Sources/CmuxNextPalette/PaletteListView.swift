@@ -18,8 +18,6 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     private var rowIndexByID: [String: Int] = [:]
     private var selectedID: String?
     private var hoveredID: String?
-    /// Fades results out at the top or bottom while more are hidden there.
-    private var edgeFade: ScrollEdgeFade?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -48,7 +46,6 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         NotificationCenter.default.addObserver(
             self, selector: #selector(boundsChanged), name: NSView.boundsDidChangeNotification, object: contentView
         )
-        edgeFade = ScrollEdgeFade(scrollView: self)
     }
 
     @available(*, unavailable)

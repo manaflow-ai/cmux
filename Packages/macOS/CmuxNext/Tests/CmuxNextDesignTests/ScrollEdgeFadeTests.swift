@@ -25,24 +25,25 @@ import Testing
         #expect(edges(0, flipped: false) == .top)
     }
 
-    @Test func maskFollowsTheClipView() throws {
+    @Test func maskFollowsTheScrollPosition() throws {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 100, height: 200))
         let document = FlippedDocument(frame: NSRect(x: 0, y: 0, width: 100, height: 1000))
         scroll.documentView = document
-        let fade = ScrollEdgeFade(scrollView: scroll)
+        let fade = ScrollEdgeFadeView(scrollView: scroll)
         #expect(fade.edges == .bottom)
-        let clip = try #require(scroll.contentView.layer)
-        let mask = try #require(clip.mask as? CAGradientLayer)
+        let layer = try #require(fade.layer)
+        let mask = try #require(layer.mask as? CAGradientLayer)
         // Location 0 is the top edge of the list on screen.
-        #expect(mask.startPoint.y == (clip.isGeometryFlipped ? 0 : 1))
-        #expect(mask.locations?.first?.doubleValue == 0)
+        #expect(mask.startPoint.y == (layer.isGeometryFlipped ? 0 : 1))
+        #expect(mask.locations?[1].doubleValue == 0)
         #expect((mask.locations?[2].doubleValue ?? 1) < 1)
+        #expect(mask.frame == layer.bounds)
         scroll.contentView.scroll(to: NSPoint(x: 0, y: 400))
         #expect(fade.edges == [.top, .bottom])
-        #expect(mask.frame == clip.bounds)
         scroll.contentView.scroll(to: NSPoint(x: 0, y: 800))
         #expect(fade.edges == .top)
         document.setFrameSize(NSSize(width: 100, height: 150))
         #expect(fade.edges == [])
+        #expect(mask.locations?.map(\.doubleValue) == [0, 0, 1, 1])
     }
 }

@@ -26,8 +26,9 @@ public final class SidebarView: NSView {
 
     let list: SidebarListView
     private let scrollView = SidebarScrollView()
-    /// Fades rows out at the list's top or bottom while more are hidden there.
-    private var edgeFade: ScrollEdgeFade?
+    /// Hosts the list's scroll view and fades rows out at its top or bottom
+    /// while more are hidden there.
+    private var edgeFade: ScrollEdgeFadeView!
     let profileBar: ProfileBarView
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -163,8 +164,8 @@ public final class SidebarView: NSView {
         // ones, so rows never reflow when the scroller appears.
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         scrollView.onHorizontalSwipe = { [weak self] delta in self?.model.stepProfile(by: delta) }
-        addSubview(scrollView)
-        edgeFade = ScrollEdgeFade(scrollView: scrollView)
+        edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
+        addSubview(edgeFade)
 
         addSubview(footer)
         footer.addSubview(profileBar)
@@ -220,7 +221,7 @@ public final class SidebarView: NSView {
         profileBar.frame = footer.bounds
         profileBar.refresh()
 
-        scrollView.frame = NSRect(x: 0, y: y, width: b.width, height: max(0, b.height - y - footerHeight))
+        edgeFade.frame = NSRect(x: 0, y: y, width: b.width, height: max(0, b.height - y - footerHeight))
         scrollView.tile()
         syncListWidth()
     }
