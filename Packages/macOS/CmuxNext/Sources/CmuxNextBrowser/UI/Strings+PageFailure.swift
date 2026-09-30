@@ -44,4 +44,9 @@ extension Strings {
     static var pageUnresponsiveExit: String {
         String(localized: "browser.pageUnresponsive.exit", defaultValue: "Exit page", bundle: .module)
     }
+
+    static func extensionsCrashed(_ names: [String]) -> String {
+        String(format: String(localized: "browser.extensions.crashed", defaultValue: "Crashed: %@. Click to reload.", bundle: .module),
+               names.joined(separator: ", "))
+    }
 }

@@ -43,6 +43,17 @@ public final class BrowserExtensionStore {
         if snapshot.extensions != extensions { extensions = snapshot.extensions }
     }
 
+    /// Extensions whose process crashed or was killed (Chromium's
+    /// terminated set); they stay off until reloaded.
+    public var crashed: [BrowserExtensionInfo] { extensions.filter(\.isTerminated) }
+
+    /// Reloads a crashed extension. The fork has no reload call, so this is
+    /// disable then enable (Chromium moves a terminated extension to the
+    /// disabled set and loads it again on enable).
+    public func reload(_ id: String) -> Bool {
+        perform { backend in backend.setEnabled(id, false) && backend.setEnabled(id, true) }
+    }
+
     public func setEnabled(_ id: String, _ enabled: Bool) -> Bool { perform { $0.setEnabled(id, enabled) } }
     public func uninstall(_ id: String) -> Bool { perform { $0.uninstall(id) } }
     public func setPinned(_ id: String, _ pinned: Bool) -> Bool { perform { $0.setPinned(id, pinned) } }

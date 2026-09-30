@@ -31,6 +31,7 @@ final class ExtensionActionToolbar {
         return button
     }()
     private let trampoline = MenuTrampoline()
+    let crashIndicator = ExtensionCrashIndicator()
     private var lastActions: [CEFExtensionAction] = []
     private var showsPuzzle = false
     private var afterMenu: [() -> Void] = []
@@ -70,12 +71,15 @@ final class ExtensionActionToolbar {
         directHandler = nil
         guard let host else {
             render([], showsPuzzle: false)
+            crashIndicator.update(store: nil, in: slot, before: puzzle)
             return
         }
         host.extensionActionAnchor = { [weak self] id in self?.anchorRect(for: id) }
         observation = ObservationLoop { [weak self] in
             guard let self, let host = self.host else { return }
             self.render(host.extensionActions, showsPuzzle: host.showsExtensionToolbar)
+            self.crashIndicator.update(store: host.showsExtensionToolbar ? host.extensionStore : nil,
+                                       in: self.slot, before: self.puzzle)
         }
     }
 
