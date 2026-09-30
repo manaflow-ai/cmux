@@ -301,6 +301,10 @@ struct cmuxApp: App {
         CmuxExtensionSidebarSelection.migrateLegacyDefaultsKeyIfNeeded(defaults: defaults)
         StartupBreadcrumbLog.append("app.init.sidebarDefaults.migrated")
 
+        SessionScrollbackReplayStore.sweepStaleReplayFiles(
+            olderThan: Date().addingTimeInterval(-SessionScrollbackReplayStore.staleReplayLifetime)
+        )
+
         // UI tests need AppDelegate wiring even if SwiftUI appearance callbacks are skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
         let cloudWorkspaceOperationController = CloudWorkspaceOperationController(
