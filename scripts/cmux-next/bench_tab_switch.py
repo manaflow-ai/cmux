@@ -229,13 +229,17 @@ class Bench:
         time.sleep(self.args.settle)  # test script: let the final selection settle
         violations = self.invariant()
         after = usage(self.app_pid)
-        hangs_after = result(control.call("debug.hangs", {"limit": 5}, timeout=10))
+        hangs_after = result(control.call("debug.hangs", {"limit": 64}, timeout=10))
         stalls = (hangs_after.get("count") or 0) - (hangs_before.get("count") or 0)
         row = {
             "changes": changes,
             "frames": frames,
             "stalls": stalls,
-            "worst_stalls_ms": [h.get("duration_ms") for h in (hangs_after.get("hangs") or hangs_after.get("entries") or [])][:5],
+            "worst_stalls": sorted(
+                ({"duration_ms": round(h.get("duration_ms", 0), 1), "cpu_ms": round(h.get("cpu_ms", 0), 1),
+                  "frames": [f for f in h.get("frames", []) if "CmuxNext" in f or "Ghostty" in f or "cef" in f.lower()][:8]}
+                 for h in (hangs_after.get("records") or [])[-max(stalls, 0):] if stalls > 0),
+                key=lambda h: -h["duration_ms"])[:5],
             "footprint_mb_before": round(before[2] / 1048576, 1) if before else None,
             "footprint_mb_after": round(after[2] / 1048576, 1) if after else None,
             "cpu_s": round((after[0] - before[0]) / 1e9, 2) if before and after else None,
