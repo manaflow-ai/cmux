@@ -4325,55 +4325,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh path inventory changed"
+            "value": "Network path inventory changed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh パス一覧が変更されました"
+            "value": "ネットワークパス一覧が変更されました"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh-Pfadinventar geändert"
+            "value": "Netzwerkpfadinventar geändert"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inventaire des chemins Iroh modifié"
+            "value": "Inventaire des chemins réseau modifié"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تغيّر جرد مسارات Iroh"
+            "value": "تغيّر جرد مسارات الشبكة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inventario de rutas de Iroh cambiado"
+            "value": "Inventario de rutas de red cambiado"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh 路徑清單已變更"
+            "value": "網路路徑清單已變更"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh 路径清单已更改"
+            "value": "网络路径清单已更改"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh 경로 목록이 변경되었습니다."
+            "value": "네트워크 경로 목록이 변경되었습니다."
           }
         }
       }
@@ -21688,6 +21688,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "방법"
+          }
+        }
+      }
+    },
+    "diagnostics.field.relayPaths": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay paths"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレー経路"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay-Pfade"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chemins relais"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسارات الترحيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rutas de retransmisión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中繼路徑"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继路径"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이 경로"
+          }
+        }
+      }
+    },
+    "diagnostics.field.nonRelayPaths": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non-relay paths"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非リレー経路"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht-Relay-Pfade"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chemins sans relais"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسارات غير مرحّلة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rutas sin retransmisión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非中繼路徑"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非中继路径"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비릴레이 경로"
           }
         }
       }

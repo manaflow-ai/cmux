@@ -47,6 +47,13 @@ struct CmxIrohConnectionPathDiagnosticsTests {
         #expect(counts == CmxIrohConnectionPathCounts(relay: 0, nonRelay: 64))
     }
 
+    @Test func pathInventoryBoundsAggregateCount() {
+        let counts = CmxIrohConnectionPathCounts(relay: 64, nonRelay: 64)
+
+        #expect(counts == CmxIrohConnectionPathCounts(relay: 64, nonRelay: 0))
+        #expect(counts.total == 64)
+    }
+
     @Test(arguments: [
         PathEvent.selected(
             id: "private",

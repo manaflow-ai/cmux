@@ -187,6 +187,26 @@ describe("iOS mobile network observability route", () => {
     });
   });
 
+  test("rejects an Iroh path inventory whose aggregate exceeds the bound", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_inventory",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "inventory",
+        transport: "iroh",
+        relay_path_count: 64,
+        non_relay_path_count: 64,
+        path_count: 128,
+        event_code: "transportPathInventory",
+        event_code_raw: 83,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(400);
+    expect(emitted).toEqual([]);
+  });
+
   test.each([
     ["raw event code", { event_code_raw: 40 }],
     ["lifecycle operation", { operation: "opened" }],

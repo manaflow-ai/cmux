@@ -15,6 +15,7 @@ const TERMINAL_ANOMALY_EVENT_NAME = "ios_terminal_latency_anomaly";
 const RUNTIME_ROLE = "mobileClient";
 const MAX_STRING_LENGTH = 120;
 const MAX_SAFE_UNSIGNED_INTEGER = 0xffff_ffff;
+const MAX_IROH_PATH_COUNT = 64;
 
 const phases = new Set([
   "endpoint_start", "pairing", "transport_dial", "host_auth",
@@ -346,7 +347,8 @@ function parseIrohPathInventoryCounts(
   const nonRelayPathCount = unsignedInteger(properties.non_relay_path_count);
   const pathCount = unsignedInteger(properties.path_count);
   if (relayPathCount === null || nonRelayPathCount === null || pathCount === null) return null;
-  if (relayPathCount > 64 || nonRelayPathCount > 64
+  if (relayPathCount > MAX_IROH_PATH_COUNT || nonRelayPathCount > MAX_IROH_PATH_COUNT
+    || pathCount > MAX_IROH_PATH_COUNT
     || pathCount !== relayPathCount + nonRelayPathCount) return null;
   return { relayPathCount, nonRelayPathCount, pathCount };
 }

@@ -381,7 +381,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case .transportPathEvent:
             localized("diagnostics.event.transportPathEvent", defaultValue: "Transport path changed")
         case .transportPathInventory:
-            localized("diagnostics.event.transportPathInventory", defaultValue: "Iroh path inventory changed")
+            localized("diagnostics.event.transportPathInventory", defaultValue: "Network path inventory changed")
         case .browserStreamLifecycle:
             localized("diagnostics.event.browserStreamLifecycle", defaultValue: "Browser stream lifecycle")
         case .browserInputReplayed:
@@ -1423,6 +1423,8 @@ public struct DiagnosticEventPresentation: Sendable {
         case "editable_focused": localized("diagnostics.field.editableFocused", defaultValue: "Editable focused")
         case "created": localized("diagnostics.field.created", defaultValue: "Created")
         case "public_paths": localized("diagnostics.field.publicPaths", defaultValue: "Public paths")
+        case "relay_paths": localized("diagnostics.field.relayPaths", defaultValue: "Relay paths")
+        case "non_relay_paths": localized("diagnostics.field.nonRelayPaths", defaultValue: "Non-relay paths")
         case "private_fallback_paths":
             localized(
                 "diagnostics.field.privateFallbackPaths",

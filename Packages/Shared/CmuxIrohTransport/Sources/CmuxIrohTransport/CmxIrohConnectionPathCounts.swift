@@ -23,8 +23,12 @@ struct CmxIrohConnectionPathCounts: Equatable, Sendable {
     }
 
     init(relay: Int, nonRelay: Int) {
-        self.relay = max(0, min(relay, Self.maximumReportedPathCount))
-        self.nonRelay = max(0, min(nonRelay, Self.maximumReportedPathCount))
+        let boundedRelay = max(0, min(relay, Self.maximumReportedPathCount))
+        self.relay = boundedRelay
+        self.nonRelay = max(
+            0,
+            min(nonRelay, Self.maximumReportedPathCount - boundedRelay)
+        )
     }
 
     var total: Int { relay + nonRelay }

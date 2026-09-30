@@ -81,6 +81,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     private static let pendingStartLifetimeNanos: UInt64 = 5 * 60 * 1_000_000_000
     private static let maxPendingStarts = 32
     private static let maxPendingCorrelationKeys = 32
+    private static let maximumReportedIrohPathCount = 64
 
     private struct Observation: Sendable {
         let phase: Phase
@@ -114,7 +115,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             emitter.capture(eventName, properties)
             return
         }
-        if let properties = Self.pathInventoryProperties(for: event) {
+        if let properties = pathInventoryProperties(for: event) {
             emitter.capture(Self.pathInventoryEventName, properties)
             return
         }
@@ -312,7 +313,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     }
 
     /// Builds a bounded Axiom payload for one native Iroh path inventory.
-    static func pathInventoryProperties(
+    private func pathInventoryProperties(
         for event: DiagnosticEvent
     ) -> [String: AnalyticsValue]? {
         guard event.code == .transportPathInventory,
@@ -320,8 +321,9 @@ public final class MobileNetworkOutcomeReporter: Sendable {
               let nonRelayPaths = event.b,
               relayPaths >= 0,
               nonRelayPaths >= 0,
-              relayPaths <= 64,
-              nonRelayPaths <= 64 else {
+              relayPaths <= Self.maximumReportedIrohPathCount,
+              nonRelayPaths <= Self.maximumReportedIrohPathCount,
+              relayPaths + nonRelayPaths <= Self.maximumReportedIrohPathCount else {
             return nil
         }
         let presentation = DiagnosticEventPresentation(locale: Locale(identifier: "en_US_POSIX"))

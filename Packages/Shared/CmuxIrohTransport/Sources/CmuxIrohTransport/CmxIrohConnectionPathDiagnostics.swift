@@ -18,12 +18,16 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
             sessionID: max(1, Int(correlation.handle(for: String(connection.stableId())) ?? 1)),
             selectedPath: {
                 CmxIrohObservedConnectionPath(
-                    snapshots: connection.paths().map(CmxIrohConnectionPathSnapshot.init)
+                    snapshots: connection.paths()
+                        .prefix(CmxIrohConnectionPathCounts.maximumReportedPathCount)
+                        .map(CmxIrohConnectionPathSnapshot.init)
                 ).diagnosticPathKind
             },
             pathCounts: {
                 CmxIrohConnectionPathCounts(
-                    snapshots: connection.paths().map(CmxIrohConnectionPathSnapshot.init)
+                    snapshots: connection.paths()
+                        .prefix(CmxIrohConnectionPathCounts.maximumReportedPathCount)
+                        .map(CmxIrohConnectionPathSnapshot.init)
                 )
             }
         )

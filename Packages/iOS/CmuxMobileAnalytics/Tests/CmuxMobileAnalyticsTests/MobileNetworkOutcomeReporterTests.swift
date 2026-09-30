@@ -226,6 +226,27 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         #expect(event?.properties["event_c"] == .int(23))
     }
 
+    @Test func irohPathInventoryRejectsCountsAboveAggregateBound() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: NetworkOutcomeTestConsent(isTelemetryEnabled: true),
+            anonymousID: "local-install"
+        )
+        let reporter = MobileNetworkOutcomeReporter(emitter: emitter)
+
+        reporter.ingest(DiagnosticEvent(
+            code: .transportPathInventory,
+            tNanos: 1,
+            a: 64,
+            b: 1,
+            c: 23
+        ))
+        await reporter.flush()
+
+        #expect(await uploader.uploadedEvents.isEmpty)
+    }
+
     @Test func cancelledDialEmitsLifecycleReasonAndAttemptContext() {
         let properties = MobileNetworkOutcomeReporter.properties(for: DiagnosticEvent(
             code: .transportDialCancelled,
