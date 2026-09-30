@@ -50,7 +50,7 @@ struct CustomSidebarTemplateCatalogTests {
         }
     }
 
-    @Test(arguments: ["agents-board", "panel-info", "status-board"])
+    @Test(arguments: ["agents-board", "panel-sessions", "workspaces"])
     func metadataIsAvailable(id: String) throws {
         let descriptor = try #require(CustomSidebarTemplateCatalog().templates.first { $0.id == id })
         #expect(!descriptor.displayName.isEmpty)
@@ -77,9 +77,9 @@ struct CustomSidebarTemplateInstallerTests {
         #expect(throws: CustomSidebarTemplateInstallError.alreadyExists) {
             try installer.install(name: "my-agents", templateID: "agents-board", directory: root)
         }
-        let forced = try installer.install(name: "my-agents", templateID: "clock", directory: root, force: true)
-        #expect(forced.pathExtension == "swift")
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("my-agents.js").path))
+        let forced = try installer.install(name: "my-agents", templateID: "workspaces", directory: root, force: true)
+        #expect(forced.pathExtension == "js")
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("my-agents.js").path))
     }
 
     @Test(arguments: ["../escape", "bad_name", "Bad-name", "bad/name"])

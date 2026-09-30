@@ -33,7 +33,8 @@ public struct CustomSidebarOnboardingAssets: Sendable {
                 description: "A minimal workspace list to use as a starting point.",
                 kind: .left
             ),
-            source: source
+            source: source,
+            suggestedName: "my-sidebar"
         )
     }
 

@@ -40,14 +40,15 @@ public struct CustomSidebarTemplateDescriptor: Codable, Equatable, Identifiable,
 public struct CustomSidebarTemplate: Equatable, Sendable {
     public let descriptor: CustomSidebarTemplateDescriptor
     public let source: String
+    public let suggestedName: String
 
     public var id: String { descriptor.id }
-    public var suggestedName: String { descriptor.id }
     public var fileExtension: String { URL(fileURLWithPath: descriptor.file).pathExtension.lowercased() }
 
-    public init(descriptor: CustomSidebarTemplateDescriptor, source: String) {
+    public init(descriptor: CustomSidebarTemplateDescriptor, source: String, suggestedName: String? = nil) {
         self.descriptor = descriptor
         self.source = source
+        self.suggestedName = suggestedName ?? descriptor.id
     }
 }
 
