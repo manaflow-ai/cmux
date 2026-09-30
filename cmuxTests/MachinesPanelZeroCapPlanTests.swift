@@ -97,4 +97,23 @@ struct MachinesPanelZeroCapPlanTests {
         #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: plan) == false)
         #expect(plan.freeAccessBanner == .none)
     }
+
+    @Test("A zero cap shows the fleet it holds, not a fraction of zero")
+    @MainActor
+    func zeroCapShowsABareCount() throws {
+        let plan = try plan(activeCount: 3, maxActiveVms: 0)
+        #expect(plan.usage.compactCount == "3", "\"3/0\" counts a fleet against a ceiling it already passed")
+        #expect(plan.usage.countLabel == "3 machines")
+        // The tint and the tooltip are what still say provisioning is closed,
+        // so dropping the fraction must not drop either of them.
+        #expect(CloudTreeGroupCount(usage: plan.usage).isWarning)
+        #expect(plan.usage.help.contains("0"))
+    }
+
+    @Test("An empty zero-cap fleet shows a bare zero")
+    func emptyZeroCapShowsABareCount() throws {
+        let plan = try plan(activeCount: 0, maxActiveVms: 0)
+        #expect(plan.usage.compactCount == "0")
+        #expect(plan.usage.countLabel == "0 machines")
+    }
 }
