@@ -136,10 +136,16 @@ struct AgentFeedView: View {
         }
         .task(id: isActive) {
             guard isActive, refreshesOnAppear else { return }
+            refreshTimedOut = false
             refreshTimedOut = !(await refreshWithTimeout())
         }
         .onChange(of: items) { _, newItems in
             preparedRows = newItems.map(AgentFeedRowModel.init)
+        }
+        .onChange(of: status) { _, status in
+            if status == .ready {
+                refreshTimedOut = false
+            }
         }
     }
 

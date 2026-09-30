@@ -73,11 +73,17 @@ struct NotificationFeedView: View {
         }
         .task(id: isActive) {
             guard isActive, refreshesOnAppear else { return }
+            refreshTimedOut = false
             refreshTimedOut = !(await refreshWithTimeout())
         }
         .onChange(of: projection.filter) { _, filter in
             guard isActive else { return }
             actions.filterChanged(filter)
+        }
+        .onChange(of: status) { _, status in
+            if status == .ready {
+                refreshTimedOut = false
+            }
         }
         .accessibilityIdentifier("MobileNotificationFeed")
     }
