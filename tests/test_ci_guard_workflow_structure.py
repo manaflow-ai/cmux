@@ -10,6 +10,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 REUSABLE_GUARD_COMMANDS = [
     "python3 tests/test_ci_guard_workflow_structure.py",
@@ -95,6 +96,10 @@ def test_ci_group_deduplication_gates_only_the_overlapping_matrix_leg() -> None:
     steps = job["steps"]
     poll = next(step for step in steps if step.get("name") == "Check independent fast guard result")
     assert poll["if"] == "${{ matrix.group == 'ci' }}"
+    assert job["permissions"] == {"contents": "read", "checks": "read"}
+    assert poll["run"] == "python3 scripts/ci/fast_guard_status.py"
+    ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert ci["jobs"]["guards"]["permissions"] == {"contents": "read", "checks": "read"}
     gated = [
         step for step in steps
         if "matrix.group == 'ci'" in str(step.get("if", ""))

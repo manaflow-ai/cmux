@@ -68,8 +68,11 @@ jobs:
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
     # access for checkout, never workflow, issue, or repository write access.
+    # The ci matrix leg reads the existing CI fast-guards check through the
+    # Checks REST API; keep this read-only and scoped to this job.
     permissions:
       contents: read
+      checks: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -83,46 +86,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           HEAD_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import time
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-
-          url = "https://api.github.com/repos/%s/commits/%s/check-runs?per_page=100" % (
-              urllib.parse.quote(os.environ["REPOSITORY"], safe="/"), os.environ["HEAD_SHA"])
-          headers = {
-              "Accept": "application/vnd.github+json",
-              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
-              "X-GitHub-Api-Version": "2022-11-28",
-          }
-          skip = "false"
-          # Fast guards normally finish in a few minutes. This bounded poll
-          # lets unrelated guard groups run immediately while avoiding the
-          # duplicate CI group when the independent verdict is green.
-          for attempt in range(12):
-              request = urllib.request.Request(url, headers=headers)
-              try:
-                  with urllib.request.urlopen(request, timeout=10) as response:
-                      checks = json.load(response).get("check_runs", [])
-              except (OSError, urllib.error.HTTPError):
-                  checks = []
-              matches = [check for check in checks if check.get("name") == "CI fast guards"]
-              if matches:
-                  check = max(matches, key=lambda item: item.get("started_at") or "")
-                  if check.get("status") == "completed":
-                      skip = "true" if check.get("conclusion") == "success" else "false"
-                      break
-              if attempt < 11:
-                  time.sleep(15)
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("skip=%s\n" % skip)
-          print("CI fast guards: %s" % ("success; duplicate ci group skipped" if skip == "true" else "unavailable or failed; running ci group"))
-          PY
+        run: python3 scripts/ci/fast_guard_status.py
 
       - name: Validate macOS runner guards
         if: ${{ matrix.group == 'preflight' }}
@@ -139,6 +103,10 @@ jobs:
       - name: Validate CMUX workload profile contract
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_workload_profiles.py
+
+      - name: Validate fast guard status selection
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_fast_guard_status.py
 
       - name: Validate repository variable defaults
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -571,7 +539,7 @@ jobs:
         run: python3 tests/test_ci_pr_runner_pool.py
 
       - name: Validate simple live macOS pool choice
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_simple_pool_picker.py
 
       - name: Validate delta CI from the last green head
@@ -1092,7 +1060,7 @@ jobs:
           python3 tests/test_ci_cli_product_routing.py
 
       - name: Validate Iroh release gate timeouts
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_iroh_monitor_simulator_plan.py
 
       - name: Validate Python R2 appcast upload guard
