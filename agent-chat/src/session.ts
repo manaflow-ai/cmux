@@ -175,61 +175,143 @@ function closeStreaming(blocks: Block[]): Block[] {
   return blocks;
 }
 
-export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
-  const last = blocks[blocks.length - 1];
-  switch (evt.kind) {
-    case "user":
-      return [...closeStreaming(blocks), { kind: "user", text: evt.text }];
-    case "delta":
-      if (last && last.kind === "assistant" && last.open) {
-        return [...blocks.slice(0, -1), { ...last, text: last.text + evt.text }];
-      }
-      return [...closeStreaming(blocks), { kind: "assistant", text: evt.text, open: true }];
-    case "assistant":
-      if (last && last.kind === "assistant" && last.open) {
-        return [...blocks.slice(0, -1), { ...last, text: evt.text, open: false }];
-      }
-      return [...closeStreaming(blocks), { kind: "assistant", text: evt.text, open: false }];
-    case "thinking":
-      if (last && last.kind === "thinking" && last.open) {
-        return [...blocks.slice(0, -1), { ...last, text: last.text + evt.text }];
-      }
-      return [...closeStreaming(blocks), { kind: "thinking", text: evt.text, open: true }];
-    case "tool-start":
-      return [...closeStreaming(blocks), { kind: "tool", toolId: evt.toolId, name: evt.name || "tool", detail: evt.detail, status: "running" }];
-    case "tool-end":
-      return blocks.map((b) =>
-        b.kind === "tool" && b.toolId === evt.toolId
-          ? { ...b, status: evt.ok === false ? "fail" : "ok", out: evt.detail || b.out }
-          : b,
-      );
-    case "done": {
-      const closed = closeStreaming(blocks);
-      return [...closed, { kind: "footer", text: evt.stats ?? "" }];
+class EventFolder {
+  private owned = false;
+  private tools: Map<string, number[]> | null = null;
+  private filesCount: number | undefined;
+  private planIndex: number | null | undefined;
+
+  constructor(public blocks: Block[], private indexed: boolean) {}
+
+  private writable(): Block[] {
+    if (!this.owned) {
+      this.blocks = this.blocks.slice();
+      this.owned = true;
     }
-    case "files-changed":
-      return [...closeStreaming(blocks), { kind: "files", files: evt.files, revision: nextFilesRevision(blocks) }];
-    case "error":
-      return [...closeStreaming(blocks), { kind: "error", text: evt.message }];
-    case "status":
-      return [...closeStreaming(blocks), { kind: "status", text: evt.text }];
-    case "plan": {
-      const closed = closeStreaming(blocks);
-      let currentTurnStart = 0;
-      for (let index = closed.length - 1; index >= 0; index -= 1) {
-        if (closed[index]?.kind === "user") {
-          currentTurnStart = index + 1;
-          break;
-        }
-      }
-      const existingIndex = closed.findIndex((block, index) => index >= currentTurnStart && block.kind === "plan");
-      const plan = { kind: "plan" as const, entries: evt.entries };
-      if (existingIndex < 0) return [...closed, plan];
-      return closed.map((block, index) => (index === existingIndex ? plan : block));
-    }
-    default:
-      return blocks;
+    return this.blocks;
   }
+
+  private closeStreaming(): void {
+    const last = this.blocks[this.blocks.length - 1];
+    if (last && (last.kind === "assistant" || last.kind === "thinking") && last.open) {
+      this.writable()[this.blocks.length - 1] = { ...last, open: false };
+    }
+  }
+
+  private push(block: Block): void {
+    this.closeStreaming();
+    this.writable().push(block);
+  }
+
+  fold(evt: AgentEvent): void {
+    const last = this.blocks[this.blocks.length - 1];
+    switch (evt.kind) {
+      case "user":
+        this.push({ kind: "user", text: evt.text });
+        this.planIndex = null;
+        break;
+      case "delta":
+      case "assistant":
+      case "thinking": {
+        const kind = evt.kind === "thinking" ? "thinking" : "assistant";
+        if (last && last.kind === kind && last.open) {
+          this.writable()[this.blocks.length - 1] = {
+            ...last, text: evt.kind === "assistant" ? evt.text : last.text + evt.text,
+            open: evt.kind !== "assistant",
+          };
+        } else {
+          this.push({ kind, text: evt.text, open: evt.kind !== "assistant" });
+        }
+        break;
+      }
+      case "tool-start": {
+        const index = this.blocks.length;
+        this.push({ kind: "tool", toolId: evt.toolId, name: evt.name || "tool", detail: evt.detail, status: "running" });
+        if (this.tools) {
+          const indices = this.tools.get(evt.toolId) ?? [];
+          indices.push(index);
+          this.tools.set(evt.toolId, indices);
+        }
+        break;
+      }
+      case "tool-end": {
+        const blocks = this.writable();
+        const complete = (index: number) => {
+          const block = blocks[index] as Extract<Block, { kind: "tool" }>;
+          blocks[index] = { ...block, status: evt.ok === false ? "fail" : "ok", out: evt.detail || block.out };
+        };
+        if (this.indexed) {
+          if (!this.tools) {
+            this.tools = new Map();
+            for (let index = 0; index < blocks.length; index++) {
+              const block = blocks[index];
+              if (block.kind !== "tool") continue;
+              const indices = this.tools.get(block.toolId) ?? [];
+              indices.push(index);
+              this.tools.set(block.toolId, indices);
+            }
+          }
+          for (const index of this.tools.get(evt.toolId) ?? []) complete(index);
+        } else {
+          for (let index = 0; index < blocks.length; index++) {
+            const block = blocks[index];
+            if (block.kind === "tool" && block.toolId === evt.toolId) complete(index);
+          }
+        }
+        break;
+      }
+      case "done":
+        this.push({ kind: "footer", text: evt.stats ?? "" });
+        break;
+      case "files-changed": {
+        let revision: string;
+        if (this.indexed) {
+          this.filesCount ??= this.blocks.reduce((count, block) => count + Number(block.kind === "files"), 0);
+          revision = String(++this.filesCount);
+        } else revision = nextFilesRevision(this.blocks);
+        this.push({ kind: "files", files: evt.files, revision });
+        break;
+      }
+      case "error":
+        this.push({ kind: "error", text: evt.message });
+        break;
+      case "status":
+        this.push({ kind: "status", text: evt.text });
+        break;
+      case "plan": {
+        this.closeStreaming();
+        if (this.planIndex === undefined) {
+          let start = 0;
+          for (let index = this.blocks.length - 1; index >= 0; index--) {
+            if (this.blocks[index].kind === "user") { start = index + 1; break; }
+          }
+          this.planIndex = null;
+          for (let index = start; index < this.blocks.length; index++) {
+            if (this.blocks[index].kind === "plan") { this.planIndex = index; break; }
+          }
+        }
+        const plan = { kind: "plan" as const, entries: evt.entries };
+        if (this.planIndex === null) {
+          this.planIndex = this.blocks.length;
+          this.writable().push(plan);
+        } else this.writable()[this.planIndex] = plan;
+        break;
+      }
+    }
+  }
+}
+
+export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
+  const folder = new EventFolder(blocks, false);
+  folder.fold(evt);
+  return folder.blocks;
+}
+
+/** Replay into one owned array; indexes live only for this batch. */
+export function foldEvents(blocks: Block[], events: AgentEvent[]): Block[] {
+  const folder = new EventFolder(blocks, true);
+  for (const event of events) folder.fold(event);
+  return folder.blocks;
 }
 
 interface Hello { providers: Provider[]; harnesses?: HarnessRecommendation[]; harnessCatalogs?: HarnessCatalogs; defaultCwd: string; keys?: { ctrlJ?: CtrlJMode }; }
@@ -532,7 +614,7 @@ export function useSession(): SessionState {
             serverStatusRef.current = msg.session.status;
             setSession(msg.session);
             setRouting(latestRouteStatus(msg.events as AgentEvent[]));
-            setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
+            setBlocks(foldEvents([], msg.events as AgentEvent[]));
             optimisticUsersRef.current = [];
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
