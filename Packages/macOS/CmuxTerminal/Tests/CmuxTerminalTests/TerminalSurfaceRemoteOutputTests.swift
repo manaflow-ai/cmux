@@ -195,12 +195,21 @@ struct TerminalSurfaceRemoteOutputTests {
         remote.permitClipboardWriteForAgentCopy()
         remote.cancelClipboardWritePermit()
         #expect(!remote.consumeClipboardWritePermit())
+
+        let cloud = makeSurface(
+            runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
+            isRemoteTerminal: true,
+            allowsRemoteClipboardWrites: true
+        )
+        defer { cloud.surface!.deallocate() }
+        #expect(cloud.allowsAutomaticClipboardWrite)
     }
 
     @MainActor
     private func makeSurface(
         runtimeSurfaceBits: UInt,
-        isRemoteTerminal: Bool = false
+        isRemoteTerminal: Bool = false,
+        allowsRemoteClipboardWrites: Bool = false
     ) -> TerminalSurface {
         let runtimeSurface = UnsafeMutableRawPointer(bitPattern: runtimeSurfaceBits)!
         let nativeView = FakeTerminalSurfaceNativeView(
@@ -213,6 +222,7 @@ struct TerminalSurfaceRemoteOutputTests {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             isRemoteTerminal: isRemoteTerminal,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: registry,
                 engine: FakeTerminalEngine(),

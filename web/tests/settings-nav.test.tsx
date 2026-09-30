@@ -33,6 +33,34 @@ describe("settings navigation", () => {
     ]);
   });
 
+  test("groups the hub into Account, Billing, and Teams", () => {
+    const groups = settingsNavGroups({
+      pathname: "/dashboard/billing",
+      allowUserApiKeys: false,
+      teams: [{ id: "t1", displayName: "Acme", profileImageUrl: null }],
+      label,
+    });
+    expect(groups.map((group) => [group.id, group.label])).toEqual([
+      ["account", "accountGroup"],
+      ["billing", "billingGroup"],
+      ["teams", "teamsGroup"],
+    ]);
+    const billing = groups.find((group) => group.id === "billing")!;
+    expect(billing.items.map((item) => [item.link.to, item.label, item.active])).toEqual([
+      ["/dashboard/billing", "planBilling", true],
+    ]);
+  });
+
+  test("the teams list page marks no single team active", () => {
+    const groups = settingsNavGroups({
+      pathname: "/dashboard/teams",
+      allowUserApiKeys: false,
+      teams: [{ id: "t1", displayName: "Acme", profileImageUrl: null }],
+      label,
+    });
+    expect(groups.flatMap((group) => group.items).filter((item) => item.active)).toEqual([]);
+  });
+
   test("hides API keys when the project disallows user API keys", () => {
     const groups = settingsNavGroups({ pathname: "/dashboard/settings", allowUserApiKeys: false, teams: [], label });
     expect(links(groups)).not.toContainEqual({ to: "/dashboard/settings/api-keys" });
