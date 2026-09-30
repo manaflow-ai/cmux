@@ -263,7 +263,7 @@ describe("queued cmux agent messages", () => {
       { id: "m-1", from: "coordinator", body: "First" },
       { id: "m-2", from: "reviewer", body: "Second" },
     ]);
-    expect(calls).toEqual([{ method: "agent.message.list", params: { surface: "S1", state: "queued", limit: 2_000 } }]);
+    expect(calls).toEqual([{ method: "agent.message.list", params: { surface: "S1", state: "queued", limit: 200 } }]);
   });
 
   test("an unknown terminal has none; a failed read keeps what the view has", async () => {

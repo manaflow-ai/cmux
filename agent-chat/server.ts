@@ -16,8 +16,7 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { attachTranscript, focusTranscriptTerminal, queuedTranscriptMessages, transcriptAdapter, type TranscriptAgent } from "./adapters/transcript";
-import type { QueuedAgentMessage } from "./agent-messages";
+import { attachTranscript, focusTranscriptTerminal, queuedTranscriptMessages, transcriptAdapter, type QueuedAgentMessage, type TranscriptAgent } from "./adapters/transcript";
 import { resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
@@ -719,8 +718,8 @@ function startTranscriptTail(sess: Session, source: TranscriptSource) {
 // Permission prompts, questions, and pickers live in the terminal and are not
 // in the transcript until answered; the hook store says when the agent waits.
 function refreshTranscriptAttention(sess: Session, source: TranscriptSource) {
-  if (!sess.transcript || !sess.sockets.size) return;
-  refreshQueuedMessages(sess);
+  if (!sess.transcript) return;
+  if (sess.sockets.size) refreshQueuedMessages(sess);
   const attention = transcriptAttention(source.agent, source.sessionId);
   if ((sess.transcript.attention ?? null) === attention) return;
   sess.transcript.attention = attention;
@@ -1539,7 +1538,7 @@ export function resolveFileDiffPath(cwd: string, path: string): string {
   return rel.replaceAll("\\", "/");
 }
 
-function fileDiffAllowlist(sess: Session): Set<string> {
+function fileDiffAllowlist(sess: Pick<Session, "internal">): Set<string> {
   let allowed = sess.internal.fileDiffAllowlist as Set<string> | undefined;
   if (!allowed) {
     allowed = new Set();
@@ -1574,7 +1573,7 @@ function rebuildFileDiffAllowlist(sess: Session) {
   }
 }
 
-function assertFileDiffAllowed(sess: Session, safePath: string) {
+function assertFileDiffAllowed(sess: Pick<Session, "internal">, safePath: string) {
   if (!fileDiffAllowlist(sess).has(safePath)) throw new Error("path was not reported by this session");
 }
 
@@ -2204,7 +2203,10 @@ function startServer() {
       ws.send(JSON.stringify({
         kind: "sessions",
         // Queued message bodies go only to the session's own page.
-    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary),
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map((s) => {
+      const { queuedMessages: _queued, ...summary } = sessionSummary(s) as ReturnType<typeof sessionSummary> & { queuedMessages?: unknown };
+      return summary;
+    }),
       }));
       },
       close(ws) {
@@ -2294,6 +2296,39 @@ function sendWsErrorDetails(
   console.error(`[agent-chat] ${op || "request"} failed`, err);
   const { provider, ...publicDetails } = details;
   ws.send(JSON.stringify({ kind: "error", op, message: safeErrorMessage(op, err, { provider }), ...publicDetails }));
+}
+
+/** Handles diff validation and replies for the WebSocket route. */
+export function sendFileDiffResponse(
+  ws: Pick<Bun.ServerWebSocket<WsData>, "data" | "send">,
+  msg: { sessionId?: unknown; path?: unknown; requestId?: unknown },
+  sess?: Pick<Session, "id" | "cwd" | "internal">,
+) {
+  const path = String(msg.path ?? "");
+  const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+  if (!path) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
+    return;
+  }
+  if (!sess) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
+    return;
+  }
+  if (ws.data.subscribed !== sess.id) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path, requestId });
+    return;
+  }
+  let safePath: string;
+  try {
+    safePath = resolveFileDiffPath(sess.cwd, path);
+    assertFileDiffAllowed(sess, safePath);
+  } catch (err) {
+    sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId });
+    return;
+  }
+  return Promise.resolve(fileDiff(sess.cwd, safePath))
+    .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff, requestId })))
+    .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId }));
 }
 
 /** Replies on the same command-discovery path used by the WebSocket route. */
@@ -2508,31 +2543,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "get-file-diff": {
-      const sess = sessions.get(String(msg.sessionId));
-      const path = String(msg.path ?? "");
-      if (!path) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path });
-        return;
-      }
-      if (!sess) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path });
-        return;
-      }
-      if (ws.data.subscribed !== sess.id) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path });
-        return;
-      }
-      let safePath: string;
-      try {
-        safePath = resolveFileDiffPath(sess.cwd, path);
-        assertFileDiffAllowed(sess, safePath);
-      } catch (err) {
-        sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path });
-        return;
-      }
-      Promise.resolve(fileDiff(sess.cwd, safePath))
-        .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff })))
-        .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path }));
+      sendFileDiffResponse(ws, msg, sessions.get(String(msg.sessionId)));
       break;
     }
     case "delete": {

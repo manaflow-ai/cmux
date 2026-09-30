@@ -147,7 +147,8 @@ const worker = {
       if (namespace && !/^[A-Za-z0-9._:-]{1,255}$/.test(namespace)) {
         return json({ error: "invalid_client_namespace" }, 400);
       }
-      const user = await verifyRequest(request, env);
+      // The socket mints relay credentials: never from a cached success.
+      const user = await verifyRequest(request, env, { fresh: true });
       if (!user) return unauthorized();
       const headers = new Headers(request.headers);
       headers.set("x-control-account-id", user.id);
@@ -164,7 +165,7 @@ const worker = {
       // strict-parsed body travels — a client-supplied account id has no
       // channel here.
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-      const user = await verifyRequest(request, env);
+      const user = await verifyRequest(request, env, { fresh: true });
       if (!user) return unauthorized();
       const body = await readBoundedJson(request, 1_024);
       if (!body.ok) return json({ error: "invalid_request" }, body.status);

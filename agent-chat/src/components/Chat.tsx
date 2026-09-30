@@ -55,7 +55,7 @@ function useStickToBottom(scrollRef: RefObject<HTMLDivElement | null>, stickRef:
 }
 
 export function Chat() {
-  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, fileDiffErrors, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -158,6 +158,7 @@ export function Chat() {
           onHandoff={handoff}
           handoffPending={handoffPending}
           fileDiffs={fileDiffs}
+          fileDiffErrors={fileDiffErrors}
           onFileDiff={(path) => { if (session) requestFileDiff(session.id, path); }}
         />
       </div>

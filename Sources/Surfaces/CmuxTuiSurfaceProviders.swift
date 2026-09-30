@@ -202,8 +202,44 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             stats: nil,
             portDiscoveryState: portDiscovery.state
         )
-        installNotificationSync()
+        if summary.status == "running" {
+            installNotificationSync()
+        }
     }
+
+    /// Stops machine-bound activity while retaining this provider and its graph.
+    /// The control plane may report the machine running again later.
+    func stopTransportResources() {
+        stopSharedTransportResources()
+        displayCoordinator.stop()
+        portDiscovery.invalidate()
+    }
+
+    private func stopSharedTransportResources() {
+        lifecycleGeneration &+= 1
+        guestURLService?.stop()
+        guestURLService = nil
+        refreshCoordinator.cancel()
+        CloudNotificationSyncHub.shared.unregister(machineID: machineID)
+        notificationSync?.retire()
+        notificationSync = nil
+        if let notificationPlacementObserver {
+            NotificationCenter.default.removeObserver(notificationPlacementObserver)
+            self.notificationPlacementObserver = nil
+        }
+        changeWatcher?.cancel()
+        changeWatcher = nil
+        watchedLink = nil
+        changeWatcherID = nil
+        scheduledRefresh?.cancel()
+        scheduledRefresh = nil
+        stateRecoveryRefreshTask?.cancel()
+        stateRecoveryRefreshTask = nil
+        stateRecoveryRefreshQueued = false
+        for task in remoteTerminalProjectionTasks.values { task.cancel() }
+        remoteTerminalProjectionTasks.removeAll()
+    }
+
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
@@ -216,6 +252,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         self.summary = .cloud(summary)
         summaryGeneration &+= 1
+        if summary.status == "running", notificationSync == nil {
+            installNotificationSync()
+        }
         portDiscovery.reconcile(
             supportsPreviews: summary.capabilities.ports || summary.preferredPrivateAddress != nil,
             isAwake: summary.status == "running",
@@ -244,6 +283,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             refreshCloudBrowserRoutes()
         }
     }
+    func markInactive(status: String) {
+        guard let current = summary.cloudSummary else { return }
+        let inactive = current.withStatus(status)
+        update(summary: inactive)
+    }
+
     /// Retires every attachment and transport task this provider owns.
     ///
     /// - Parameter stopReason: What open panes present afterwards. Panes stay
@@ -252,40 +297,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         isFeatureSuspended = true
         // The first read after resuming must arm afresh, never adopt at once.
         equalCursorConflict = nil
+        stopSharedTransportResources()
         displayCoordinator.stop()
-        guestURLService?.stop()
-        guestURLService = nil
-        lifecycleGeneration &+= 1
         portDiscovery.invalidate()
         terminalMutationQueue.cancelAll()
-        refreshCoordinator.cancel()
         for task in browserPaneTasks.values { task.cancel() }
         browserPaneTasks.removeAll()
         refreshGeneration &+= 1
-        CloudNotificationSyncHub.shared.unregister(machineID: machineID)
-        notificationSync?.retire()
-        notificationSync = nil
-        if let notificationPlacementObserver {
-            NotificationCenter.default.removeObserver(notificationPlacementObserver)
-            self.notificationPlacementObserver = nil
-        }
-        changeWatcher?.cancel()
-        changeWatcher = nil
-        watchedLink = nil
-        changeWatcherID = nil
-        scheduledRefresh?.cancel()
-        scheduledRefresh = nil
-        stateRecoveryRefreshTask?.cancel()
-        stateRecoveryRefreshTask = nil
-        stateRecoveryRefreshQueued = false
         stateRecoveryCount = 0
         eventsFeedWarning = nil
         for session in manualMirrorSessions.values { session.stop(reason: stopReason) }
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
         attachmentRetry.cancel()
-        for task in remoteTerminalProjectionTasks.values { task.cancel() }
-        remoteTerminalProjectionTasks.removeAll()
         pendingRemoteCreations.removeAll()
         pendingRemoteRenames.removeAll()
         acceptedCloudGenerations.removeAll(); catalog.notifyChange(for: machine)

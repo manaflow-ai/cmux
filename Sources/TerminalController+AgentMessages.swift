@@ -127,6 +127,13 @@ extension TerminalController {
         let senderSurfaceId = Self.agentMessageSurfaceUUID(params["sender_surface_id"])
         let senderWorkspaceId = Self.agentMessageSurfaceUUID(params["sender_workspace_id"])
         let replyTo = Self.agentMessageTrimmed(params["reply_to"])
+        let hasRelayProvenance = params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil
+        let relayOwnerWorkspaceID = Self.agentMessageSurfaceUUID(
+            params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey]
+        ).flatMap(UUID.init(uuidString:))
+        let relayConnectionID = Self.agentMessageSurfaceUUID(
+            params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey]
+        ).flatMap(UUID.init(uuidString:))
         let store = AgentMessageCenter.store
 
         let targetString: String
@@ -161,8 +168,23 @@ extension TerminalController {
         let recipientAndTitle: (AgentMessageRecipient?, String?)
         do {
             recipientAndTitle = try await v2MainAsync { () -> (AgentMessageRecipient?, String?) in
-                (
-                    self.agentMessageResolveRecipient(targetString),
+                let relaySurfaceIDs: Set<UUID>?
+                if let relayOwnerWorkspaceID, let relayConnectionID {
+                    relaySurfaceIDs = self.remoteRelayAgentMessageSurfaceIDs(
+                        ownerWorkspaceID: relayOwnerWorkspaceID,
+                        connectionID: relayConnectionID
+                    )
+                } else {
+                    relaySurfaceIDs = nil
+                }
+                guard !hasRelayProvenance || relaySurfaceIDs != nil else {
+                    return (nil, nil)
+                }
+                return (
+                    self.agentMessageResolveRecipient(
+                        targetString,
+                        allowedSurfaceIDs: relaySurfaceIDs
+                    ),
                     senderName.trimmingCharacters(in: .whitespaces).isEmpty
                         ? self.agentMessageWorkspaceTitle(surfaceId: senderSurfaceId, workspaceId: senderWorkspaceId)
                         : nil
@@ -221,9 +243,31 @@ extension TerminalController {
         var surfaceId: String?
         if let target = Self.agentMessageTrimmed(params["surface"]) {
             let recipient: AgentMessageRecipient?
+            let hasRelayProvenance = params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil
+            let relayOwnerWorkspaceID = Self.agentMessageSurfaceUUID(
+                params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey]
+            ).flatMap(UUID.init(uuidString:))
+            let relayConnectionID = Self.agentMessageSurfaceUUID(
+                params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey]
+            ).flatMap(UUID.init(uuidString:))
             do {
                 recipient = try await v2MainAsync { () -> AgentMessageRecipient? in
-                    self.agentMessageResolveRecipient(target)
+                    let relaySurfaceIDs: Set<UUID>?
+                    if let relayOwnerWorkspaceID, let relayConnectionID {
+                        relaySurfaceIDs = self.remoteRelayAgentMessageSurfaceIDs(
+                            ownerWorkspaceID: relayOwnerWorkspaceID,
+                            connectionID: relayConnectionID
+                        )
+                    } else {
+                        relaySurfaceIDs = nil
+                    }
+                    guard !hasRelayProvenance || relaySurfaceIDs != nil else {
+                        return nil
+                    }
+                    return self.agentMessageResolveRecipient(
+                        target,
+                        allowedSurfaceIDs: relaySurfaceIDs
+                    )
                 }
             } catch {
                 return Self.agentMessageMainHopFailure(error)
@@ -261,7 +305,7 @@ extension TerminalController {
             }
             states = Set(parsed)
         }
-        let limit = min(max((params["limit"] as? Int) ?? 50, 1), AgentMessageStore.retainedMessageCount)
+        let limit = min(max((params["limit"] as? Int) ?? 50, 1), 1_000)
         let messages = AgentMessageCenter.store.messages(surfaceId: surfaceId, states: states, limit: limit)
         return .ok(["messages": messages.map(AgentMessageCenter.payload)])
     }
@@ -274,7 +318,7 @@ extension TerminalController {
         }
         let store = AgentMessageCenter.store
         if params["mark_delivered_read"] as? Bool == true {
-            store.markPreviouslyDeliveredRead(recipientSurfaceId: surfaceId)
+            store.markDeliveredRead(recipientSurfaceId: surfaceId)
         }
         let via = Self.agentMessageTrimmed(params["via"]) ?? "hook"
         let messages: [AgentMessage]
@@ -297,9 +341,7 @@ extension TerminalController {
             "messages": messages.map(AgentMessageCenter.payload),
             "text": messages.agentPromptText,
         ]
-        if let leaseID {
-            payload["lease_id"] = leaseID
-        }
+        if let leaseID { payload["lease_id"] = leaseID }
         return .ok(payload)
     }
 
@@ -361,7 +403,7 @@ extension TerminalController {
             return .ok(["status": "superseded"])
         case .current(let queued):
             if register, params["mark_delivered_read"] as? Bool == true {
-                store.markPreviouslyDeliveredRead(recipientSurfaceId: surfaceId)
+                store.markDeliveredRead(recipientSurfaceId: surfaceId)
             }
             let held: Bool
             if queued > 0 {
@@ -415,7 +457,10 @@ extension TerminalController {
     /// surface running its agent: the focused agent surface, then any agent
     /// surface, then the focused terminal.
     @MainActor
-    func agentMessageResolveRecipient(_ target: String) -> AgentMessageRecipient? {
+    func agentMessageResolveRecipient(
+        _ target: String,
+        allowedSurfaceIDs: Set<UUID>? = nil
+    ) -> AgentMessageRecipient? {
         guard let app = AppDelegate.shared else { return nil }
         let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -424,9 +469,12 @@ extension TerminalController {
 
         if let id = UUID(uuidString: trimmed) ?? v2ResolveHandleRef(trimmed) {
             if let workspace = workspaces.first(where: { $0.id == id }) {
-                return agentMessageRecipient(in: workspace)
+                return agentMessageRecipient(in: workspace, allowedSurfaceIDs: allowedSurfaceIDs)
             }
             if let workspace = workspaces.first(where: { $0.panels[id] != nil }) {
+                guard allowedSurfaceIDs == nil || allowedSurfaceIDs?.contains(id) == true else {
+                    return nil
+                }
                 return agentMessageRecipient(workspace: workspace, surfaceId: id)
             }
             return nil
@@ -435,18 +483,25 @@ extension TerminalController {
         let lowered = trimmed.lowercased()
         let titled = workspaces.filter { $0.title.lowercased() == lowered }
         if titled.count == 1, let workspace = titled.first {
-            return agentMessageRecipient(in: workspace)
+            return agentMessageRecipient(in: workspace, allowedSurfaceIDs: allowedSurfaceIDs)
         }
         guard titled.isEmpty else { return nil }
         let prefixed = workspaces.filter { $0.title.lowercased().hasPrefix(lowered) }
         guard prefixed.count == 1, let workspace = prefixed.first else { return nil }
-        return agentMessageRecipient(in: workspace)
+        return agentMessageRecipient(in: workspace, allowedSurfaceIDs: allowedSurfaceIDs)
     }
 
     @MainActor
-    private func agentMessageRecipient(in workspace: Workspace) -> AgentMessageRecipient? {
-        let terminalIds = workspace.panels.compactMap { id, panel in
-            panel is TerminalPanel ? id : nil
+    private func agentMessageRecipient(
+        in workspace: Workspace,
+        allowedSurfaceIDs: Set<UUID>? = nil
+    ) -> AgentMessageRecipient? {
+        let terminalIds = workspace.panels.compactMap { (id, panel) -> UUID? in
+            guard panel is TerminalPanel,
+                  allowedSurfaceIDs == nil || allowedSurfaceIDs?.contains(id) == true else {
+                return nil
+            }
+            return id
         }
         let agentIds = terminalIds.filter { workspace.agentLifecycleStatesByPanelId[$0]?.isEmpty == false }
         let focused = workspace.focusedPanelId

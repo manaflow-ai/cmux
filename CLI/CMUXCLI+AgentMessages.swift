@@ -194,10 +194,7 @@ extension CMUXCLI {
         let payload = try client.sendV2(method: "agent.message.list", params: params)
         let messages = payload["messages"] as? [[String: Any]] ?? []
         if markRead {
-            let ids = messages.compactMap { message -> String? in
-                guard message["state"] as? String == "delivered" else { return nil }
-                return message["id"] as? String
-            }
+            let ids = messages.compactMap { $0["id"] as? String }
             if !ids.isEmpty {
                 _ = try client.sendV2(method: "agent.message.mark_read", params: ["ids": ids])
             }
@@ -280,10 +277,8 @@ extension CMUXCLI {
 
     /// Claude SessionStart/Stop `asyncRewake` hook. Checks for messages to
     /// this surface every ``agentInboxPollInterval``; when one is waiting it
-    /// renders the queued messages to stderr and exits 2, which wakes Claude
-    /// with the text as a system reminder. The hook acknowledges its lease
-    /// after writing the reminder; an interrupted hook lets the lease expire
-    /// so the messages can be retried. The prompt box, and any draft in it, is
+    /// claims it, writes it to stderr and exits 2, which wakes Claude with the
+    /// text as a system reminder. The prompt box, and any draft in it, is
     /// never touched.
     ///
     /// Each check uses a new connection that is closed right after, so an
@@ -296,7 +291,8 @@ extension CMUXCLI {
         client: SocketClient,
         env: [String: String]
     ) -> Never {
-        let isStop = (input["hook_event_name"] as? String) == "Stop"
+        let hookEvent = input["hook_event_name"] as? String
+        let isStop = hookEvent == "Stop" || hookEvent == "StopFailure"
         let agentPID = env["CMUX_CLAUDE_PID"].flatMap { Int32($0) }
         let pollerKey = UUID().uuidString
         var registered = false
@@ -404,22 +400,15 @@ extension CMUXCLI {
         surfaceId: String,
         via: String,
         markDeliveredRead: Bool,
-        deferDelivery: Bool = false,
-        pollerKey: String? = nil,
         client: SocketClient
     ) -> String {
-        var params: [String: Any] = [
-            "surface_id": surfaceId,
-            "via": via,
-            "mark_delivered_read": markDeliveredRead,
-            "defer_delivery": deferDelivery,
-        ]
-        if let pollerKey {
-            params["poller_key"] = pollerKey
-        }
         guard let payload = try? client.sendV2(
             method: "agent.message.claim",
-            params: params,
+            params: [
+                "surface_id": surfaceId,
+                "via": via,
+                "mark_delivered_read": markDeliveredRead,
+            ],
             responseTimeout: 3
         ) else { return "" }
         return payload["text"] as? String ?? ""
